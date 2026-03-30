@@ -560,5 +560,92 @@ async def _fetch_markets(config: ScannerConfig) -> list:
         await client.close()
 
 
+@app.command()
+def plugins():
+    """List loaded market type plugins."""
+    from scanner.market_types.registry import discover_plugins
+
+    loaded = discover_plugins()
+    if not loaded:
+        console.print("[dim]No plugins loaded.[/dim]")
+        return
+
+    console.print("[bold]Loaded plugins:[/bold]")
+    for name, plugin in sorted(loaded.items()):
+        caps = ["classify"]
+        if hasattr(plugin, "fetch_price_params"):
+            caps.append("fetch")
+        if hasattr(plugin, "detect_mispricing"):
+            caps.append("mispricing")
+        console.print(f"  {name:24s} {' + '.join(caps)}")
+
+
+@app.command(name="new-plugin")
+def new_plugin(name: str = typer.Argument(help="Plugin name, e.g. 'weather'")):
+    """Scaffold a new market type plugin."""
+    plugin_path = Path(f"scanner/market_types/{name}.py")
+    test_path = Path(f"tests/test_plugin_{name}.py")
+
+    if plugin_path.exists():
+        console.print(f"[red]{plugin_path} already exists[/red]")
+        raise typer.Exit(1)
+
+    plugin_code = f'''"""Market type plugin: {name}."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from scanner.utils import count_matches
+
+if TYPE_CHECKING:
+    from scanner.models import Market
+
+
+class {name.title().replace("_", "")}Plugin:
+    """{name} market type plugin."""
+
+    name = "{name}"
+
+    def classify(self, market: Market, keywords: list[str]) -> float:
+        """Return 0.0-1.0 confidence that this market belongs to this type."""
+        # TODO: implement classification logic
+        return min(1.0, count_matches(market.title, keywords) / 2.0)
+
+
+plugin = {name.title().replace("_", "")}Plugin()
+'''
+
+    test_code = f'''"""Tests for {name} plugin."""
+
+from scanner.market_types.{name} import plugin
+from tests.conftest import make_market
+
+
+class Test{name.title().replace("_", "")}Classify:
+    def test_matches_relevant_market(self):
+        m = make_market(title="TODO: add a relevant market title")
+        score = plugin.classify(m, ["TODO", "add", "keywords"])
+        assert score > 0.5
+
+    def test_rejects_irrelevant_market(self):
+        m = make_market(title="Will the next President be a Democrat?")
+        score = plugin.classify(m, ["TODO", "add", "keywords"])
+        assert score < 0.3
+'''
+
+    plugin_path.write_text(plugin_code)
+    test_path.write_text(test_code)
+
+    console.print("[green]Created:[/green]")
+    console.print(f"  {plugin_path}")
+    console.print(f"  {test_path}")
+    console.print()
+    console.print("[bold]Next steps:[/bold]")
+    console.print(f"  1. Edit {plugin_path}")
+    console.print(f"  2. Add keywords to config.yaml under market_types.{name}")
+    console.print(f"  3. Run: pytest {test_path}")
+
+
 if __name__ == "__main__":
     app()
