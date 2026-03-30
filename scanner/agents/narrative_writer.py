@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from scanner.agents.base import BaseAgent
-from scanner.agents.schemas import NarrativeWriterOutput
+from scanner.agents.schemas import NarrativeWriterOutput, RiskFlag, TimeWindow
 from scanner.config import AgentConfig
 from scanner.reporting import ScoredCandidate
 
@@ -113,76 +113,84 @@ class NarrativeWriterAgent:
         market_id = extract_market_id_from_prompt(prompt)
         return NarrativeWriterOutput(
             market_id=market_id,
+            action="watch_only",
+            action_reasoning="AI 分析不可用",
+            confidence="low",
+            time_window=TimeWindow(urgency="normal", note=""),
+            friction_impact="",
             summary="AI 分析不可用，请手动查看市场详情。",
-            why_it_passed=["通过了筛选器"],
-            risk_flags=["AI 叙事不可用 — 需要手动审查"],
-            counterparty_note="未知 — AI 离线",
-            research_checklist=["直接在 Polymarket 上查看市场"],
-            suggested_style="watch_only",
+            risk_flags=[RiskFlag(text="AI 分析不可用 — 仅基于规则判断", severity="warning")],
+            counterparty_note="",
+            research_findings=[],
             one_line_verdict="AI 离线，请手动评估。",
         ).model_dump()
 
 
 def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
-    """Template-based fallback when AI agent is unavailable."""
+    """Rule-based fallback when AI agent is unavailable."""
     m = candidate.market
     s = candidate.score
     mp = candidate.mispricing
 
-    # Build why_it_passed
-    why = []
-    if m.is_binary:
-        why.append("Binary market with two clear outcomes")
-    if m.days_to_resolution and m.days_to_resolution <= 7:
-        why.append(f"Resolution within {m.days_to_resolution:.1f} days")
-    if m.yes_price and 0.30 <= m.yes_price <= 0.70:
-        why.append("Probability in preferred mid-range")
-    if m.spread_pct_yes and m.spread_pct_yes < 0.04:
-        why.append(f"Spread acceptable ({m.spread_pct_yes:.1%})")
-    if not why:
-        why.append("Passed all hard filters")
+    # Determine action based on friction vs edge
+    friction = m.round_trip_friction_pct or 0.04
+    edge = mp.deviation_pct or 0
+    friction_ratio = friction / edge if edge > 0 else float("inf")
 
-    # Build risk flags
-    risks = []
-    friction = m.round_trip_friction_pct
-    if friction:
-        risks.append(f"Round-trip friction ~{friction:.1%} eats into any edge")
-    if mp.signal == "none":
-        risks.append("No mispricing detected — market may be efficiently priced")
-    if m.total_bid_depth_usd and m.total_bid_depth_usd < 1000:
-        risks.append(f"Thin bid depth (${m.total_bid_depth_usd:.0f}) — exit may be difficult")
-    if not risks:
-        risks.append("Review resolution rules carefully")
-
-    # Determine style
-    if mp.signal in ("moderate", "strong"):
-        style = "research_candidate"
-    elif mp.signal == "weak":
-        style = "research_repricing"
+    if friction_ratio > 0.8:
+        action = "avoid"
+    elif friction_ratio > 0.5:
+        action = "watch_only"
+    elif edge > 0.03:
+        action = "small_position_ok"
     else:
-        style = "watch_only"
+        action = "worth_research"
+
+    # Build risk flags with severity
+    risks = []
+    if friction:
+        severity = "critical" if friction_ratio > 0.5 else "warning"
+        risks.append(RiskFlag(text=f"摩擦 ~{friction:.1%}，吃掉潜在利润", severity=severity))
+    if mp.signal == "none":
+        risks.append(RiskFlag(text="未检测到定价偏差 — 市场可能已有效定价", severity="warning"))
+    if m.total_bid_depth_usd and m.total_bid_depth_usd < 1000:
+        risks.append(RiskFlag(text=f"买方深度不足 (${m.total_bid_depth_usd:.0f}) — 退出可能困难", severity="warning"))
+    if not risks:
+        risks.append(RiskFlag(text="请仔细阅读结算规则", severity="info"))
+
+    # Time window
+    days = m.days_to_resolution
+    if days and days < 1:
+        urgency = "urgent"
+    elif days and days < 3:
+        urgency = "normal"
+    else:
+        urgency = "no_rush"
 
     # Summary
-    parts = [f"{'Binary' if m.is_binary else 'Multi-outcome'} {m.market_type or 'market'}"]
-    if m.days_to_resolution:
-        parts.append(f"{m.days_to_resolution:.1f}d to resolution")
+    parts = [f"{'二元' if m.is_binary else '多选项'} {m.market_type or '市场'}"]
+    if days:
+        parts.append(f"{days:.1f} 天后结算")
     if mp.signal != "none":
-        parts.append(f"{mp.signal} mispricing signal")
-    summary = f"{', '.join(parts)}. Score {s.total:.0f}/100."
+        parts.append(f"{mp.signal} 定价偏差信号")
+    summary = f"{', '.join(parts)}。结构分 {s.total:.0f}/100。"
+
+    friction_impact = f"摩擦吃掉 {friction_ratio:.0%} 潜在利润" if edge > 0 else "无可测量 edge"
 
     return NarrativeWriterOutput(
         market_id=m.market_id,
+        action=action,
+        action_reasoning=f"摩擦 {friction:.1%} vs edge {edge:.1%}" if edge > 0 else "无可测量定价偏差",
+        confidence="low",
+        time_window=TimeWindow(
+            urgency=urgency,
+            note=f"还剩 {days:.1f} 天" if days else "结算时间未知",
+        ),
+        friction_impact=friction_impact,
         summary=summary,
-        why_it_passed=why,
         risk_flags=risks,
-        counterparty_note=f"Market type '{m.market_type}' — review counterparty quality manually.",
-        research_checklist=[
-            "Read resolution rules on Polymarket",
-            "Check recent price movement (24h)",
-            "Verify resolution source is reputable",
-            "Ask: what do I know that the market doesn't?",
-            "Check order book depth before placing order",
-        ],
-        suggested_style=style,
-        one_line_verdict=summary,
+        counterparty_note=f"市场类型 '{m.market_type}' — 需手动评估对手方质量。",
+        research_findings=[],
+        one_line_verdict=f"{action}: {summary}",
+        suggested_style="watch_only" if action in ("watch_only", "avoid") else "research_candidate",
     )
