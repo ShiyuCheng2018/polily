@@ -1,4 +1,4 @@
-"""Sports market type plugin.
+"""Sports market type module.
 
 Handles markets like "Lakers vs. Celtics" or "Who wins the Super Bowl?"
 """
@@ -14,8 +14,8 @@ if TYPE_CHECKING:
     from scanner.models import Market
 
 
-class SportsPlugin:
-    """Plugin for sports prediction markets."""
+class Sports:
+    """Market type module for sports prediction markets."""
 
     name = "sports"
 
@@ -46,4 +46,4 @@ class SportsPlugin:
         return keyword_score
 
 
-plugin = SportsPlugin()
+module = Sports()

@@ -1,47 +1,47 @@
-# Market Type Plugin Guide
+# Market Type Guide
 
 Add new market types to Polily without modifying core code.
 
 ## Quick Start
 
 ```bash
-# Scaffold a new plugin
-polily new-plugin weather
+# Scaffold a new market type
+polily new-market-type weather
 
 # Edit the generated files
-# scanner/market_types/weather.py  — plugin logic
-# tests/test_plugin_weather.py     — tests
+# scanner/market_types/weather.py       — module logic
+# tests/test_market_type_weather.py     — tests
 
 # Add keywords to config
 # config.example.yaml → market_types.weather
 
 # Verify
-polily plugins          # check it loaded
-pytest tests/test_plugin_weather.py
+polily market-types                     # check it loaded
+pytest tests/test_market_type_weather.py
 ```
 
-## Plugin Structure
+## Module Structure
 
-A plugin is a Python file in `scanner/market_types/` that exposes a `plugin` variable:
+A market type module is a Python file in `scanner/market_types/` that exposes a `module` variable:
 
 ```python
 # scanner/market_types/weather.py
 
 from scanner.utils import count_matches
 
-class WeatherPlugin:
+class Weather:
     name = "weather"  # must match config.yaml key
 
     def classify(self, market, keywords):
         """Return 0.0-1.0 confidence. Required."""
         return min(1.0, count_matches(market.title, keywords) / 2.0)
 
-plugin = WeatherPlugin()
+module = Weather()
 ```
 
 That's it. No core code changes needed.
 
-## Plugin Methods
+## Methods
 
 ### `classify(market, keywords) -> float` (required)
 
@@ -50,7 +50,8 @@ Determine if a market belongs to this type.
 - `market`: a `Market` object (see key fields below)
 - `keywords`: list of strings from config.yaml
 - Returns: 0.0 (definitely not) to 1.0 (definitely yes)
-- When multiple plugins match, highest confidence wins
+- When multiple modules match, highest confidence wins
+- Scores below 0.3 fall back to "other"
 
 ### `fetch_price_params(market, config) -> dict | None` (optional, async)
 
@@ -72,7 +73,7 @@ Custom mispricing detection using fetched price data.
 ```python
 market.title               # "Will Bitcoin be above $66,000 on March 30?"
 market.description         # Full market description
-market.market_type         # Assigned type (your plugin sets this)
+market.market_type         # Assigned type (your module sets this)
 market.tags                # ["crypto", "bitcoin"]
 market.outcomes            # ["Yes", "No"]
 market.yes_price           # 0.64
@@ -106,6 +107,7 @@ market_types:
     keywords: ["temperature", "rainfall", "hurricane", "weather", "climate"]
     scoring_overrides:
       catalyst_proxy: 12  # weather events have clear catalysts
+    mispricing_enabled: false  # set true if your module has detect_mispricing
 ```
 
 `scoring_overrides` adjusts Structure Score weights for this market type.
@@ -115,25 +117,26 @@ market_types:
 Use `make_market()` from `tests/conftest.py`:
 
 ```python
-from scanner.market_types.weather import plugin
+from scanner.market_types.weather import module
 from tests.conftest import make_market
 
 def test_classify_weather():
     m = make_market(title="Will temperature exceed 100F in Phoenix by July?")
-    assert plugin.classify(m, ["temperature", "weather"]) > 0.7
+    assert module.classify(m, ["temperature", "weather"]) > 0.7
 
 def test_classify_not_weather():
     m = make_market(title="Will Bitcoin hit $100k?")
-    assert plugin.classify(m, ["temperature", "weather"]) < 0.1
+    assert module.classify(m, ["temperature", "weather"]) < 0.1
 ```
 
-## Example: Full Plugin with Price Feed
+## Examples
 
-See `scanner/market_types/crypto_threshold.py` for a complete example with `classify`, `fetch_price_params`, and `detect_mispricing`.
+- **Classify only**: `scanner/market_types/political.py` — simplest module
+- **Full pipeline**: `scanner/market_types/crypto_threshold.py` — classify + fetch + mispricing
 
-## Checking Your Plugin
+## Verifying
 
 ```bash
-polily plugins    # verify it loaded
-polily scan       # run a scan, check your type appears
+polily market-types    # verify it loaded
+polily scan            # run a scan, check your type appears
 ```

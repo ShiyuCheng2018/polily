@@ -1,4 +1,4 @@
-"""Market type plugin protocol definition."""
+"""Market type module protocol definition."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class MarketTypePlugin(Protocol):
-    """Interface for market type plugins.
+class MarketTypeModule(Protocol):
+    """Interface for market type modules.
 
     Required:
         name: str — must match config.yaml market_types key

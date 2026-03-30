@@ -131,12 +131,12 @@ def run_scan_pipeline(
         if enrichment:
             market.market_type = enrichment.market_type
 
-    # Fetch price params via plugins for mispricing detection
+    # Fetch price params via market type modules for mispricing detection
     price_params: dict[str, dict] = {}
     if config.mispricing.enabled:
         _report("获取价格数据", "start")
         try:
-            with _timed_status(_console, "Fetching price data (plugins)"):
+            with _timed_status(_console, "Fetching price data (market type modules)"):
                 price_params = _run_async(_fetch_price_params_batch(passed, config))
             _report("获取价格数据", "done")
         except Exception as e:
@@ -163,9 +163,9 @@ def run_scan_pipeline(
             probability_penalty_mode=config.scoring.thresholds.probability_penalty_mode,
         )
 
-        # Try plugin mispricing first, fall through to generic
+        # Try market type module mispricing first, fall through to generic
         mispricing_kwargs = price_params.get(market.market_id, {})
-        mispricing = _detect_mispricing_with_plugin(market, mispricing_kwargs, config)
+        mispricing = _detect_mispricing_with_module(market, mispricing_kwargs, config)
 
         candidates.append(ScoredCandidate(
             market=market,
@@ -246,21 +246,21 @@ async def enrich_with_orderbook(
 async def _fetch_price_params_batch(
     markets: list[Market], config: ScannerConfig,
 ) -> dict[str, dict]:
-    """Fetch price params for markets via plugins. Returns {market_id: params}."""
-    from scanner.market_types.registry import discover_plugins
+    """Fetch price params for markets via market type modules. Returns {market_id: params}."""
+    from scanner.market_types.registry import discover_modules
 
-    plugins = discover_plugins()
+    modules = discover_modules()
     results = {}
     for market in markets:
-        plugin = plugins.get(market.market_type or "")
-        if plugin is None or not hasattr(plugin, "fetch_price_params"):
+        module = modules.get(market.market_type or "")
+        if module is None or not hasattr(module, "fetch_price_params"):
             continue
         # Respect config mispricing_enabled flag
         type_config = config.market_types.get(market.market_type or "")
         if type_config and not type_config.mispricing_enabled:
             continue
         try:
-            params = await plugin.fetch_price_params(market, config)
+            params = await module.fetch_price_params(market, config)
             if params:
                 results[market.market_id] = params
         except Exception as e:
@@ -268,28 +268,28 @@ async def _fetch_price_params_batch(
     return results
 
 
-def _detect_mispricing_with_plugin(
+def _detect_mispricing_with_module(
     market: Market, price_params: dict, config: ScannerConfig,
 ) -> MispricingResult:
-    """Try plugin mispricing detection, fall through to generic.
+    """Try market type module mispricing detection, fall through to generic.
 
-    Only passes price_params to generic fallback if the plugin that fetched
+    Only passes price_params to generic fallback if the module that fetched
     the params also handles detect_mispricing. Otherwise, generic gets no kwargs.
     """
-    from scanner.market_types.registry import get_plugin
+    from scanner.market_types.registry import get_module
 
-    plugin = get_plugin(market.market_type or "")
-    if plugin and hasattr(plugin, "detect_mispricing") and price_params:
+    module = get_module(market.market_type or "")
+    if module and hasattr(module, "detect_mispricing") and price_params:
         try:
-            result = plugin.detect_mispricing(market, price_params, config)
+            result = module.detect_mispricing(market, price_params, config)
             if result is not None:
                 return result
         except Exception as e:
-            logger.warning("Plugin mispricing failed for %s: %s", market.market_id, e)
-        # Plugin owns these params — don't pass to generic fallback
+            logger.warning("Market type module mispricing failed for %s: %s", market.market_id, e)
+        # Module owns these params — don't pass to generic fallback
         return detect_mispricing(market, config.mispricing)
 
-    # No plugin with detect_mispricing — generic gets no plugin-specific params
+    # No module with detect_mispricing — generic gets no module-specific params
     return detect_mispricing(market, config.mispricing)
 
 

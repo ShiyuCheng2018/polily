@@ -560,42 +560,42 @@ async def _fetch_markets(config: ScannerConfig) -> list:
         await client.close()
 
 
-@app.command()
-def plugins():
-    """List loaded market type plugins."""
-    from scanner.market_types.registry import discover_plugins
+@app.command(name="market-types")
+def market_types():
+    """List loaded market type modules."""
+    from scanner.market_types.registry import discover_modules
 
-    loaded = discover_plugins()
+    loaded = discover_modules()
     if not loaded:
-        console.print("[dim]No plugins loaded.[/dim]")
+        console.print("[dim]No market type modules loaded.[/dim]")
         return
 
-    console.print("[bold]Loaded plugins:[/bold]")
-    for name, plugin in sorted(loaded.items()):
+    console.print("[bold]Loaded market type modules:[/bold]")
+    for name, module in sorted(loaded.items()):
         caps = ["classify"]
-        if hasattr(plugin, "fetch_price_params"):
+        if hasattr(module, "fetch_price_params"):
             caps.append("fetch")
-        if hasattr(plugin, "detect_mispricing"):
+        if hasattr(module, "detect_mispricing"):
             caps.append("mispricing")
         console.print(f"  {name:24s} {' + '.join(caps)}")
 
 
-@app.command(name="new-plugin")
-def new_plugin(name: str = typer.Argument(help="Plugin name, e.g. 'weather'")):
-    """Scaffold a new market type plugin."""
+@app.command(name="new-market-type")
+def new_market_type(name: str = typer.Argument(help="Market type name, e.g. 'weather'")):
+    """Scaffold a new market type module."""
     import re as _re
     if not _re.match(r"^[a-z][a-z0-9_]*$", name):
-        console.print(f"[red]Invalid plugin name '{name}'. Use lowercase letters, digits, underscores (e.g. 'weather')[/red]")
+        console.print(f"[red]Invalid market type name '{name}'. Use lowercase letters, digits, underscores (e.g. 'weather')[/red]")
         raise typer.Exit(1)
 
-    plugin_path = Path(f"scanner/market_types/{name}.py")
-    test_path = Path(f"tests/test_plugin_{name}.py")
+    module_path = Path(f"scanner/market_types/{name}.py")
+    test_path = Path(f"tests/test_market_type_{name}.py")
 
-    if plugin_path.exists():
-        console.print(f"[red]{plugin_path} already exists[/red]")
+    if module_path.exists():
+        console.print(f"[red]{module_path} already exists[/red]")
         raise typer.Exit(1)
 
-    plugin_code = f'''"""Market type plugin: {name}."""
+    module_code = f'''"""Market type module: {name}."""
 
 from __future__ import annotations
 
@@ -607,8 +607,8 @@ if TYPE_CHECKING:
     from scanner.models import Market
 
 
-class {name.title().replace("_", "")}Plugin:
-    """{name} market type plugin."""
+class {name.title().replace("_", "")}:
+    """{name} market type module."""
 
     name = "{name}"
 
@@ -618,36 +618,36 @@ class {name.title().replace("_", "")}Plugin:
         return min(1.0, count_matches(market.title, keywords) / 2.0)
 
 
-plugin = {name.title().replace("_", "")}Plugin()
+module = {name.title().replace("_", "")}()
 '''
 
-    test_code = f'''"""Tests for {name} plugin."""
+    test_code = f'''"""Tests for {name} market type module."""
 
-from scanner.market_types.{name} import plugin
+from scanner.market_types.{name} import module
 from tests.conftest import make_market
 
 
 class Test{name.title().replace("_", "")}Classify:
     def test_matches_relevant_market(self):
         m = make_market(title="TODO: add a relevant market title")
-        score = plugin.classify(m, ["TODO", "add", "keywords"])
+        score = module.classify(m, ["TODO", "add", "keywords"])
         assert score > 0.5
 
     def test_rejects_irrelevant_market(self):
         m = make_market(title="Will the next President be a Democrat?")
-        score = plugin.classify(m, ["TODO", "add", "keywords"])
+        score = module.classify(m, ["TODO", "add", "keywords"])
         assert score < 0.3
 '''
 
-    plugin_path.write_text(plugin_code)
+    module_path.write_text(module_code)
     test_path.write_text(test_code)
 
     console.print("[green]Created:[/green]")
-    console.print(f"  {plugin_path}")
+    console.print(f"  {module_path}")
     console.print(f"  {test_path}")
     console.print()
     console.print("[bold]Next steps:[/bold]")
-    console.print(f"  1. Edit {plugin_path}")
+    console.print(f"  1. Edit {module_path}")
     console.print(f"  2. Add keywords to config.yaml under market_types.{name}")
     console.print(f"  3. Run: pytest {test_path}")
 

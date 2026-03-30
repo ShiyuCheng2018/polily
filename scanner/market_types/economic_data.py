@@ -1,4 +1,4 @@
-"""Economic data market type plugin.
+"""Economic data market type module.
 
 Handles markets like "Will CPI exceed 3.5% in March?"
 """
@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from scanner.models import Market
 
 
-class EconomicDataPlugin:
-    """Plugin for economic data / macro markets."""
+class EconomicData:
+    """Market type module for economic data / macro markets."""
 
     name = "economic_data"
 
@@ -31,4 +31,4 @@ class EconomicDataPlugin:
         return keyword_score
 
 
-plugin = EconomicDataPlugin()
+module = EconomicData()

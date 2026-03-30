@@ -1,4 +1,4 @@
-"""Crypto threshold market type plugin.
+"""Crypto threshold market type module.
 
 Handles markets like "Will Bitcoin be above $100,000 by June 30?"
 Uses log-normal volatility model via Binance price feed.
@@ -17,8 +17,8 @@ if TYPE_CHECKING:
     from scanner.models import Market
 
 
-class CryptoThresholdPlugin:
-    """Plugin for crypto price threshold markets."""
+class CryptoThreshold:
+    """Market type module for crypto price threshold markets."""
 
     name = "crypto_threshold"
 
@@ -56,4 +56,4 @@ class CryptoThresholdPlugin:
         return detect_mispricing(market, config.mispricing, **price_params)
 
 
-plugin = CryptoThresholdPlugin()
+module = CryptoThreshold()

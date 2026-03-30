@@ -1,4 +1,4 @@
-"""Tech market type plugin.
+"""Tech market type module.
 
 Handles markets like "Will OpenAI release GPT-5 by June?"
 """
@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from scanner.models import Market
 
 
-class TechPlugin:
-    """Plugin for technology prediction markets."""
+class Tech:
+    """Market type module for technology prediction markets."""
 
     name = "tech"
 
@@ -31,4 +31,4 @@ class TechPlugin:
         return keyword_score
 
 
-plugin = TechPlugin()
+module = Tech()

@@ -1,4 +1,4 @@
-"""Social media market type plugin.
+"""Social media market type module.
 
 Handles markets like "Will Elon Musk post 200+ tweets this week?"
 """
@@ -14,8 +14,8 @@ if TYPE_CHECKING:
     from scanner.models import Market
 
 
-class SocialMediaPlugin:
-    """Plugin for social media activity prediction markets."""
+class SocialMedia:
+    """Market type module for social media activity prediction markets."""
 
     name = "social_media"
 
@@ -38,4 +38,4 @@ class SocialMediaPlugin:
         return keyword_score
 
 
-plugin = SocialMediaPlugin()
+module = SocialMedia()

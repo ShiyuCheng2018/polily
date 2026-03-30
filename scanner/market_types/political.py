@@ -1,4 +1,4 @@
-"""Political market type plugin.
+"""Political market type module.
 
 Handles markets like "Will the next President be a Democrat?"
 """
@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from scanner.models import Market
 
 
-class PoliticalPlugin:
-    """Plugin for political prediction markets."""
+class Political:
+    """Market type module for political prediction markets."""
 
     name = "political"
 
@@ -32,4 +32,4 @@ class PoliticalPlugin:
         return keyword_score
 
 
-plugin = PoliticalPlugin()
+module = Political()
