@@ -78,35 +78,36 @@ class NarrativeWriterAgent:
         m = candidate.market
         s = candidate.score
         mp = candidate.mispricing
+
+        # Calculate friction vs edge for prompt context
+        friction = m.round_trip_friction_pct or 0.04
+        edge = mp.deviation_pct or 0
+        friction_ratio = (friction / edge * 100) if edge > 0 else None
+
         data = {
             "market_id": m.market_id,
             "title": m.title,
             "description": m.description,
             "market_type": m.market_type,
+            "tags": m.tags,
             "yes_price": m.yes_price,
             "no_price": m.no_price,
             "spread_pct_yes": m.spread_pct_yes,
             "round_trip_friction_pct": m.round_trip_friction_pct,
+            "friction_vs_edge": f"摩擦吃掉 {friction_ratio:.0f}% 潜在利润" if friction_ratio else "无可测量 edge",
             "volume": m.volume,
             "days_to_resolution": m.days_to_resolution,
             "total_bid_depth_usd": m.total_bid_depth_usd,
             "total_ask_depth_usd": m.total_ask_depth_usd,
             "resolution_source": m.resolution_source,
             "structure_score": s.total,
-            "score_breakdown": {
-                "time": s.time_to_resolution,
-                "objectivity": s.objectivity,
-                "probability": s.probability_zone,
-                "liquidity": s.liquidity_depth,
-                "exitability": s.exitability,
-                "catalyst": s.catalyst_proxy,
-                "small_account": s.small_account_friendliness,
-            },
             "mispricing_signal": mp.signal,
+            "mispricing_direction": mp.direction,
             "mispricing_details": mp.details,
             "theoretical_fair_value": mp.theoretical_fair_value,
+            "model_confidence": mp.model_confidence,
         }
-        return f"Generate analysis for this candidate:\n{json.dumps(data, default=str)}"
+        return f"请对以下市场做决策分析:\n{json.dumps(data, default=str, ensure_ascii=False)}"
 
     def _fallback_from_prompt(self, prompt: str) -> dict:
         from scanner.utils import extract_market_id_from_prompt
