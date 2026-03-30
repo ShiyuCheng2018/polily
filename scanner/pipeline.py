@@ -255,6 +255,10 @@ async def _fetch_price_params_batch(
         plugin = plugins.get(market.market_type or "")
         if plugin is None or not hasattr(plugin, "fetch_price_params"):
             continue
+        # Respect config mispricing_enabled flag
+        type_config = config.market_types.get(market.market_type or "")
+        if type_config and not type_config.mispricing_enabled:
+            continue
         try:
             params = await plugin.fetch_price_params(market, config)
             if params:
@@ -267,7 +271,11 @@ async def _fetch_price_params_batch(
 def _detect_mispricing_with_plugin(
     market: Market, price_params: dict, config: ScannerConfig,
 ) -> MispricingResult:
-    """Try plugin mispricing detection, fall through to generic."""
+    """Try plugin mispricing detection, fall through to generic.
+
+    Only passes price_params to generic fallback if the plugin that fetched
+    the params also handles detect_mispricing. Otherwise, generic gets no kwargs.
+    """
     from scanner.market_types.registry import get_plugin
 
     plugin = get_plugin(market.market_type or "")
@@ -278,8 +286,11 @@ def _detect_mispricing_with_plugin(
                 return result
         except Exception as e:
             logger.warning("Plugin mispricing failed for %s: %s", market.market_id, e)
+        # Plugin owns these params — don't pass to generic fallback
+        return detect_mispricing(market, config.mispricing)
 
-    return detect_mispricing(market, config.mispricing, **price_params)
+    # No plugin with detect_mispricing — generic gets no plugin-specific params
+    return detect_mispricing(market, config.mispricing)
 
 
 def _run_async(coro):

@@ -583,6 +583,11 @@ def plugins():
 @app.command(name="new-plugin")
 def new_plugin(name: str = typer.Argument(help="Plugin name, e.g. 'weather'")):
     """Scaffold a new market type plugin."""
+    import re as _re
+    if not _re.match(r"^[a-z][a-z0-9_]*$", name):
+        console.print(f"[red]Invalid plugin name '{name}'. Use lowercase letters, digits, underscores (e.g. 'weather')[/red]")
+        raise typer.Exit(1)
+
     plugin_path = Path(f"scanner/market_types/{name}.py")
     test_path = Path(f"tests/test_plugin_{name}.py")
 

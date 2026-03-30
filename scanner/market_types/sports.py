@@ -23,12 +23,16 @@ class SportsPlugin:
         """Classify based on keywords + team matchup patterns."""
         keyword_score = min(1.0, count_matches(market.title, keywords) / 2.0) if keywords else 0.0
 
-        # "Team A vs. Team B" pattern is a strong sports signal
+        # "Team A vs. Team B" pattern — but exclude known non-sports contexts
+        title_lower = market.title.lower()
         has_vs = bool(re.search(r"\bvs\.?\b", market.title, re.IGNORECASE))
-        if has_vs:
+        non_sports_vs = any(w in title_lower for w in [
+            "bitcoin", "btc", "ethereum", "crypto", "election", "president",
+            "chatgpt", "openai", "ai ", "trump", "biden",
+        ])
+        if has_vs and not non_sports_vs:
             return max(keyword_score, 0.8)
 
-        title_lower = market.title.lower()
         strong_signals = ["championship", "playoff", "super bowl", "world cup", "world series", "grand slam"]
         has_strong = any(s in title_lower for s in strong_signals)
         if has_strong:

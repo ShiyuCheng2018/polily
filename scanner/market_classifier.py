@@ -4,6 +4,8 @@ from scanner.config import MarketTypeConfig
 from scanner.models import Market
 from scanner.utils import count_matches
 
+MIN_CONFIDENCE = 0.3  # Below this, classify as "other"
+
 
 def classify_market_type(
     market: Market,
@@ -12,7 +14,7 @@ def classify_market_type(
     """Classify a market into a type.
 
     Priority: plugin.classify() > keyword count fallback.
-    Returns the type with the highest confidence, or "other" if none match.
+    Returns the type with the highest confidence (>= MIN_CONFIDENCE), or "other".
     """
     from scanner.market_types.registry import discover_plugins
 
@@ -25,7 +27,6 @@ def classify_market_type(
         if plugin is not None:
             score = min(1.0, plugin.classify(market, config.keywords))
         else:
-            # Fallback: keyword counting, normalized to 0-1
             hits = count_matches(market.title, config.keywords)
             score = min(1.0, hits / 3.0) if config.keywords else 0.0
 
@@ -33,4 +34,4 @@ def classify_market_type(
             best_score = score
             best_type = type_name
 
-    return best_type
+    return best_type if best_score >= MIN_CONFIDENCE else "other"

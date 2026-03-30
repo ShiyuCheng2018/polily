@@ -24,10 +24,10 @@ class SocialMediaPlugin:
         keyword_score = min(1.0, count_matches(market.title, keywords) / 2.0) if keywords else 0.0
 
         title_lower = market.title.lower()
-        # "post X-Y tweets/posts" pattern
-        has_post_count = bool(re.search(r"\bpost\b.*\d+", title_lower))
-        has_tweet = "tweet" in title_lower
-        if has_post_count or has_tweet:
+        # "post X-Y tweets/posts from..." or "X tweets" pattern
+        has_post_count = bool(re.search(r"\bposts?\b.*\d+-?\d*\b.*\bfrom\b", title_lower))
+        has_tweet_count = bool(re.search(r"\btweets?\b.*\d+", title_lower))
+        if has_post_count or has_tweet_count:
             return max(keyword_score, 0.85)
 
         strong_signals = ["truth social", "x.com", "twitter"]
