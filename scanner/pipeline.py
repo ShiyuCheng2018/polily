@@ -10,8 +10,7 @@ from contextlib import contextmanager
 from scanner.api import PolymarketClient
 from scanner.config import ScannerConfig
 from scanner.filters import apply_hard_filters
-from scanner.market_classifier import classify_market_type
-from scanner.mispricing import detect_mispricing
+from scanner.mispricing import MispricingResult, detect_mispricing
 from scanner.models import Market
 from scanner.orderbook import is_stale_book
 from scanner.reporting import ScoredCandidate, TierResult, classify_tiers
@@ -98,9 +97,10 @@ def run_scan_pipeline(
             _report("获取订单簿", "fail")
             logger.warning("Order book fetch failed, continuing without depth data: %s", e)
 
-    # Phase 9: Market type classification (rule-based for all, AI for top N only)
+    # Market type classification from Polymarket tags
+    from scanner.tag_classifier import classify_from_tags
     for market in passed:
-        market.market_type = classify_market_type(market, config.market_types)
+        market.market_type = classify_from_tags(market.tags)
 
     # Pre-score all markets with rules first (fast) to identify top candidates for AI
     ai_enrichments = {}
@@ -131,18 +131,19 @@ def run_scan_pipeline(
         if enrichment:
             market.market_type = enrichment.market_type
 
-    # Fetch crypto prices for mispricing detection
-    crypto_params: dict[str, dict] = {}
+    # Fetch price data via data enrichment modules
+    from scanner.market_types.registry import find_matching_module
+    price_params: dict[str, dict] = {}
     if config.mispricing.enabled:
-        _report("获取加密货币价格", "start")
+        _report("获取价格数据", "start")
         try:
-            with _timed_status(_console, "Fetching crypto prices (Binance)"):
-                crypto_params = _run_async(_fetch_crypto_params_batch(passed, config))
-            _report("获取加密货币价格", "done")
+            with _timed_status(_console, "Fetching price data"):
+                price_params = _run_async(_fetch_price_params_batch(passed, config))
+            _report("获取价格数据", "done")
         except Exception as e:
-            _report("获取加密货币价格", "skip")
-            _console.print(" [dim]Crypto prices skipped[/dim]")
-            logger.warning("Crypto price fetch failed: %s", e)
+            _report("获取价格数据", "skip")
+            _console.print(" [dim]Price data skipped[/dim]")
+            logger.warning("Price data fetch failed: %s", e)
 
     # Phase 6 + 6b: Score + Mispricing
     _report("评分 + 定价分析", "start")
@@ -163,8 +164,13 @@ def run_scan_pipeline(
             probability_penalty_mode=config.scoring.thresholds.probability_penalty_mode,
         )
 
-        mispricing_kwargs = crypto_params.get(market.market_id, {})
-        mispricing = detect_mispricing(market, config.mispricing, **mispricing_kwargs)
+        # Try enrichment module mispricing, fall through to generic
+        mkt_params = price_params.get(market.market_id, {})
+        enrichment_mod = find_matching_module(market)
+        if enrichment_mod and mkt_params:
+            mispricing = enrichment_mod.detect_mispricing(market, mkt_params, config) or MispricingResult(signal="none")
+        else:
+            mispricing = detect_mispricing(market, config.mispricing)
 
         candidates.append(ScoredCandidate(
             market=market,
@@ -242,28 +248,23 @@ async def enrich_with_orderbook(
     return to_fetch + rest
 
 
-async def _fetch_crypto_params_batch(
+async def _fetch_price_params_batch(
     markets: list[Market], config: ScannerConfig,
 ) -> dict[str, dict]:
-    """Fetch Binance price + vol for crypto_threshold markets. Returns {market_id: params}."""
-    from scanner.price_feeds import BinancePriceFeed
+    """Fetch price params for markets via data enrichment modules."""
+    from scanner.market_types.registry import find_matching_module
 
-    feed = BinancePriceFeed()
     results = {}
-    try:
-        for market in markets:
-            if market.market_type != "crypto_threshold":
-                continue
-            params = await feed.get_crypto_params(
-                market.title,
-                vol_days=config.mispricing.crypto.volatility_lookback_days,
-            )
+    for market in markets:
+        enrichment = find_matching_module(market)
+        if enrichment is None:
+            continue
+        try:
+            params = await enrichment.fetch_price_params(market, config)
             if params:
                 results[market.market_id] = params
-    except Exception as e:
-        logger.warning("Crypto price fetch failed: %s", e)
-    finally:
-        await feed.close()
+        except Exception as e:
+            logger.warning("Price fetch failed for %s: %s", market.market_id, e)
     return results
 
 

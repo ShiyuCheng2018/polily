@@ -50,21 +50,21 @@ class MarketListView(Widget):
             return
         table = self.query_one("#market-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("市场", "YES", "结构分", "结算", "价差", "摩擦", "AI")
+        table.add_columns("市场", "类型", "YES", "结构分", "结算", "价差", "AI")
         for c in self.candidates:
             m = c.market
             days = f"{m.days_to_resolution:.1f}天" if m.days_to_resolution else "?"
             spread = f"{m.spread_pct_yes:.1%}" if m.spread_pct_yes else "?"
-            friction = f"{m.round_trip_friction_pct:.1%}" if m.round_trip_friction_pct else "?"
-            title = m.title[:45] + "..." if len(m.title) > 45 else m.title
+            mtype = m.market_type or "other"
+            title = m.title[:40] + "..." if len(m.title) > 40 else m.title
             ai_tag = "v" if c.narrative else ""
             table.add_row(
                 title,
+                mtype,
                 f"{m.yes_price:.2f}" if m.yes_price else "?",
                 f"{c.score.total:.0f}",
                 days,
                 spread,
-                friction,
                 ai_tag,
                 key=m.market_id,
             )

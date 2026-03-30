@@ -1,56 +1,11 @@
-"""Tests for market type classifier and beauty score."""
+"""Tests for beauty score computation."""
 
 from datetime import UTC, datetime
 
-from scanner.config import FiltersConfig, MarketTypeConfig, ScoringWeights
-from scanner.market_classifier import classify_market_type
+from scanner.config import FiltersConfig, ScoringWeights
 from scanner.models import BookLevel
 from scanner.scoring import compute_beauty_score, normalize_weights
 from tests.conftest import make_market
-
-# --- Market Type Classifier ---
-
-class TestClassifyMarketType:
-    def _types_config(self) -> dict[str, MarketTypeConfig]:
-        return {
-            "crypto_threshold": MarketTypeConfig(
-                keywords=["btc", "eth", "bitcoin", "ethereum", "above", "below", "price"],
-                mispricing_enabled=True,
-            ),
-            "political": MarketTypeConfig(
-                keywords=["election", "president", "governor", "senate", "vote", "nominee"],
-            ),
-            "economic_data": MarketTypeConfig(
-                keywords=["cpi", "inflation", "rate cut", "fomc", "jobs", "gdp", "nonfarm"],
-            ),
-            "sports": MarketTypeConfig(
-                keywords=["game", "match", "championship", "playoff", "super bowl"],
-            ),
-            "tech": MarketTypeConfig(
-                keywords=["ai", "openai", "nvidia", "model", "launch", "release"],
-            ),
-        }
-
-    def test_crypto_market(self):
-        m = make_market(title="Will BTC be above $88,000 on March 30?")
-        assert classify_market_type(m, self._types_config()) == "crypto_threshold"
-
-    def test_political_market(self):
-        m = make_market(title="Will Trump win the 2026 presidential election?")
-        assert classify_market_type(m, self._types_config()) == "political"
-
-    def test_economic_market(self):
-        m = make_market(title="Will CPI exceed 3.5% in March?")
-        assert classify_market_type(m, self._types_config()) == "economic_data"
-
-    def test_sports_market(self):
-        m = make_market(title="Lakers win NBA championship 2026?")
-        assert classify_market_type(m, self._types_config()) == "sports"
-
-    def test_unknown_defaults_to_other(self):
-        m = make_market(title="Will aliens land on Earth?")
-        assert classify_market_type(m, self._types_config()) == "other"
-
 
 # --- Weight Normalization ---
 
