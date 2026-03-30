@@ -1,0 +1,30 @@
+# Event calendar for Polily scanner.
+# Add known high-impact events here. Scanner uses these for TODAY'S CONTEXT.
+# Dates in YYYY-MM-DD format (UTC).
+
+events:
+  - date: "2026-04-10"
+    type: "economic_data"
+    name: "CPI Release (March)"
+    impact: "high"
+    keywords: ["cpi", "inflation", "consumer price"]
+    note: "BLS releases at 8:30 AM ET. Inflation markets reprice instantly."
+
+  - date: "2026-04-29"
+    type: "economic_data"
+    name: "FOMC Decision"
+    impact: "high"
+    keywords: ["fomc", "fed", "rate cut", "rate", "monetary policy"]
+    note: "Federal Reserve rate decision. All macro + crypto markets affected."
+
+  - date: "2026-05-08"
+    type: "economic_data"
+    name: "Nonfarm Payrolls (April)"
+    impact: "high"
+    keywords: ["nonfarm", "jobs", "employment", "payroll"]
+
+  - date: "2026-06-09"
+    type: "tech"
+    name: "Apple WWDC 2026"
+    impact: "medium"
+    keywords: ["apple", "wwdc", "ios", "ai"]

@@ -1,0 +1,45 @@
+"""Polily TUI — interactive terminal interface (Textual)."""
+
+from textual.app import App
+from textual.binding import Binding
+
+from scanner.tui.screens.main import MainScreen
+from scanner.tui.service import ScanService
+
+
+class PolilyApp(App):
+    """Polily Decision Copilot — interactive terminal UI."""
+
+    TITLE = "Polily"
+    SUB_TITLE = "Polymarket Decision Copilot"
+    CSS_PATH = "css/app.tcss"
+
+    BINDINGS = [
+        Binding("q", "quit", "退出"),
+    ]
+
+    def __init__(self):
+        super().__init__()
+        self.service = ScanService()
+
+    def on_mount(self) -> None:
+        self.push_screen(MainScreen(self.service))
+
+    async def action_quit(self) -> None:
+        """Kill everything and exit immediately."""
+        self.exit()
+
+
+def run_tui():
+    """Entry point for TUI mode."""
+    app = PolilyApp()
+    try:
+        app.run()
+    finally:
+        # Force-kill all child processes and exit immediately.
+        # claude CLI (used by AI agents) spawns Node.js subprocesses that
+        # survive normal Python shutdown (sys.exit, atexit). os._exit bypasses
+        # all cleanup but is the only reliable way to terminate. SQLite writes
+        # are committed before reaching this point. See README Limitations.
+        import os
+        os._exit(0)

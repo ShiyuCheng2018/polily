@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Runtime data (user-generated, not committed)
+data/scans/*.json
+data/paper_trades.db
+data/scan_logs.json
+data/analyses.json
+data/cache/
+data/.onboarding_done
+outputs/
+
+# Environment
+.env*
+
+# Internal docs (not for public repo)
+companion-note.md
+docs/internal/
+
+# Temp files
+*.tmp
+/tmp/
+
+# Test/coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Claude Code
+.claude/

@@ -1,0 +1,339 @@
+# config.example.yaml
+
+api:
+  provider: "polymarket"
+  request_timeout_seconds: 20
+  max_retries: 3
+  backoff_seconds: 1.5
+  use_cache: true
+  cache_dir: "./data/cache"
+  user_agent: "polymarket-scanner/0.1"
+
+scanner:
+  output_dir: "./outputs"
+  scan_archive_dir: "./data/scans"
+  max_markets_to_fetch: 1000
+  include_closed_markets: false
+  categories_allowlist: []
+  categories_blocklist: []
+  tags_allowlist: []
+  tags_blocklist: []
+  # Two-pass scanning: broad metadata first, then targeted order book for candidates
+  two_pass_scan: true
+  # How many top candidates get detailed order book data in second pass
+  orderbook_fetch_top_n: 50
+  # Default scan time recommendation (display only, not enforced)
+  recommended_scan_time_utc: "14:00"  # UTC 14:00 = Beijing 22:00
+
+# CLI output modes
+cli:
+  default_mode: "default"  # "brief", "default", "verbose"
+  # Tier B display limit in terminal (full list always in JSON)
+  tier_b_terminal_limit: 5
+  # Tier C: never shown in terminal, only in JSON
+  show_tier_c_in_terminal: false
+  # Generate Polymarket direct links
+  generate_market_links: true
+  # Polymarket base URL for link generation
+  polymarket_base_url: "https://polymarket.com/event/"
+
+filters:
+  require_binary_market: true
+  require_objective_market: true
+  require_clear_rules: false
+  require_named_resolution_source: false  # if true, reject markets resolved only by UMA vote
+
+  min_yes_price: 0.20
+  max_yes_price: 0.80
+  hard_reject_below_yes_price: 0.15
+  hard_reject_above_yes_price: 0.85
+  # Preferred range for probability_zone scoring (markets in this range score highest)
+  preferred_min_yes_price: 0.30
+  preferred_max_yes_price: 0.70
+
+  min_days_to_resolution: 0.5
+  max_days_to_resolution: 14
+  preferred_min_days_to_resolution: 0.5
+  preferred_max_days_to_resolution: 7
+
+  # Spread thresholds (tightened based on friction analysis)
+  max_spread_pct_yes: 0.04           # was 0.06 — 6% round-trip is too expensive
+  preferred_max_spread_pct_yes: 0.02
+  max_round_trip_friction_pct: 0.08  # hard reject if estimated buy+sell friction exceeds this
+
+  min_volume: 1000
+  min_open_interest: 1000
+
+  # Order book depth filters (core, not optional)
+  min_bid_depth_usd: 100             # minimum total bid depth within 5% of mid price
+  max_slippage_at_20usd: 0.02        # reject if $20 order moves price more than 2%
+
+  reject_ultra_short_noise_markets: true
+  reject_long_dated_narrative_markets: true
+  long_dated_narrative_days_cutoff: 30
+
+  # Resolution risk
+  flag_uma_only_resolution: true     # flag (not necessarily reject) markets with UMA-only resolution
+  reject_high_resolution_risk: false  # if true, hard reject markets flagged as high resolution risk
+
+heuristics:
+  objective_whitelist_keywords:
+    - "will"
+    - "above"
+    - "below"
+    - "by"
+    - "before"
+    - "on"
+    - "wins"
+    - "winner"
+    - "rate cut"
+    - "cpi"
+    - "earnings"
+    - "etf"
+    - "price"
+    - "market cap"
+    - "which"
+    - "exceed"
+    - "reach"
+    - "fall"
+    - "drop"
+    - "close"
+
+  objective_blacklist_keywords:
+    - "best"
+    - "favorite"
+    - "most impressive"
+    - "dominant"
+    - "successful"
+    - "leading"
+    - "strongest"
+
+  noise_market_keywords:
+    - "5 min"
+    - "5-minute"
+    - "next 5 minutes"
+    - "up or down"
+    - "1 minute"
+
+  # Noise detection also uses: days_to_resolution < noise_max_days AND category in noise_categories
+  noise_max_days: 0.1  # ~2.4 hours
+  noise_categories:
+    - "Crypto"  # short-term crypto up/down markets
+
+  narrative_market_keywords:
+    - "largest ipo in"
+    - "what will x ticker be"
+    - "best ai model"
+    - "most valuable by end of year"
+
+  # Resolution source quality keywords (bonus for objectivity score)
+  resolution_source_bonus_keywords:
+    - "coingecko"
+    - "coinmarketcap"
+    - "binance"
+    - "associated press"
+    - "reuters"
+    - "official"
+    - "bureau of labor statistics"
+    - "federal reserve"
+
+scoring:
+  weights:
+    time_to_resolution: 15            # was 20, reduced: proximity alone ≠ edge
+    objectivity: 20                   # unchanged
+    probability_zone: 20              # was 15, increased: determines repricing room
+    liquidity_depth: 20               # was 15 "liquidity", increased: spread eats edge directly
+    exitability: 10                   # unchanged
+    catalyst_proxy: 5                 # was 10, reduced: keyword heuristic is unreliable
+    small_account_friendliness: 10    # unchanged
+
+  thresholds:
+    tier_a_min_score: 75
+    tier_b_min_score: 60
+    # Tier A mode: set false so Tier A is score-only (always has content)
+    # Set true to require mispricing signal (stricter, may be empty most days)
+    tier_a_require_mispricing: false
+    # Probability penalty: "mid_bias" (prefer 0.30-0.70), "flat" (no penalty in range), "disabled"
+    probability_penalty_mode: "mid_bias"
+
+# Market type classification and type-specific scoring adjustments
+market_types:
+  # Note: scoring_overrides change individual weights. Code must re-normalize so weights sum to 100.
+  crypto_threshold:
+    keywords: ["btc", "eth", "bitcoin", "ethereum", "above", "below", "price"]
+    scoring_overrides:
+      catalyst_proxy: 2               # less useful for crypto (can compute fair value directly)
+      liquidity_depth: 22             # more important (bots dominate, need tight execution)
+    mispricing_enabled: true          # can compute theoretical fair value from vol model
+  political:
+    keywords: ["election", "president", "governor", "senate", "vote", "nominee", "party"]
+    scoring_overrides: {}
+    mispricing_enabled: false         # no quantitative model available
+  economic_data:
+    keywords: ["cpi", "inflation", "rate cut", "fomc", "jobs", "gdp", "nonfarm", "earnings"]
+    scoring_overrides:
+      catalyst_proxy: 10              # economic calendar makes catalyst estimation reliable
+    mispricing_enabled: false         # consensus data too efficient for retail edge
+    note: "Repricing happens instantly at data release — no exit window for repricing trades"
+  sports:
+    keywords: ["game", "match", "championship", "playoff", "super bowl", "world cup", "mvp"]
+    scoring_overrides: {}
+    mispricing_enabled: false         # would need sportsbook odds integration
+  tech:
+    keywords: ["ai", "openai", "google", "apple", "nvidia", "model", "launch", "release", "regulation"]
+    scoring_overrides: {}
+    mispricing_enabled: false         # thin liquidity, ambiguous resolution
+    note: "Tech markets often have thin liquidity and ambiguous resolution — use limit orders only"
+
+# AI Agent configuration
+# All agents use Claude Code CLI (claude -p), included in subscription — no API key, no per-token cost.
+ai:
+  enabled: true                          # global AI toggle — false = pure rule-based mode
+  fallback_on_error: true                # auto-fallback to rules if CLI call fails
+  cli_command: "claude"                  # path to claude CLI binary
+
+  market_analyst:                        # Agent 1: text analysis on ~50 filtered markets
+    enabled: true
+    model: "haiku"                       # fast, cheap for structured extraction
+    max_concurrent: 3                    # max parallel CLI invocations
+    timeout_seconds: 60
+
+  narrative_writer:                      # Agent 2: narrative for Tier A + top Tier B
+    enabled: true
+    model: "sonnet"                      # needs synthesis and generation quality
+    max_candidates: 8                    # max markets to generate narratives for
+    timeout_seconds: 90
+
+  briefing_analyst:                      # Agent 3: daily briefing interpretation
+    enabled: true
+    model: "sonnet"
+    timeout_seconds: 60
+
+  cross_domain:                          # Agent 4: triggered only on calendar × market type cross
+    enabled: true
+    model: "sonnet"
+
+  review_analyst:                        # Agent 5: weekly paper trading review
+    enabled: true
+    model: "sonnet"
+
+# Mispricing detection configuration
+mispricing:
+  enabled: true
+  # Crypto threshold markets: compare market price vs. volatility-implied probability
+  crypto:
+    price_source: "binance"            # via ccxt, no API key needed, rate limit 6000/min
+    volatility_lookback_days: 30
+    min_deviation_pct: 0.08           # was 0.05 — must exceed round-trip friction (4-6%) to be real edge
+    prefer_implied_vol: true          # use Deribit implied vol if available, fallback to realized
+  # Multi-outcome consistency check
+  multi_outcome:
+    enabled: true
+    max_sum_deviation: 0.10           # flag if outcome YES prices sum deviates >10% from 1.0
+
+# Counterparty analysis
+counterparty:
+  flag_large_trades: true
+  large_trade_threshold_usd: 500     # flag trades above this size in recent history
+  flag_book_imbalance: true
+  book_imbalance_ratio: 3.0          # flag if bid/ask depth ratio exceeds 3:1
+
+# Event calendar
+calendar:
+  enabled: true
+  calendar_file: "./data/calendar.yaml"
+  lookahead_days: 3                  # show events within N days in TODAY'S CONTEXT
+  # Cross-domain linking: auto-generate notes when event type relates to market type
+  cross_domain_linking: true
+
+# Paper trading
+paper_trading:
+  enabled: true
+  data_file: "./data/paper_trades.db"
+  default_position_size_usd: 20     # assumed notional for PnL calculations
+  # Friction assumption for adjusted PnL
+  assumed_round_trip_friction_pct: 0.04
+  # Auto-resolve: in v1 this is manual; set to true when API resolution query is implemented
+  auto_resolve: false
+
+# Risk discipline
+discipline:
+  account_size_usd: 150
+  max_single_trade_pct: 0.13         # 13% of account = ~$20
+  max_single_trade_usd: 20
+  max_concurrent_positions: 3
+  max_total_exposure_pct: 0.40       # 40% of account
+  max_trades_per_week: 5             # soft limit — display warning if exceeded
+  # Account stop-loss: if account drops to this level, recommend pausing
+  pause_threshold_usd: 80            # ~47% drawdown
+  # Paper trading recommendation for new users
+  paper_trading_first_days: 14       # recommend paper-only for first N days
+
+# Onboarding
+onboarding:
+  enabled: true
+  marker_file: "./data/.onboarding_done"
+  # Show onboarding message on first run
+
+# Research checklists
+checklists:
+  enabled: true
+  templates_dir: "./data/checklists"
+  # Checklist is shown in Layer 2 (verbose/inspect) output
+  show_in_layer: 2
+
+reporting:
+  write_json: true
+  write_csv: true
+  write_terminal_summary: true
+  include_score_breakdown: true
+  include_risk_flags: true
+  include_why_it_passed: true
+  include_friction_estimate: true
+  include_counterparty_note: true
+  include_mispricing_signal: true
+  include_research_checklist: true    # in verbose/inspect mode
+  include_worst_case_loss: true
+  include_net_edge_after_friction: true
+  include_discipline_status: true
+  # Every report header must include this disclaimer
+  disclaimer: "Scanner output is a research prompt, not a trade recommendation. High scores indicate good market structure, not guaranteed edge."
+
+# Scan archiving for backtesting
+archiving:
+  enabled: true
+  archive_dir: "./data/scans"
+  archive_all_passing: true           # archive all markets that pass initial filters, not just Tier A
+  # Backtest configuration
+  backtest:
+    enabled: false                    # run with: python main.py backtest
+    min_scans_for_analysis: 10        # need at least N archived scans before backtesting
+
+# Daily briefing
+daily_briefing:
+  enabled: true
+  # Compare with previous scan to show deltas
+  show_yesterday_tracking: true
+  show_paper_trade_updates: true
+  # Show Tier B markets that moved into Tier A range
+  show_tier_b_upgrades: true
+
+execution_hints:
+  small_account_mode: true
+  default_trade_style: "research_candidate"
+  suggest_manual_review_only: true
+  suggest_auto_trading: false
+  # Estimated round-trip friction floor — if no edge exceeds this, say so honestly
+  friction_floor_pct: 0.04
+  # Show conditional direction advice ("如果你看涨: 有 edge")
+  # Default off — enable with --lean flag or set true here
+  show_conditional_advice: false
+
+watchlist:
+  enabled: true
+  alert_on_score_cross: 75
+  alert_on_spread_improvement_pct: 0.02
+  alert_on_price_enter_range:
+    min_yes_price: 0.30
+    max_yes_price: 0.70
+  alert_on_mispricing_signal: "moderate"  # alert when mispricing signal reaches this level

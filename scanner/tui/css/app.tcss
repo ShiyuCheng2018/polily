@@ -1,0 +1,98 @@
+/* Polily TUI 全局样式 */
+
+Screen {
+    background: $surface;
+}
+
+/* 布局 */
+#main-container {
+    layout: horizontal;
+    height: 1fr;
+}
+
+#sidebar {
+    width: 22;
+    dock: left;
+    border-right: tall $primary;
+    padding: 1 0;
+}
+
+#sidebar .sidebar-title {
+    text-align: center;
+    text-style: bold;
+    color: $primary;
+    padding: 0 1 1 1;
+}
+
+#content-area {
+    width: 1fr;
+    padding: 0 1;
+}
+
+/* 状态栏 */
+#status-bar {
+    height: 1;
+    background: $primary-background;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+/* 市场列表 */
+DataTable {
+    height: 1fr;
+}
+
+DataTable > .datatable--cursor {
+    background: $primary 30%;
+}
+
+/* 详情视图 */
+.detail-section {
+    padding: 1 0;
+}
+
+.detail-title {
+    text-style: bold;
+    color: $primary;
+    padding: 0 0 1 0;
+}
+
+.detail-label {
+    color: $text-muted;
+    width: 12;
+}
+
+.risk-flag {
+    color: $error;
+}
+
+.score-good {
+    color: $success;
+}
+
+.score-mid {
+    color: $warning;
+}
+
+/* 交易浮窗 */
+#trade-dialog {
+    align: center middle;
+    width: 50;
+    height: 12;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+}
+
+#trade-dialog .dialog-title {
+    text-style: bold;
+    text-align: center;
+    padding: 0 0 1 0;
+}
+
+/* 空状态 */
+.empty-state {
+    text-align: center;
+    color: $text-muted;
+    padding: 4;
+}

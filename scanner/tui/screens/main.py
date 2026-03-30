@@ -1,0 +1,269 @@
+"""MainScreen: Sidebar navigation + Content area with view switching."""
+
+from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.screen import Screen
+from textual.widgets import Footer, Header, Static
+
+from scanner.tui.service import ScanService
+from scanner.tui.views.market_detail import (
+    AnalyzeRequested,
+    BackToList,
+    MarketDetailView,
+    SwitchVersionRequested,
+)
+from scanner.tui.views.market_list import MarketListView, ViewDetailRequested
+from scanner.tui.views.paper_status import PaperStatusView
+from scanner.tui.views.scan_log import (
+    BackToScanLog,
+    OpenMarketFromLog,
+    ScanLogDetailView,
+    ScanLogView,
+    StepInfo,
+    ViewScanLogDetail,
+)
+from scanner.tui.widgets.sidebar import MenuSelected, Sidebar
+
+
+class MainScreen(Screen):
+    """Main screen with sidebar navigation and content area."""
+
+    BINDINGS = [
+        Binding("0", "show_tasks", "任务"),
+        Binding("r", "refresh", "刷新"),
+        Binding("s", "new_scan", "扫描"),
+        Binding("1", "show_research", "研究"),
+        Binding("2", "show_watch", "观察"),
+        Binding("3", "show_paper", "持仓"),
+        Binding("up", "menu_prev", show=False),
+        Binding("down", "menu_next", show=False),
+    ]
+
+    MENU_ORDER = ["tasks", "research", "watchlist", "paper"]
+
+    def __init__(self, service: ScanService):
+        super().__init__()
+        self.service = service
+        self._loading = False
+        self._current_menu = "tasks"
+        self._analyzing_candidate: object | None = None
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static("就绪", id="status-bar")
+        with Horizontal(id="main-container"):
+            yield Sidebar(id="sidebar")
+            with Vertical(id="content-area"):
+                yield ScanLogView(self.service.get_scan_logs())
+        yield Footer()
+
+    def on_mount(self) -> None:
+        sidebar = self.query_one("#sidebar", Sidebar)
+        sidebar.set_active_menu("tasks")
+        research = len(self.service.get_research())
+        watch = len(self.service.get_watchlist())
+        paper = len(self.service.get_paper_trades())
+        sidebar.update_counts(research, watch, paper)
+        if self.service.tiers:
+            self.query_one("#status-bar", Static).update(
+                f"上次扫描: 研{research} 观{watch} ({self.service.total_scanned} 市场)"
+            )
+
+    def _start_scan(self):
+        if self._loading:
+            return
+        self._loading = True
+        self.query_one("#status-bar", Static).update("扫描中...")
+        # B5 fix: rebuild ScanLogView with live progress support
+        if self._current_menu == "tasks":
+            self._navigate_to("tasks")
+        self.run_worker(self._do_scan, name="scan", thread=True, exclusive=True)
+
+    async def _do_scan(self):
+        """Worker thread: only data fetching, NO direct UI operations."""
+        self.service.on_progress = lambda steps: self.app.call_from_thread(
+            self._update_progress, steps
+        )
+        try:
+            await self.service.fetch_and_scan()
+        except Exception as e:
+            self.app.call_from_thread(self._on_scan_failed, str(e))
+            return
+        self.app.call_from_thread(self._on_scan_complete)
+
+    def _update_progress(self, steps: list[StepInfo]):
+        """Main thread: update live progress if ScanLogView is visible."""
+        try:
+            log_view = self.query_one("#content-area").query_one(ScanLogView)
+            log_view.update_live_progress(steps)
+        except Exception:
+            pass
+        if steps:
+            latest = steps[-1]
+            if latest.status == "running":
+                self.query_one("#status-bar", Static).update(f"{latest.name}...")
+
+    def _on_scan_complete(self):
+        """Main thread: update status, do NOT auto-navigate."""
+        self._loading = False
+        total = self.service.total_scanned
+        research = len(self.service.get_research())
+        watch = len(self.service.get_watchlist())
+        paper = len(self.service.get_paper_trades())
+
+        self.query_one("#status-bar", Static).update(
+            f"扫描完成: 研{research} 观{watch} ({total} 市场)"
+        )
+        sidebar = self.query_one("#sidebar", Sidebar)
+        sidebar.update_counts(research, watch, paper)
+        # B4 fix: mark pages that have new data, not tasks
+        if research:
+            sidebar.mark_new_data("research")
+        if watch:
+            sidebar.mark_new_data("watchlist")
+
+        if self._current_menu == "tasks":
+            self._navigate_to("tasks")
+
+    def _on_scan_failed(self, error: str):
+        self._loading = False
+        error_short = error[:80] if len(error) > 80 else error
+        self.query_one("#status-bar", Static).update(f"扫描失败: {error_short}")
+        if self._current_menu == "tasks":
+            self._navigate_to("tasks")
+
+    def _switch_view(self, view, menu_id: str = ""):
+        content = self.query_one("#content-area")
+        for child in list(content.children):
+            child.remove()
+        content.mount(view)
+        self.set_timer(0.1, lambda: self._focus_table(view))
+        if menu_id:
+            sidebar = self.query_one("#sidebar", Sidebar)
+            sidebar.set_active_menu(menu_id)
+            sidebar.clear_new_data(menu_id)
+
+    def _focus_table(self, view):
+        try:
+            from textual.widgets import DataTable
+            table = view.query_one(DataTable)
+            table.focus()
+        except Exception:
+            try:
+                from textual.containers import VerticalScroll
+                scroll = view.query_one(VerticalScroll)
+                scroll.focus()
+            except Exception:
+                view.focus()
+
+    def refresh_sidebar_counts(self):
+        research = len(self.service.get_research())
+        watch = len(self.service.get_watchlist())
+        paper = len(self.service.get_paper_trades())
+        self.query_one("#sidebar", Sidebar).update_counts(research, watch, paper)
+
+    # --- Message handlers ---
+
+    def on_menu_selected(self, message: MenuSelected) -> None:
+        self._navigate_to(message.menu_id)
+
+    def on_view_detail_requested(self, message: ViewDetailRequested) -> None:
+        self._switch_view(MarketDetailView(message.candidate, self.service))
+
+    def on_switch_version_requested(self, message: SwitchVersionRequested) -> None:
+        self._switch_view(MarketDetailView(
+            message.candidate, self.service, version_idx=message.version_idx,
+        ))
+
+    def on_view_scan_log_detail(self, message: ViewScanLogDetail) -> None:
+        self._switch_view(ScanLogDetailView(message.log_entry))
+
+    def on_analyze_requested(self, message: AnalyzeRequested) -> None:
+        self._analyzing_candidate = message.candidate
+        title_short = message.candidate.market.title[:30]
+        self.query_one("#status-bar", Static).update(f"AI 分析中: {title_short}...")
+        self._switch_view(MarketDetailView(message.candidate, self.service, analyzing=True))
+        self.run_worker(self._do_analyze, name="analyze", thread=True, exclusive=True)
+
+    async def _do_analyze(self):
+        import os
+        os.environ["POLILY_TUI"] = "1"
+        try:
+            candidate = self._analyzing_candidate
+            self.service.on_progress = lambda steps: self.app.call_from_thread(
+                self._update_progress, steps
+            )
+            await self.service.analyze_market(candidate)
+            self.app.call_from_thread(self._on_analysis_complete, candidate)
+        except Exception as e:
+            self.app.call_from_thread(self._on_analysis_failed, str(e))
+        finally:
+            os.environ.pop("POLILY_TUI", None)
+
+    def _on_analysis_complete(self, candidate):
+        self.query_one("#status-bar", Static).update("分析完成")
+        self.query_one("#sidebar", Sidebar).mark_new_data("tasks")
+        self._switch_view(MarketDetailView(candidate, self.service))
+
+    def _on_analysis_failed(self, error: str):
+        error_short = error[:80] if len(error) > 80 else error
+        self.query_one("#status-bar", Static).update(f"分析失败: {error_short}")
+        if self._analyzing_candidate:
+            self._switch_view(MarketDetailView(self._analyzing_candidate, self.service))
+
+    def on_open_market_from_log(self, message: OpenMarketFromLog) -> None:
+        """Navigate to market detail from a log entry."""
+        candidates = self.service.get_all_candidates()
+        for c in candidates:
+            if c.market.market_id == message.market_id:
+                self._switch_view(MarketDetailView(c, self.service))
+                return
+        self.notify("未找到该市场（可能需要重新扫描）", severity="warning")
+
+    def on_back_to_scan_log(self, message: BackToScanLog) -> None:
+        self._navigate_to("tasks")
+
+    def on_back_to_list(self, message: BackToList) -> None:
+        self._navigate_to(self._current_menu)
+
+    def _navigate_to(self, menu_id: str):
+        if menu_id == "tasks":
+            logs = self.service.get_scan_logs()
+            current_steps = list(self.service._steps) if self._loading else None
+            self._switch_view(ScanLogView(logs, current_steps), "tasks")
+        elif menu_id == "research":
+            self._switch_view(MarketListView(self.service.get_research(), self.service, "研究队列"), "research")
+        elif menu_id == "watchlist":
+            self._switch_view(MarketListView(self.service.get_watchlist(), self.service, "观察列表"), "watchlist")
+        elif menu_id == "paper":
+            self._switch_view(PaperStatusView(self.service), "paper")
+        self._current_menu = menu_id
+
+    def action_show_tasks(self) -> None:
+        self._navigate_to("tasks")
+
+    def action_show_research(self) -> None:
+        self._navigate_to("research")
+
+    def action_show_watch(self) -> None:
+        self._navigate_to("watchlist")
+
+    def action_show_paper(self) -> None:
+        self._navigate_to("paper")
+
+    def action_refresh(self) -> None:
+        self._navigate_to(self._current_menu)
+
+    def action_new_scan(self) -> None:
+        self._start_scan()
+
+    def action_menu_prev(self) -> None:
+        idx = self.MENU_ORDER.index(self._current_menu) if self._current_menu in self.MENU_ORDER else 0
+        idx = (idx - 1) % len(self.MENU_ORDER)
+        self._navigate_to(self.MENU_ORDER[idx])
+
+    def action_menu_next(self) -> None:
+        idx = self.MENU_ORDER.index(self._current_menu) if self._current_menu in self.MENU_ORDER else 0
+        idx = (idx + 1) % len(self.MENU_ORDER)
+        self._navigate_to(self.MENU_ORDER[idx])

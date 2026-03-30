@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check scanner/ tests/
+
+      - name: Type check
+        run: pyright scanner/ || true  # tracked as follow-up, not blocking CI yet
+
+      - name: Test
+        run: pytest tests/ -q --tb=short
