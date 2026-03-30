@@ -11,7 +11,7 @@ from scanner.api import PolymarketClient
 from scanner.config import ScannerConfig
 from scanner.filters import apply_hard_filters
 from scanner.market_classifier import classify_market_type
-from scanner.mispricing import detect_mispricing
+from scanner.mispricing import MispricingResult, detect_mispricing
 from scanner.models import Market
 from scanner.orderbook import is_stale_book
 from scanner.reporting import ScoredCandidate, TierResult, classify_tiers
@@ -131,18 +131,18 @@ def run_scan_pipeline(
         if enrichment:
             market.market_type = enrichment.market_type
 
-    # Fetch crypto prices for mispricing detection
-    crypto_params: dict[str, dict] = {}
+    # Fetch price params via plugins for mispricing detection
+    price_params: dict[str, dict] = {}
     if config.mispricing.enabled:
-        _report("获取加密货币价格", "start")
+        _report("获取价格数据", "start")
         try:
-            with _timed_status(_console, "Fetching crypto prices (Binance)"):
-                crypto_params = _run_async(_fetch_crypto_params_batch(passed, config))
-            _report("获取加密货币价格", "done")
+            with _timed_status(_console, "Fetching price data (plugins)"):
+                price_params = _run_async(_fetch_price_params_batch(passed, config))
+            _report("获取价格数据", "done")
         except Exception as e:
-            _report("获取加密货币价格", "skip")
-            _console.print(" [dim]Crypto prices skipped[/dim]")
-            logger.warning("Crypto price fetch failed: %s", e)
+            _report("获取价格数据", "skip")
+            _console.print(" [dim]Price data skipped[/dim]")
+            logger.warning("Price data fetch failed: %s", e)
 
     # Phase 6 + 6b: Score + Mispricing
     _report("评分 + 定价分析", "start")
@@ -163,8 +163,9 @@ def run_scan_pipeline(
             probability_penalty_mode=config.scoring.thresholds.probability_penalty_mode,
         )
 
-        mispricing_kwargs = crypto_params.get(market.market_id, {})
-        mispricing = detect_mispricing(market, config.mispricing, **mispricing_kwargs)
+        # Try plugin mispricing first, fall through to generic
+        mispricing_kwargs = price_params.get(market.market_id, {})
+        mispricing = _detect_mispricing_with_plugin(market, mispricing_kwargs, config)
 
         candidates.append(ScoredCandidate(
             market=market,
@@ -242,29 +243,43 @@ async def enrich_with_orderbook(
     return to_fetch + rest
 
 
-async def _fetch_crypto_params_batch(
+async def _fetch_price_params_batch(
     markets: list[Market], config: ScannerConfig,
 ) -> dict[str, dict]:
-    """Fetch Binance price + vol for crypto_threshold markets. Returns {market_id: params}."""
-    from scanner.price_feeds import BinancePriceFeed
+    """Fetch price params for markets via plugins. Returns {market_id: params}."""
+    from scanner.market_types.registry import discover_plugins
 
-    feed = BinancePriceFeed()
+    plugins = discover_plugins()
     results = {}
-    try:
-        for market in markets:
-            if market.market_type != "crypto_threshold":
-                continue
-            params = await feed.get_crypto_params(
-                market.title,
-                vol_days=config.mispricing.crypto.volatility_lookback_days,
-            )
+    for market in markets:
+        plugin = plugins.get(market.market_type or "")
+        if plugin is None or not hasattr(plugin, "fetch_price_params"):
+            continue
+        try:
+            params = await plugin.fetch_price_params(market, config)
             if params:
                 results[market.market_id] = params
-    except Exception as e:
-        logger.warning("Crypto price fetch failed: %s", e)
-    finally:
-        await feed.close()
+        except Exception as e:
+            logger.warning("Price fetch failed for %s (%s): %s", market.market_id, market.market_type, e)
     return results
+
+
+def _detect_mispricing_with_plugin(
+    market: Market, price_params: dict, config: ScannerConfig,
+) -> MispricingResult:
+    """Try plugin mispricing detection, fall through to generic."""
+    from scanner.market_types.registry import get_plugin
+
+    plugin = get_plugin(market.market_type or "")
+    if plugin and hasattr(plugin, "detect_mispricing") and price_params:
+        try:
+            result = plugin.detect_mispricing(market, price_params, config)
+            if result is not None:
+                return result
+        except Exception as e:
+            logger.warning("Plugin mispricing failed for %s: %s", market.market_id, e)
+
+    return detect_mispricing(market, config.mispricing, **price_params)
 
 
 def _run_async(coro):

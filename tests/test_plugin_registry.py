@@ -1,8 +1,5 @@
 """Tests for market type plugin registry."""
 
-import tempfile
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -25,7 +22,7 @@ class TestDiscoverPlugins:
 
     def test_plugin_satisfies_protocol(self):
         plugins = discover_plugins()
-        for name, plugin in plugins.items():
+        for _name, plugin in plugins.items():
             assert isinstance(plugin, MarketTypePlugin)
             assert hasattr(plugin, "name")
             assert hasattr(plugin, "classify")
