@@ -28,8 +28,15 @@ class WatchListView(Widget):
 
     def __init__(self, watched: dict[str, MarketState]):
         super().__init__()
-        self._watched = watched
-        self._market_ids = list(watched.keys())
+        # Sort: items with trigger conditions first, then by updated_at desc
+        def sort_key(item):
+            _mid, state = item
+            has_trigger = bool(state.watch_conditions and state.watch_conditions.trigger_event)
+            return (has_trigger, state.updated_at)
+
+        sorted_items = sorted(watched.items(), key=sort_key, reverse=True)
+        self._watched = dict(sorted_items)
+        self._market_ids = list(self._watched.keys())
 
     def compose(self) -> ComposeResult:
         yield Static(f" 观察列表 ({len(self._watched)})", id="watch-title")
