@@ -36,7 +36,13 @@ class SwitchVersionRequested(Message):
 
 # Action level colors and labels
 ACTION_DISPLAY = {
-    "avoid": ("[red]AVOID[/red]", "red"),
+    # New schema
+    "PASS": ("[red]PASS[/red]", "red"),
+    "WATCH": ("[yellow]WATCH[/yellow]", "yellow"),
+    "BUY_YES": ("[green]BUY YES[/green]", "green"),
+    "BUY_NO": ("[green]BUY NO[/green]", "green"),
+    # Legacy compat
+    "avoid": ("[red]PASS[/red]", "red"),
     "watch_only": ("[yellow]WATCH[/yellow]", "yellow"),
     "worth_research": ("[cyan]RESEARCH[/cyan]", "cyan"),
     "small_position_ok": ("[green]GO[/green]", "green"),
@@ -171,18 +177,31 @@ class MarketDetailView(Widget):
 
     def _compose_conclusion_card(self, n) -> ComposeResult:
         """Decision conclusion card — the most important thing on screen."""
-        action_label, _ = ACTION_DISPLAY.get(getattr(n, "action", "watch_only"), ("[dim]?[/dim]", "dim"))
+        action_label, _ = ACTION_DISPLAY.get(getattr(n, "action", "PASS"), ("[dim]?[/dim]", "dim"))
         confidence = getattr(n, "confidence", "low")
         conf_bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
-        action_reasoning = getattr(n, "action_reasoning", "")
-        friction_impact = getattr(n, "friction_impact", "")
+
+        # New fields: why_now / why_not_now (fallback to legacy action_reasoning)
+        why = getattr(n, "why_now", "") or getattr(n, "why_not_now", "") or getattr(n, "action_reasoning", "")
 
         verdict = getattr(n, "one_line_verdict", "")
         yield Static("")
-        yield Static(f"  {action_label}  {action_reasoning}", classes="conclusion-box")
+        yield Static(f"  {action_label}  {why}", classes="conclusion-box")
         if verdict:
             yield Static(f"  [dim]{verdict}[/dim]", classes="detail-row")
         yield Static(f"  置信度 {conf_bar} {confidence}", classes="detail-row")
+
+        # Opportunity type + execution risk
+        opp_type = getattr(n, "opportunity_type", "")
+        exec_risk = getattr(n, "execution_risk", "")
+        if opp_type and opp_type != "no_trade":
+            yield Static(f"  机会类型: {opp_type} | 执行风险: {exec_risk}", classes="detail-row")
+
+        # Friction vs edge
+        fve = getattr(n, "friction_vs_edge", "")
+        fve_map = {"edge_exceeds": "edge > 摩擦", "roughly_equals": "edge ≈ 摩擦", "friction_exceeds": "摩擦 > edge"}
+        if fve:
+            yield Static(f"  摩擦: {fve_map.get(fve, fve)}", classes="detail-row")
 
         # Time window
         tw = getattr(n, "time_window", None)
@@ -191,8 +210,10 @@ class MarketDetailView(Widget):
             note = tw.note if hasattr(tw, "note") else ""
             yield Static(f"  窗口: {urgency_label} | {note}", classes="detail-row")
 
-        if friction_impact:
-            yield Static(f"  摩擦: {friction_impact}", classes="detail-row")
+        # Next step
+        next_step = getattr(n, "next_step", "")
+        if next_step:
+            yield Static(f"  下一步: {next_step}", classes="detail-row")
 
         # Version selector
         if self._versions:
@@ -206,11 +227,13 @@ class MarketDetailView(Widget):
                 classes="detail-row",
             )
 
-        # Bias (only if available — lean mode)
-        bias = getattr(n, "bias", None)
-        if bias and hasattr(bias, "direction") and bias.direction != "neutral":
-            direction_cn = {"lean_yes": "偏 YES", "lean_no": "偏 NO"}.get(bias.direction, "?")
-            yield Static(f"  方向: {direction_cn} ({bias.caveat})", classes="detail-row")
+        # Bias + strength
+        bias = getattr(n, "bias", "NONE")
+        strength = getattr(n, "strength", "")
+        if bias and bias not in ("NONE", "neutral", None):
+            bias_cn = {"YES": "偏 YES", "NO": "偏 NO"}.get(str(bias), str(bias))
+            strength_str = f" ({strength})" if strength else ""
+            yield Static(f"  方向: {bias_cn}{strength_str}", classes="detail-row")
 
     def _compose_risk_calculator(self, m) -> ComposeResult:
         """Scenario calculator — moved to first screen for quick decision."""
@@ -239,17 +262,22 @@ class MarketDetailView(Widget):
                 yield Static(f"  ! {text}", classes="risk-critical")
 
     def _compose_why_not_and_recheck(self, n) -> ComposeResult:
-        """Why not an opportunity + recheck conditions (avoid/watch only)."""
+        """Why not now + recheck conditions (PASS/WATCH only)."""
         action = getattr(n, "action", "")
-        if action not in ("avoid", "watch_only"):
+        if action not in ("PASS", "WATCH", "avoid", "watch_only"):
             return
 
-        why_not = getattr(n, "why_not_opportunity", [])
+        # New field: why_not_now (str), legacy: why_not_opportunity (list)
+        why_not_now = getattr(n, "why_not_now", "")
+        why_not_list = getattr(n, "why_not_opportunity", [])
         recheck = getattr(n, "recheck_conditions", [])
 
-        if why_not:
+        if why_not_now:
+            yield Static(" 为什么不是现在", classes="section-title")
+            yield Static(f"  {why_not_now}", classes="detail-row")
+        elif why_not_list:
             yield Static(" 为什么不是机会", classes="section-title")
-            for reason in why_not[:3]:
+            for reason in why_not_list[:3]:
                 yield Static(f"  - {reason}", classes="detail-row")
 
         if recheck:
@@ -269,6 +297,17 @@ class MarketDetailView(Widget):
         if counterparty:
             yield Static(" 对手方", classes="section-title")
             yield Static(f"  {counterparty}", classes="detail-row")
+
+        # Crypto context (if available)
+        crypto = getattr(n, "crypto", None)
+        if crypto and hasattr(crypto, "buffer_conclusion"):
+            yield Static(" Crypto 分析", classes="section-title")
+            if crypto.distance_to_threshold_pct is not None:
+                yield Static(f"  距阈值: {crypto.distance_to_threshold_pct:.1f}%", classes="detail-row")
+            if crypto.buffer_pct is not None and crypto.daily_vol_pct is not None:
+                yield Static(f"  安全垫: {crypto.buffer_pct:.1f}% | 日波动: {crypto.daily_vol_pct:.1f}% | {crypto.buffer_conclusion}", classes="detail-row")
+            if crypto.market_already_knows:
+                yield Static(f"  [dim]{crypto.market_already_knows}[/dim]", classes="detail-row")
 
         # Price info
         yield Static(" 价格", classes="section-title")
@@ -301,13 +340,23 @@ class MarketDetailView(Widget):
                 yield Static(f"  ! {text}", classes=css_class)
 
     def _compose_research_findings(self, n) -> ComposeResult:
-        """Third screen: agent's own research results."""
-        findings = getattr(n, "research_findings", [])
-        # Backward compat: old format had research_checklist
-        checklist = getattr(n, "research_checklist", []) if not findings else []
+        """Third screen: supporting + invalidation findings."""
+        supporting = getattr(n, "supporting_findings", [])
+        invalidation = getattr(n, "invalidation_findings", [])
+        # Legacy compat
+        legacy = getattr(n, "research_findings", []) if not supporting else []
+        checklist = getattr(n, "research_checklist", []) if not supporting and not legacy else []
 
-        if findings:
-            yield Static(" 研究发现", classes="section-title")
+        all_findings = []
+        if supporting:
+            all_findings.append(("支持结论", supporting))
+        if invalidation:
+            all_findings.append(("可能推翻", invalidation))
+        if legacy:
+            all_findings.append(("研究发现", legacy))
+
+        for section_title, findings in all_findings:
+            yield Static(f" {section_title}", classes="section-title")
             for f in findings:
                 if hasattr(f, "finding"):
                     source = f"[dim]来源: {f.source}[/dim]" if f.source else ""
@@ -319,8 +368,8 @@ class MarketDetailView(Widget):
                     impact = f.get("impact", "")
                     if impact:
                         yield Static(f"    -> {impact}", classes="finding-impact")
-        elif checklist:
-            # Backward compat for old analyses
+
+        if not all_findings and checklist:
             yield Static(" 研究清单", classes="section-title")
             for item in checklist:
                 yield Static(f"  {item}", classes="detail-row")
