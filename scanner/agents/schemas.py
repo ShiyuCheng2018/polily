@@ -5,7 +5,11 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 SuggestedStyle = Literal["research_candidate", "watch_only", "research_repricing", "avoid_despite_score"]
-ActionLevel = Literal["worth_research", "small_position_ok", "watch_only", "avoid"]
+ActionLevel = Literal["BUY_YES", "BUY_NO", "WATCH", "PASS"]
+OpportunityType = Literal["instant_mispricing", "short_window", "slow_structure", "watch_only", "no_trade"]
+FrictionEdge = Literal["edge_exceeds", "roughly_equals", "friction_exceeds"]
+BiasDirection = Literal["YES", "NO", "NONE"]
+Strength = Literal["strong", "medium", "weak"]
 ResolutionRisk = Literal["low", "medium", "high"]
 ResolutionClarity = Literal["clear", "mostly_clear", "ambiguous", "unclear"]
 Confidence = Literal["low", "medium", "high"]
@@ -52,12 +56,13 @@ class ResearchFinding(BaseModel):
     impact: str  # "距离阈值更远，YES 概率下降"
 
 
-class BiasOutput(BaseModel):
-    """Direction bias (conditional advice, only in --lean mode)."""
-    direction: Literal["lean_yes", "lean_no", "neutral"]
-    reasoning: str
-    confidence: Confidence
-    caveat: str  # "前提是 BTC 维持当前波动率"
+class CryptoContext(BaseModel):
+    """Crypto-specific analysis fields."""
+    distance_to_threshold_pct: float | None = None
+    buffer_pct: float | None = None
+    daily_vol_pct: float | None = None
+    buffer_conclusion: str = ""  # "thin" / "adequate" / "wide"
+    market_already_knows: str = ""  # gray auxiliary info
 
 
 class WatchCondition(BaseModel):
@@ -80,41 +85,51 @@ class PositionAdvice(BaseModel):
 
 
 class NarrativeWriterOutput(BaseModel):
-    """Output from Agent 2: NarrativeWriter (decision advisor mode)."""
+    """Output from unified AI analysis — decision assistant mode."""
 
     market_id: str
 
-    # Decision layer
-    action: ActionLevel = "watch_only"
-    action_reasoning: str = ""
+    # Decision
+    action: ActionLevel = "PASS"
+    bias: BiasDirection = "NONE"
+    strength: Strength = "weak"
     confidence: Confidence = "low"
+    opportunity_type: OpportunityType = "no_trade"
 
-    # Time window
+    # Timing
     time_window: TimeWindow = TimeWindow(urgency="normal", note="")
-    friction_impact: str = ""
 
-    # Reasoning layer
-    summary: str
+    # Why
+    why_now: str = ""
+    why_not_now: str = ""
+    friction_vs_edge: FrictionEdge = "friction_exceeds"
+
+    # Risk
+    execution_risk: Confidence = "low"  # reuse low/medium/high
     risk_flags: list[RiskFlag] = []
     counterparty_note: str = ""
 
-    # Why not an opportunity + recheck conditions (avoid/watch only)
-    why_not_opportunity: list[str] = []   # max 3 reasons
-    recheck_conditions: list[str] = []    # max 3 trigger conditions
+    # Evidence (split into supporting vs invalidation)
+    supporting_findings: list[ResearchFinding] = []
+    invalidation_findings: list[ResearchFinding] = []
 
-    # Watch conditions (structured, for watch_only action)
+    # Watch / recheck
+    recheck_conditions: list[str] = []
     watch: WatchCondition | None = None
+    next_step: str = ""
 
-    # Research findings (replaces research_checklist)
-    research_findings: list[ResearchFinding] = []
-    research_checklist: list[str] = []  # deprecated, kept for old data compat
+    # Crypto-specific (optional)
+    crypto: CryptoContext | None = None
 
-    # Direction bias (optional, only in --lean mode)
-    bias: BiasOutput | None = None
-
-    # Verdict
+    # Legacy compat
+    summary: str = ""
     one_line_verdict: str = ""
-    suggested_style: SuggestedStyle = "watch_only"  # kept for backward compat
+    research_findings: list[ResearchFinding] = []  # deprecated, use supporting+invalidation
+    research_checklist: list[str] = []  # deprecated
+    action_reasoning: str = ""  # deprecated, use why_now/why_not_now
+    friction_impact: str = ""  # deprecated, use friction_vs_edge
+    why_not_opportunity: list[str] = []  # deprecated, use why_not_now
+    suggested_style: SuggestedStyle = "watch_only"  # deprecated
 
 
 class BriefingOutput(BaseModel):

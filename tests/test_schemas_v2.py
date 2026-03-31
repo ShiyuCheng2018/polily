@@ -1,11 +1,12 @@
-"""Tests for Phase 1 schema changes — new decision-oriented fields."""
+"""Tests for decision assistant schema."""
 
 from scanner.agents.schemas import (
-    BiasOutput,
+    CryptoContext,
     NarrativeWriterOutput,
     ResearchFinding,
     RiskFlag,
     TimeWindow,
+    WatchCondition,
 )
 
 
@@ -15,90 +16,97 @@ class TestNewTypes:
         assert tw.urgency == "urgent"
         assert tw.optimal_entry is None
 
-    def test_time_window_with_entry(self):
-        tw = TimeWindow(urgency="normal", note="3天后结算", optimal_entry="CPI 发布前入场")
-        assert tw.optimal_entry == "CPI 发布前入场"
-
     def test_risk_flag(self):
         rf = RiskFlag(text="摩擦吃掉 80% 利润", severity="critical")
         assert rf.severity == "critical"
 
     def test_research_finding(self):
-        rf = ResearchFinding(
-            finding="BTC 过去 24h 下跌 3.2%",
-            source="Binance",
-            impact="距离阈值更远",
-        )
+        rf = ResearchFinding(finding="BTC 下跌 3.2%", source="Binance", impact="距离阈值更远")
         assert rf.source == "Binance"
 
-    def test_bias_output(self):
-        b = BiasOutput(
-            direction="lean_yes",
-            reasoning="模型估值 0.45",
-            confidence="medium",
-            caveat="前提是 BTC 维持波动率",
+    def test_crypto_context(self):
+        cc = CryptoContext(
+            distance_to_threshold_pct=1.2, buffer_pct=1.2,
+            daily_vol_pct=3.5, buffer_conclusion="thin",
+            market_already_knows="定价已反映 CPI 预期",
         )
-        assert b.direction == "lean_yes"
+        assert cc.buffer_conclusion == "thin"
+
+    def test_watch_condition(self):
+        wc = WatchCondition(watch_reason="价格不对", better_entry="YES <= 0.58")
+        assert wc.better_entry == "YES <= 0.58"
 
 
-class TestNarrativeWriterOutputV2:
-    def test_new_fields_present(self):
+class TestNarrativeWriterOutputV3:
+    def test_new_decision_fields(self):
         out = NarrativeWriterOutput(
             market_id="test",
-            action="watch_only",
-            action_reasoning="摩擦太高",
+            action="WATCH",
+            bias="YES",
+            strength="medium",
             confidence="medium",
-            time_window=TimeWindow(urgency="normal", note="2天"),
-            friction_impact="摩擦吃掉 65% 利润",
-            summary="测试总结",
-            risk_flags=[RiskFlag(text="高风险", severity="critical")],
-            counterparty_note="对手方是 bot",
-            research_findings=[
-                ResearchFinding(finding="BTC $67k", source="Binance", impact="接近阈值"),
-            ],
-            one_line_verdict="watch_only: 好市场但价格不对",
+            opportunity_type="watch_only",
+            why_now="",
+            why_not_now="摩擦太高",
+            friction_vs_edge="friction_exceeds",
+            execution_risk="low",
+            summary="测试",
         )
-        assert out.action == "watch_only"
-        assert out.time_window.urgency == "normal"
-        assert len(out.research_findings) == 1
-        assert out.risk_flags[0].severity == "critical"
-        assert out.bias is None  # optional
+        assert out.action == "WATCH"
+        assert out.bias == "YES"
+        assert out.friction_vs_edge == "friction_exceeds"
 
-    def test_with_bias(self):
+    def test_with_crypto_context(self):
         out = NarrativeWriterOutput(
             market_id="test",
-            action="small_position_ok",
-            action_reasoning="有 edge",
+            action="BUY_YES",
+            bias="YES",
+            strength="strong",
             confidence="high",
-            time_window=TimeWindow(urgency="urgent", note="1天"),
-            friction_impact="摩擦吃掉 20% 利润",
-            summary="总结",
-            risk_flags=[],
-            counterparty_note="",
-            research_findings=[],
-            one_line_verdict="可以小仓位",
-            bias=BiasOutput(
-                direction="lean_yes", reasoning="低估",
-                confidence="medium", caveat="前提...",
+            opportunity_type="instant_mispricing",
+            summary="有 edge",
+            crypto=CryptoContext(
+                distance_to_threshold_pct=5.2,
+                buffer_pct=5.2,
+                daily_vol_pct=3.5,
+                buffer_conclusion="adequate",
+                market_already_knows="",
             ),
         )
-        assert out.bias.direction == "lean_yes"
+        assert out.crypto.buffer_conclusion == "adequate"
+        assert out.action == "BUY_YES"
+
+    def test_supporting_and_invalidation_findings(self):
+        out = NarrativeWriterOutput(
+            market_id="test",
+            action="PASS",
+            summary="不值得",
+            supporting_findings=[
+                ResearchFinding(finding="支持", source="A", impact="正面"),
+            ],
+            invalidation_findings=[
+                ResearchFinding(finding="反驳", source="B", impact="可能推翻"),
+            ],
+        )
+        assert len(out.supporting_findings) == 1
+        assert len(out.invalidation_findings) == 1
 
     def test_model_dump_roundtrip(self):
         out = NarrativeWriterOutput(
             market_id="test",
-            action="avoid",
-            action_reasoning="没有 edge",
-            confidence="low",
-            time_window=TimeWindow(urgency="no_rush", note="7天"),
-            friction_impact="无可测量 edge",
+            action="PASS",
             summary="不值得",
-            risk_flags=[RiskFlag(text="无 edge", severity="warning")],
-            counterparty_note="",
-            research_findings=[],
-            one_line_verdict="avoid",
+            risk_flags=[RiskFlag(text="高摩擦", severity="critical")],
+            next_step="pass_for_now",
         )
         data = out.model_dump()
         restored = NarrativeWriterOutput.model_validate(data)
-        assert restored.action == "avoid"
-        assert restored.risk_flags[0].severity == "warning"
+        assert restored.action == "PASS"
+        assert restored.next_step == "pass_for_now"
+
+    def test_backward_compat_defaults(self):
+        """Old data with minimal fields should still validate."""
+        out = NarrativeWriterOutput(market_id="test", summary="old format")
+        assert out.action == "PASS"
+        assert out.bias == "NONE"
+        assert out.crypto is None

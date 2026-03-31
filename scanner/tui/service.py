@@ -308,7 +308,6 @@ class ScanService:
         """Run full AI analysis on a single market."""
         from datetime import datetime
 
-        from scanner.agents.market_analyst import MarketAnalystAgent
         from scanner.agents.narrative_writer import NarrativeWriterAgent
         from scanner.analysis_store import (
             AnalysisVersion,
@@ -331,39 +330,23 @@ class ScanService:
         self._persist_log(log)
 
         try:
-            # Step 1: MarketAnalyst
-            self._step_start("AI 语义分析")
-            analyst = MarketAnalystAgent(self.config.ai.market_analyst, self.config.heuristics)
-            analyst_output = await analyst.analyze(market)
-            self._step_done("完成")
-
-            # Step 2: Mispricing (crypto only)
-            mispricing_signal = candidate.mispricing.signal
-            mispricing_details = candidate.mispricing.details
-            if market.market_type == "crypto_threshold":
-                self._step_start("加密货币定价检测")
+            # Step 1: Refresh crypto mispricing if applicable
+            from scanner.market_types.registry import find_matching_module
+            enrichment_mod = find_matching_module(market)
+            if enrichment_mod:
+                self._step_start("刷新实时价格")
                 try:
-                    from scanner.mispricing import detect_mispricing
-                    from scanner.price_feeds import BinancePriceFeed
-                    feed = BinancePriceFeed()
-                    try:
-                        params = await feed.get_crypto_params(
-                            market.title,
-                            vol_days=self.config.mispricing.crypto.volatility_lookback_days,
-                        )
-                    finally:
-                        await feed.close()
+                    params = await enrichment_mod.fetch_price_params(market, self.config)
                     if params:
-                        mp = detect_mispricing(market, self.config.mispricing, **params)
-                        mispricing_signal = mp.signal
-                        mispricing_details = mp.details
-                        candidate.mispricing = mp
+                        result = enrichment_mod.detect_mispricing(market, params, self.config)
+                        if result:
+                            candidate.mispricing = result
                     self._step_done("完成")
                 except Exception as e:
                     self._step_done(f"跳过: {e}")
 
-            # Step 3: NarrativeWriter with previous context
-            self._step_start("AI 撰写分析")
+            # Step 2: Single AI call — unified decision analysis
+            self._step_start("AI 决策分析")
             existing = get_market_analyses(market.market_id, analyses_path)
             narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
             context = build_previous_context(existing)
@@ -380,9 +363,9 @@ class ScanService:
                 created_at=datetime.now(UTC).isoformat(),
                 market_title=market.title,
                 yes_price_at_analysis=market.yes_price,
-                analyst_output=analyst_output.model_dump(),
-                mispricing_signal=mispricing_signal,
-                mispricing_details=mispricing_details,
+                analyst_output={},
+                mispricing_signal=candidate.mispricing.signal,
+                mispricing_details=candidate.mispricing.details,
                 narrative_output=narrative_output.model_dump(),
                 previous_version=prev_version,
                 elapsed_seconds=time.time() - start_time,
