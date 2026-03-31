@@ -42,15 +42,17 @@ class BaseAgent:
         model: str = "sonnet",
         cli_command: str = "claude",
         fallback_fn: Callable[[str], dict] | None = None,
-        timeout_seconds: float = 120,
+        idle_timeout_seconds: float = 120,
         max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+        # Legacy: timeout_seconds still accepted but mapped to idle_timeout
+        timeout_seconds: float | None = None,
     ):
         self.system_prompt = system_prompt
         self.json_schema = json_schema
         self.model = model
         self.cli_command = cli_command
         self.fallback_fn = fallback_fn
-        self.timeout_seconds = timeout_seconds
+        self.idle_timeout = timeout_seconds or idle_timeout_seconds
         self.max_prompt_chars = max_prompt_chars
 
     async def invoke(self, prompt: str, max_retries: int = 2) -> dict:
@@ -98,9 +100,14 @@ class BaseAgent:
         return await asyncio.gather(*[bounded(p) for p in prompts])
 
     async def _call_cli(self, prompt: str) -> dict:
-        """Execute claude CLI and parse JSON from response."""
-        # Build schema hint into prompt for reliable JSON output
-        # Extract just the field names for a compact hint (not full schema)
+        """Execute claude CLI with polling-based timeout.
+
+        Polls the process every 5s instead of blocking on a single wait_for.
+        Kills the process if it hasn't finished within idle_timeout seconds.
+        Set idle_timeout high (e.g. 300s) for agents that do web searches.
+        """
+        import time
+
         props = self.json_schema.get("properties", {})
         fields = list(props.keys())[:10]
         full_prompt = (
@@ -121,17 +128,29 @@ class BaseAgent:
             stderr=asyncio.subprocess.PIPE,
         )
         _active_pids.add(proc.pid)
+
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=self.timeout_seconds,
-            )
-        except TimeoutError as e:
-            proc.kill()
-            await proc.wait()
-            raise RuntimeError(f"claude CLI timed out after {self.timeout_seconds}s") from e
+            # Wrap communicate() as a task, poll for idle timeout
+            comm_task = asyncio.ensure_future(proc.communicate())
+            start = time.monotonic()
+            while not comm_task.done():
+                await asyncio.sleep(5.0)
+                elapsed = time.monotonic() - start
+                if elapsed > self.idle_timeout:
+                    comm_task.cancel()
+                    proc.kill()
+                    await proc.wait()
+                    raise RuntimeError(
+                        f"claude CLI not responding after {self.idle_timeout:.0f}s, killed"
+                    )
+                logger.debug("Agent still running (%.0fs)...", elapsed)
+
+            stdout, stderr = comm_task.result()
         finally:
             _active_pids.discard(proc.pid)
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
 
         if proc.returncode != 0:
             raise RuntimeError(f"claude CLI exited with code {proc.returncode}: {stderr.decode()[:500]}")

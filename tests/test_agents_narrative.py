@@ -14,12 +14,20 @@ from tests.conftest import make_cli_response, make_market
 
 SAMPLE_NARRATIVE_OUTPUT = {
     "market_id": "0xtest",
+    "action": "worth_research",
+    "action_reasoning": "模型偏差 6%，摩擦 3.6%，有剩余 edge",
+    "confidence": "medium",
+    "time_window": {"urgency": "normal", "note": "还剩 2.0 天"},
+    "friction_impact": "摩擦吃掉 60% 潜在利润",
     "summary": "Mid-probability crypto market with moderate mispricing signal.",
-    "why_it_passed": ["Objective binary outcome", "Resolution within 3 days", "Spread acceptable"],
-    "risk_flags": ["Round-trip friction eats most edge", "Bots dominate this market"],
+    "risk_flags": [
+        {"text": "Round-trip friction eats most edge", "severity": "critical"},
+        {"text": "Bots dominate this market", "severity": "warning"},
+    ],
     "counterparty_note": "Crypto threshold markets are bot-heavy.",
-    "resolution_risk_note": None,
-    "research_checklist": ["Check BTC chart", "Verify resolution source", "Compare vol estimate"],
+    "research_findings": [
+        {"finding": "BTC 当前价格 $67,750", "source": "Binance", "impact": "距阈值 $88k 还有 23%"},
+    ],
     "suggested_style": "research_candidate",
     "one_line_verdict": "Moderate mispricing in crypto threshold, thin edge after friction.",
 }
@@ -56,9 +64,9 @@ class TestNarrativeWriterAgent:
 
             result = await agent.generate(candidate)
             assert isinstance(result, NarrativeWriterOutput)
-            assert result.suggested_style == "research_candidate"
-            assert len(result.why_it_passed) > 0
-            assert len(result.research_checklist) > 0
+            assert result.action == "worth_research"
+            assert len(result.risk_flags) > 0
+            assert len(result.research_findings) > 0
 
     @pytest.mark.asyncio
     async def test_fallback_on_failure(self):
@@ -143,19 +151,28 @@ class TestNarrativeFallback:
         assert isinstance(result, NarrativeWriterOutput)
         assert result.market_id == "0xtest"
         assert len(result.summary) > 0
-        assert len(result.why_it_passed) > 0
-        assert result.suggested_style in (
-            "research_candidate", "watch_only", "research_repricing", "avoid_despite_score",
-        )
+        assert result.action in ("worth_research", "small_position_ok", "watch_only", "avoid")
+        assert result.confidence == "low"
 
-    def test_fallback_includes_friction_warning(self):
+    def test_fallback_has_risk_flags_with_severity(self):
         candidate = _make_scored_candidate()
         result = narrative_fallback(candidate)
-        risk_text = " ".join(result.risk_flags).lower()
-        assert "friction" in risk_text or "spread" in risk_text
+        assert len(result.risk_flags) > 0
+        for rf in result.risk_flags:
+            assert rf.severity in ("critical", "warning", "info")
 
-    def test_fallback_style_watch_only_when_no_mispricing(self):
+    def test_fallback_avoid_when_no_mispricing(self):
         candidate = _make_scored_candidate()
         candidate.mispricing = MispricingResult(signal="none")
         result = narrative_fallback(candidate)
-        assert result.suggested_style == "watch_only"
+        assert result.action == "avoid"
+
+    def test_fallback_has_time_window(self):
+        candidate = _make_scored_candidate()
+        result = narrative_fallback(candidate)
+        assert result.time_window.urgency in ("urgent", "normal", "no_rush")
+
+    def test_fallback_has_friction_impact(self):
+        candidate = _make_scored_candidate()
+        result = narrative_fallback(candidate)
+        assert len(result.friction_impact) > 0

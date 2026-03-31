@@ -1,4 +1,4 @@
-"""MarketDetailView: full market analysis with score breakdown, risks, actions."""
+"""MarketDetailView: decision-first market analysis with AI insights."""
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -31,8 +31,29 @@ class SwitchVersionRequested(Message):
         self.version_idx = version_idx
 
 
+# Action level colors and labels
+ACTION_DISPLAY = {
+    "avoid": ("[red]AVOID[/red]", "red"),
+    "watch_only": ("[yellow]WATCH[/yellow]", "yellow"),
+    "worth_research": ("[cyan]RESEARCH[/cyan]", "cyan"),
+    "small_position_ok": ("[green]GO[/green]", "green"),
+}
+
+CONFIDENCE_BAR = {
+    "low": "[dim]██░░░░░░░░[/dim]",
+    "medium": "[yellow]██████░░░░[/yellow]",
+    "high": "[green]████████░░[/green]",
+}
+
+URGENCY_LABEL = {
+    "urgent": "[red]紧急[/red]",
+    "normal": "正常",
+    "no_rush": "[dim]不急[/dim]",
+}
+
+
 class MarketDetailView(Widget):
-    """Full detail view for a single market candidate."""
+    """Decision-first market detail view."""
 
     BINDINGS = [
         Binding("escape", "go_back", "返回列表"),
@@ -48,8 +69,12 @@ class MarketDetailView(Widget):
     MarketDetailView { height: 1fr; }
     MarketDetailView .section-title { text-style: bold; color: $primary; padding: 1 0 0 0; }
     MarketDetailView .detail-row { padding: 0 0 0 2; }
-    MarketDetailView .risk-item { color: $error; padding: 0 0 0 2; }
-    MarketDetailView .checklist-item { color: $text-muted; padding: 0 0 0 2; }
+    MarketDetailView .risk-critical { color: $error; padding: 0 0 0 2; }
+    MarketDetailView .risk-warning { color: $warning; padding: 0 0 0 2; }
+    MarketDetailView .risk-info { color: $text-muted; padding: 0 0 0 2; }
+    MarketDetailView .finding-row { padding: 0 0 0 2; color: $text; }
+    MarketDetailView .finding-impact { padding: 0 0 0 4; color: $text-muted; }
+    MarketDetailView .conclusion-box { padding: 1 2; margin: 1 0; }
     """
 
     def __init__(self, candidate: ScoredCandidate, service: ScanService,
@@ -88,116 +113,205 @@ class MarketDetailView(Widget):
         m = self.candidate.market
         s = self.candidate.score
         mp = self.candidate.mispricing
+        n = self._current_narrative()
 
         with VerticalScroll():
-            # Title
-            resolution_str = f" | 结算: {m.days_to_resolution:.1f}天" if m.days_to_resolution else ""
+            # === TITLE ===
+            days_str = f"{m.days_to_resolution:.1f}天" if m.days_to_resolution else "?"
             yield Static(f" [bold]{m.title}[/bold]", classes="section-title")
-            yield Static(f"  类型: {m.market_type or '?'}{resolution_str}")
-            yield Static("  按 o 打开 Polymarket")
+            yield Static(f"  {m.market_type or 'other'} | 结算: {days_str} | 结构分: {s.total:.0f}/100")
 
-            # Prices
-            yield Static(" 价格信息", classes="section-title")
-            yield Static(f"  YES: {m.yes_price:.2f} | NO: {m.no_price or 0:.2f}", classes="detail-row")
-            spread = f"{m.spread_pct_yes:.1%}" if m.spread_pct_yes else "?"
-            friction = f"{m.round_trip_friction_pct:.1%}" if m.round_trip_friction_pct else "?"
-            w_spread = Static(f"  价差: {spread} | 摩擦: {friction}", classes="detail-row")
-            w_spread.tooltip = "价差: 买卖价之间的差距 | 摩擦: 一买一卖的总成本估算"
-            yield w_spread
-            bid = f"${m.total_bid_depth_usd:,.0f}" if m.total_bid_depth_usd else "?"
-            ask = f"${m.total_ask_depth_usd:,.0f}" if m.total_ask_depth_usd else "?"
-            w_depth = Static(f"  深度: 买 {bid} / 卖 {ask}", classes="detail-row")
-            w_depth.tooltip = "订单簿深度: 买方/卖方挂单总金额，越大越容易成交"
-            yield w_depth
-
-            # Score breakdown
-            yield Static(" 结构评分明细", classes="section-title")
-            score_tooltips = {
-                "结算时间": "距离市场结算的时间，0.5-7天最佳",
-                "客观性":   "结算标准是否明确可验证",
-                "概率区间": "当前价格是否在 0.30-0.70 区间，太极端的没有交易价值",
-                "流动性":   "买卖盘深度 + 价差，决定能否以合理价格成交",
-                "可退出性": "卖出时买方深度是否足够，决定能否顺利退出",
-                "催化剂":   "是否有明确的事件驱动（如数据发布、比赛结果）",
-                "小账户":   "$20 仓位下的摩擦成本是否可接受",
-            }
-            for name, val, max_val in [
-                ("结算时间", s.time_to_resolution, 15),
-                ("客观性", s.objectivity, 20),
-                ("概率区间", s.probability_zone, 20),
-                ("流动性", s.liquidity_depth, 20),
-                ("可退出性", s.exitability, 10),
-                ("催化剂", s.catalyst_proxy, 5),
-                ("小账户", s.small_account_friendliness, 10),
-            ]:
-                bar_len = int(val / max_val * 10) if max_val > 0 else 0
-                bar = "█" * bar_len + "░" * (10 - bar_len)
-                w = Static(f"  {name:8s} {bar} {val:.1f}/{max_val}", classes="detail-row")
-                w.tooltip = score_tooltips.get(name, "")
-                yield w
-            yield Static(f"  [bold]总分: {s.total:.0f}/100[/bold]", classes="detail-row")
-
-            # Mispricing
-            if mp.signal != "none":
-                w_mp_title = Static(" 定价偏差", classes="section-title")
-                w_mp_title.tooltip = "基于数学模型（对数正态波动率）检测市场价格是否偏离理论值"
-                yield w_mp_title
-                yield Static(f"  信号: {mp.signal.upper()} | {mp.details or ''}", classes="detail-row")
-
-            # AI Analysis — version selector + content
+            # === FIRST SCREEN: DECISION ZONE ===
             if self._analyzing:
                 yield Static(" AI 分析中...", classes="section-title")
-                yield Static("  请稍候，正在调用 AI agent...", classes="detail-row")
+                yield Static("  正在联网搜索 + 分析，请稍候...", classes="detail-row")
+            elif n:
+                yield from self._compose_conclusion_card(n)
             else:
-                n = self._current_narrative()
+                yield Static("")
+                yield Static("  [dim]按 a 启动 AI 分析[/dim]", classes="detail-row")
 
-                # Version selector
-                if self._versions:
-                    v = self._versions[self._version_idx]
-                    total = len(self._versions)
-                    idx = self._version_idx + 1
-                    ts = v.created_at[5:16].replace("T", " ")
-                    price_note = f"@{v.yes_price_at_analysis:.2f}" if v.yes_price_at_analysis else ""
-                    yield Static(
-                        f" AI 分析  [bold]v{v.version}[/bold] ({ts}) {price_note}"
-                        f"  [dim]< > 切换版本 ({idx}/{total})[/dim]",
-                        classes="section-title",
-                    )
-                elif n:
-                    yield Static(" AI 分析", classes="section-title")
+            # Risk calculator (moved up to first screen)
+            yield from self._compose_risk_calculator(m)
 
-                if n:
-                    yield Static(f"  {n.summary}", classes="detail-row")
+            # Critical risks only (first screen)
+            if n and not self._analyzing:
+                yield from self._compose_critical_risks(n)
 
-                    if n.risk_flags:
-                        yield Static(" 风险提示", classes="section-title")
-                        for flag in n.risk_flags:
-                            yield Static(f"  ! {flag}", classes="risk-item")
+            # === SECOND SCREEN: SUPPORT ZONE ===
+            if n and not self._analyzing:
+                yield from self._compose_support_zone(n, m, mp)
 
-                    if n.counterparty_note:
-                        yield Static(" 对手方", classes="section-title")
-                        yield Static(f"  {n.counterparty_note}", classes="detail-row")
+            # === THIRD SCREEN: RESEARCH FINDINGS ===
+            if n and not self._analyzing:
+                yield from self._compose_research_findings(n)
 
-                    if n.research_checklist:
-                        yield Static(" 研究清单", classes="section-title")
-                        for item in n.research_checklist:
-                            yield Static(f"  □ {item}", classes="checklist-item")
+            # Score breakdown (compact)
+            yield from self._compose_score_compact(s)
 
-            # Scenario calculator
-            if m.yes_price and m.yes_price > 0:
-                pos = 20.0
-                friction_cost = pos * (m.round_trip_friction_pct or 0.04)
-                profit = (pos / m.yes_price) * 1.0 - pos
-                yield Static(" 风险计算 ($20)", classes="section-title")
-                w_risk = Static(f"  最坏: -${pos:.0f} | 摩擦: -${friction_cost:.2f} | 判断对: +${profit - friction_cost:.2f}", classes="detail-row")
-                w_risk.tooltip = "最坏: 全亏 | 摩擦: 买卖价差成本 | 判断对: 结算为YES时的净利润"
-                yield w_risk
-
+            # Footer
             yield Static("")
             if self._versions:
                 yield Static("  [dim]Esc 返回 | a 重新分析 | < > 切换版本 | y YES | n NO | o 链接[/dim]")
             else:
-                yield Static("  [dim]Esc 返回 | a AI分析 | y 买YES | n 买NO | o 打开链接[/dim]")
+                yield Static("  [dim]Esc 返回 | a AI分析 | y YES | n NO | o 链接[/dim]")
+
+    def _compose_conclusion_card(self, n) -> ComposeResult:
+        """Decision conclusion card — the most important thing on screen."""
+        action_label, _ = ACTION_DISPLAY.get(getattr(n, "action", "watch_only"), ("[dim]?[/dim]", "dim"))
+        confidence = getattr(n, "confidence", "low")
+        conf_bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
+        action_reasoning = getattr(n, "action_reasoning", "")
+        friction_impact = getattr(n, "friction_impact", "")
+
+        verdict = getattr(n, "one_line_verdict", "")
+        yield Static("")
+        yield Static(f"  {action_label}  {action_reasoning}", classes="conclusion-box")
+        if verdict:
+            yield Static(f"  [dim]{verdict}[/dim]", classes="detail-row")
+        yield Static(f"  置信度 {conf_bar} {confidence}", classes="detail-row")
+
+        # Time window
+        tw = getattr(n, "time_window", None)
+        if tw and hasattr(tw, "urgency"):
+            urgency_label = URGENCY_LABEL.get(tw.urgency, tw.urgency)
+            note = tw.note if hasattr(tw, "note") else ""
+            yield Static(f"  窗口: {urgency_label} | {note}", classes="detail-row")
+
+        if friction_impact:
+            yield Static(f"  摩擦: {friction_impact}", classes="detail-row")
+
+        # Version selector
+        if self._versions:
+            v = self._versions[self._version_idx]
+            total = len(self._versions)
+            idx = self._version_idx + 1
+            ts = v.created_at[5:16].replace("T", " ")
+            price_note = f"@{v.yes_price_at_analysis:.2f}" if v.yes_price_at_analysis else ""
+            yield Static(
+                f"  [dim]v{v.version} ({ts}) {price_note}  < > 切换版本 ({idx}/{total})[/dim]",
+                classes="detail-row",
+            )
+
+        # Bias (only if available — lean mode)
+        bias = getattr(n, "bias", None)
+        if bias and hasattr(bias, "direction") and bias.direction != "neutral":
+            direction_cn = {"lean_yes": "偏 YES", "lean_no": "偏 NO"}.get(bias.direction, "?")
+            yield Static(f"  方向: {direction_cn} ({bias.caveat})", classes="detail-row")
+
+    def _compose_risk_calculator(self, m) -> ComposeResult:
+        """Scenario calculator — moved to first screen for quick decision."""
+        if m.yes_price and m.yes_price > 0:
+            pos = 20.0
+            friction_cost = pos * (m.round_trip_friction_pct or 0.04)
+            profit = (pos / m.yes_price) * 1.0 - pos
+            yield Static("")
+            yield Static(
+                f"  $20 投入: 最坏 -${pos:.0f} | 摩擦 -${friction_cost:.2f} | 判断对 +${profit - friction_cost:.2f}",
+                classes="detail-row",
+            )
+
+    def _compose_critical_risks(self, n) -> ComposeResult:
+        """Only show severity=critical risks in first screen."""
+        risk_flags = getattr(n, "risk_flags", [])
+        critical = []
+        for rf in risk_flags:
+            if hasattr(rf, "severity") and rf.severity == "critical":
+                critical.append(rf.text)
+            elif isinstance(rf, str):
+                critical.append(rf)  # backward compat with old format
+        if critical:
+            yield Static("")
+            for text in critical[:2]:
+                yield Static(f"  ! {text}", classes="risk-critical")
+
+    def _compose_support_zone(self, n, m, mp) -> ComposeResult:
+        """Second screen: AI summary + counterparty + price + mispricing."""
+        # AI summary
+        if getattr(n, "summary", ""):
+            yield Static(" AI 分析", classes="section-title")
+            yield Static(f"  {getattr(n, 'summary', '')}", classes="detail-row")
+
+        # Counterparty
+        counterparty = getattr(n, "counterparty_note", "")
+        if counterparty:
+            yield Static(" 对手方", classes="section-title")
+            yield Static(f"  {counterparty}", classes="detail-row")
+
+        # Price info
+        yield Static(" 价格", classes="section-title")
+        yield Static(f"  YES: {m.yes_price:.2f} | NO: {m.no_price or 0:.2f}", classes="detail-row")
+        spread = f"{m.spread_pct_yes:.1%}" if m.spread_pct_yes else "?"
+        friction = f"{m.round_trip_friction_pct:.1%}" if m.round_trip_friction_pct else "?"
+        yield Static(f"  价差: {spread} | 摩擦: {friction}", classes="detail-row")
+        bid = f"${m.total_bid_depth_usd:,.0f}" if m.total_bid_depth_usd else "?"
+        ask = f"${m.total_ask_depth_usd:,.0f}" if m.total_ask_depth_usd else "?"
+        yield Static(f"  深度: 买 {bid} / 卖 {ask}", classes="detail-row")
+
+        # Mispricing
+        if mp.signal != "none":
+            yield Static(" 定价偏差", classes="section-title")
+            yield Static(f"  {mp.signal.upper()} | {mp.details or ''}", classes="detail-row")
+
+        # All risks (including warning/info)
+        risk_flags = getattr(n, "risk_flags", [])
+        non_critical = []
+        for rf in risk_flags:
+            if hasattr(rf, "severity"):
+                if rf.severity != "critical":
+                    non_critical.append((rf.text, rf.severity))
+            elif isinstance(rf, str):
+                non_critical.append((rf, "warning"))
+        if non_critical:
+            yield Static(" 其他风险", classes="section-title")
+            for text, severity in non_critical:
+                css_class = f"risk-{severity}"
+                yield Static(f"  ! {text}", classes=css_class)
+
+    def _compose_research_findings(self, n) -> ComposeResult:
+        """Third screen: agent's own research results."""
+        findings = getattr(n, "research_findings", [])
+        # Backward compat: old format had research_checklist
+        checklist = getattr(n, "research_checklist", []) if not findings else []
+
+        if findings:
+            yield Static(" 研究发现", classes="section-title")
+            for f in findings:
+                if hasattr(f, "finding"):
+                    source = f"[dim]来源: {f.source}[/dim]" if f.source else ""
+                    yield Static(f"  {f.finding}  {source}", classes="finding-row")
+                    if f.impact:
+                        yield Static(f"    -> {f.impact}", classes="finding-impact")
+                elif isinstance(f, dict):
+                    yield Static(f"  {f.get('finding', '')}  [dim]{f.get('source', '')}[/dim]", classes="finding-row")
+                    impact = f.get("impact", "")
+                    if impact:
+                        yield Static(f"    -> {impact}", classes="finding-impact")
+        elif checklist:
+            # Backward compat for old analyses
+            yield Static(" 研究清单", classes="section-title")
+            for item in checklist:
+                yield Static(f"  {item}", classes="detail-row")
+
+    def _compose_score_compact(self, s) -> ComposeResult:
+        """Compact score display."""
+        yield Static(f" 结构评分 {s.total:.0f}/100", classes="section-title")
+        items = [
+            ("时间", s.time_to_resolution, 15),
+            ("客观", s.objectivity, 20),
+            ("概率", s.probability_zone, 20),
+            ("流动", s.liquidity_depth, 20),
+            ("退出", s.exitability, 10),
+            ("催化", s.catalyst_proxy, 5),
+            ("小户", s.small_account_friendliness, 10),
+        ]
+        parts = []
+        for name, val, mx in items:
+            pct = int(val / mx * 100) if mx > 0 else 0
+            parts.append(f"{name}:{pct}%")
+        yield Static(f"  {' | '.join(parts)}", classes="detail-row")
+
+    # === Actions ===
 
     def action_go_back(self) -> None:
         self.post_message(BackToList())
@@ -231,7 +345,6 @@ class MarketDetailView(Widget):
         if not price or price <= 0:
             return
 
-        # Double-press confirm
         pending = getattr(self, "_pending_trade", None)
         if pending == (m.market_id, side):
             trade_id = self.service.mark_paper_trade(

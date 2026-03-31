@@ -120,17 +120,17 @@ class ScanService:
                 n_data = entry.get("narrative")
                 if n_data and isinstance(n_data, dict):
                     from scanner.agents.schemas import NarrativeWriterOutput
-                    with contextlib.suppress(Exception):
-                        narrative = NarrativeWriterOutput(
-                            market_id=entry.get("market_id", ""),
-                            summary=n_data.get("summary", ""),
-                            why_it_passed=n_data.get("why_it_passed", []),
-                            risk_flags=n_data.get("risk_flags", []),
-                            counterparty_note=n_data.get("counterparty_note", ""),
-                            research_checklist=n_data.get("research_checklist", []),
-                            suggested_style=n_data.get("suggested_style", "watch_only"),
-                            one_line_verdict=n_data.get("one_line_verdict", ""),
-                        )
+                    try:
+                        # Ensure market_id is present
+                        n_data.setdefault("market_id", entry.get("market_id", ""))
+                        # Pre-process old risk_flags format (list[str] → list[dict])
+                        if n_data.get("risk_flags") and isinstance(n_data["risk_flags"][0], str):
+                            n_data["risk_flags"] = [
+                                {"text": rf, "severity": "warning"} for rf in n_data["risk_flags"]
+                            ]
+                        narrative = NarrativeWriterOutput.model_validate(n_data)
+                    except Exception:
+                        pass
 
                 candidate = ScoredCandidate(market=market, score=score, mispricing=mispricing, narrative=narrative)
 
