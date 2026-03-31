@@ -98,14 +98,11 @@ def render_candidate_json(candidate: ScoredCandidate) -> str:
     # Include AI narrative if available
     n = candidate.narrative
     if n is not None:
-        data["narrative"] = {
-            "summary": n.summary,
-            "why_it_passed": n.why_it_passed,
-            "risk_flags": n.risk_flags,
-            "counterparty_note": n.counterparty_note,
-            "research_checklist": n.research_checklist,
-            "suggested_style": n.suggested_style,
-            "one_line_verdict": n.one_line_verdict,
-        }
+        if hasattr(n, "model_dump"):
+            data["narrative"] = n.model_dump()
+        elif isinstance(n, dict):
+            data["narrative"] = n
+        else:
+            data["narrative"] = {"summary": str(n)}
 
     return json.dumps(data, indent=2, default=str)

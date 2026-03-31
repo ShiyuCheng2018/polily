@@ -100,12 +100,11 @@ class BaseAgent:
         return await asyncio.gather(*[bounded(p) for p in prompts])
 
     async def _call_cli(self, prompt: str) -> dict:
-        """Execute claude CLI with heartbeat-based idle detection.
+        """Execute claude CLI with polling-based timeout.
 
-        Instead of a hard timeout, polls the process periodically and only
-        kills it if it hasn't finished within idle_timeout seconds of the
-        last check. This allows agents doing web searches to take as long
-        as needed while still catching stuck processes.
+        Polls the process every 5s instead of blocking on a single wait_for.
+        Kills the process if it hasn't finished within idle_timeout seconds.
+        Set idle_timeout high (e.g. 300s) for agents that do web searches.
         """
         import time
 

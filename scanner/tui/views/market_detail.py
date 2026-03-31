@@ -260,7 +260,8 @@ class MarketDetailView(Widget):
             if hasattr(rf, "severity"):
                 if rf.severity != "critical":
                     non_critical.append((rf.text, rf.severity))
-            # critical already shown above
+            elif isinstance(rf, str):
+                non_critical.append((rf, "warning"))
         if non_critical:
             yield Static(" 其他风险", classes="section-title")
             for text, severity in non_critical:
