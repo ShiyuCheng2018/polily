@@ -21,12 +21,15 @@ def compute_position_phase(
 
     Returns: early / working / take_profit / high_risk / invalidated
     """
+    side = side.lower()
+    if side not in ("yes", "no"):
+        return "invalidated"
+    if entry_price <= 0 or current_price < 0:
+        return "invalidated"
+
     # Calculate PnL percentage based on side
     if side == "yes":
-        if entry_price > 0:
-            pnl_pct = (current_price - entry_price) / entry_price
-        else:
-            pnl_pct = 0
+        pnl_pct = (current_price - entry_price) / entry_price
     else:
         # NO side: profit when price goes down
         if entry_price < 1:

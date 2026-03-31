@@ -88,11 +88,8 @@ class PaperStatusView(Widget):
             stats_widget.update(
                 f" 总计: {stats['total_trades']} | 持仓: {stats['open']} | "
                 f"已结算: {stats['resolved']} | 胜率: {stats['win_rate']:.0%} | "
-                f"PnL: ${stats['total_paper_pnl']:+.2f}"
-            )
-            stats_widget = self.query_one("#paper-stats", Static)
-            stats_widget.update(
-                stats_widget.renderable + "\n [dim]按 a 对选中持仓进行 AI 分析[/dim]"
+                f"PnL: ${stats['total_paper_pnl']:+.2f}\n"
+                f" [dim]按 a 对选中持仓进行 AI 分析[/dim]"
             )
 
     def _get_current_price(self, market_id: str) -> float | None:

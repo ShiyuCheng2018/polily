@@ -1,7 +1,6 @@
 """WatchListView: actionable watch list with trigger conditions."""
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
@@ -19,9 +18,7 @@ class ViewWatchDetail(Message):
 class WatchListView(Widget):
     """Watch list with trigger conditions and better entry prices."""
 
-    BINDINGS = [
-        Binding("enter", "view_detail", show=False),
-    ]
+    BINDINGS = []
 
     DEFAULT_CSS = """
     WatchListView { height: 1fr; }
@@ -62,10 +59,5 @@ class WatchListView(Widget):
             table.add_row(mid[:20], reason, trigger, entry, invalid, key=mid)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        try:
-            table = self.query_one("#watch-table", DataTable)
-            row_idx = table.cursor_row
-        except Exception:
-            return
-        if row_idx < len(self._market_ids):
-            self.post_message(ViewWatchDetail(self._market_ids[row_idx]))
+        if event.row_key and event.row_key.value:
+            self.post_message(ViewWatchDetail(event.row_key.value))

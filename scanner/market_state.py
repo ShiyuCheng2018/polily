@@ -1,12 +1,15 @@
 """Market state persistence — PASS/WATCH/ACTIVE status per market."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
 
 from scanner.agents.schemas import WatchCondition
+
+logger = logging.getLogger(__name__)
 
 
 class MarketState(BaseModel):
@@ -27,16 +30,19 @@ def load_market_states(path: str | Path) -> dict[str, MarketState]:
         with open(p) as f:
             data = json.load(f)
         return {mid: MarketState.model_validate(state) for mid, state in data.items()}
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning("Failed to load market states from %s: %s", p, e)
         return {}
 
 
 def save_market_states(states: dict[str, MarketState], path: str | Path):
-    """Save all market states."""
+    """Save all market states. Uses atomic write (tmp + rename)."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "w") as f:
+    tmp = p.with_suffix(".tmp")
+    with open(tmp, "w") as f:
         json.dump({mid: s.model_dump() for mid, s in states.items()}, f, indent=2, ensure_ascii=False)
+    tmp.rename(p)
 
 
 def set_market_state(market_id: str, state: MarketState, path: str | Path):

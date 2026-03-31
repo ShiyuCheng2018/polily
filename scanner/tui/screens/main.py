@@ -62,8 +62,12 @@ class MainScreen(Screen):
     def on_mount(self) -> None:
         sidebar = self.query_one("#sidebar", Sidebar)
         sidebar.set_active_menu("tasks")
-        research = len(self.service.get_research())
-        watch = len(self.service.get_watchlist())
+        from scanner.market_state import get_watched_markets, load_market_states
+        state_file = self.service.config.archiving.market_state_file
+        states = load_market_states(state_file)
+        research = len([c for c in self.service.get_research()
+                       if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
+        watch = len(get_watched_markets(state_file))
         paper = len(self.service.get_paper_trades())
         sidebar.update_counts(research, watch, paper)
         if self.service.tiers:
@@ -109,8 +113,12 @@ class MainScreen(Screen):
         """Main thread: update status, do NOT auto-navigate."""
         self._loading = False
         total = self.service.total_scanned
-        research = len(self.service.get_research())
-        watch = len(self.service.get_watchlist())
+        from scanner.market_state import get_watched_markets, load_market_states
+        state_file = self.service.config.archiving.market_state_file
+        states = load_market_states(state_file)
+        research = len([c for c in self.service.get_research()
+                       if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
+        watch = len(get_watched_markets(state_file))
         paper = len(self.service.get_paper_trades())
 
         self.query_one("#status-bar", Static).update(
@@ -159,8 +167,12 @@ class MainScreen(Screen):
                 view.focus()
 
     def refresh_sidebar_counts(self):
-        research = len(self.service.get_research())
-        watch = len(self.service.get_watchlist())
+        from scanner.market_state import get_watched_markets, load_market_states
+        state_file = self.service.config.archiving.market_state_file
+        states = load_market_states(state_file)
+        research = len([c for c in self.service.get_research()
+                       if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
+        watch = len(get_watched_markets(state_file))
         paper = len(self.service.get_paper_trades())
         self.query_one("#sidebar", Sidebar).update_counts(research, watch, paper)
 
@@ -265,9 +277,11 @@ class MainScreen(Screen):
             current_steps = list(self.service._steps) if self._loading else None
             self._switch_view(ScanLogView(logs, current_steps), "tasks")
         elif menu_id == "research":
-            from scanner.market_state import is_passed
+            from scanner.market_state import load_market_states
             state_file = self.service.config.archiving.market_state_file
-            research = [c for c in self.service.get_research() if not is_passed(c.market.market_id, state_file)]
+            states = load_market_states(state_file)
+            research = [c for c in self.service.get_research()
+                       if not (c.market.market_id in states and states[c.market.market_id].status == "pass")]
             self._switch_view(MarketListView(research, self.service, "研究队列"), "research")
         elif menu_id == "watchlist":
             from scanner.market_state import get_watched_markets
