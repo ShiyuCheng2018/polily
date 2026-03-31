@@ -132,7 +132,7 @@ class MarketDetailView(Widget):
         with VerticalScroll():
             # === TITLE + THREE SCORES ===
             days_str = f"{m.days_to_resolution:.1f}天" if m.days_to_resolution else "?"
-            data_time = m.data_fetched_at.strftime("%H:%M:%S") if m.data_fetched_at else "?"
+            data_time = m.data_fetched_at.astimezone().strftime("%Y-%m-%d %H:%M:%S") if m.data_fetched_at else "?"
             yield Static(f" [bold]{m.title}[/bold]", classes="section-title")
             yield Static(f"  {m.market_type or 'other'} | 结算: {days_str} | [dim]数据: {data_time}[/dim]")
             yield from self._compose_three_scores(s)
