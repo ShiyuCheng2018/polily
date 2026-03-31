@@ -178,6 +178,12 @@ class MarketDetailView(Widget):
 
     def _compose_conclusion_card(self, n) -> ComposeResult:
         """Decision conclusion card — the most important thing on screen."""
+        # Detect if this is a rule-based fallback (no AI ran successfully)
+        supporting = getattr(n, "supporting_findings", [])
+        is_fallback = not supporting and getattr(n, "confidence", "") == "low"
+        if is_fallback:
+            yield Static("  [yellow]AI 分析未成功，以下为规则估算。按 a 重试。[/yellow]", classes="detail-row")
+
         action_label, _ = ACTION_DISPLAY.get(getattr(n, "action", "PASS"), ("[dim]?[/dim]", "dim"))
         confidence = getattr(n, "confidence", "low")
         conf_bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
