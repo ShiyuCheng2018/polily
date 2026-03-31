@@ -17,6 +17,7 @@ class MarketState(BaseModel):
 
     status: Literal["pass", "watch", "active"]
     updated_at: str  # ISO 8601
+    title: str = ""  # market title for display
     watch_conditions: WatchCondition | None = None
     notes: str = ""
 
@@ -42,7 +43,7 @@ def save_market_states(states: dict[str, MarketState], path: str | Path):
     tmp = p.with_suffix(".tmp")
     with open(tmp, "w") as f:
         json.dump({mid: s.model_dump() for mid, s in states.items()}, f, indent=2, ensure_ascii=False)
-    tmp.rename(p)
+    tmp.replace(p)
 
 
 def set_market_state(market_id: str, state: MarketState, path: str | Path):

@@ -260,6 +260,8 @@ class MainScreen(Screen):
             days_held = 0
         if trade.side.lower() == "yes" and trade.entry_price > 0:
             pnl_pct = (current_price - trade.entry_price) / trade.entry_price
+        elif trade.side.lower() == "no" and (1 - trade.entry_price) > 0:
+            pnl_pct = (trade.entry_price - current_price) / (1 - trade.entry_price)
         else:
             pnl_pct = 0
 

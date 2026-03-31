@@ -464,7 +464,10 @@ class ScanService:
                 system_prompt=system_prompt,
                 json_schema=PositionAdvice.model_json_schema(),
                 model=self.config.ai.narrative_writer.model,
-                idle_timeout_seconds=300,
+                idle_timeout_seconds=120,
+                fallback_fn=lambda _: PositionAdvice(
+                    advice="hold", reasoning="AI 超时，默认继续持有", risk_note="请手动评估",
+                ).model_dump(),
             )
             raw = await agent.invoke(prompt)
             try:

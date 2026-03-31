@@ -53,17 +53,18 @@ class WatchListView(Widget):
         except Exception:
             return
         table.cursor_type = "row"
-        table.add_columns("市场 ID", "原因", "触发条件", "更优价格", "失效")
+        table.add_columns("市场", "原因", "触发条件", "更优价格", "失效")
         for mid, state in self._watched.items():
+            title = state.title[:30] if state.title else mid[:20]
             wc = state.watch_conditions
             if wc:
-                reason = wc.watch_reason[:30] if wc.watch_reason else "-"
-                trigger = wc.trigger_event[:25] if wc.trigger_event else "-"
+                reason = wc.watch_reason[:25] if wc.watch_reason else "-"
+                trigger = wc.trigger_event[:20] if wc.trigger_event else "-"
                 entry = wc.better_entry if wc.better_entry else "-"
-                invalid = wc.invalidation[:20] if wc.invalidation else "-"
+                invalid = wc.invalidation[:15] if wc.invalidation else "-"
             else:
                 reason = trigger = entry = invalid = "-"
-            table.add_row(mid[:20], reason, trigger, entry, invalid, key=mid)
+            table.add_row(title, reason, trigger, entry, invalid, key=mid)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.row_key and event.row_key.value:

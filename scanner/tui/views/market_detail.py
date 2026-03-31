@@ -429,12 +429,14 @@ class MarketDetailView(Widget):
         from datetime import datetime
 
         from scanner.market_state import MarketState, set_market_state
-        state = MarketState(status="pass", updated_at=datetime.now(UTC).isoformat())
+        state = MarketState(status="pass", updated_at=datetime.now(UTC).isoformat(),
+                            title=self.candidate.market.title)
         set_market_state(
             self.candidate.market.market_id, state,
             self.service.config.archiving.market_state_file,
         )
         self.notify(f"PASS: {self.candidate.market.title[:30]}")
+        self.screen.refresh_sidebar_counts()
 
     def action_mark_watch(self) -> None:
         """Add to watch list with conditions from AI narrative."""
@@ -449,6 +451,7 @@ class MarketDetailView(Widget):
         state = MarketState(
             status="watch",
             updated_at=datetime.now(UTC).isoformat(),
+            title=self.candidate.market.title,
             watch_conditions=watch_cond,
         )
         set_market_state(
@@ -456,6 +459,7 @@ class MarketDetailView(Widget):
             self.service.config.archiving.market_state_file,
         )
         self.notify(f"WATCH: {self.candidate.market.title[:30]}")
+        self.screen.refresh_sidebar_counts()
 
     def action_open_link(self) -> None:
         import webbrowser
