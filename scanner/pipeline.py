@@ -104,36 +104,6 @@ def run_scan_pipeline(
     for market in passed:
         market.market_type = classify_from_tags(market.tags)
 
-    # Pre-score all markets with rules first (fast) to identify top candidates for AI
-    ai_enrichments = {}
-    if config.ai.enabled and config.ai.market_analyst.enabled and passed:
-        # Pre-score with rules to rank markets, then only AI-analyze top N.
-        # Note: pre-score lacks AI objectivity, so ranking may differ slightly
-        # from final score. This is an intentional tradeoff for 10x speed.
-        pre_scores = sorted(
-            ((compute_beauty_score(m, config.scoring.weights, config.filters).total, m) for m in passed),
-            key=lambda x: x[0], reverse=True,
-        )
-        ai_top_n = min(config.ai.market_analyst.max_candidates or 15, len(pre_scores))
-        ai_candidates = [m for _, m in pre_scores[:ai_top_n]]
-
-        top_titles = ", ".join(m.title[:25] for m in ai_candidates[:3])
-        _report(f"AI 语义分析 {ai_top_n} 个市场", "start")
-        try:
-            with _timed_status(_console, f"AI analyzing top {ai_top_n} markets"):
-                ai_enrichments = _run_async(_run_market_analyst(ai_candidates, config))
-            _report(f"AI 语义分析 {ai_top_n} 个市场", "done", top_titles)
-        except Exception as e:
-            _report(f"AI 语义分析 {ai_top_n} 个市场", "fail")
-            _console.print(" [yellow]AI fallback to rules[/yellow]")
-            logger.warning("AI MarketAnalyst failed: %s", e)
-
-    # Apply AI enrichments where available
-    for market in passed:
-        enrichment = ai_enrichments.get(market.market_id)
-        if enrichment:
-            market.market_type = enrichment.market_type
-
     # Fetch price data via data enrichment modules
     from scanner.market_types.registry import find_matching_module
     price_params: dict[str, dict] = {}
@@ -155,22 +125,18 @@ def run_scan_pipeline(
             _console.print(" [dim]Price data skipped[/dim]")
             logger.warning("Price data fetch failed: %s", e)
 
-    # Phase 6 + 6b: Score + Mispricing
+    # Score + Mispricing (pure rules, no AI)
     _report("评分 + 定价检测", "start")
     candidates: list[ScoredCandidate] = []
     for market in passed:
         type_config = config.market_types.get(market.market_type or "")
         overrides = type_config.scoring_overrides if type_config else None
 
-        enrichment = ai_enrichments.get(market.market_id)
-        ai_objectivity = enrichment.objectivity_score if enrichment else None
-
         score = compute_beauty_score(
             market,
             config.scoring.weights,
             config.filters,
             weight_overrides=overrides,
-            objectivity_score=ai_objectivity,
             probability_penalty_mode=config.scoring.thresholds.probability_penalty_mode,
         )
 
@@ -194,28 +160,7 @@ def run_scan_pipeline(
     watch_n = len(tiers.tier_b)
     _report("评分 + 定价检测", "done", f"研{research_n} 观{watch_n} (共{len(candidates)})")
 
-    # Agent 2: Narrative generation for top candidates only (max 5)
-    if config.ai.enabled and config.ai.narrative_writer.enabled:
-        max_narratives = config.ai.narrative_writer.max_candidates or 8
-        top_candidates = (tiers.tier_a + tiers.tier_b)[:max_narratives]
-        if top_candidates:
-            # Build per-candidate context from previous analyses
-            narrative_contexts = _build_narrative_contexts(
-                top_candidates, config.archiving.analyses_file,
-            )
-            narr_titles = ", ".join(c.market.title[:25] for c in top_candidates[:3])
-            _report(f"AI 决策分析 ({len(top_candidates)} 个)", "start")
-            try:
-                with _timed_status(_console, f"AI writing narratives ({len(top_candidates)} candidates)"):
-                    narratives = _run_async(_run_narrative_writer(
-                        top_candidates, config, contexts=narrative_contexts,
-                    ))
-                _attach_narratives(tiers, narratives)
-                _report(f"AI 决策分析 ({len(top_candidates)} 个)", "done", narr_titles)
-            except Exception as e:
-                _report(f"AI 决策分析 ({len(top_candidates)} 个)", "fail")
-                _console.print(" [dim]Narratives skipped[/dim]")
-                logger.warning("AI NarrativeWriter failed: %s", e)
+    # AI analysis removed from scan pipeline — triggered on-demand via 'a' key
 
     logger.info(
         "Tiers: A=%d, B=%d, C=%d",

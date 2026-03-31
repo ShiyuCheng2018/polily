@@ -241,8 +241,7 @@ class ScanService:
                 scan_id=self._current_log.scan_id if self._current_log else None,
             )
 
-        # Save scan narratives as v1 in analyses store
-        self._save_scan_narratives()
+        # AI narratives no longer generated during scan — triggered on-demand via 'a' key
 
         self._finish_log("completed")
         return self.tiers
