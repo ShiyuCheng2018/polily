@@ -76,7 +76,10 @@ def run_scan_pipeline(
     _report("过滤市场", "start")
     with _timed_status(_console, "Filtering markets"):
         filter_result = apply_hard_filters(markets, config.filters, config.heuristics)
-    _report("过滤市场", "done", f"{len(filter_result.passed)} 通过")
+    total = len(markets)
+    passed_n = len(filter_result.passed)
+    rejected_n = len(filter_result.rejected)
+    _report("过滤市场", "done", f"{passed_n}/{total} 通过 ({rejected_n} 过滤)")
     logger.info(
         "Filters: %d passed, %d rejected out of %d",
         len(filter_result.passed), len(filter_result.rejected), len(markets),
@@ -84,15 +87,14 @@ def run_scan_pipeline(
 
     passed = filter_result.passed
 
-    # Two-pass: fetch order books for top candidates
+    # Fetch order books for all passed markets
     if config.scanner.two_pass_scan and passed:
-        top_n = config.scanner.orderbook_fetch_top_n
         _report("获取订单簿", "start")
         try:
-            with _timed_status(_console, f"Fetching order books (top {top_n})"):
+            with _timed_status(_console, f"Fetching order books ({len(passed)} markets)"):
                 passed = _run_async(enrich_with_orderbook(passed, config))
-            _report("获取订单簿", "done", f"前 {top_n} 个")
-            logger.info("Order books fetched for top %d markets", top_n)
+            _report("获取订单簿", "done", f"{len(passed)} 个市场")
+            logger.info("Order books fetched for %d markets", len(passed))
         except Exception as e:
             _report("获取订单簿", "fail")
             logger.warning("Order book fetch failed, continuing without depth data: %s", e)
@@ -115,13 +117,14 @@ def run_scan_pipeline(
         ai_top_n = min(config.ai.market_analyst.max_candidates or 15, len(pre_scores))
         ai_candidates = [m for _, m in pre_scores[:ai_top_n]]
 
-        _report(f"AI 分析 {ai_top_n} 个市场", "start")
+        top_titles = ", ".join(m.title[:25] for m in ai_candidates[:3])
+        _report(f"AI 语义分析 {ai_top_n} 个市场", "start")
         try:
             with _timed_status(_console, f"AI analyzing top {ai_top_n} markets"):
                 ai_enrichments = _run_async(_run_market_analyst(ai_candidates, config))
-            _report(f"AI 分析 {ai_top_n} 个市场", "done")
+            _report(f"AI 语义分析 {ai_top_n} 个市场", "done", top_titles)
         except Exception as e:
-            _report(f"AI 分析 {ai_top_n} 个市场", "fail")
+            _report(f"AI 语义分析 {ai_top_n} 个市场", "fail")
             _console.print(" [yellow]AI fallback to rules[/yellow]")
             logger.warning("AI MarketAnalyst failed: %s", e)
 
@@ -135,18 +138,25 @@ def run_scan_pipeline(
     from scanner.market_types.registry import find_matching_module
     price_params: dict[str, dict] = {}
     if config.mispricing.enabled:
-        _report("获取价格数据", "start")
+        _report("获取实时价格 (Binance)", "start")
         try:
             with _timed_status(_console, "Fetching price data"):
                 price_params = _run_async(_fetch_price_params_batch(passed, config))
-            _report("获取价格数据", "done")
+            # Build detail: show assets and prices
+            price_details = []
+            for _mid, params in list(price_params.items())[:3]:
+                p = params.get("current_underlying_price")
+                if p:
+                    price_details.append(f"${p:,.0f}")
+            detail = f"{len(price_params)} 个 crypto" + (f" ({', '.join(price_details)})" if price_details else "")
+            _report("获取实时价格 (Binance)", "done", detail)
         except Exception as e:
-            _report("获取价格数据", "skip")
+            _report("获取实时价格 (Binance)", "skip")
             _console.print(" [dim]Price data skipped[/dim]")
             logger.warning("Price data fetch failed: %s", e)
 
     # Phase 6 + 6b: Score + Mispricing
-    _report("评分 + 定价分析", "start")
+    _report("评分 + 定价检测", "start")
     candidates: list[ScoredCandidate] = []
     for market in passed:
         type_config = config.market_types.get(market.market_type or "")
@@ -180,7 +190,9 @@ def run_scan_pipeline(
 
     # Tier classification
     tiers = classify_tiers(candidates, config.scoring.thresholds)
-    _report("评分 + 定价分析", "done", f"{len(candidates)} 个市场")
+    research_n = len(tiers.tier_a)
+    watch_n = len(tiers.tier_b)
+    _report("评分 + 定价检测", "done", f"研{research_n} 观{watch_n} (共{len(candidates)})")
 
     # Agent 2: Narrative generation for top candidates only (max 5)
     if config.ai.enabled and config.ai.narrative_writer.enabled:
@@ -191,16 +203,17 @@ def run_scan_pipeline(
             narrative_contexts = _build_narrative_contexts(
                 top_candidates, config.archiving.analyses_file,
             )
-            _report(f"AI 撰写叙述 ({len(top_candidates)} 个)", "start")
+            narr_titles = ", ".join(c.market.title[:25] for c in top_candidates[:3])
+            _report(f"AI 决策分析 ({len(top_candidates)} 个)", "start")
             try:
                 with _timed_status(_console, f"AI writing narratives ({len(top_candidates)} candidates)"):
                     narratives = _run_async(_run_narrative_writer(
                         top_candidates, config, contexts=narrative_contexts,
                     ))
                 _attach_narratives(tiers, narratives)
-                _report(f"AI 撰写叙述 ({len(top_candidates)} 个)", "done")
+                _report(f"AI 决策分析 ({len(top_candidates)} 个)", "done", narr_titles)
             except Exception as e:
-                _report(f"AI 撰写叙述 ({len(top_candidates)} 个)", "fail")
+                _report(f"AI 决策分析 ({len(top_candidates)} 个)", "fail")
                 _console.print(" [dim]Narratives skipped[/dim]")
                 logger.warning("AI NarrativeWriter failed: %s", e)
 
@@ -215,18 +228,14 @@ async def enrich_with_orderbook(
     markets: list[Market],
     config: ScannerConfig,
 ) -> list[Market]:
-    """Fetch order books for top N markets from CLOB API.
+    """Fetch order books for all passed markets from CLOB API.
 
-    Markets beyond top_n or with fetch failures keep their existing depth (usually None).
+    Markets with fetch failures keep their existing depth (usually None).
     Stale books (bid≈0, ask≈1) are flagged by clearing depth to None.
     """
-    top_n = config.scanner.orderbook_fetch_top_n
-    to_fetch = markets[:top_n]
-    rest = markets[top_n:]
-
     client = PolymarketClient(config.api)
     try:
-        for market in to_fetch:
+        for market in markets:
             try:
                 token_id = market.clob_token_id_yes
                 if not token_id:
@@ -245,7 +254,7 @@ async def enrich_with_orderbook(
     finally:
         await client.close()
 
-    return to_fetch + rest
+    return markets
 
 
 async def _fetch_price_params_batch(

@@ -95,8 +95,8 @@ class TestEnrichWithOrderbook:
             assert enriched[0].book_depth_bids is None
 
     @pytest.mark.asyncio
-    async def test_respects_top_n_limit(self):
-        """Only fetch books for top N markets."""
+    async def test_fetches_all_markets(self):
+        """Fetch books for all passed markets."""
         markets = [
             make_market(market_id=f"m{i}", clob_token_id_yes=f"tok-{i}", book_depth_bids=None, book_depth_asks=None)
             for i in range(10)
@@ -116,13 +116,11 @@ class TestEnrichWithOrderbook:
             MockClient.return_value = client_instance
 
             config = ScannerConfig()
-            config.scanner.orderbook_fetch_top_n = 3
             enriched = await enrich_with_orderbook(markets, config)
 
-            assert fetch_count == 3
-            # First 3 should have depth, rest should not
+            assert fetch_count == 10  # all markets fetched
             assert enriched[0].book_depth_bids is not None
-            assert enriched[3].book_depth_bids is None
+            assert enriched[9].book_depth_bids is not None
 
 
 class TestOrderBookIntegrationWithScoring:
