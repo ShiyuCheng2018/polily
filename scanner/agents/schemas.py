@@ -60,6 +60,22 @@ class BiasOutput(BaseModel):
     caveat: str  # "前提是 BTC 维持当前波动率"
 
 
+class WatchCondition(BaseModel):
+    """Structured conditions for re-evaluating a watched market."""
+    watch_reason: str = ""          # "当前价格没有优势，但市场结构值得盯"
+    better_entry: str = ""          # "YES <= 0.58"
+    trigger_event: str = ""         # "BTC 与阈值距离扩大到 2% 以上"
+    invalidation: str = ""          # "距结算 <12h 且价格未变"
+
+
+class PositionAdvice(BaseModel):
+    """Output for position management analysis (from position advisor agent)."""
+    advice: Literal["hold", "reduce", "exit"]
+    reasoning: str
+    exit_price: str | None = None   # "建议在 YES > 0.80 时止盈"
+    risk_note: str = ""
+
+
 class NarrativeWriterOutput(BaseModel):
     """Output from Agent 2: NarrativeWriter (decision advisor mode)."""
 
@@ -78,6 +94,13 @@ class NarrativeWriterOutput(BaseModel):
     summary: str
     risk_flags: list[RiskFlag] = []
     counterparty_note: str = ""
+
+    # Why not an opportunity + recheck conditions (avoid/watch only)
+    why_not_opportunity: list[str] = []   # max 3 reasons
+    recheck_conditions: list[str] = []    # max 3 trigger conditions
+
+    # Watch conditions (structured, for watch_only action)
+    watch: WatchCondition | None = None
 
     # Research findings (replaces research_checklist)
     research_findings: list[ResearchFinding] = []

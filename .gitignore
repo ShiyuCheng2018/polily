@@ -21,6 +21,7 @@ data/scans/*.json
 data/paper_trades.db
 data/scan_logs.json
 data/analyses.json
+data/market_state.json
 data/cache/
 data/.onboarding_done
 outputs/

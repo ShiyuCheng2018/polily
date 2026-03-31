@@ -228,6 +228,7 @@ class ArchivingConfig(BaseModel):
     scan_log_file: str = "./data/scan_logs.json"
     scan_log_max_entries: int = 30
     analyses_file: str = "./data/analyses.json"
+    market_state_file: str = "./data/market_state.json"
     archive_all_passing: bool = True
 
 
