@@ -368,7 +368,8 @@ class ScanService:
             existing = get_market_analyses(market.market_id, analyses_path)
             narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
             context = build_previous_context(existing)
-            narrative_output = await narrator.generate(candidate, context=context)
+            include_bias = self.config.execution_hints.show_conditional_advice
+            narrative_output = await narrator.generate(candidate, context=context, include_bias=include_bias)
             self._step_done("完成")
 
             # Build version

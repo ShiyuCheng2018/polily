@@ -1,9 +1,15 @@
 """Beauty Score: weighted 0-100 score measuring market structure quality."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from scanner.config import FiltersConfig, ScoringWeights
 from scanner.models import Market
+
+if TYPE_CHECKING:
+    from scanner.mispricing import MispricingResult
 
 
 @dataclass
@@ -253,3 +259,49 @@ def _score_small_account(m: Market, f: FiltersConfig) -> float:
         score += 0.2
 
     return min(1.0, score)
+
+
+def compute_three_scores(
+    breakdown: ScoreBreakdown,
+    mispricing: MispricingResult,
+    market: Market,
+) -> dict[str, float | None]:
+    """Compute three independent dimension scores.
+
+    - quality (0-100): is this market tradable? (from structure score components)
+    - value (0-100): is the current price worth trading? (edge vs friction)
+    - edge (0-100 or None): directional advantage (only with mispricing direction)
+    """
+    # Quality: tradability subset of structure score
+    quality_raw = (
+        breakdown.time_to_resolution
+        + breakdown.objectivity
+        + breakdown.liquidity_depth
+        + breakdown.exitability
+        + breakdown.small_account_friendliness
+    )
+    quality_max = 15 + 20 + 20 + 10 + 10  # 75
+    quality = min(100, quality_raw / quality_max * 100)
+
+    # Value: edge vs friction
+    edge_pct = mispricing.deviation_pct if mispricing.deviation_pct is not None else 0
+    friction = market.round_trip_friction_pct if market.round_trip_friction_pct is not None else 0.04
+    if edge_pct > 0:
+        net_edge = max(0, edge_pct - friction)
+        value = min(100, net_edge / 0.10 * 100)
+    else:
+        value = 0.0
+
+    # Direction edge: only with mispricing direction + model confidence
+    direction = mispricing.direction
+    confidence = mispricing.model_confidence
+    edge_score: float | None = None
+    if direction and confidence and edge_pct > 0:
+        confidence_mult = {"high": 1.0, "medium": 0.7, "low": 0.4}.get(confidence, 0.4)
+        edge_score = min(100, edge_pct / 0.10 * 100 * confidence_mult)
+
+    return {
+        "quality": round(quality, 1),
+        "value": round(value, 1),
+        "edge": round(edge_score, 1) if edge_score is not None else None,
+    }
