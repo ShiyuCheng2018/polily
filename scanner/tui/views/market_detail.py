@@ -294,8 +294,22 @@ class MarketDetailView(Widget):
                 yield Static(f"  {item}", classes="detail-row")
 
     def _compose_score_compact(self, s) -> ComposeResult:
-        """Compact score display."""
-        yield Static(f" 结构评分 {s.total:.0f}/100", classes="section-title")
+        """Three-score display + compact breakdown."""
+        from scanner.scoring import compute_three_scores
+        three = compute_three_scores(s, self.candidate.mispricing, self.candidate.market)
+
+        def bar(val, label):
+            if val is None:
+                return f"{label} [dim]N/A[/dim]"
+            filled = int(val / 100 * 8)
+            return f"{label} {'█' * filled}{'░' * (8 - filled)} {val:.0f}"
+
+        q_bar = bar(three["quality"], "质量")
+        v_bar = bar(three["value"], "价值")
+        e_bar = bar(three["edge"], "方向")
+        yield Static(f" {q_bar}   {v_bar}   {e_bar}", classes="section-title")
+
+        # Compact 7-item breakdown below
         items = [
             ("时间", s.time_to_resolution, 15),
             ("客观", s.objectivity, 20),
