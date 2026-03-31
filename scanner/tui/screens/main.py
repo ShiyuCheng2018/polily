@@ -14,7 +14,8 @@ from scanner.tui.views.market_detail import (
     SwitchVersionRequested,
 )
 from scanner.tui.views.market_list import MarketListView, ViewDetailRequested
-from scanner.tui.views.paper_status import PaperStatusView
+from scanner.tui.views.paper_status import AnalyzePositionRequested, PaperStatusView
+from scanner.tui.views.position_analysis import BackFromPositionAnalysis, PositionAnalysisView
 from scanner.tui.views.scan_log import (
     BackToScanLog,
     OpenMarketFromLog,
@@ -23,6 +24,7 @@ from scanner.tui.views.scan_log import (
     StepInfo,
     ViewScanLogDetail,
 )
+from scanner.tui.views.watch_list import ViewWatchDetail, WatchListView
 from scanner.tui.widgets.sidebar import MenuSelected, Sidebar
 
 
@@ -61,8 +63,12 @@ class MainScreen(Screen):
     def on_mount(self) -> None:
         sidebar = self.query_one("#sidebar", Sidebar)
         sidebar.set_active_menu("tasks")
-        research = len(self.service.get_research())
-        watch = len(self.service.get_watchlist())
+        from scanner.market_state import get_watched_markets, load_market_states
+        state_file = self.service.config.archiving.market_state_file
+        states = load_market_states(state_file)
+        research = len([c for c in self.service.get_research()
+                       if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
+        watch = len(get_watched_markets(state_file))
         paper = len(self.service.get_paper_trades())
         sidebar.update_counts(research, watch, paper)
         if self.service.tiers:
@@ -108,8 +114,12 @@ class MainScreen(Screen):
         """Main thread: update status, do NOT auto-navigate."""
         self._loading = False
         total = self.service.total_scanned
-        research = len(self.service.get_research())
-        watch = len(self.service.get_watchlist())
+        from scanner.market_state import get_watched_markets, load_market_states
+        state_file = self.service.config.archiving.market_state_file
+        states = load_market_states(state_file)
+        research = len([c for c in self.service.get_research()
+                       if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
+        watch = len(get_watched_markets(state_file))
         paper = len(self.service.get_paper_trades())
 
         self.query_one("#status-bar", Static).update(
@@ -158,8 +168,12 @@ class MainScreen(Screen):
                 view.focus()
 
     def refresh_sidebar_counts(self):
-        research = len(self.service.get_research())
-        watch = len(self.service.get_watchlist())
+        from scanner.market_state import get_watched_markets, load_market_states
+        state_file = self.service.config.archiving.market_state_file
+        states = load_market_states(state_file)
+        research = len([c for c in self.service.get_research()
+                       if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
+        watch = len(get_watched_markets(state_file))
         paper = len(self.service.get_paper_trades())
         self.query_one("#sidebar", Sidebar).update_counts(research, watch, paper)
 
@@ -223,6 +237,96 @@ class MainScreen(Screen):
                 return
         self.notify("未找到该市场（可能需要重新扫描）", severity="warning")
 
+    def on_analyze_position_requested(self, message: AnalyzePositionRequested) -> None:
+        """Handle position analysis — dedicated HOLD/REDUCE/EXIT flow."""
+        from datetime import UTC, datetime
+
+        trades = self.service.get_paper_trades()
+        trade = next((t for t in trades if t.id == message.trade_id), None)
+        if not trade:
+            self.notify("未找到该持仓", severity="warning")
+            return
+        candidates = self.service.get_all_candidates()
+        candidate = next((c for c in candidates if c.market.market_id == trade.market_id), None)
+        if not candidate:
+            self.notify("未找到该市场数据（可能需要重新扫描）", severity="warning")
+            return
+
+        current_price = candidate.market.yes_price or trade.entry_price
+        try:
+            marked = datetime.fromisoformat(trade.marked_at)
+            days_held = (datetime.now(UTC) - marked).total_seconds() / 86400
+        except (ValueError, TypeError):
+            days_held = 0
+        if trade.side.lower() == "yes" and trade.entry_price > 0:
+            pnl_pct = (current_price - trade.entry_price) / trade.entry_price
+        elif trade.side.lower() == "no" and (1 - trade.entry_price) > 0:
+            pnl_pct = (trade.entry_price - current_price) / (1 - trade.entry_price)
+        else:
+            pnl_pct = 0
+
+        # Show loading view
+        self._switch_view(PositionAnalysisView(
+            title=trade.title or candidate.market.title,
+            side=trade.side, entry_price=trade.entry_price,
+            current_price=current_price, pnl_pct=pnl_pct,
+            days_held=days_held, loading=True,
+        ))
+
+        # Store context for worker
+        self._position_context = {
+            "candidate": candidate,
+            "entry_price": trade.entry_price,
+            "side": trade.side,
+            "days_held": days_held,
+            "current_price": current_price,
+            "pnl_pct": pnl_pct,
+            "title": trade.title or candidate.market.title,
+        }
+
+        self.query_one("#status-bar", Static).update(f"持仓分析: {trade.title[:30]}...")
+        self.run_worker(self._do_position_analyze, name="pos_analyze", thread=True, exclusive=True)
+
+    async def _do_position_analyze(self):
+        """Worker: run position analysis."""
+        ctx = self._position_context
+        try:
+            result = await self.service.analyze_position(
+                ctx["candidate"], ctx["entry_price"], ctx["side"], ctx["days_held"],
+            )
+            self.app.call_from_thread(self._on_position_analysis_complete, ctx, result)
+        except Exception as e:
+            self.app.call_from_thread(self._on_position_analysis_failed, ctx, str(e))
+
+    def _on_position_analysis_complete(self, ctx, result):
+        self.query_one("#status-bar", Static).update("持仓分析完成")
+        self._switch_view(PositionAnalysisView(
+            title=ctx["title"], side=ctx["side"],
+            entry_price=ctx["entry_price"], current_price=ctx["current_price"],
+            pnl_pct=ctx["pnl_pct"], days_held=ctx["days_held"],
+            advice=result,
+        ))
+
+    def _on_position_analysis_failed(self, ctx, error):
+        self.query_one("#status-bar", Static).update(f"持仓分析失败: {error[:60]}")
+        self._switch_view(PositionAnalysisView(
+            title=ctx["title"], side=ctx["side"],
+            entry_price=ctx["entry_price"], current_price=ctx["current_price"],
+            pnl_pct=ctx["pnl_pct"], days_held=ctx["days_held"],
+        ))
+
+    def on_back_from_position_analysis(self, message: BackFromPositionAnalysis) -> None:
+        self._navigate_to("paper")
+
+    def on_view_watch_detail(self, message: ViewWatchDetail) -> None:
+        """Navigate to market detail from watch list."""
+        candidates = self.service.get_all_candidates()
+        for c in candidates:
+            if c.market.market_id == message.market_id:
+                self._switch_view(MarketDetailView(c, self.service))
+                return
+        self.notify("未找到该市场（可能需要重新扫描）", severity="warning")
+
     def on_back_to_scan_log(self, message: BackToScanLog) -> None:
         self._navigate_to("tasks")
 
@@ -235,9 +339,16 @@ class MainScreen(Screen):
             current_steps = list(self.service._steps) if self._loading else None
             self._switch_view(ScanLogView(logs, current_steps), "tasks")
         elif menu_id == "research":
-            self._switch_view(MarketListView(self.service.get_research(), self.service, "研究队列"), "research")
+            from scanner.market_state import load_market_states
+            state_file = self.service.config.archiving.market_state_file
+            states = load_market_states(state_file)
+            research = [c for c in self.service.get_research()
+                       if not (c.market.market_id in states and states[c.market.market_id].status == "pass")]
+            self._switch_view(MarketListView(research, self.service, "研究队列"), "research")
         elif menu_id == "watchlist":
-            self._switch_view(MarketListView(self.service.get_watchlist(), self.service, "观察列表"), "watchlist")
+            from scanner.market_state import get_watched_markets
+            watched = get_watched_markets(self.service.config.archiving.market_state_file)
+            self._switch_view(WatchListView(watched), "watchlist")
         elif menu_id == "paper":
             self._switch_view(PaperStatusView(self.service), "paper")
         self._current_menu = menu_id

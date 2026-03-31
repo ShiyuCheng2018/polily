@@ -1,5 +1,7 @@
 """MarketDetailView: decision-first market analysis with AI insights."""
 
+from datetime import UTC
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
@@ -62,6 +64,8 @@ class MarketDetailView(Widget):
         Binding("d", "toggle_detail", show=False),
         Binding("left", "prev_version", show=False),
         Binding("right", "next_version", show=False),
+        Binding("p", "mark_pass", show=False),
+        Binding("w", "mark_watch", show=False),
         Binding("y", "trade_yes", "买 YES"),
         Binding("n", "trade_no", "买 NO"),
         Binding("o", "open_link", "打开链接"),
@@ -120,10 +124,11 @@ class MarketDetailView(Widget):
         n = self._current_narrative()
 
         with VerticalScroll():
-            # === TITLE ===
+            # === TITLE + THREE SCORES ===
             days_str = f"{m.days_to_resolution:.1f}天" if m.days_to_resolution else "?"
             yield Static(f" [bold]{m.title}[/bold]", classes="section-title")
-            yield Static(f"  {m.market_type or 'other'} | 结算: {days_str} | 结构分: {s.total:.0f}/100")
+            yield Static(f"  {m.market_type or 'other'} | 结算: {days_str}")
+            yield from self._compose_three_scores(s)
 
             # === FIRST SCREEN: DECISION ZONE ===
             if self._analyzing:
@@ -142,6 +147,10 @@ class MarketDetailView(Widget):
             if n and not self._analyzing:
                 yield from self._compose_critical_risks(n)
 
+            # Why not + recheck (avoid/watch only, first screen)
+            if n and not self._analyzing:
+                yield from self._compose_why_not_and_recheck(n)
+
             # === SECOND SCREEN: SUPPORT ZONE ===
             if n and not self._analyzing:
                 yield from self._compose_support_zone(n, m, mp)
@@ -150,15 +159,15 @@ class MarketDetailView(Widget):
             if n and not self._analyzing:
                 yield from self._compose_research_findings(n)
 
-            # Score breakdown (compact)
-            yield from self._compose_score_compact(s)
+            # Score breakdown (collapsible detail)
+            yield from self._compose_score_detail(s)
 
             # Footer
             yield Static("")
             if self._versions:
-                yield Static("  [dim]Esc 返回 | a 重新分析 | < > 切换版本 | y YES | n NO | o 链接[/dim]")
+                yield Static("  [dim]Esc 返回 | a 分析 | < > 版本 | p PASS | w WATCH | y YES | n NO | o 链接[/dim]")
             else:
-                yield Static("  [dim]Esc 返回 | a AI分析 | y YES | n NO | o 链接[/dim]")
+                yield Static("  [dim]Esc 返回 | a AI分析 | p PASS | w WATCH | y YES | n NO | o 链接[/dim]")
 
     def _compose_conclusion_card(self, n) -> ComposeResult:
         """Decision conclusion card — the most important thing on screen."""
@@ -229,6 +238,25 @@ class MarketDetailView(Widget):
             for text in critical[:2]:
                 yield Static(f"  ! {text}", classes="risk-critical")
 
+    def _compose_why_not_and_recheck(self, n) -> ComposeResult:
+        """Why not an opportunity + recheck conditions (avoid/watch only)."""
+        action = getattr(n, "action", "")
+        if action not in ("avoid", "watch_only"):
+            return
+
+        why_not = getattr(n, "why_not_opportunity", [])
+        recheck = getattr(n, "recheck_conditions", [])
+
+        if why_not:
+            yield Static(" 为什么不是机会", classes="section-title")
+            for reason in why_not[:3]:
+                yield Static(f"  - {reason}", classes="detail-row")
+
+        if recheck:
+            yield Static(" 重新看它的条件", classes="section-title")
+            for cond in recheck[:3]:
+                yield Static(f"  - {cond}", classes="detail-row")
+
     def _compose_support_zone(self, n, m, mp) -> ComposeResult:
         """Second screen: AI summary + counterparty + price + mispricing."""
         # AI summary
@@ -297,8 +325,8 @@ class MarketDetailView(Widget):
             for item in checklist:
                 yield Static(f"  {item}", classes="detail-row")
 
-    def _compose_score_compact(self, s) -> ComposeResult:
-        """Three-score display + compact breakdown."""
+    def _compose_three_scores(self, s) -> ComposeResult:
+        """Three-score bar gauges — shown right below title."""
         from scanner.scoring import compute_three_scores
         three = compute_three_scores(s, self.candidate.mispricing, self.candidate.market)
 
@@ -311,8 +339,10 @@ class MarketDetailView(Widget):
         q_bar = bar(three["quality"], "质量")
         v_bar = bar(three["value"], "价值")
         e_bar = bar(three["edge"], "方向")
-        yield Static(f" {q_bar}   {v_bar}   {e_bar}", classes="section-title")
+        yield Static(f"  {q_bar}   {v_bar}   {e_bar}")
 
+    def _compose_score_detail(self, s) -> ComposeResult:
+        """7-item score breakdown — collapsible."""
         if self._show_detail:
             # Expanded: 7-item bar chart
             for name, val, mx in [
@@ -393,6 +423,43 @@ class MarketDetailView(Widget):
             self._pending_trade = (m.market_id, side)
             title_short = m.title[:30]
             self.notify(f"再按一次 {side[0]} 确认: {side.upper()} {title_short} @ {price:.2f}")
+
+    def action_mark_pass(self) -> None:
+        """Mark this market as PASS — won't appear in research queue."""
+        from datetime import datetime
+
+        from scanner.market_state import MarketState, set_market_state
+        state = MarketState(status="pass", updated_at=datetime.now(UTC).isoformat(),
+                            title=self.candidate.market.title)
+        set_market_state(
+            self.candidate.market.market_id, state,
+            self.service.config.archiving.market_state_file,
+        )
+        self.notify(f"PASS: {self.candidate.market.title[:30]}")
+        self.screen.refresh_sidebar_counts()
+
+    def action_mark_watch(self) -> None:
+        """Add to watch list with conditions from AI narrative."""
+        from datetime import datetime
+
+        from scanner.market_state import MarketState, set_market_state
+        n = self._current_narrative()
+        watch_cond = getattr(n, "watch", None) if n else None
+        if not watch_cond:
+            self.notify("请先按 a 进行 AI 分析", severity="warning")
+            return
+        state = MarketState(
+            status="watch",
+            updated_at=datetime.now(UTC).isoformat(),
+            title=self.candidate.market.title,
+            watch_conditions=watch_cond,
+        )
+        set_market_state(
+            self.candidate.market.market_id, state,
+            self.service.config.archiving.market_state_file,
+        )
+        self.notify(f"WATCH: {self.candidate.market.title[:30]}")
+        self.screen.refresh_sidebar_counts()
 
     def action_open_link(self) -> None:
         import webbrowser

@@ -185,6 +185,36 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
 
     friction_impact = f"摩擦吃掉 {friction_ratio:.0%} 潜在利润" if edge > 0 else "无可测量 edge"
 
+    # Why not + recheck (for avoid/watch)
+    why_not = []
+    recheck = []
+    watch = None
+    if action in ("avoid", "watch_only"):
+        if friction_ratio > 0.5 and edge > 0:
+            why_not.append(f"摩擦 {friction:.1%} 吃掉 {friction_ratio:.0%} 的潜在利润")
+        if mp.signal == "none":
+            why_not.append("未检测到可测量的定价偏差")
+        if days and days < 1:
+            why_not.append(f"距结算仅 {days:.1f} 天，尾盘风险高")
+        if not why_not:
+            why_not.append("当前价格没有明显优势")
+
+        if m.yes_price:
+            recheck.append(f"YES 价格回到 {m.yes_price * 0.85:.2f} 以下")
+        if days and days > 2:
+            recheck.append("出现明确催化事件")
+        if not recheck:
+            recheck.append("市场结构发生变化")
+
+    if action == "watch_only":
+        from scanner.agents.schemas import WatchCondition
+        watch = WatchCondition(
+            watch_reason=why_not[0] if why_not else "当前不值得做",
+            better_entry=f"YES <= {m.yes_price * 0.85:.2f}" if m.yes_price else "",
+            trigger_event=recheck[0] if recheck else "",
+            invalidation="距结算 <12h 且价格未变" if days else "",
+        )
+
     return NarrativeWriterOutput(
         market_id=m.market_id,
         action=action,
@@ -198,6 +228,9 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
         summary=summary,
         risk_flags=risks,
         counterparty_note=f"市场类型 '{m.market_type}' — 需手动评估对手方质量。",
+        why_not_opportunity=why_not,
+        recheck_conditions=recheck,
+        watch=watch,
         research_findings=[],
         one_line_verdict=f"{action}: {summary}",
         suggested_style="watch_only" if action in ("watch_only", "avoid") else "research_candidate",

@@ -16,6 +16,8 @@ class MispricingResult:
     signal: str  # "none", "weak", "moderate", "strong"
     direction: str | None = None  # "overpriced", "underpriced", None
     theoretical_fair_value: float | None = None
+    fair_value_low: float | None = None
+    fair_value_high: float | None = None
     deviation_pct: float | None = None
     details: str | None = None
     multi_outcome_flag: bool = False
@@ -96,6 +98,20 @@ def detect_mispricing(
         )
         result.theoretical_fair_value = round(fair_value, 4)
 
+        # Compute fair value range: ±1σ estimation error
+        # Vol estimation error ~20% of vol itself, propagated through model
+        vol_error = annual_volatility * 0.2
+        fv_high = compute_crypto_fair_value(
+            current_underlying_price, threshold_price,
+            market.days_to_resolution, annual_volatility + vol_error,
+        )
+        fv_low = compute_crypto_fair_value(
+            current_underlying_price, threshold_price,
+            market.days_to_resolution, max(0.01, annual_volatility - vol_error),
+        )
+        result.fair_value_low = round(min(fv_low, fv_high), 4)
+        result.fair_value_high = round(max(fv_low, fv_high), 4)
+
         deviation = abs(market.yes_price - fair_value)
         result.deviation_pct = round(deviation, 4)
 
@@ -132,8 +148,9 @@ def detect_mispricing(
             result.direction = direction
         vol_note = f", 波动率: {annual_volatility:.0%} ({vsrc})" if annual_volatility else ""
         conf_note = f", 置信度: {result.model_confidence}"
+        range_note = f" (区间 {result.fair_value_low:.2f}-{result.fair_value_high:.2f})"
         result.details = (
-            f"模型估值 {fair_value:.2f}, 市价 {market.yes_price:.2f}, "
+            f"模型估值 {fair_value:.2f}{range_note}, 市价 {market.yes_price:.2f}, "
             f"偏差 {deviation:.1%} — YES {direction_cn}{vol_note}{conf_note}"
         )
 
