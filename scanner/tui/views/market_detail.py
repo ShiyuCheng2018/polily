@@ -25,10 +25,11 @@ class AnalyzeRequested(Message):
 
 class SwitchVersionRequested(Message):
     """Request MainScreen to rebuild detail view at a specific version index."""
-    def __init__(self, candidate: ScoredCandidate, version_idx: int):
+    def __init__(self, candidate: ScoredCandidate, version_idx: int, show_detail: bool = False):
         super().__init__()
         self.candidate = candidate
         self.version_idx = version_idx
+        self.show_detail = show_detail
 
 
 # Action level colors and labels
@@ -58,6 +59,7 @@ class MarketDetailView(Widget):
     BINDINGS = [
         Binding("escape", "go_back", "返回列表"),
         Binding("a", "analyze", "AI分析"),
+        Binding("d", "toggle_detail", show=False),
         Binding("left", "prev_version", show=False),
         Binding("right", "next_version", show=False),
         Binding("y", "trade_yes", "买 YES"),
@@ -78,11 +80,13 @@ class MarketDetailView(Widget):
     """
 
     def __init__(self, candidate: ScoredCandidate, service: ScanService,
-                 analyzing: bool = False, version_idx: int | None = None):
+                 analyzing: bool = False, version_idx: int | None = None,
+                 show_detail: bool = False):
         super().__init__()
         self.candidate = candidate
         self.service = service
         self._analyzing = analyzing
+        self._show_detail = show_detail
         self._versions = []
         self._version_idx = -1
         self._load_versions()
@@ -309,23 +313,40 @@ class MarketDetailView(Widget):
         e_bar = bar(three["edge"], "方向")
         yield Static(f" {q_bar}   {v_bar}   {e_bar}", classes="section-title")
 
-        # Compact 7-item breakdown below
-        items = [
-            ("时间", s.time_to_resolution, 15),
-            ("客观", s.objectivity, 20),
-            ("概率", s.probability_zone, 20),
-            ("流动", s.liquidity_depth, 20),
-            ("退出", s.exitability, 10),
-            ("催化", s.catalyst_proxy, 5),
-            ("小户", s.small_account_friendliness, 10),
-        ]
-        parts = []
-        for name, val, mx in items:
-            pct = int(val / mx * 100) if mx > 0 else 0
-            parts.append(f"{name}:{pct}%")
-        yield Static(f"  {' | '.join(parts)}", classes="detail-row")
+        if self._show_detail:
+            # Expanded: 7-item bar chart
+            for name, val, mx in [
+                ("结算时间", s.time_to_resolution, 15),
+                ("客观性", s.objectivity, 20),
+                ("概率区间", s.probability_zone, 20),
+                ("流动性", s.liquidity_depth, 20),
+                ("可退出性", s.exitability, 10),
+                ("催化剂", s.catalyst_proxy, 5),
+                ("小账户", s.small_account_friendliness, 10),
+            ]:
+                bar_len = int(val / mx * 10) if mx > 0 else 0
+                bar_str = "█" * bar_len + "░" * (10 - bar_len)
+                yield Static(f"  {name:8s} {bar_str} {val:.1f}/{mx}", classes="detail-row")
+            yield Static(f"  [bold]总分: {s.total:.0f}/100[/bold]  [dim]按 d 收起[/dim]", classes="detail-row")
+        else:
+            # Collapsed: single line
+            parts = []
+            for name, val, mx in [
+                ("时间", s.time_to_resolution, 15), ("客观", s.objectivity, 20),
+                ("概率", s.probability_zone, 20), ("流动", s.liquidity_depth, 20),
+                ("退出", s.exitability, 10), ("催化", s.catalyst_proxy, 5),
+                ("小户", s.small_account_friendliness, 10),
+            ]:
+                pct = int(val / mx * 100) if mx > 0 else 0
+                parts.append(f"{name}:{pct}%")
+            yield Static(f"  {' | '.join(parts)}  [dim]按 d 展开[/dim]", classes="detail-row")
 
     # === Actions ===
+
+    def action_toggle_detail(self) -> None:
+        self.post_message(SwitchVersionRequested(
+            self.candidate, self._version_idx, show_detail=not self._show_detail,
+        ))
 
     def action_go_back(self) -> None:
         self.post_message(BackToList())

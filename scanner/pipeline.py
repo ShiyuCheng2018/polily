@@ -321,7 +321,8 @@ async def _run_narrative_writer(
     from scanner.agents.narrative_writer import NarrativeWriterAgent
 
     agent = NarrativeWriterAgent(config.ai.narrative_writer)
-    results = await agent.generate_batch(candidates, contexts=contexts)
+    include_bias = config.execution_hints.show_conditional_advice
+    results = await agent.generate_batch(candidates, contexts=contexts, include_bias=include_bias)
 
     return {r.market_id: r for r in results}
 

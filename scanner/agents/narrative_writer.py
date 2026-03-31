@@ -32,9 +32,10 @@ class NarrativeWriterAgent:
             fallback_fn=lambda prompt: self._fallback_from_prompt(prompt),
         )
 
-    async def generate(self, candidate: ScoredCandidate, context: str | None = None) -> NarrativeWriterOutput:
+    async def generate(self, candidate: ScoredCandidate, context: str | None = None,
+                       include_bias: bool = False) -> NarrativeWriterOutput:
         """Generate narrative for a single candidate, optionally with previous analysis context."""
-        prompt = self._build_prompt(candidate)
+        prompt = self._build_prompt(candidate, include_bias=include_bias)
         if context:
             prompt += f"\n\n{context}"
         raw = await self._agent.invoke(prompt)
@@ -48,6 +49,7 @@ class NarrativeWriterAgent:
         self, candidates: list[ScoredCandidate],
         max_concurrent: int | None = None,
         contexts: dict[str, str] | None = None,
+        include_bias: bool = False,
     ) -> list[NarrativeWriterOutput]:
         """Generate narratives for multiple candidates in parallel.
 
@@ -58,7 +60,7 @@ class NarrativeWriterAgent:
         concurrency = max_concurrent or self.config.max_concurrent
         prompts = []
         for c in candidates:
-            prompt = self._build_prompt(c)
+            prompt = self._build_prompt(c, include_bias=include_bias)
             if contexts:
                 ctx = contexts.get(c.market.market_id)
                 if ctx:
@@ -74,7 +76,7 @@ class NarrativeWriterAgent:
                 outputs.append(narrative_fallback(candidates[i]))
         return outputs
 
-    def _build_prompt(self, candidate: ScoredCandidate) -> str:
+    def _build_prompt(self, candidate: ScoredCandidate, include_bias: bool = False) -> str:
         m = candidate.market
         s = candidate.score
         mp = candidate.mispricing
@@ -107,7 +109,12 @@ class NarrativeWriterAgent:
             "theoretical_fair_value": mp.theoretical_fair_value,
             "model_confidence": mp.model_confidence,
         }
-        return f"请对以下市场做决策分析:\n{json.dumps(data, default=str, ensure_ascii=False)}"
+        prompt = f"请对以下市场做决策分析:\n{json.dumps(data, default=str, ensure_ascii=False)}"
+        if include_bias:
+            prompt += "\n\n请额外输出 bias 字段（方向倾向的条件建议）。格式：{direction: lean_yes/lean_no/neutral, reasoning, confidence, caveat}"
+        else:
+            prompt += "\n\nbias 字段设为 null。"
+        return prompt
 
     def _fallback_from_prompt(self, prompt: str) -> dict:
         from scanner.utils import extract_market_id_from_prompt
