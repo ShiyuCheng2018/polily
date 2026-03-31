@@ -284,8 +284,8 @@ def compute_three_scores(
     quality = min(100, quality_raw / quality_max * 100)
 
     # Value: edge vs friction
-    edge_pct = mispricing.deviation_pct or 0
-    friction = market.round_trip_friction_pct or 0.04
+    edge_pct = mispricing.deviation_pct if mispricing.deviation_pct is not None else 0
+    friction = market.round_trip_friction_pct if market.round_trip_friction_pct is not None else 0.04
     if edge_pct > 0:
         net_edge = max(0, edge_pct - friction)
         value = min(100, net_edge / 0.10 * 100)

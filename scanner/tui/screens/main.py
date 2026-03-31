@@ -175,7 +175,7 @@ class MainScreen(Screen):
         self._switch_view(MarketDetailView(
             message.candidate, self.service,
             version_idx=message.version_idx,
-            show_detail=getattr(message, "show_detail", False),
+            show_detail=message.show_detail,
         ))
 
     def on_view_scan_log_detail(self, message: ViewScanLogDetail) -> None:

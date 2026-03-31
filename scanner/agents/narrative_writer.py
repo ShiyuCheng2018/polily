@@ -82,8 +82,8 @@ class NarrativeWriterAgent:
         mp = candidate.mispricing
 
         # Calculate friction vs edge for prompt context
-        friction = m.round_trip_friction_pct or 0.04
-        edge = mp.deviation_pct or 0
+        friction = m.round_trip_friction_pct if m.round_trip_friction_pct is not None else 0.04
+        edge = mp.deviation_pct if mp.deviation_pct is not None else 0
         friction_ratio = (friction / edge * 100) if edge > 0 else None
 
         data = {
@@ -141,8 +141,8 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
     mp = candidate.mispricing
 
     # Determine action based on friction vs edge
-    friction = m.round_trip_friction_pct or 0.04
-    edge = mp.deviation_pct or 0
+    friction = m.round_trip_friction_pct if m.round_trip_friction_pct is not None else 0.04
+    edge = mp.deviation_pct if mp.deviation_pct is not None else 0
     friction_ratio = friction / edge if edge > 0 else float("inf")
 
     if friction_ratio > 0.8:
