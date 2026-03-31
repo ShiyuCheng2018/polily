@@ -149,6 +149,9 @@ class BaseAgent:
             stdout, stderr = comm_task.result()
         finally:
             _active_pids.discard(proc.pid)
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
 
         if proc.returncode != 0:
             raise RuntimeError(f"claude CLI exited with code {proc.returncode}: {stderr.decode()[:500]}")

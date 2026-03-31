@@ -81,6 +81,7 @@ class NarrativeWriterOutput(BaseModel):
 
     # Research findings (replaces research_checklist)
     research_findings: list[ResearchFinding] = []
+    research_checklist: list[str] = []  # deprecated, kept for old data compat
 
     # Direction bias (optional, only in --lean mode)
     bias: BiasOutput | None = None

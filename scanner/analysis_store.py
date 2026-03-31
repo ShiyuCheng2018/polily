@@ -83,7 +83,7 @@ def build_previous_context(existing: list[AnalysisVersion]) -> str | None:
         f"--- 上次分析 (v{last.version}, {last.created_at[:10]}, "
         f"当时价格 YES={last.yes_price_at_analysis}) ---\n"
         f"摘要: {n.get('summary', 'N/A')}\n"
-        f"风险: {', '.join(n.get('risk_flags', []))}\n"
+        f"风险: {', '.join(rf.get('text', str(rf)) if isinstance(rf, dict) else str(rf) for rf in n.get('risk_flags', []))}\n"
         f"结论: {n.get('one_line_verdict', 'N/A')}\n"
         f"---\n"
         f"请基于当前最新数据分析。如果情况有变化，指出和上次的不同。"

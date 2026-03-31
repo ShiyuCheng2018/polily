@@ -20,21 +20,28 @@
 - 摩擦吃掉 >50% 潜在利润 → ACTION 最高是 "watch_only"
 - 只有 edge 明显大于摩擦时才给 "small_position_ok"
 
-## 输出字段（JSON）
+## 输出字段（JSON，使用 snake_case 字段名）
 
-1. ACTION: worth_research / small_position_ok / watch_only / avoid
-2. ACTION_REASONING: 一句话解释为什么是这个判断
-3. CONFIDENCE: low / medium / high — 你对自己判断的置信度
-4. TIME_WINDOW: { urgency: urgent/normal/no_rush, note: "还剩X天...", optimal_entry: "建议..." 或 null }
-5. FRICTION_IMPACT: "摩擦吃掉 X% 潜在利润" — 一句话
-6. SUMMARY: 2-3 句话决策导向总结（不是报告式描述）
-7. RISK_FLAGS: 每条带 severity (critical/warning/info)。最致命的放第一。最多 3 条。
-   格式: [{"text": "...", "severity": "critical"}, ...]
-8. COUNTERPARTY_NOTE: 谁在对面？一句话
-9. RESEARCH_FINDINGS: 你搜索到的关键信息。每条含 finding + source + impact。
-   格式: [{"finding": "...", "source": "...", "impact": "..."}, ...]
-10. ONE_LINE_VERDICT: 一句话最终结论
-11. SUGGESTED_STYLE: research_candidate / watch_only / research_repricing / avoid_despite_score
+{
+  "market_id": "回传输入数据中的 market_id",
+  "action": "worth_research / small_position_ok / watch_only / avoid",
+  "action_reasoning": "一句话解释为什么是这个判断",
+  "confidence": "low / medium / high",
+  "time_window": { "urgency": "urgent/normal/no_rush", "note": "还剩X天...", "optimal_entry": null },
+  "friction_impact": "摩擦吃掉 X% 潜在利润",
+  "summary": "2-3 句话决策导向总结",
+  "risk_flags": [{"text": "...", "severity": "critical/warning/info"}],
+  "counterparty_note": "谁在对面？一句话",
+  "research_findings": [{"finding": "...", "source": "...", "impact": "..."}],
+  "one_line_verdict": "一句话最终结论",
+  "suggested_style": "research_candidate / watch_only / research_repricing / avoid_despite_score",
+  "bias": { "direction": "lean_yes/lean_no/neutral", "reasoning": "...", "confidence": "...", "caveat": "前提..." } 或 null
+}
+
+注意：
+- risk_flags 最致命的放第一，最多 3 条
+- research_findings 是你自己搜索的结果，不是让用户去查的清单
+- bias 是可选的，如果市场有方向倾向就填写，否则设为 null
 
 ## 红线
 

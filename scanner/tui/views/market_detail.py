@@ -164,8 +164,11 @@ class MarketDetailView(Widget):
         action_reasoning = getattr(n, "action_reasoning", "")
         friction_impact = getattr(n, "friction_impact", "")
 
+        verdict = getattr(n, "one_line_verdict", "")
         yield Static("")
         yield Static(f"  {action_label}  {action_reasoning}", classes="conclusion-box")
+        if verdict:
+            yield Static(f"  [dim]{verdict}[/dim]", classes="detail-row")
         yield Static(f"  置信度 {conf_bar} {confidence}", classes="detail-row")
 
         # Time window
@@ -225,9 +228,9 @@ class MarketDetailView(Widget):
     def _compose_support_zone(self, n, m, mp) -> ComposeResult:
         """Second screen: AI summary + counterparty + price + mispricing."""
         # AI summary
-        if n.summary:
+        if getattr(n, "summary", ""):
             yield Static(" AI 分析", classes="section-title")
-            yield Static(f"  {n.summary}", classes="detail-row")
+            yield Static(f"  {getattr(n, 'summary', '')}", classes="detail-row")
 
         # Counterparty
         counterparty = getattr(n, "counterparty_note", "")
