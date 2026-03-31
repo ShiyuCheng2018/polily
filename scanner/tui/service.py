@@ -408,6 +408,121 @@ class ScanService:
             self._current_log = None
             raise
 
+    # --- Position analysis ---
+
+    async def analyze_position(self, candidate: ScoredCandidate, entry_price: float,
+                                side: str, days_held: float):
+        """Run AI position analysis — HOLD/REDUCE/EXIT perspective."""
+        import json
+        from pathlib import Path
+
+        from scanner.agents.base import BaseAgent
+        from scanner.agents.schemas import PositionAdvice
+
+        market = candidate.market
+        current_price = market.yes_price or 0
+
+        # PnL calculation
+        if side.lower() == "yes" and entry_price > 0:
+            pnl_pct = (current_price - entry_price) / entry_price
+        elif side.lower() == "no" and (1 - entry_price) > 0:
+            pnl_pct = (entry_price - current_price) / (1 - entry_price)
+        else:
+            pnl_pct = 0
+
+        # Build prompt
+        prompt_file = Path(__file__).parent.parent / "agents" / "prompts" / "position_advisor.txt"
+        system_prompt = prompt_file.read_text() if prompt_file.exists() else "你是持仓管理顾问。"
+
+        data = {
+            "market_id": market.market_id,
+            "title": market.title,
+            "market_type": market.market_type,
+            "current_yes_price": current_price,
+            "days_to_resolution": market.days_to_resolution,
+            "entry_price": entry_price,
+            "side": side,
+            "days_held": round(days_held, 1),
+            "pnl_pct": f"{pnl_pct:+.1%}",
+            "spread_pct": market.spread_pct_yes,
+            "friction": market.round_trip_friction_pct,
+        }
+        prompt = f"请对以下持仓做管理分析:\n{json.dumps(data, default=str, ensure_ascii=False)}"
+
+        # Log entry
+        log = create_log_entry()
+        log.type = "analyze"
+        log.market_id = market.market_id
+        log.market_title = market.title
+        self._steps = []
+        self._current_log = log
+        self._persist_log(log)
+
+        try:
+            self._step_start("AI 持仓分析")
+            agent = BaseAgent(
+                system_prompt=system_prompt,
+                json_schema=PositionAdvice.model_json_schema(),
+                model=self.config.ai.narrative_writer.model,
+                idle_timeout_seconds=300,
+            )
+            raw = await agent.invoke(prompt)
+            try:
+                result = PositionAdvice.model_validate(raw)
+            except Exception:
+                result = PositionAdvice(
+                    advice="hold",
+                    reasoning="AI 分析解析失败，默认继续持有",
+                    risk_note="请手动评估",
+                )
+            self._step_done("完成")
+
+            finish_log_entry(log, "completed", self._steps_to_records(), total_markets=1)
+            self._persist_log(log)
+            self._current_log = None
+            return result
+
+        except Exception as e:
+            finish_log_entry(log, "failed", self._steps_to_records(), error=str(e))
+            self._persist_log(log)
+            self._current_log = None
+            # Rule-based fallback
+            from scanner.position_phase import compute_position_phase
+            phase = compute_position_phase(entry_price, current_price, side, days_held,
+                                           market.days_to_resolution)
+            advice = "exit" if phase in ("high_risk", "invalidated") else "hold" if phase != "take_profit" else "reduce"
+            return PositionAdvice(
+                advice=advice,
+                reasoning=f"AI 分析失败，基于规则判断: {phase}",
+                risk_note=str(e)[:80],
+            )
+
+    # --- Real-time price fetch ---
+
+    async def fetch_current_prices(self, market_ids: list[str]) -> dict[str, float]:
+        """Fetch current YES prices from Polymarket API for given market IDs."""
+        client = PolymarketClient(self.config.api)
+        prices = {}
+        try:
+            for mid in market_ids:
+                try:
+                    resp = await client.client.get(
+                        f"https://gamma-api.polymarket.com/markets/{mid}",
+                        timeout=10,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        prices_raw = data.get("outcomePrices", "[]")
+                        import json as _json
+                        parsed = _json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw
+                        if parsed:
+                            prices[mid] = float(parsed[0])
+                except Exception:
+                    pass
+        finally:
+            await client.close()
+        return prices
+
     async def _fetch_markets(self) -> list:
         client = PolymarketClient(self.config.api)
         try:

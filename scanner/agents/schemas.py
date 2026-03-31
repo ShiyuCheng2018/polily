@@ -72,8 +72,11 @@ class PositionAdvice(BaseModel):
     """Output for position management analysis (from position advisor agent)."""
     advice: Literal["hold", "reduce", "exit"]
     reasoning: str
-    exit_price: str | None = None   # "建议在 YES > 0.80 时止盈"
+    thesis_intact: bool = True
+    thesis_note: str = ""
+    exit_price: str | None = None
     risk_note: str = ""
+    research_findings: list["ResearchFinding"] = []
 
 
 class NarrativeWriterOutput(BaseModel):

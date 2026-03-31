@@ -93,12 +93,16 @@ class PaperStatusView(Widget):
             )
 
     def _get_current_price(self, market_id: str) -> float | None:
-        """Get current YES price from latest scan data."""
+        """Get current YES price from latest scan data (best effort, not real-time)."""
         candidates = self.service.get_all_candidates()
         for c in candidates:
             if c.market.market_id == market_id:
                 return c.market.yes_price
         return None
+
+    # Note: real-time price fetching available via service.fetch_current_prices()
+    # Currently using scan data for phase calculation. Real-time fetch can be
+    # triggered by the user via position analysis (pressing 'a').
 
     def action_analyze_position(self) -> None:
         """Trigger position analysis for selected trade."""
