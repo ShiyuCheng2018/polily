@@ -14,7 +14,7 @@ from scanner.tui.views.market_detail import (
     SwitchVersionRequested,
 )
 from scanner.tui.views.market_list import MarketListView, ViewDetailRequested
-from scanner.tui.views.paper_status import PaperStatusView
+from scanner.tui.views.paper_status import AnalyzePositionRequested, PaperStatusView
 from scanner.tui.views.scan_log import (
     BackToScanLog,
     OpenMarketFromLog,
@@ -23,6 +23,7 @@ from scanner.tui.views.scan_log import (
     StepInfo,
     ViewScanLogDetail,
 )
+from scanner.tui.views.watch_list import ViewWatchDetail, WatchListView
 from scanner.tui.widgets.sidebar import MenuSelected, Sidebar
 
 
@@ -223,6 +224,35 @@ class MainScreen(Screen):
                 return
         self.notify("未找到该市场（可能需要重新扫描）", severity="warning")
 
+    def on_analyze_position_requested(self, message: AnalyzePositionRequested) -> None:
+        """Handle position analysis request from paper status page."""
+        # Find trade and matching candidate
+        trades = self.service.get_paper_trades()
+        trade = next((t for t in trades if t.id == message.trade_id), None)
+        if not trade:
+            self.notify("未找到该持仓", severity="warning")
+            return
+        candidates = self.service.get_all_candidates()
+        candidate = next((c for c in candidates if c.market.market_id == trade.market_id), None)
+        if not candidate:
+            self.notify("未找到该市场数据（可能需要重新扫描）", severity="warning")
+            return
+        # Open detail view with position context
+        self._analyzing_candidate = candidate
+        title_short = trade.title[:30] if trade.title else candidate.market.title[:30]
+        self.query_one("#status-bar", Static).update(f"持仓分析: {title_short}...")
+        self._switch_view(MarketDetailView(candidate, self.service, analyzing=True))
+        self.run_worker(self._do_analyze, name="analyze", thread=True, exclusive=True)
+
+    def on_view_watch_detail(self, message: ViewWatchDetail) -> None:
+        """Navigate to market detail from watch list."""
+        candidates = self.service.get_all_candidates()
+        for c in candidates:
+            if c.market.market_id == message.market_id:
+                self._switch_view(MarketDetailView(c, self.service))
+                return
+        self.notify("未找到该市场（可能需要重新扫描）", severity="warning")
+
     def on_back_to_scan_log(self, message: BackToScanLog) -> None:
         self._navigate_to("tasks")
 
@@ -235,9 +265,14 @@ class MainScreen(Screen):
             current_steps = list(self.service._steps) if self._loading else None
             self._switch_view(ScanLogView(logs, current_steps), "tasks")
         elif menu_id == "research":
-            self._switch_view(MarketListView(self.service.get_research(), self.service, "研究队列"), "research")
+            from scanner.market_state import is_passed
+            state_file = self.service.config.archiving.market_state_file
+            research = [c for c in self.service.get_research() if not is_passed(c.market.market_id, state_file)]
+            self._switch_view(MarketListView(research, self.service, "研究队列"), "research")
         elif menu_id == "watchlist":
-            self._switch_view(MarketListView(self.service.get_watchlist(), self.service, "观察列表"), "watchlist")
+            from scanner.market_state import get_watched_markets
+            watched = get_watched_markets(self.service.config.archiving.market_state_file)
+            self._switch_view(WatchListView(watched), "watchlist")
         elif menu_id == "paper":
             self._switch_view(PaperStatusView(self.service), "paper")
         self._current_menu = menu_id
