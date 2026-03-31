@@ -198,11 +198,12 @@ ai:
     max_concurrent: 3                    # max parallel CLI invocations
     timeout_seconds: 60
 
-  narrative_writer:                      # Agent 2: narrative for Tier A + top Tier B
+  narrative_writer:                      # Agent 2: decision advisor for top candidates
     enabled: true
-    model: "sonnet"                      # needs synthesis and generation quality
-    max_candidates: 8                    # max markets to generate narratives for
-    timeout_seconds: 90
+    model: "sonnet"                      # needs synthesis, web search, generation quality
+    max_candidates: 8                    # max markets to generate analysis for
+    max_concurrent: 2                    # reduced from 3 (web search is heavier)
+    timeout_seconds: 300                 # 5 min — agent does web searches, needs time
 
   briefing_analyst:                      # Agent 3: daily briefing interpretation
     enabled: true
