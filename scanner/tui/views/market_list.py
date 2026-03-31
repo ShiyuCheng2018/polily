@@ -50,22 +50,40 @@ class MarketListView(Widget):
             return
         table = self.query_one("#market-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("市场", "类型", "YES", "结构分", "结算", "价差", "AI")
+        table.add_columns("市场", "动作", "方向", "YES", "结算", "类型", "价差")
         for c in self.candidates:
             m = c.market
+            n = c.narrative
             days = f"{m.days_to_resolution:.1f}天" if m.days_to_resolution else "?"
             spread = f"{m.spread_pct_yes:.1%}" if m.spread_pct_yes else "?"
             mtype = m.market_type or "other"
             title = m.title[:40] + "..." if len(m.title) > 40 else m.title
-            ai_tag = "v" if c.narrative else ""
+
+            # Action from narrative
+            action_map = {
+                "small_position_ok": "GO",
+                "worth_research": "RESEARCH",
+                "watch_only": "WATCH",
+                "avoid": "AVOID",
+            }
+            action = action_map.get(getattr(n, "action", ""), "-") if n else "-"
+
+            # Bias from narrative
+            bias = getattr(n, "bias", None)
+            if bias and hasattr(bias, "direction"):
+                bias_map = {"lean_yes": "YES", "lean_no": "NO", "neutral": "-"}
+                direction = bias_map.get(bias.direction, "-")
+            else:
+                direction = "-"
+
             table.add_row(
                 title,
-                mtype,
+                action,
+                direction,
                 f"{m.yes_price:.2f}" if m.yes_price else "?",
-                f"{c.score.total:.0f}",
                 days,
+                mtype,
                 spread,
-                ai_tag,
                 key=m.market_id,
             )
 

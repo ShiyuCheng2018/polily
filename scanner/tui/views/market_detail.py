@@ -120,10 +120,11 @@ class MarketDetailView(Widget):
         n = self._current_narrative()
 
         with VerticalScroll():
-            # === TITLE ===
+            # === TITLE + THREE SCORES ===
             days_str = f"{m.days_to_resolution:.1f}天" if m.days_to_resolution else "?"
             yield Static(f" [bold]{m.title}[/bold]", classes="section-title")
-            yield Static(f"  {m.market_type or 'other'} | 结算: {days_str} | 结构分: {s.total:.0f}/100")
+            yield Static(f"  {m.market_type or 'other'} | 结算: {days_str}")
+            yield from self._compose_three_scores(s)
 
             # === FIRST SCREEN: DECISION ZONE ===
             if self._analyzing:
@@ -150,8 +151,8 @@ class MarketDetailView(Widget):
             if n and not self._analyzing:
                 yield from self._compose_research_findings(n)
 
-            # Score breakdown (compact)
-            yield from self._compose_score_compact(s)
+            # Score breakdown (collapsible detail)
+            yield from self._compose_score_detail(s)
 
             # Footer
             yield Static("")
@@ -297,8 +298,8 @@ class MarketDetailView(Widget):
             for item in checklist:
                 yield Static(f"  {item}", classes="detail-row")
 
-    def _compose_score_compact(self, s) -> ComposeResult:
-        """Three-score display + compact breakdown."""
+    def _compose_three_scores(self, s) -> ComposeResult:
+        """Three-score bar gauges — shown right below title."""
         from scanner.scoring import compute_three_scores
         three = compute_three_scores(s, self.candidate.mispricing, self.candidate.market)
 
@@ -311,8 +312,10 @@ class MarketDetailView(Widget):
         q_bar = bar(three["quality"], "质量")
         v_bar = bar(three["value"], "价值")
         e_bar = bar(three["edge"], "方向")
-        yield Static(f" {q_bar}   {v_bar}   {e_bar}", classes="section-title")
+        yield Static(f"  {q_bar}   {v_bar}   {e_bar}")
 
+    def _compose_score_detail(self, s) -> ComposeResult:
+        """7-item score breakdown — collapsible."""
         if self._show_detail:
             # Expanded: 7-item bar chart
             for name, val, mx in [
