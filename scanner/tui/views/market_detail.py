@@ -237,16 +237,18 @@ class MarketDetailView(Widget):
             yield Static(f"  方向: {bias_cn}{strength_str}", classes="detail-row")
 
     def _compose_risk_calculator(self, m) -> ComposeResult:
-        """Scenario calculator — moved to first screen for quick decision."""
+        """Scenario calculator with explanations."""
         if m.yes_price and m.yes_price > 0:
             pos = 20.0
-            friction_cost = pos * (m.round_trip_friction_pct or 0.04)
+            friction_pct = m.round_trip_friction_pct or 0.04
+            friction_cost = pos * friction_pct
             profit = (pos / m.yes_price) * 1.0 - pos
+            net_profit = profit - friction_cost
             yield Static("")
-            yield Static(
-                f"  $20 投入: 最坏 -${pos:.0f} | 摩擦 -${friction_cost:.2f} | 判断对 +${profit - friction_cost:.2f}",
-                classes="detail-row",
-            )
+            yield Static("  $20 投入:", classes="detail-row")
+            yield Static(f"    最坏 -${pos:.0f}       [dim]全亏（结算为反方向）[/dim]", classes="detail-row")
+            yield Static(f"    摩擦 -${friction_cost:.2f}     [dim]买卖价差成本 ({friction_pct:.1%})[/dim]", classes="detail-row")
+            yield Static(f"    判断对 +${net_profit:.2f}   [dim]结算正确时净利润（扣摩擦）[/dim]", classes="detail-row")
 
     def _compose_critical_risks(self, n) -> ComposeResult:
         """Only show severity=critical risks in first screen."""
@@ -392,9 +394,48 @@ class MarketDetailView(Widget):
         yield Static(f"  {q_bar}   {v_bar}   {e_bar}")
 
     def _compose_score_detail(self, s) -> ComposeResult:
-        """7-item score breakdown — collapsible."""
+        """7-item score breakdown with explanations — collapsible."""
+        m = self.candidate.market
         if self._show_detail:
-            # Expanded: 7-item bar chart
+            # Build explanations from actual market data
+            days = m.days_to_resolution
+            days_note = f"距结算 {days:.1f} 天" if days else "结算时间未知"
+            if days and 0.5 <= days <= 7:
+                days_note += "，在最佳窗口内"
+            elif days and days < 0.5:
+                days_note += "，即将结算"
+
+            res_src = m.resolution_source or "未知"
+            obj_note = f"结算来源: {res_src[:30]}" if res_src != "未知" else "结算标准不明确"
+
+            p = m.yes_price or 0
+            prob_note = f"YES {p:.2f}"
+            if 0.30 <= p <= 0.70:
+                prob_note += "，在甜蜜区 (0.30-0.70)"
+            elif p < 0.15 or p > 0.85:
+                prob_note += "，极端概率"
+
+            bid = m.total_bid_depth_usd
+            bid_note = f"买方深度 ${bid:,.0f}" if bid else "无深度数据"
+
+            ask = m.total_ask_depth_usd
+            ask_note = f"卖方深度 ${ask:,.0f}" if ask else "无深度数据"
+
+            catalyst_note = "有事件驱动" if s.catalyst_proxy > 3 else "催化剂较弱"
+
+            friction_pct = m.round_trip_friction_pct
+            small_note = f"摩擦 {friction_pct:.1%}" if friction_pct else "摩擦未知"
+
+            explanations = {
+                "结算时间": days_note,
+                "客观性": obj_note,
+                "概率区间": prob_note,
+                "流动性": bid_note,
+                "可退出性": ask_note,
+                "催化剂": catalyst_note,
+                "小账户": small_note,
+            }
+
             for name, val, mx in [
                 ("结算时间", s.time_to_resolution, 15),
                 ("客观性", s.objectivity, 20),
@@ -406,7 +447,8 @@ class MarketDetailView(Widget):
             ]:
                 bar_len = int(val / mx * 10) if mx > 0 else 0
                 bar_str = "█" * bar_len + "░" * (10 - bar_len)
-                yield Static(f"  {name:8s} {bar_str} {val:.1f}/{mx}", classes="detail-row")
+                note = explanations.get(name, "")
+                yield Static(f"  {name:8s} {bar_str} {val:.1f}/{mx}  [dim]{note}[/dim]", classes="detail-row")
             yield Static(f"  [bold]总分: {s.total:.0f}/100[/bold]  [dim]按 d 收起[/dim]", classes="detail-row")
         else:
             # Collapsed: single line
