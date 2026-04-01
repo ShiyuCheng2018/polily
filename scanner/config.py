@@ -106,21 +106,17 @@ class HeuristicsConfig(BaseModel):
 
 
 class ScoringWeights(BaseModel):
-    time_to_resolution: int = 15
-    objectivity: int = 20
-    probability_zone: int = 20
-    liquidity_depth: int = 20
-    exitability: int = 10
-    catalyst_proxy: int = 5
-    small_account_friendliness: int = 10
+    liquidity_structure: int = 30
+    objective_verifiability: int = 25
+    probability_space: int = 20
+    time_structure: int = 15
+    trading_friction: int = 10
 
 
 class ScoringThresholds(BaseModel):
-    tier_a_min_score: int = 75
-    tier_b_min_score: int = 60
+    tier_a_min_score: int = 70
+    tier_b_min_score: int = 45
     tier_a_require_mispricing: bool = False
-    # Probability penalty mode: "mid_bias" (default), "flat" (no penalty in 0.20-0.80), "disabled"
-    probability_penalty_mode: str = "mid_bias"
 
 
 class ScoringConfig(BaseModel):

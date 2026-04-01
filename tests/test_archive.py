@@ -20,12 +20,12 @@ from tests.conftest import make_market
 def _make_tiers():
     c1 = ScoredCandidate(
         market=make_market(market_id="m-high", title="High"),
-        score=ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80),
+        score=ScoreBreakdown(20, 18, 16, 12, 8, total=74),
         mispricing=MispricingResult(signal="moderate"),
     )
     c2 = ScoredCandidate(
         market=make_market(market_id="m-mid", title="Mid"),
-        score=ScoreBreakdown(10, 14, 14, 14, 6, 2, 7, total=67),
+        score=ScoreBreakdown(15, 14, 12, 10, 6, total=57),
         mispricing=MispricingResult(signal="none"),
     )
     return TierResult(tier_a=[c1], tier_b=[c2], tier_c=[])
@@ -50,7 +50,7 @@ class TestSaveAndLoad:
                 tier_b=[_make_tiers().tier_b[0]],
                 tier_c=[ScoredCandidate(
                     market=make_market(market_id="m-bad"),
-                    score=ScoreBreakdown(5, 5, 5, 5, 3, 1, 3, total=27),
+                    score=ScoreBreakdown(5, 5, 5, 3, 2, total=20),
                     mispricing=MispricingResult(signal="none"),
                 )],
             )
@@ -79,7 +79,7 @@ class TestFindEntry:
             save_scan_unified(_make_tiers(), d)
             entry = find_entry_by_rank(1, d)
             assert entry is not None
-            assert entry["structure_score"] == 80  # highest score
+            assert entry["structure_score"] == 74  # highest score
 
     def test_rank_out_of_range(self):
         with tempfile.TemporaryDirectory() as d:

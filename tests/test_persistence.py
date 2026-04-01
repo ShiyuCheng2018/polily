@@ -17,15 +17,15 @@ class TestUnifiedScanArchive:
     def test_save_includes_all_tiers_with_labels(self):
         c_a = ScoredCandidate(
             market=make_market(market_id="m-a"), mispricing=MispricingResult(signal="moderate"),
-            score=ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80),
+            score=ScoreBreakdown(20, 18, 16, 12, 8, total=74),
         )
         c_b = ScoredCandidate(
             market=make_market(market_id="m-b"), mispricing=MispricingResult(signal="none"),
-            score=ScoreBreakdown(10, 14, 14, 14, 6, 2, 7, total=67),
+            score=ScoreBreakdown(15, 14, 12, 10, 6, total=57),
         )
         c_c = ScoredCandidate(
             market=make_market(market_id="m-c"), mispricing=MispricingResult(signal="none"),
-            score=ScoreBreakdown(5, 8, 8, 8, 4, 2, 5, total=40),
+            score=ScoreBreakdown(5, 5, 5, 3, 2, total=20),
         )
         tiers = TierResult(tier_a=[c_a], tier_b=[c_b], tier_c=[c_c])
 
@@ -52,12 +52,12 @@ class TestUnifiedScanArchive:
     def test_find_by_rank_works_with_unified(self):
         c1 = ScoredCandidate(
             market=make_market(market_id="m-high"),
-            score=ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80),
+            score=ScoreBreakdown(20, 18, 16, 12, 8, total=74),
             mispricing=MispricingResult(signal="none"),
         )
         c2 = ScoredCandidate(
             market=make_market(market_id="m-low"),
-            score=ScoreBreakdown(5, 8, 8, 8, 4, 2, 5, total=40),
+            score=ScoreBreakdown(5, 5, 5, 3, 2, total=20),
             mispricing=MispricingResult(signal="none"),
         )
         tiers = TierResult(tier_a=[c1], tier_b=[], tier_c=[c2])
@@ -125,7 +125,7 @@ class TestExportScansCSV:
         with tempfile.TemporaryDirectory() as d:
             c = ScoredCandidate(
                 market=make_market(market_id="m1", title="Test"),
-                score=ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80),
+                score=ScoreBreakdown(20, 18, 16, 12, 8, total=74),
                 mispricing=MispricingResult(signal="none"),
             )
             save_scan_unified(TierResult(tier_a=[c], tier_b=[], tier_c=[]), d)

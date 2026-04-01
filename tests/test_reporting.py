@@ -21,13 +21,11 @@ def _make_candidate(
     return ScoredCandidate(
         market=make_market(**market_overrides),
         score=ScoreBreakdown(
-            time_to_resolution=12,
-            objectivity=16,
-            probability_zone=16,
-            liquidity_depth=18,
-            exitability=7,
-            catalyst_proxy=3,
-            small_account_friendliness=8,
+            liquidity_structure=20,
+            objective_verifiability=18,
+            probability_space=16,
+            time_structure=12,
+            trading_friction=8,
             total=total,
         ),
         mispricing=MispricingResult(
@@ -42,8 +40,8 @@ def _make_candidate(
 class TestClassifyTiers:
     def _thresholds(self) -> ScoringThresholds:
         return ScoringThresholds(
-            tier_a_min_score=75,
-            tier_b_min_score=60,
+            tier_a_min_score=70,
+            tier_b_min_score=45,
             tier_a_require_mispricing=True,
         )
 
@@ -61,13 +59,13 @@ class TestClassifyTiers:
         assert len(result.tier_b) == 1
 
     def test_tier_b_mid_score(self):
-        c = _make_candidate(total=65, mispricing_signal="moderate")
+        c = _make_candidate(total=55, mispricing_signal="moderate")
         result = classify_tiers([c], self._thresholds())
         assert len(result.tier_a) == 0
         assert len(result.tier_b) == 1
 
     def test_tier_c_low_score(self):
-        c = _make_candidate(total=50, mispricing_signal="none")
+        c = _make_candidate(total=35, mispricing_signal="none")
         result = classify_tiers([c], self._thresholds())
         assert len(result.tier_a) == 0
         assert len(result.tier_b) == 0
@@ -83,8 +81,8 @@ class TestClassifyTiers:
 
     def test_tier_a_without_mispricing_requirement(self):
         thresholds = ScoringThresholds(
-            tier_a_min_score=75,
-            tier_b_min_score=60,
+            tier_a_min_score=70,
+            tier_b_min_score=45,
             tier_a_require_mispricing=False,
         )
         c = _make_candidate(total=80, mispricing_signal="none")
@@ -105,7 +103,7 @@ class TestRenderCandidateJson:
         output = render_candidate_json(c)
         parsed = json.loads(output)
         assert "structure_score_breakdown" in parsed
-        assert parsed["structure_score_breakdown"]["objectivity"] == 16
+        assert parsed["structure_score_breakdown"]["objective_verifiability"] == 18
 
     def test_json_contains_mispricing(self):
         c = _make_candidate()

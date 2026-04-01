@@ -42,9 +42,9 @@ def _make_scored_candidate(**overrides) -> ScoredCandidate:
     return ScoredCandidate(
         market=make_market(**{k: v for k, v in overrides.items() if k in ("market_id", "title", "market_type", "yes_price")}),
         score=ScoreBreakdown(
-            time_to_resolution=12, objectivity=16, probability_zone=16,
-            liquidity_depth=18, exitability=7, catalyst_proxy=3,
-            small_account_friendliness=8, total=80,
+            liquidity_structure=20, objective_verifiability=18,
+            probability_space=16, time_structure=12,
+            trading_friction=8, total=74,
         ),
         mispricing=MispricingResult(
             signal="moderate", theoretical_fair_value=0.49,

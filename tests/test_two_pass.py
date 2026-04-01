@@ -126,8 +126,8 @@ class TestEnrichWithOrderbook:
 class TestOrderBookIntegrationWithScoring:
     def test_market_with_depth_scores_higher_liquidity(self):
         """Market with real depth data should score higher on liquidity than one without."""
-        from scanner.config import FiltersConfig, ScoringWeights
-        from scanner.scoring import compute_beauty_score
+        from scanner.config import ScoringWeights
+        from scanner.scoring import compute_structure_score
 
         m_with_depth = make_market(
             best_bid_yes=0.54, best_ask_yes=0.56,
@@ -139,10 +139,10 @@ class TestOrderBookIntegrationWithScoring:
             book_depth_bids=None, book_depth_asks=None,
         )
 
-        s1 = compute_beauty_score(m_with_depth, ScoringWeights(), FiltersConfig())
-        s2 = compute_beauty_score(m_no_depth, ScoringWeights(), FiltersConfig())
+        s1 = compute_structure_score(m_with_depth, ScoringWeights())
+        s2 = compute_structure_score(m_no_depth, ScoringWeights())
 
-        assert s1.liquidity_depth > s2.liquidity_depth
+        assert s1.liquidity_structure > s2.liquidity_structure
 
     def test_depth_filter_rejects_shallow_book(self):
         """Market with very thin depth should be rejected by depth filter."""

@@ -32,13 +32,18 @@ class NarrativeWriterAgent:
             fallback_fn=lambda prompt: self._fallback_from_prompt(prompt),
         )
 
+    def cancel(self):
+        """Cancel the currently running analysis."""
+        self._agent.cancel()
+
     async def generate(self, candidate: ScoredCandidate, context: str | None = None,
-                       include_bias: bool = False) -> NarrativeWriterOutput:
+                       include_bias: bool = False,
+                       on_heartbeat=None) -> NarrativeWriterOutput:
         """Generate narrative for a single candidate, optionally with previous analysis context."""
         prompt = self._build_prompt(candidate, include_bias=include_bias)
         if context:
             prompt += f"\n\n{context}"
-        raw = await self._agent.invoke(prompt)
+        raw = await self._agent.invoke(prompt, on_heartbeat=on_heartbeat)
         try:
             return NarrativeWriterOutput.model_validate(raw)
         except Exception:

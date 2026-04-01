@@ -12,7 +12,7 @@ from scanner.models import BookLevel, Market
 from scanner.paper_trading import PaperTradingDB
 from scanner.pipeline import run_scan_pipeline
 from scanner.reporting import ScoredCandidate, TierResult
-from scanner.scoring import ScoreBreakdown, compute_beauty_score
+from scanner.scoring import ScoreBreakdown, compute_structure_score
 from scanner.tag_classifier import classify_from_tags
 
 __all__ = [
@@ -21,7 +21,7 @@ __all__ = [
     # Pipeline
     "run_scan_pipeline", "ScoredCandidate", "TierResult",
     # Scoring
-    "ScoreBreakdown", "compute_beauty_score",
+    "ScoreBreakdown", "compute_structure_score",
     # Mispricing
     "MispricingResult", "detect_mispricing",
     # Filters

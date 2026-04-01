@@ -7,7 +7,7 @@ from tests.conftest import make_market
 
 class TestComputeThreeScores:
     def test_returns_three_scores(self):
-        s = ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80)
+        s = ScoreBreakdown(20, 18, 16, 12, 8, total=74)
         mp = MispricingResult(signal="moderate", deviation_pct=0.06)
         m = make_market(yes_price=0.55)
         result = compute_three_scores(s, mp, m)
@@ -16,23 +16,23 @@ class TestComputeThreeScores:
         assert "edge" in result
 
     def test_quality_from_structure(self):
-        s = ScoreBreakdown(15, 20, 20, 20, 10, 5, 10, total=100)
+        s = ScoreBreakdown(28, 23, 18, 14, 9, total=92)
         mp = MispricingResult(signal="none")
         m = make_market()
         result = compute_three_scores(s, mp, m)
         assert result["quality"] > 80
 
     def test_value_positive_when_edge_gt_friction(self):
-        s = ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80)
+        s = ScoreBreakdown(20, 18, 16, 12, 8, total=74)
         mp = MispricingResult(signal="strong", deviation_pct=0.10)
         m = make_market(best_bid_yes=0.54, best_ask_yes=0.56)  # friction ~7%
         result = compute_three_scores(s, mp, m)
-        # edge 10% - friction 7% = net 3% → value ~27
+        # edge 10% - friction 7% = net 3% -> value ~27
         assert result["value"] > 20
 
     def test_value_uses_structural_when_no_quant_edge(self):
-        """No mispricing model → structural value kicks in."""
-        s = ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80)
+        """No mispricing model -> structural value kicks in."""
+        s = ScoreBreakdown(20, 18, 16, 12, 8, total=74)
         mp = MispricingResult(signal="none", deviation_pct=0)
         m = make_market()  # yes=0.55, bid depth $1300, spread ~3.6%
         result = compute_three_scores(s, mp, m)
@@ -40,8 +40,8 @@ class TestComputeThreeScores:
         assert result["value"] > 30  # structural value is nonzero
 
     def test_value_lower_for_bad_structure(self):
-        """Bad structure → lower structural value."""
-        s = ScoreBreakdown(5, 5, 5, 5, 3, 1, 3, total=27)
+        """Bad structure -> lower structural value."""
+        s = ScoreBreakdown(5, 3, 2, 3, 1, total=14)
         mp = MispricingResult(signal="none", deviation_pct=0)
         m_bad = make_market(
             yes_price=0.95,  # extreme probability
@@ -55,7 +55,7 @@ class TestComputeThreeScores:
 
     def test_value_prefers_quant_when_higher(self):
         """Quantitative value beats structural when edge is large."""
-        s = ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80)
+        s = ScoreBreakdown(20, 18, 16, 12, 8, total=74)
         mp = MispricingResult(signal="strong", deviation_pct=0.15)
         m = make_market(best_bid_yes=0.54, best_ask_yes=0.56)  # friction ~7%
         result = compute_three_scores(s, mp, m)
@@ -64,14 +64,14 @@ class TestComputeThreeScores:
 
     def test_edge_none_by_default(self):
         """Direction edge is None unless bias data available."""
-        s = ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80)
+        s = ScoreBreakdown(20, 18, 16, 12, 8, total=74)
         mp = MispricingResult(signal="none")
         m = make_market()
         result = compute_three_scores(s, mp, m)
         assert result["edge"] is None
 
     def test_edge_from_mispricing_direction(self):
-        s = ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80)
+        s = ScoreBreakdown(20, 18, 16, 12, 8, total=74)
         mp = MispricingResult(signal="moderate", deviation_pct=0.06, direction="underpriced", model_confidence="high")
         m = make_market()
         result = compute_three_scores(s, mp, m)
@@ -79,7 +79,7 @@ class TestComputeThreeScores:
         assert result["edge"] > 40
 
     def test_all_scores_bounded(self):
-        s = ScoreBreakdown(15, 20, 20, 20, 10, 5, 10, total=100)
+        s = ScoreBreakdown(28, 23, 18, 14, 9, total=92)
         mp = MispricingResult(signal="strong", deviation_pct=0.15, direction="underpriced", model_confidence="high")
         m = make_market()
         result = compute_three_scores(s, mp, m)

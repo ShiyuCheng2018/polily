@@ -33,6 +33,9 @@ class BaseAgent:
 
     Uses `claude -p` and parses JSON from the response text.
     Falls back to fallback_fn on any error if provided.
+
+    Heartbeat monitoring: emits status callbacks during long-running calls.
+    No system kill — user decides when to cancel via cancel().
     """
 
     def __init__(
@@ -42,9 +45,9 @@ class BaseAgent:
         model: str = "sonnet",
         cli_command: str = "claude",
         fallback_fn: Callable[[str], dict] | None = None,
-        idle_timeout_seconds: float = 120,
         max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
-        # Legacy: timeout_seconds still accepted but mapped to idle_timeout
+        # Legacy compat — these are ignored now (no system kill)
+        idle_timeout_seconds: float = 0,
         timeout_seconds: float | None = None,
     ):
         self.system_prompt = system_prompt
@@ -52,11 +55,31 @@ class BaseAgent:
         self.model = model
         self.cli_command = cli_command
         self.fallback_fn = fallback_fn
-        self.idle_timeout = timeout_seconds or idle_timeout_seconds
         self.max_prompt_chars = max_prompt_chars
+        self._current_proc: asyncio.subprocess.Process | None = None
+        self._cancelled = False
 
-    async def invoke(self, prompt: str, max_retries: int = 2) -> dict:
-        """Call claude CLI and return parsed JSON dict. Retries on failure."""
+    def cancel(self):
+        """Cancel the currently running CLI call. Safe to call from any thread."""
+        self._cancelled = True
+        proc = self._current_proc
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                logger.info("Cancelled agent subprocess %d", proc.pid)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    async def invoke(
+        self, prompt: str, max_retries: int = 2,
+        on_heartbeat: Callable[[float, str], None] | None = None,
+    ) -> dict:
+        """Call claude CLI and return parsed JSON dict.
+
+        on_heartbeat(elapsed_seconds, status): called every ~5s during execution.
+          status: "running" (<60s), "slow" (60-120s), "unresponsive" (>120s)
+        """
+        self._cancelled = False
         tmp_path = None
         try:
             if len(prompt) > self.max_prompt_chars:
@@ -68,9 +91,11 @@ class BaseAgent:
             last_error = None
             for attempt in range(1, max_retries + 1):
                 try:
-                    result = await self._call_cli(actual_prompt)
+                    result = await self._call_cli(actual_prompt, on_heartbeat)
                     return result
                 except Exception as e:
+                    if self._cancelled:
+                        raise RuntimeError("Agent cancelled by user") from e
                     last_error = e
                     if attempt < max_retries:
                         wait = attempt * 3
@@ -99,12 +124,14 @@ class BaseAgent:
 
         return await asyncio.gather(*[bounded(p) for p in prompts])
 
-    async def _call_cli(self, prompt: str) -> dict:
-        """Execute claude CLI with polling-based timeout.
+    async def _call_cli(
+        self, prompt: str,
+        on_heartbeat: Callable[[float, str], None] | None = None,
+    ) -> dict:
+        """Execute claude CLI with heartbeat monitoring.
 
-        Polls the process every 5s instead of blocking on a single wait_for.
-        Kills the process if it hasn't finished within idle_timeout seconds.
-        Set idle_timeout high (e.g. 300s) for agents that do web searches.
+        No system kill — runs until process completes or cancel() is called.
+        Emits heartbeat status via on_heartbeat callback every ~5 seconds.
         """
         import time
 
@@ -127,26 +154,28 @@ class BaseAgent:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        self._current_proc = proc
         _active_pids.add(proc.pid)
 
         try:
-            # Wrap communicate() as a task, poll for idle timeout
             comm_task = asyncio.ensure_future(proc.communicate())
             start = time.monotonic()
             while not comm_task.done():
                 await asyncio.sleep(5.0)
                 elapsed = time.monotonic() - start
-                if elapsed > self.idle_timeout:
-                    comm_task.cancel()
-                    proc.kill()
-                    await proc.wait()
-                    raise RuntimeError(
-                        f"claude CLI not responding after {self.idle_timeout:.0f}s, killed"
-                    )
+                # Emit heartbeat status
+                if on_heartbeat:
+                    if elapsed > 120:
+                        on_heartbeat(elapsed, "unresponsive")
+                    elif elapsed > 60:
+                        on_heartbeat(elapsed, "slow")
+                    else:
+                        on_heartbeat(elapsed, "running")
                 logger.debug("Agent still running (%.0fs)...", elapsed)
 
             stdout, stderr = comm_task.result()
         finally:
+            self._current_proc = None
             _active_pids.discard(proc.pid)
             if proc.returncode is None:
                 proc.kill()

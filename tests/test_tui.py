@@ -29,14 +29,14 @@ def _mock_service():
 
     c1 = ScoredCandidate(
         market=make_market(market_id="m1", title="BTC above $88K?", yes_price=0.55),
-        score=ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80),
+        score=ScoreBreakdown(20, 18, 16, 12, 8, total=74),
         mispricing=MispricingResult(signal="moderate", direction="underpriced",
                                      theoretical_fair_value=0.65, deviation_pct=0.10,
                                      details="模型估值 0.65, 市价 0.55"),
     )
     c2 = ScoredCandidate(
         market=make_market(market_id="m2", title="CPI exceed 3.5%?", yes_price=0.50),
-        score=ScoreBreakdown(10, 14, 14, 14, 6, 2, 7, total=67),
+        score=ScoreBreakdown(15, 14, 12, 10, 6, total=57),
         mispricing=MispricingResult(signal="none"),
     )
 

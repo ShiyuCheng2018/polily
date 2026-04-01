@@ -99,13 +99,11 @@ class ScanService:
                 )
                 bd = entry.get("structure_score_breakdown", {})
                 score = ScoreBreakdown(
-                    time_to_resolution=bd.get("time_to_resolution", 0),
-                    objectivity=bd.get("objectivity", 0),
-                    probability_zone=bd.get("probability_zone", 0),
-                    liquidity_depth=bd.get("liquidity_depth", 0),
-                    exitability=bd.get("exitability", 0),
-                    catalyst_proxy=bd.get("catalyst_proxy", 0),
-                    small_account_friendliness=bd.get("small_account_friendliness", 0),
+                    liquidity_structure=bd.get("liquidity_structure", 0),
+                    objective_verifiability=bd.get("objective_verifiability", 0),
+                    probability_space=bd.get("probability_space", 0),
+                    time_structure=bd.get("time_structure", 0),
+                    trading_friction=bd.get("trading_friction", 0),
                     total=entry.get("structure_score", 0),
                 )
                 mispricing = MispricingResult(
@@ -337,8 +335,19 @@ class ScanService:
 
     # --- Single market analysis ---
 
-    async def analyze_market(self, candidate: ScoredCandidate):
-        """Run full AI analysis on a single market."""
+    def cancel_analysis(self):
+        """Cancel the currently running AI analysis."""
+        narrator = getattr(self, "_current_narrator", None)
+        if narrator:
+            narrator.cancel()
+            logger.info("Analysis cancelled by user")
+
+    async def analyze_market(self, candidate: ScoredCandidate, on_heartbeat=None):
+        """Run full AI analysis on a single market.
+
+        on_heartbeat(elapsed, status): called during AI call with
+          status "running" / "slow" / "unresponsive".
+        """
         from datetime import datetime
 
         from scanner.agents.narrative_writer import NarrativeWriterAgent
@@ -398,10 +407,9 @@ class ScanService:
                     await client.close()
 
                 # Recalculate score with fresh data
-                from scanner.scoring import compute_beauty_score
-                candidate.score = compute_beauty_score(
-                    market, self.config.scoring.weights, self.config.filters,
-                    probability_penalty_mode=self.config.scoring.thresholds.probability_penalty_mode,
+                from scanner.scoring import compute_structure_score
+                candidate.score = compute_structure_score(
+                    market, self.config.scoring.weights,
                 )
 
                 # Recalculate mispricing if crypto
@@ -431,6 +439,7 @@ class ScanService:
             self._step_start("AI 决策分析")
             existing = get_market_analyses(market.market_id, analyses_path)
             narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
+            self._current_narrator = narrator
 
             # Build context: previous analysis + data change since scan
             context_parts = []
@@ -445,7 +454,11 @@ class ScanService:
             context = "\n\n".join(context_parts) if context_parts else None
 
             include_bias = self.config.execution_hints.show_conditional_advice
-            narrative_output = await narrator.generate(candidate, context=context, include_bias=include_bias)
+            narrative_output = await narrator.generate(
+                candidate, context=context, include_bias=include_bias,
+                on_heartbeat=on_heartbeat,
+            )
+            self._current_narrator = None
             self._step_done("完成")
 
             # Build version
