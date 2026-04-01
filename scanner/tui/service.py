@@ -241,10 +241,43 @@ class ScanService:
                 scan_id=self._current_log.scan_id if self._current_log else None,
             )
 
-        # AI narratives no longer generated during scan — triggered on-demand via 'a' key
+        # Restore previous AI narratives from analyses.json
+        self._restore_narratives()
 
         self._finish_log("completed")
         return self.tiers
+
+    def _restore_narratives(self):
+        """Restore previous AI narratives from analyses.json to scan candidates."""
+        from scanner.agents.schemas import NarrativeWriterOutput
+        from scanner.analysis_store import load_analyses
+
+        if not self.tiers:
+            return
+        analyses_path = self.config.archiving.analyses_file
+        all_data = load_analyses(analyses_path)
+        if not all_data:
+            return
+
+        for c in self.tiers.tier_a + self.tiers.tier_b + self.tiers.tier_c:
+            raw_list = all_data.get(c.market.market_id, [])
+            if not raw_list:
+                continue
+            # Take the latest version's narrative_output
+            latest = raw_list[-1]
+            n_data = latest.get("narrative_output")
+            if not n_data or not isinstance(n_data, dict):
+                continue
+            try:
+                n_data.setdefault("market_id", c.market.market_id)
+                # Pre-process old risk_flags format
+                if n_data.get("risk_flags") and isinstance(n_data["risk_flags"][0], str):
+                    n_data["risk_flags"] = [
+                        {"text": rf, "severity": "warning"} for rf in n_data["risk_flags"]
+                    ]
+                c.narrative = NarrativeWriterOutput.model_validate(n_data)
+            except Exception:
+                pass
 
     def _save_scan_narratives(self):
         """Save scan-generated narratives to analyses store as incremental versions.
