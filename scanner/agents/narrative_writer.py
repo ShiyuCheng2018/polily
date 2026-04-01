@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from scanner.agents.base import BaseAgent
-from scanner.agents.schemas import NarrativeWriterOutput, RiskFlag, TimeWindow
+from scanner.agents.schemas import NarrativeWriterOutput, RiskFlag, TimeWindow, WatchCondition
 from scanner.config import AgentConfig
 from scanner.reporting import ScoredCandidate
 
@@ -121,95 +121,80 @@ class NarrativeWriterAgent:
         market_id = extract_market_id_from_prompt(prompt)
         return NarrativeWriterOutput(
             market_id=market_id,
-            action="watch_only",
-            action_reasoning="AI 分析不可用",
+            action="PASS",
             confidence="low",
-            time_window=TimeWindow(urgency="normal", note=""),
-            friction_impact="",
-            summary="AI 分析不可用，请手动查看市场详情。",
-            risk_flags=[RiskFlag(text="AI 分析不可用 — 仅基于规则判断", severity="warning")],
-            counterparty_note="",
-            research_findings=[],
-            one_line_verdict="AI 离线，请手动评估。",
+            summary="AI 分析不可用，请手动查看。",
+            risk_flags=[RiskFlag(text="AI 不可用", severity="warning")],
+            one_line_verdict="AI 离线",
         ).model_dump()
 
 
 def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
     """Rule-based fallback when AI agent is unavailable."""
     m = candidate.market
-    s = candidate.score
     mp = candidate.mispricing
 
-    # Determine action based on friction vs edge
     friction = m.round_trip_friction_pct if m.round_trip_friction_pct is not None else 0.04
     edge = mp.deviation_pct if mp.deviation_pct is not None else 0
     friction_ratio = friction / edge if edge > 0 else float("inf")
 
+    # Action
     if friction_ratio > 0.8:
-        action = "avoid"
+        action = "PASS"
     elif friction_ratio > 0.5:
-        action = "watch_only"
-    elif edge > 0.03:
-        action = "small_position_ok"
+        action = "WATCH"
+    elif edge > 0.05 and mp.direction == "underpriced":
+        action = "BUY_YES"
+    elif edge > 0.05 and mp.direction == "overpriced":
+        action = "BUY_NO"
     else:
-        action = "worth_research"
+        action = "WATCH"
 
-    # Build risk flags with severity
+    # Friction vs edge
+    if edge > 0 and friction < edge * 0.5:
+        fve = "edge_exceeds"
+    elif edge > 0 and friction < edge:
+        fve = "roughly_equals"
+    else:
+        fve = "friction_exceeds"
+
+    # Risk flags
     risks = []
     if friction:
         severity = "critical" if friction_ratio > 0.5 else "warning"
         risks.append(RiskFlag(text=f"摩擦 ~{friction:.1%}，吃掉潜在利润", severity=severity))
     if mp.signal == "none":
-        risks.append(RiskFlag(text="未检测到定价偏差 — 市场可能已有效定价", severity="warning"))
-    if m.total_bid_depth_usd and m.total_bid_depth_usd < 1000:
-        risks.append(RiskFlag(text=f"买方深度不足 (${m.total_bid_depth_usd:.0f}) — 退出可能困难", severity="warning"))
-    if not risks:
-        risks.append(RiskFlag(text="请仔细阅读结算规则", severity="info"))
+        risks.append(RiskFlag(text="未检测到定价偏差", severity="warning"))
 
-    # Time window
+    # Time
     days = m.days_to_resolution
-    if days and days < 1:
-        urgency = "urgent"
-    elif days and days < 3:
-        urgency = "normal"
-    else:
-        urgency = "no_rush"
+    urgency = "urgent" if days and days < 1 else "normal" if days and days < 3 else "no_rush"
 
     # Summary
     parts = [f"{'二元' if m.is_binary else '多选项'} {m.market_type or '市场'}"]
     if days:
         parts.append(f"{days:.1f} 天后结算")
-    if mp.signal != "none":
-        parts.append(f"{mp.signal} 定价偏差信号")
-    summary = f"{', '.join(parts)}。结构分 {s.total:.0f}/100。"
+    summary = f"{', '.join(parts)}。"
 
-    friction_impact = f"摩擦吃掉 {friction_ratio:.0%} 潜在利润" if edge > 0 else "无可测量 edge"
+    # Why not now
+    why_not = ""
+    if action in ("PASS", "WATCH"):
+        if fve == "friction_exceeds":
+            why_not = f"摩擦 {friction:.1%} 大于可测量 edge"
+        elif mp.signal == "none":
+            why_not = "未检测到定价偏差，市场可能已有效定价"
+        else:
+            why_not = "当前价格没有明显优势"
 
-    # Why not + recheck (for avoid/watch)
-    why_not = []
+    # Recheck + watch
     recheck = []
     watch = None
-    if action in ("avoid", "watch_only"):
-        if friction_ratio > 0.5 and edge > 0:
-            why_not.append(f"摩擦 {friction:.1%} 吃掉 {friction_ratio:.0%} 的潜在利润")
-        if mp.signal == "none":
-            why_not.append("未检测到可测量的定价偏差")
-        if days and days < 1:
-            why_not.append(f"距结算仅 {days:.1f} 天，尾盘风险高")
-        if not why_not:
-            why_not.append("当前价格没有明显优势")
-
+    if action == "WATCH":
         if m.yes_price:
-            recheck.append(f"YES 价格回到 {m.yes_price * 0.85:.2f} 以下")
-        if days and days > 2:
-            recheck.append("出现明确催化事件")
-        if not recheck:
-            recheck.append("市场结构发生变化")
-
-    if action == "watch_only":
-        from scanner.agents.schemas import WatchCondition
+            recheck.append(f"YES 回到 {m.yes_price * 0.85:.2f} 以下")
+        recheck.append("出现明确催化事件")
         watch = WatchCondition(
-            watch_reason=why_not[0] if why_not else "当前不值得做",
+            watch_reason=why_not or "当前不值得做",
             better_entry=f"YES <= {m.yes_price * 0.85:.2f}" if m.yes_price else "",
             trigger_event=recheck[0] if recheck else "",
             invalidation="距结算 <12h 且价格未变" if days else "",
@@ -218,20 +203,20 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
     return NarrativeWriterOutput(
         market_id=m.market_id,
         action=action,
-        action_reasoning=f"摩擦 {friction:.1%} vs edge {edge:.1%}" if edge > 0 else "无可测量定价偏差",
+        bias="NONE",
+        strength="weak",
         confidence="low",
-        time_window=TimeWindow(
-            urgency=urgency,
-            note=f"还剩 {days:.1f} 天" if days else "结算时间未知",
-        ),
-        friction_impact=friction_impact,
-        summary=summary,
+        opportunity_type="no_trade" if action == "PASS" else "watch_only" if action == "WATCH" else "slow_structure",
+        time_window=TimeWindow(urgency=urgency, note=f"还剩 {days:.1f} 天" if days else ""),
+        why_now="" if action in ("PASS", "WATCH") else "规则检测到可能的 edge",
+        why_not_now=why_not,
+        friction_vs_edge=fve,
+        execution_risk="low",
         risk_flags=risks,
-        counterparty_note=f"市场类型 '{m.market_type}' — 需手动评估对手方质量。",
-        why_not_opportunity=why_not,
+        counterparty_note=f"市场类型 '{m.market_type}'",
         recheck_conditions=recheck,
         watch=watch,
-        research_findings=[],
+        next_step="pass_for_now" if action == "PASS" else f"watch_yes_below_{m.yes_price * 0.85:.2f}" if action == "WATCH" and m.yes_price else "",
+        summary=summary,
         one_line_verdict=f"{action}: {summary}",
-        suggested_style="watch_only" if action in ("watch_only", "avoid") else "research_candidate",
     )

@@ -34,7 +34,13 @@ class MarketListView(Widget):
 
     def __init__(self, candidates: list[ScoredCandidate], service: ScanService, title: str = "市场"):
         super().__init__()
-        self.candidates = candidates
+        # Sort by value score descending
+        from scanner.scoring import compute_three_scores
+        self.candidates = sorted(
+            candidates,
+            key=lambda c: compute_three_scores(c.score, c.mispricing, c.market).get("value", 0),
+            reverse=True,
+        )
         self.service = service
         self._title = title
 
@@ -50,40 +56,40 @@ class MarketListView(Widget):
             return
         table = self.query_one("#market-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("市场", "动作", "方向", "YES", "结算", "类型", "价差")
+        from scanner.scoring import compute_three_scores
+        table.add_columns("市场", "质量", "价值", "动作", "YES", "结算", "类型")
         for c in self.candidates:
             m = c.market
             n = c.narrative
             days = f"{m.days_to_resolution:.1f}天" if m.days_to_resolution else "?"
-            spread = f"{m.spread_pct_yes:.1%}" if m.spread_pct_yes else "?"
-            mtype = m.market_type or "other"
-            title = m.title[:40] + "..." if len(m.title) > 40 else m.title
+            title = m.title[:38] + "..." if len(m.title) > 38 else m.title
 
-            # Action from narrative
+            # Three scores
+            three = compute_three_scores(c.score, c.mispricing, m)
+            quality = f"{three['quality']:.0f}"
+            value = f"{three['value']:.0f}"
+
+            # Action from AI narrative (if analyzed)
             action_map = {
                 "small_position_ok": "GO",
                 "worth_research": "RESEARCH",
                 "watch_only": "WATCH",
                 "avoid": "AVOID",
+                "BUY_YES": "BUY YES",
+                "BUY_NO": "BUY NO",
+                "PASS": "PASS",
+                "WATCH": "WATCH",
             }
             action = action_map.get(getattr(n, "action", ""), "-") if n else "-"
 
-            # Bias from narrative
-            bias = getattr(n, "bias", None)
-            if bias and hasattr(bias, "direction"):
-                bias_map = {"lean_yes": "YES", "lean_no": "NO", "neutral": "-"}
-                direction = bias_map.get(bias.direction, "-")
-            else:
-                direction = "-"
-
             table.add_row(
                 title,
+                quality,
+                value,
                 action,
-                direction,
                 f"{m.yes_price:.2f}" if m.yes_price else "?",
                 days,
-                mtype,
-                spread,
+                m.market_type or "other",
                 key=m.market_id,
             )
 

@@ -283,14 +283,52 @@ def compute_three_scores(
     quality_max = 15 + 20 + 20 + 10 + 10  # 75
     quality = min(100, quality_raw / quality_max * 100)
 
-    # Value: edge vs friction
+    # Value = max(quantitative_value, structural_value)
+    #
+    # Quantitative: net edge after friction (only for markets with mispricing model)
     edge_pct = mispricing.deviation_pct if mispricing.deviation_pct is not None else 0
     friction = market.round_trip_friction_pct if market.round_trip_friction_pct is not None else 0.04
     if edge_pct > 0:
         net_edge = max(0, edge_pct - friction)
-        value = min(100, net_edge / 0.10 * 100)
+        quant_value = min(100, net_edge / 0.10 * 100)
     else:
-        value = 0.0
+        quant_value = 0.0
+
+    # Structural: for ALL markets, based on tradability signals
+    struct_value = 0.0
+    # Probability in sweet spot (0.30-0.70) → more trading room
+    p = market.yes_price
+    if p is not None and 0.30 <= p <= 0.70:
+        struct_value += 30
+    elif p is not None and (0.20 <= p < 0.30 or 0.70 < p <= 0.80):
+        struct_value += 15
+    # Low friction → tradable
+    if friction < 0.03:
+        struct_value += 25
+    elif friction < 0.05:
+        struct_value += 15
+    elif friction < 0.08:
+        struct_value += 5
+    # Depth sufficient
+    bid = market.total_bid_depth_usd
+    if bid is not None and bid >= 5000:
+        struct_value += 20
+    elif bid is not None and bid >= 1000:
+        struct_value += 10
+    # Time window sweet spot (0.5-7 days)
+    days = market.days_to_resolution
+    if days is not None and 0.5 <= days <= 7:
+        struct_value += 15
+    elif days is not None and 7 < days <= 14:
+        struct_value += 8
+    # Tight spread
+    spread = market.spread_pct_yes
+    if spread is not None and spread < 0.03:
+        struct_value += 10
+    elif spread is not None and spread < 0.05:
+        struct_value += 5
+
+    value = max(quant_value, struct_value)
 
     # Direction edge: only with mispricing direction + model confidence
     direction = mispricing.direction

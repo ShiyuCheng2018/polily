@@ -241,11 +241,43 @@ class ScanService:
                 scan_id=self._current_log.scan_id if self._current_log else None,
             )
 
-        # Save scan narratives as v1 in analyses store
-        self._save_scan_narratives()
+        # Restore previous AI narratives from analyses.json
+        self._restore_narratives()
 
         self._finish_log("completed")
         return self.tiers
+
+    def _restore_narratives(self):
+        """Restore previous AI narratives from analyses.json to scan candidates."""
+        from scanner.agents.schemas import NarrativeWriterOutput
+        from scanner.analysis_store import load_analyses
+
+        if not self.tiers:
+            return
+        analyses_path = self.config.archiving.analyses_file
+        all_data = load_analyses(analyses_path)
+        if not all_data:
+            return
+
+        for c in self.tiers.tier_a + self.tiers.tier_b + self.tiers.tier_c:
+            raw_list = all_data.get(c.market.market_id, [])
+            if not raw_list:
+                continue
+            # Take the latest version's narrative_output
+            latest = raw_list[-1]
+            n_data = latest.get("narrative_output")
+            if not n_data or not isinstance(n_data, dict):
+                continue
+            try:
+                n_data.setdefault("market_id", c.market.market_id)
+                # Pre-process old risk_flags format
+                if n_data.get("risk_flags") and isinstance(n_data["risk_flags"][0], str):
+                    n_data["risk_flags"] = [
+                        {"text": rf, "severity": "warning"} for rf in n_data["risk_flags"]
+                    ]
+                c.narrative = NarrativeWriterOutput.model_validate(n_data)
+            except Exception:
+                pass
 
     def _save_scan_narratives(self):
         """Save scan-generated narratives to analyses store as incremental versions.
@@ -309,7 +341,6 @@ class ScanService:
         """Run full AI analysis on a single market."""
         from datetime import datetime
 
-        from scanner.agents.market_analyst import MarketAnalystAgent
         from scanner.agents.narrative_writer import NarrativeWriterAgent
         from scanner.analysis_store import (
             AnalysisVersion,
@@ -331,43 +362,88 @@ class ScanService:
         self._current_log = log
         self._persist_log(log)
 
+        price_change = ""
+
         try:
-            # Step 1: MarketAnalyst
-            self._step_start("AI 语义分析")
-            analyst = MarketAnalystAgent(self.config.ai.market_analyst, self.config.heuristics)
-            analyst_output = await analyst.analyze(market)
-            self._step_done("完成")
+            # Step 1: Fetch real-time market data (price + orderbook)
+            self._step_start("拉取实时数据")
+            scan_snapshot = {
+                "yes_price": market.yes_price,
+                "no_price": market.no_price,
+                "spread_pct_yes": market.spread_pct_yes,
+                "total_bid_depth_usd": market.total_bid_depth_usd,
+                "total_ask_depth_usd": market.total_ask_depth_usd,
+                "data_time": market.data_fetched_at.isoformat() if market.data_fetched_at else "?",
+            }
+            try:
+                # Fetch latest price from Polymarket API
+                prices = await self.fetch_current_prices([market.market_id])
+                new_price = prices.get(market.market_id)
+                if new_price is not None:
+                    old_price = market.yes_price
+                    market.yes_price = new_price
+                    market.no_price = round(1 - new_price, 4) if new_price else market.no_price
+                    market.data_fetched_at = datetime.now(UTC)
 
-            # Step 2: Mispricing (crypto only)
-            mispricing_signal = candidate.mispricing.signal
-            mispricing_details = candidate.mispricing.details
-            if market.market_type == "crypto_threshold":
-                self._step_start("加密货币定价检测")
+                # Fetch latest orderbook
+                client = PolymarketClient(self.config.api)
                 try:
-                    from scanner.mispricing import detect_mispricing
-                    from scanner.price_feeds import BinancePriceFeed
-                    feed = BinancePriceFeed()
-                    try:
-                        params = await feed.get_crypto_params(
-                            market.title,
-                            vol_days=self.config.mispricing.crypto.volatility_lookback_days,
-                        )
-                    finally:
-                        await feed.close()
-                    if params:
-                        mp = detect_mispricing(market, self.config.mispricing, **params)
-                        mispricing_signal = mp.signal
-                        mispricing_details = mp.details
-                        candidate.mispricing = mp
-                    self._step_done("完成")
-                except Exception as e:
-                    self._step_done(f"跳过: {e}")
+                    if market.clob_token_id_yes:
+                        from scanner.orderbook import is_stale_book
+                        bids, asks = await client.fetch_book(market.clob_token_id_yes)
+                        if not is_stale_book(bids, asks):
+                            market.book_depth_bids = bids
+                            market.book_depth_asks = asks
+                finally:
+                    await client.close()
 
-            # Step 3: NarrativeWriter with previous context
-            self._step_start("AI 撰写分析")
+                # Recalculate score with fresh data
+                from scanner.scoring import compute_beauty_score
+                candidate.score = compute_beauty_score(
+                    market, self.config.scoring.weights, self.config.filters,
+                    probability_penalty_mode=self.config.scoring.thresholds.probability_penalty_mode,
+                )
+
+                # Recalculate mispricing if crypto
+                from scanner.market_types.registry import find_matching_module
+                enrichment_mod = find_matching_module(market)
+                if enrichment_mod:
+                    params = await enrichment_mod.fetch_price_params(market, self.config)
+                    if params:
+                        mp_result = enrichment_mod.detect_mispricing(market, params, self.config)
+                        if mp_result:
+                            candidate.mispricing = mp_result
+
+                # Build change context
+                price_change = ""
+                if new_price is not None and old_price is not None and old_price > 0:
+                    change_pct = (new_price - old_price) / old_price * 100
+                    price_change = f"YES 价格: 扫描时 {old_price:.2f} → 现在 {new_price:.2f} ({change_pct:+.1f}%)"
+
+                detail = f"YES {market.yes_price:.2f}"
+                if price_change:
+                    detail += f" | {price_change}"
+                self._step_done(detail)
+            except Exception as e:
+                self._step_done(f"部分失败: {e}")
+
+            # Step 2: Single AI call — unified decision analysis
+            self._step_start("AI 决策分析")
             existing = get_market_analyses(market.market_id, analyses_path)
             narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
-            context = build_previous_context(existing)
+
+            # Build context: previous analysis + data change since scan
+            context_parts = []
+            prev_context = build_previous_context(existing)
+            if prev_context:
+                context_parts.append(prev_context)
+            if price_change:
+                context_parts.append(
+                    f"--- 数据变化 (扫描 {scan_snapshot['data_time']} → 分析 {datetime.now(UTC).strftime('%H:%M:%S')}) ---\n"
+                    f"{price_change}"
+                )
+            context = "\n\n".join(context_parts) if context_parts else None
+
             include_bias = self.config.execution_hints.show_conditional_advice
             narrative_output = await narrator.generate(candidate, context=context, include_bias=include_bias)
             self._step_done("完成")
@@ -381,9 +457,9 @@ class ScanService:
                 created_at=datetime.now(UTC).isoformat(),
                 market_title=market.title,
                 yes_price_at_analysis=market.yes_price,
-                analyst_output=analyst_output.model_dump(),
-                mispricing_signal=mispricing_signal,
-                mispricing_details=mispricing_details,
+                analyst_output={},
+                mispricing_signal=candidate.mispricing.signal,
+                mispricing_details=candidate.mispricing.details,
                 narrative_output=narrative_output.model_dump(),
                 previous_version=prev_version,
                 elapsed_seconds=time.time() - start_time,

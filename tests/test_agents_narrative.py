@@ -14,18 +14,23 @@ from tests.conftest import make_cli_response, make_market
 
 SAMPLE_NARRATIVE_OUTPUT = {
     "market_id": "0xtest",
-    "action": "worth_research",
-    "action_reasoning": "模型偏差 6%，摩擦 3.6%，有剩余 edge",
+    "action": "WATCH",
+    "bias": "YES",
+    "strength": "medium",
     "confidence": "medium",
+    "opportunity_type": "slow_structure",
     "time_window": {"urgency": "normal", "note": "还剩 2.0 天"},
-    "friction_impact": "摩擦吃掉 60% 潜在利润",
-    "summary": "Mid-probability crypto market with moderate mispricing signal.",
+    "why_now": "",
+    "why_not_now": "摩擦吃掉 60% 潜在利润",
+    "friction_vs_edge": "roughly_equals",
+    "execution_risk": "low",
+    "summary": "Crypto market with moderate mispricing signal.",
     "risk_flags": [
         {"text": "Round-trip friction eats most edge", "severity": "critical"},
         {"text": "Bots dominate this market", "severity": "warning"},
     ],
     "counterparty_note": "Crypto threshold markets are bot-heavy.",
-    "research_findings": [
+    "supporting_findings": [
         {"finding": "BTC 当前价格 $67,750", "source": "Binance", "impact": "距阈值 $88k 还有 23%"},
     ],
     "suggested_style": "research_candidate",
@@ -64,9 +69,9 @@ class TestNarrativeWriterAgent:
 
             result = await agent.generate(candidate)
             assert isinstance(result, NarrativeWriterOutput)
-            assert result.action == "worth_research"
+            assert result.action == "WATCH"
             assert len(result.risk_flags) > 0
-            assert len(result.research_findings) > 0
+            assert len(result.supporting_findings) > 0
 
     @pytest.mark.asyncio
     async def test_fallback_on_failure(self):
@@ -151,7 +156,7 @@ class TestNarrativeFallback:
         assert isinstance(result, NarrativeWriterOutput)
         assert result.market_id == "0xtest"
         assert len(result.summary) > 0
-        assert result.action in ("worth_research", "small_position_ok", "watch_only", "avoid")
+        assert result.action in ("BUY_YES", "BUY_NO", "WATCH", "PASS")
         assert result.confidence == "low"
 
     def test_fallback_has_risk_flags_with_severity(self):
@@ -161,18 +166,18 @@ class TestNarrativeFallback:
         for rf in result.risk_flags:
             assert rf.severity in ("critical", "warning", "info")
 
-    def test_fallback_avoid_when_no_mispricing(self):
+    def test_fallback_pass_when_no_mispricing(self):
         candidate = _make_scored_candidate()
         candidate.mispricing = MispricingResult(signal="none")
         result = narrative_fallback(candidate)
-        assert result.action == "avoid"
+        assert result.action == "PASS"
 
     def test_fallback_has_time_window(self):
         candidate = _make_scored_candidate()
         result = narrative_fallback(candidate)
         assert result.time_window.urgency in ("urgent", "normal", "no_rush")
 
-    def test_fallback_has_friction_impact(self):
+    def test_fallback_has_friction_vs_edge(self):
         candidate = _make_scored_candidate()
         result = narrative_fallback(candidate)
-        assert len(result.friction_impact) > 0
+        assert result.friction_vs_edge in ("edge_exceeds", "roughly_equals", "friction_exceeds")

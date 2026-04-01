@@ -30,19 +30,37 @@ class TestComputeThreeScores:
         # edge 10% - friction 7% = net 3% → value ~27
         assert result["value"] > 20
 
-    def test_value_low_when_no_edge(self):
+    def test_value_uses_structural_when_no_quant_edge(self):
+        """No mispricing model → structural value kicks in."""
         s = ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80)
         mp = MispricingResult(signal="none", deviation_pct=0)
-        m = make_market()
+        m = make_market()  # yes=0.55, bid depth $1300, spread ~3.6%
         result = compute_three_scores(s, mp, m)
-        assert result["value"] < 30
+        # Structural value: probability sweet spot + some depth + time window
+        assert result["value"] > 30  # structural value is nonzero
 
-    def test_value_low_when_friction_eats_edge(self):
+    def test_value_lower_for_bad_structure(self):
+        """Bad structure → lower structural value."""
+        s = ScoreBreakdown(5, 5, 5, 5, 3, 1, 3, total=27)
+        mp = MispricingResult(signal="none", deviation_pct=0)
+        m_bad = make_market(
+            yes_price=0.95,  # extreme probability
+            best_bid_yes=0.94, best_ask_yes=0.96,
+            book_depth_bids=None, book_depth_asks=None,
+        )
+        m_good = make_market()  # default: 0.55, good depth, good spread
+        bad_val = compute_three_scores(s, mp, m_bad)["value"]
+        good_val = compute_three_scores(s, mp, m_good)["value"]
+        assert bad_val < good_val
+
+    def test_value_prefers_quant_when_higher(self):
+        """Quantitative value beats structural when edge is large."""
         s = ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80)
-        mp = MispricingResult(signal="weak", deviation_pct=0.02)
-        m = make_market(best_bid_yes=0.50, best_ask_yes=0.60)  # friction ~40%
+        mp = MispricingResult(signal="strong", deviation_pct=0.15)
+        m = make_market(best_bid_yes=0.54, best_ask_yes=0.56)  # friction ~7%
         result = compute_three_scores(s, mp, m)
-        assert result["value"] < 30
+        # net edge 15%-7% = 8%, quant value = 80, likely > structural
+        assert result["value"] >= 65
 
     def test_edge_none_by_default(self):
         """Direction edge is None unless bias data available."""
