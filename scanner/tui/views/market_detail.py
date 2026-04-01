@@ -197,8 +197,7 @@ class MarketDetailView(Widget):
         confidence = getattr(n, "confidence", "low")
         conf_bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
 
-        # New fields: why_now / why_not_now (fallback to legacy action_reasoning)
-        why = getattr(n, "why_now", "") or getattr(n, "why_not_now", "") or getattr(n, "action_reasoning", "")
+        why = getattr(n, "why_now", "") or getattr(n, "why_not_now", "")
 
         verdict = getattr(n, "one_line_verdict", "")
         yield Static("")
@@ -285,18 +284,12 @@ class MarketDetailView(Widget):
         if action not in ("PASS", "WATCH", "avoid", "watch_only"):
             return
 
-        # New field: why_not_now (str), legacy: why_not_opportunity (list)
         why_not_now = getattr(n, "why_not_now", "")
-        why_not_list = getattr(n, "why_not_opportunity", [])
         recheck = getattr(n, "recheck_conditions", [])
 
         if why_not_now:
             yield Static(" 为什么不是现在", classes="section-title")
             yield Static(f"  {why_not_now}", classes="detail-row")
-        elif why_not_list:
-            yield Static(" 为什么不是机会", classes="section-title")
-            for reason in why_not_list[:3]:
-                yield Static(f"  - {reason}", classes="detail-row")
 
         if recheck:
             yield Static(" 重新看它的条件", classes="section-title")
@@ -362,16 +355,11 @@ class MarketDetailView(Widget):
         supporting = getattr(n, "supporting_findings", [])
         invalidation = getattr(n, "invalidation_findings", [])
         # Legacy compat
-        legacy = getattr(n, "research_findings", []) if not supporting else []
-        checklist = getattr(n, "research_checklist", []) if not supporting and not legacy else []
-
         all_findings = []
         if supporting:
             all_findings.append(("支持结论", supporting))
         if invalidation:
             all_findings.append(("可能推翻", invalidation))
-        if legacy:
-            all_findings.append(("研究发现", legacy))
 
         for section_title, findings in all_findings:
             yield Static(f" {section_title}", classes="section-title")
@@ -386,11 +374,6 @@ class MarketDetailView(Widget):
                     impact = f.get("impact", "")
                     if impact:
                         yield Static(f"    -> {impact}", classes="finding-impact")
-
-        if not all_findings and checklist:
-            yield Static(" 研究清单", classes="section-title")
-            for item in checklist:
-                yield Static(f"  {item}", classes="detail-row")
 
     def _compose_three_scores(self, s) -> ComposeResult:
         """Three-score bar gauges — shown right below title."""

@@ -39,17 +39,40 @@ class NarrativeWriterAgent:
     async def generate(self, candidate: ScoredCandidate, context: str | None = None,
                        include_bias: bool = False,
                        on_heartbeat=None) -> NarrativeWriterOutput:
-        """Generate narrative for a single candidate, optionally with previous analysis context."""
+        """Generate narrative with semantic validation + error-context retry."""
         prompt = self._build_prompt(candidate, include_bias=include_bias)
         if context:
             prompt += f"\n\n{context}"
-        raw = await self._agent.invoke(prompt, on_heartbeat=on_heartbeat)
-        try:
-            return NarrativeWriterOutput.model_validate(raw)
-        except Exception as e:
-            from scanner.agents.base import _dump_debug
-            _dump_debug("schema_fail", f"{e}\n---keys---\n{list(raw.keys()) if isinstance(raw, dict) else type(raw)}\n---raw---\n{raw}")
-            return narrative_fallback(candidate)
+
+        last_output = None
+        for attempt in range(2):  # 1 initial + 1 retry
+            actual_prompt = prompt
+            if attempt > 0 and last_output is not None:
+                errors = last_output.semantic_errors()
+                actual_prompt = (
+                    f"{prompt}\n\n"
+                    f"--- 上次输出不完整，请补充以下缺失字段 ---\n"
+                    f"问题: {'; '.join(errors)}\n"
+                    f"上次输出: {json.dumps(last_output.model_dump(), ensure_ascii=False, default=str)[:2000]}\n"
+                    f"请重新生成完整 JSON。"
+                )
+                logger.info("Semantic retry for %s: %s", candidate.market.market_id, errors)
+
+            raw = await self._agent.invoke(actual_prompt, on_heartbeat=on_heartbeat)
+            try:
+                output = NarrativeWriterOutput.model_validate(raw)
+            except Exception as e:
+                from scanner.agents.base import _dump_debug
+                _dump_debug("schema_fail", f"{e}\n---raw---\n{raw}")
+                return narrative_fallback(candidate)
+
+            errors = output.semantic_errors()
+            if not errors:
+                return output
+            last_output = output
+
+        # Retries exhausted — return last output (partial is better than fallback)
+        return last_output
 
     async def generate_batch(
         self, candidates: list[ScoredCandidate],

@@ -10,7 +10,7 @@ from scanner.config import AgentConfig
 from scanner.mispricing import MispricingResult
 from scanner.reporting import ScoredCandidate
 from scanner.scoring import ScoreBreakdown
-from tests.conftest import make_cli_response, make_market
+from tests.conftest import make_cli_response_structured, make_market
 
 SAMPLE_NARRATIVE_OUTPUT = {
     "market_id": "0xtest",
@@ -21,7 +21,7 @@ SAMPLE_NARRATIVE_OUTPUT = {
     "opportunity_type": "slow_structure",
     "time_window": {"urgency": "normal", "note": "还剩 2.0 天"},
     "why_now": "",
-    "why_not_now": "摩擦吃掉 60% 潜在利润",
+    "why_not_now": "摩擦吃掉 60% 潜在利润，当前不值得进场",
     "friction_vs_edge": "roughly_equals",
     "execution_risk": "low",
     "summary": "Crypto market with moderate mispricing signal.",
@@ -33,7 +33,10 @@ SAMPLE_NARRATIVE_OUTPUT = {
     "supporting_findings": [
         {"finding": "BTC 当前价格 $67,750", "source": "Binance", "impact": "距阈值 $88k 还有 23%"},
     ],
-    "suggested_style": "research_candidate",
+    "invalidation_findings": [
+        {"finding": "若 BTC 突破 $70K", "source": "技术面", "impact": "YES 可能低估"},
+    ],
+    "watch": {"watch_reason": "摩擦太高", "better_entry": "YES<=0.50", "trigger_event": "BTC突破70K", "invalidation": "结算前不动"},
     "one_line_verdict": "Moderate mispricing in crypto threshold, thin edge after friction.",
 }
 
@@ -62,7 +65,7 @@ class TestNarrativeWriterAgent:
         with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (
-                make_cli_response(SAMPLE_NARRATIVE_OUTPUT), b""
+                make_cli_response_structured(SAMPLE_NARRATIVE_OUTPUT), b""
             )
             proc.returncode = 0
             mock_exec.return_value = proc
@@ -139,7 +142,7 @@ class TestNarrativeWriterBatchWithContext:
         with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (
-                make_cli_response({**SAMPLE_NARRATIVE_OUTPUT, "market_id": "m1"}), b""
+                make_cli_response_structured({**SAMPLE_NARRATIVE_OUTPUT, "market_id": "m1"}), b""
             )
             proc.returncode = 0
             mock_exec.return_value = proc

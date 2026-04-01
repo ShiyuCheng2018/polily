@@ -2,9 +2,8 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-SuggestedStyle = Literal["research_candidate", "watch_only", "research_repricing", "avoid_despite_score"]
 ActionLevel = Literal["BUY_YES", "BUY_NO", "WATCH", "PASS"]
 OpportunityType = Literal["instant_mispricing", "short_window", "slow_structure", "watch_only", "no_trade"]
 FrictionEdge = Literal["edge_exceeds", "roughly_equals", "friction_exceeds"]
@@ -121,15 +120,30 @@ class NarrativeWriterOutput(BaseModel):
     # Crypto-specific (optional)
     crypto: CryptoContext | None = None
 
-    # Legacy compat
+    # Display
     summary: str = ""
     one_line_verdict: str = ""
-    research_findings: list[ResearchFinding] = []  # deprecated, use supporting+invalidation
-    research_checklist: list[str] = []  # deprecated
-    action_reasoning: str = ""  # deprecated, use why_now/why_not_now
-    friction_impact: str = ""  # deprecated, use friction_vs_edge
-    why_not_opportunity: list[str] = []  # deprecated, use why_not_now
-    suggested_style: SuggestedStyle = "watch_only"  # deprecated
+
+    model_config = ConfigDict(extra="ignore")
+
+    def semantic_errors(self) -> list[str]:
+        """Return list of semantic issues. Empty = OK. Used by retry logic."""
+        errors = []
+        if self.action in ("BUY_YES", "BUY_NO"):
+            if not self.why_now or len((self.why_now or "").strip()) < 10:
+                errors.append("action=BUY requires substantive why_now")
+            if not self.supporting_findings:
+                errors.append("action=BUY requires at least 1 supporting_finding")
+        if self.action in ("WATCH", "PASS"):
+            if not self.why_not_now or len((self.why_not_now or "").strip()) < 10:
+                errors.append("action=WATCH/PASS requires substantive why_not_now")
+        if self.action == "WATCH" and not self.watch:
+            errors.append("action=WATCH requires watch condition")
+        if not self.summary or len(self.summary.strip()) < 5:
+            errors.append("summary required")
+        if not self.one_line_verdict or len(self.one_line_verdict.strip()) < 5:
+            errors.append("one_line_verdict required")
+        return errors
 
 
 class BriefingOutput(BaseModel):

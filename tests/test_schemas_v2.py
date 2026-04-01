@@ -110,3 +110,52 @@ class TestNarrativeWriterOutputV3:
         assert out.action == "PASS"
         assert out.bias == "NONE"
         assert out.crypto is None
+
+    def test_old_data_with_deprecated_fields_loads(self):
+        """Old stored data with removed fields should load via extra=ignore."""
+        old_data = {
+            "market_id": "test",
+            "summary": "old analysis",
+            "suggested_style": "research_candidate",
+            "research_checklist": ["check BTC price"],
+            "action_reasoning": "old reasoning",
+        }
+        out = NarrativeWriterOutput.model_validate(old_data)
+        assert out.market_id == "test"
+
+
+class TestSemanticValidation:
+    def test_pass_requires_why_not_now(self):
+        out = NarrativeWriterOutput(
+            market_id="test", action="PASS",
+            summary="ok summary", one_line_verdict="verdict",
+        )
+        errors = out.semantic_errors()
+        assert any("why_not_now" in e for e in errors)
+
+    def test_watch_requires_watch_condition(self):
+        out = NarrativeWriterOutput(
+            market_id="test", action="WATCH",
+            why_not_now="Not enough edge after friction analysis",
+            summary="ok", one_line_verdict="v",
+        )
+        errors = out.semantic_errors()
+        assert any("watch" in e.lower() for e in errors)
+
+    def test_complete_pass_no_errors(self):
+        out = NarrativeWriterOutput(
+            market_id="test", action="PASS",
+            why_not_now="No edge visible, friction dominates.",
+            summary="Market efficiently priced, no action.",
+            one_line_verdict="PASS: no edge.",
+            invalidation_findings=[ResearchFinding(finding="f", source="s", impact="i")],
+        )
+        assert out.semantic_errors() == []
+
+    def test_missing_summary_flagged(self):
+        out = NarrativeWriterOutput(
+            market_id="test", action="PASS",
+            why_not_now="Good reason not to trade this market.",
+        )
+        errors = out.semantic_errors()
+        assert any("summary" in e for e in errors)

@@ -118,10 +118,6 @@ def render_candidate_card(idx: int, c: ScoredCandidate, verbose: bool = False, s
     if c.narrative:
         n = c.narrative
         console.print(f"     [bold]AI 分析:[/bold] {n.summary}")
-        if n.suggested_style:
-            style_cn = {"research_candidate": "值得研究", "watch_only": "仅观察",
-                    "research_repricing": "关注重定价", "avoid_despite_score": "尽管分高但回避"}.get(n.suggested_style, n.suggested_style)
-        console.print(f"     建议: [cyan]{style_cn}[/cyan]")
 
     if verbose:
         render_deep_dive(c)
@@ -158,9 +154,6 @@ def render_deep_dive(c: ScoredCandidate):
         for flag in n.risk_flags:
             console.print(f"     [red]•[/red] {flag}")
         console.print(f"\n     [bold]对手方[/bold]: {n.counterparty_note}")
-        console.print("\n     [bold]研究清单[/bold]")
-        for item in n.research_checklist:
-            console.print(f"     [ ] {item}")
     elif m.market_type:
         # Static checklist fallback when no AI narrative
         from scanner.checklist import load_checklist

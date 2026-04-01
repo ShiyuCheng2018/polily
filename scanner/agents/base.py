@@ -150,16 +150,10 @@ class BaseAgent:
         """
         import time
 
-        props = self.json_schema.get("properties", {})
-        fields = list(props.keys())[:10]
-        full_prompt = (
-            f"{prompt}\n\n"
-            f"返回 JSON 格式，包含以下字段: {', '.join(fields)}。只返回 JSON，不要其他内容。"
-        )
-
         args = [
-            self.cli_command, "-p", full_prompt,
+            self.cli_command, "-p", prompt,
             "--output-format", "json",
+            "--json-schema", json.dumps(self.json_schema),
             "--system-prompt", self.system_prompt,
             "--model", self.model,
         ]

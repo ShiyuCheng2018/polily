@@ -29,13 +29,26 @@ def make_market(**overrides) -> Market:
 
 
 def make_cli_response(structured_output: dict) -> bytes:
-    """Simulate claude CLI JSON output for agent tests.
+    """Simulate claude CLI JSON output (legacy format without --json-schema).
 
-    Matches actual claude CLI format: {"type":"result", "result":"```json\n{...}\n```"}
+    Matches format: {"type":"result", "result":"```json\n{...}\n```"}
     """
     json_text = json.dumps(structured_output)
     return json.dumps({
         "type": "result",
         "result": f"```json\n{json_text}\n```",
+        "session_id": "test-session",
+    }).encode()
+
+
+def make_cli_response_structured(structured_output: dict) -> bytes:
+    """Simulate claude CLI JSON output with --json-schema (structured_output field).
+
+    When --json-schema is used, response comes in structured_output, not result.
+    """
+    return json.dumps({
+        "type": "result",
+        "result": "",
+        "structured_output": structured_output,
         "session_id": "test-session",
     }).encode()

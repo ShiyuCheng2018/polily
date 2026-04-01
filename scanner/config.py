@@ -211,7 +211,6 @@ class ReportingConfig(BaseModel):
     include_friction_estimate: bool = True
     include_counterparty_note: bool = True
     include_mispricing_signal: bool = True
-    include_research_checklist: bool = True
     include_worst_case_loss: bool = True
     include_net_edge_after_friction: bool = True
     include_discipline_status: bool = True
