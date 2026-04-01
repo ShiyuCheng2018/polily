@@ -91,21 +91,21 @@ class NarrativeWriterOutput(BaseModel):
 
     # Decision
     action: ActionLevel = "PASS"
-    bias: BiasDirection = "NONE"
-    strength: Strength = "weak"
+    bias: BiasDirection | None = "NONE"
+    strength: Strength | None = "weak"
     confidence: Confidence = "low"
-    opportunity_type: OpportunityType = "no_trade"
+    opportunity_type: OpportunityType | None = "no_trade"
 
     # Timing
     time_window: TimeWindow = TimeWindow(urgency="normal", note="")
 
     # Why
-    why_now: str = ""
-    why_not_now: str = ""
-    friction_vs_edge: FrictionEdge = "friction_exceeds"
+    why_now: str | None = ""
+    why_not_now: str | None = ""
+    friction_vs_edge: FrictionEdge | None = "friction_exceeds"
 
     # Risk
-    execution_risk: Confidence = "low"  # reuse low/medium/high
+    execution_risk: Confidence | None = "low"
     risk_flags: list[RiskFlag] = []
     counterparty_note: str = ""
 

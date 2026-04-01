@@ -16,6 +16,21 @@ DEFAULT_MAX_PROMPT_CHARS = 5000
 # Global registry of active subprocess PIDs for cleanup on exit
 _active_pids: set[int] = set()
 
+# Debug log directory
+_DEBUG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")
+
+
+def _dump_debug(tag: str, content: str):
+    """Write debug info to data/agent_debug.log (append). Always writes, no log level."""
+    try:
+        from datetime import UTC, datetime
+        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        path = os.path.join(_DEBUG_DIR, "agent_debug.log")
+        with open(path, "a") as f:
+            f.write(f"\n=== {tag} [{ts}] ===\n{content}\n")
+    except Exception:
+        pass
+
 
 def kill_all_agents():
     """Kill all active claude CLI subprocesses."""
@@ -182,9 +197,17 @@ class BaseAgent:
                 await proc.wait()
 
         if proc.returncode != 0:
-            raise RuntimeError(f"claude CLI exited with code {proc.returncode}: {stderr.decode()[:500]}")
+            err_text = stderr.decode()[:500]
+            _dump_debug("cli_error", f"exit={proc.returncode}\n{err_text}\n---stdout---\n{stdout.decode()[:2000]}")
+            raise RuntimeError(f"claude CLI exited with code {proc.returncode}: {err_text}")
 
-        return self._parse_response(stdout.decode())
+        raw_output = stdout.decode()
+        _dump_debug("cli_stdout", raw_output)
+        try:
+            return self._parse_response(raw_output)
+        except Exception as e:
+            _dump_debug("parse_error", f"{e}\n---\n{raw_output}")
+            raise
 
     def _parse_response(self, raw_output: str) -> dict:
         """Parse JSON from claude CLI output. Handles multiple response formats."""

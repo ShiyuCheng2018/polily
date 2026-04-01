@@ -46,8 +46,9 @@ class NarrativeWriterAgent:
         raw = await self._agent.invoke(prompt, on_heartbeat=on_heartbeat)
         try:
             return NarrativeWriterOutput.model_validate(raw)
-        except Exception:
-            logger.warning("Failed to validate narrative for %s, using fallback", candidate.market.market_id)
+        except Exception as e:
+            from scanner.agents.base import _dump_debug
+            _dump_debug("schema_fail", f"{e}\n---keys---\n{list(raw.keys()) if isinstance(raw, dict) else type(raw)}\n---raw---\n{raw}")
             return narrative_fallback(candidate)
 
     async def generate_batch(
