@@ -1,13 +1,9 @@
-"""Market state persistence — PASS/WATCH/ACTIVE status per market."""
+"""Market state persistence — SQLite-backed."""
 
-import json
 import logging
-from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
-
-from scanner.agents.schemas import WatchCondition
 
 logger = logging.getLogger(__name__)
 
@@ -15,57 +11,88 @@ logger = logging.getLogger(__name__)
 class MarketState(BaseModel):
     """User's decision state for a market."""
 
-    status: Literal["pass", "watch", "active"]
-    updated_at: str  # ISO 8601
-    title: str = ""  # market title for display
-    watch_conditions: WatchCondition | None = None
+    status: Literal["buy_yes", "buy_no", "watch", "pass", "closed"]
+    updated_at: str = ""
+    title: str = ""
+    next_check_at: str | None = None
+    watch_reason: str | None = None
+    watch_sequence: int = 0
+    price_at_watch: float | None = None
+    auto_monitor: bool = False
+    resolution_time: str | None = None
+    wc_watch_reason: str | None = None
+    wc_better_entry: str | None = None
+    wc_trigger_event: str | None = None
+    wc_invalidation: str | None = None
     notes: str = ""
 
 
-def load_market_states(path: str | Path) -> dict[str, MarketState]:
-    """Load all market states."""
-    p = Path(path)
-    if not p.exists():
-        return {}
-    try:
-        with open(p) as f:
-            data = json.load(f)
-        return {mid: MarketState.model_validate(state) for mid, state in data.items()}
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.warning("Failed to load market states from %s: %s", p, e)
-        return {}
+def set_market_state(market_id: str, state: MarketState, db) -> None:
+    """Insert or update a market's state."""
+    db.conn.execute(
+        """INSERT OR REPLACE INTO market_states
+        (market_id, status, title, updated_at, next_check_at, watch_reason,
+         watch_sequence, price_at_watch, auto_monitor, resolution_time,
+         wc_watch_reason, wc_better_entry, wc_trigger_event, wc_invalidation, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            market_id, state.status, state.title, state.updated_at,
+            state.next_check_at, state.watch_reason,
+            state.watch_sequence, state.price_at_watch,
+            1 if state.auto_monitor else 0, state.resolution_time,
+            state.wc_watch_reason, state.wc_better_entry,
+            state.wc_trigger_event, state.wc_invalidation, state.notes,
+        ),
+    )
+    db.conn.commit()
 
 
-def save_market_states(states: dict[str, MarketState], path: str | Path):
-    """Save all market states. Uses atomic write (tmp + rename)."""
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp")
-    with open(tmp, "w") as f:
-        json.dump({mid: s.model_dump() for mid, s in states.items()}, f, indent=2, ensure_ascii=False)
-    tmp.replace(p)
+def get_market_state(market_id: str, db) -> MarketState | None:
+    """Get state for a single market. Returns None if not found."""
+    row = db.conn.execute(
+        "SELECT * FROM market_states WHERE market_id = ?", (market_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return _row_to_state(row)
 
 
-def set_market_state(market_id: str, state: MarketState, path: str | Path):
-    """Set state for a single market."""
-    states = load_market_states(path)
-    states[market_id] = state
-    save_market_states(states, path)
+def get_watched_markets(db) -> dict[str, MarketState]:
+    """Get all markets with status='watch'."""
+    rows = db.conn.execute(
+        "SELECT * FROM market_states WHERE status = 'watch'",
+    ).fetchall()
+    return {r["market_id"]: _row_to_state(r) for r in rows}
 
 
-def get_market_state(market_id: str, path: str | Path) -> MarketState | None:
-    """Get state for a single market."""
-    states = load_market_states(path)
-    return states.get(market_id)
+def get_auto_monitor_watches(db) -> dict[str, MarketState]:
+    """Get all WATCH markets with auto_monitor enabled."""
+    rows = db.conn.execute(
+        "SELECT * FROM market_states WHERE status = 'watch' AND auto_monitor = 1",
+    ).fetchall()
+    return {r["market_id"]: _row_to_state(r) for r in rows}
 
 
-def is_passed(market_id: str, path: str | Path) -> bool:
+def is_passed(market_id: str, db) -> bool:
     """Check if a market is marked as PASS."""
-    state = get_market_state(market_id, path)
+    state = get_market_state(market_id, db)
     return state is not None and state.status == "pass"
 
 
-def get_watched_markets(path: str | Path) -> dict[str, MarketState]:
-    """Get all markets with status=watch."""
-    states = load_market_states(path)
-    return {mid: s for mid, s in states.items() if s.status == "watch"}
+def _row_to_state(row) -> MarketState:
+    return MarketState(
+        status=row["status"],
+        updated_at=row["updated_at"],
+        title=row["title"],
+        next_check_at=row["next_check_at"],
+        watch_reason=row["watch_reason"],
+        watch_sequence=row["watch_sequence"],
+        price_at_watch=row["price_at_watch"],
+        auto_monitor=bool(row["auto_monitor"]),
+        resolution_time=row["resolution_time"],
+        wc_watch_reason=row["wc_watch_reason"],
+        wc_better_entry=row["wc_better_entry"],
+        wc_trigger_event=row["wc_trigger_event"],
+        wc_invalidation=row["wc_invalidation"],
+        notes=row["notes"],
+    )
