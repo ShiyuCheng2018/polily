@@ -135,7 +135,13 @@ def _score_objective_verifiability(m: Market) -> float:
     score = 0.0
 
     # Resolution source: strong signal (+0.30)
-    if m.resolution_source and len(m.resolution_source.strip()) > 3:
+    # Check dedicated field first, then look in rules/description text
+    has_resolution_source = bool(m.resolution_source and len(m.resolution_source.strip()) > 3)
+    if not has_resolution_source:
+        rules_text = (m.rules or "") + " " + (m.description or "")
+        if re.search(r"resolution source|resolves? to .yes.|resolves? to .no.", rules_text, re.IGNORECASE):
+            has_resolution_source = True
+    if has_resolution_source:
         score += 0.30
 
     # Rules text quality
