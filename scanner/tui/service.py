@@ -82,6 +82,8 @@ class ScanService:
                 market = Market(
                     market_id=entry.get("market_id", ""),
                     title=entry.get("title", ""),
+                    description=entry.get("description"),
+                    rules=entry.get("rules"),
                     outcomes=["Yes", "No"],
                     yes_price=entry.get("yes_price"),
                     no_price=entry.get("no_price"),
@@ -92,11 +94,13 @@ class ScanService:
                     open_interest=entry.get("open_interest"),
                     market_type=entry.get("market_type"),
                     category=entry.get("category"),
+                    tags=entry.get("tags", []),
                     resolution_source=entry.get("resolution_source"),
                     resolution_time=res_time,
                     data_fetched_at=now,
                     event_slug=entry.get("event_slug"),
                     market_slug=entry.get("market_slug"),
+                    clob_token_id_yes=entry.get("clob_token_id_yes"),
                 )
                 bd = entry.get("structure_score_breakdown", {})
                 score = ScoreBreakdown(
