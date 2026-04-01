@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from scanner.api import PolymarketClient, parse_gamma_event
 from scanner.archive import save_scan_unified
 from scanner.config import ScannerConfig, load_config
+from scanner.db import PolilyDB
 from scanner.paper_trading import PaperTradingDB
 from scanner.pipeline import run_scan_pipeline
 from scanner.reporting import ScoredCandidate, TierResult
@@ -19,7 +20,7 @@ from scanner.scan_log import (
     create_log_entry,
     finish_log_entry,
     load_scan_logs,
-    save_scan_logs,
+    save_scan_log,
 )
 from scanner.tui.views.scan_log import StepInfo
 
@@ -34,6 +35,7 @@ class ScanService:
 
     def __init__(self, config: ScannerConfig | None = None):
         self.config = config or self._load_default_config()
+        self.db = PolilyDB(self.config.archiving.db_file)
         self.tiers: TierResult | None = None
         self.total_scanned: int = 0
         self.on_progress: Callable[[list[StepInfo]], None] | None = None
@@ -154,15 +156,10 @@ class ScanService:
     # --- Scan log ---
 
     def get_scan_logs(self) -> list[ScanLogEntry]:
-        return load_scan_logs(self.config.archiving.scan_log_file)
+        return load_scan_logs(self.db)
 
     def _persist_log(self, entry: ScanLogEntry):
-        logs = self.get_scan_logs()
-        # Replace running entry or append new
-        logs = [existing for existing in logs if existing.scan_id != entry.scan_id]
-        logs.append(entry)
-        save_scan_logs(logs, self.config.archiving.scan_log_file,
-                       self.config.archiving.scan_log_max_entries)
+        save_scan_log(entry, self.db)
 
     # --- Step tracking ---
 
@@ -251,29 +248,23 @@ class ScanService:
         return self.tiers
 
     def _restore_narratives(self):
-        """Restore previous AI narratives from analyses.json to scan candidates."""
+        """Restore previous AI narratives from analyses DB to scan candidates."""
         from scanner.agents.schemas import NarrativeWriterOutput
-        from scanner.analysis_store import load_analyses
+        from scanner.analysis_store import get_market_analyses
 
         if not self.tiers:
             return
-        analyses_path = self.config.archiving.analyses_file
-        all_data = load_analyses(analyses_path)
-        if not all_data:
-            return
 
         for c in self.tiers.tier_a + self.tiers.tier_b + self.tiers.tier_c:
-            raw_list = all_data.get(c.market.market_id, [])
-            if not raw_list:
+            versions = get_market_analyses(c.market.market_id, self.db)
+            if not versions:
                 continue
-            # Take the latest version's narrative_output
-            latest = raw_list[-1]
-            n_data = latest.get("narrative_output")
+            latest = versions[-1]
+            n_data = latest.narrative_output
             if not n_data or not isinstance(n_data, dict):
                 continue
             try:
                 n_data.setdefault("market_id", c.market.market_id)
-                # Pre-process old risk_flags format
                 if n_data.get("risk_flags") and isinstance(n_data["risk_flags"][0], str):
                     n_data["risk_flags"] = [
                         {"text": rf, "severity": "warning"} for rf in n_data["risk_flags"]
@@ -283,27 +274,24 @@ class ScanService:
                 pass
 
     def _save_scan_narratives(self):
-        """Save scan-generated narratives to analyses store as incremental versions.
-        Single file read/write for all candidates."""
+        """Save scan-generated narratives to analyses DB as incremental versions."""
         from datetime import datetime
 
         from scanner.analysis_store import (
             AnalysisVersion,
-            load_analyses,
-            save_analyses,
+            append_analysis,
+            get_market_analyses,
         )
         if not self.tiers:
             return
-        analyses_path = self.config.archiving.analyses_file
         now_iso = datetime.now(UTC).isoformat()
-        all_data = load_analyses(analyses_path)
 
         for c in self.tiers.tier_a + self.tiers.tier_b:
             if not c.narrative:
                 continue
             mid = c.market.market_id
-            raw_list = all_data.get(mid, [])
-            last_version = raw_list[-1].get("version", 0) if raw_list else 0
+            existing = get_market_analyses(mid, self.db)
+            last_version = existing[-1].version if existing else 0
             version = AnalysisVersion(
                 version=last_version + 1,
                 created_at=now_iso,
@@ -311,15 +299,10 @@ class ScanService:
                 yes_price_at_analysis=c.market.yes_price,
                 analyst_output={},
                 narrative_output=c.narrative.model_dump(),
+                trigger_source="scan",
                 elapsed_seconds=0,
-                previous_version=last_version if last_version else None,
             )
-            if mid not in all_data:
-                all_data[mid] = []
-            all_data[mid].append(version.model_dump())
-            all_data[mid] = all_data[mid][-10:]  # max 10 versions
-
-        save_analyses(all_data, analyses_path)
+            append_analysis(mid, version, self.db)
 
     def _finish_log(self, status: str, error: str | None = None):
         if not self._current_log:
@@ -347,11 +330,17 @@ class ScanService:
             narrator.cancel()
             logger.info("Analysis cancelled by user")
 
-    async def analyze_market(self, candidate: ScoredCandidate, on_heartbeat=None):
+    async def analyze_market(self, market_id: str, *,
+                             candidate: ScoredCandidate | None = None,
+                             trigger_source: str = "manual",
+                             on_heartbeat=None):
         """Run full AI analysis on a single market.
 
-        on_heartbeat(elapsed, status): called during AI call with
-          status "running" / "slow" / "unresponsive".
+        Args:
+            market_id: The market to analyze.
+            candidate: If provided, use this candidate. Otherwise build one from API.
+            trigger_source: 'manual' / 'scan' / 'scheduled'
+            on_heartbeat: callback(elapsed, status) during AI call.
         """
         from datetime import datetime
 
@@ -363,8 +352,11 @@ class ScanService:
             get_market_analyses,
         )
 
+        # Build candidate if not provided
+        if candidate is None:
+            candidate = await self._build_candidate(market_id)
+
         market = candidate.market
-        analyses_path = self.config.archiving.analyses_file
         start_time = time.time()
 
         # Log entry — persist immediately so it shows as "running"
@@ -442,7 +434,7 @@ class ScanService:
 
             # Step 2: Single AI call — unified decision analysis
             self._step_start("AI 决策分析")
-            existing = get_market_analyses(market.market_id, analyses_path)
+            existing = get_market_analyses(market.market_id, self.db)
             narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
             self._current_narrator = narrator
 
@@ -466,9 +458,8 @@ class ScanService:
             self._current_narrator = None
             self._step_done("完成")
 
-            # Build version
-            prev_version = existing[-1].version if existing else None
-            new_version_num = (prev_version or 0) + 1
+            # Build version with score snapshot
+            new_version_num = (existing[-1].version if existing else 0) + 1
 
             version = AnalysisVersion(
                 version=new_version_num,
@@ -479,12 +470,14 @@ class ScanService:
                 mispricing_signal=candidate.mispricing.signal,
                 mispricing_details=candidate.mispricing.details,
                 narrative_output=narrative_output.model_dump(),
-                previous_version=prev_version,
+                trigger_source=trigger_source,
+                structure_score=candidate.score.total if candidate.score else None,
+                score_breakdown=candidate.score.model_dump() if candidate.score else None,
                 elapsed_seconds=time.time() - start_time,
             )
 
             # Persist
-            append_analysis(market.market_id, version, analyses_path)
+            append_analysis(market.market_id, version, self.db)
             candidate.narrative = narrative_output
 
             # Log
@@ -501,6 +494,35 @@ class ScanService:
             self._persist_log(log)
             self._current_log = None
             raise
+
+    async def _build_candidate(self, market_id: str) -> ScoredCandidate:
+        """Build a ScoredCandidate from market_id by fetching fresh data."""
+        from scanner.mispricing import MispricingResult, detect_mispricing
+        from scanner.scoring import compute_structure_score
+
+        # Fetch market from Polymarket API
+        client = PolymarketClient(self.config.api)
+        try:
+            events = await client.fetch_all_events(
+                max_events=self.config.scanner.max_markets_to_fetch // 2,
+            )
+            market = None
+            for event in events:
+                for m in parse_gamma_event(event):
+                    if m.market_id == market_id:
+                        market = m
+                        break
+                if market:
+                    break
+            if market is None:
+                raise ValueError(f"Market {market_id} not found on Polymarket")
+        finally:
+            await client.close()
+
+        # Score + mispricing
+        score = compute_structure_score(market, self.config.scoring.weights)
+        mispricing = detect_mispricing(market, self.config.mispricing)
+        return ScoredCandidate(market=market, score=score, mispricing=mispricing)
 
     # --- Position analysis ---
 
@@ -633,6 +655,20 @@ class ScanService:
         finally:
             await client.close()
 
+    def get_all_market_states(self) -> dict:
+        """Get all market states as {market_id: MarketState}."""
+        from scanner.market_state import MarketState
+        rows = self.db.conn.execute("SELECT * FROM market_states").fetchall()
+        from scanner.market_state import _row_to_state
+        return {r["market_id"]: _row_to_state(r) for r in rows}
+
+    def get_watch_count(self) -> int:
+        """Get count of markets with status='watch'."""
+        row = self.db.conn.execute(
+            "SELECT COUNT(*) FROM market_states WHERE status = 'watch'",
+        ).fetchone()
+        return row[0] if row else 0
+
     def get_all_candidates(self) -> list[ScoredCandidate]:
         if not self.tiers:
             return []
@@ -645,26 +681,27 @@ class ScanService:
     def get_watchlist(self) -> list[ScoredCandidate]:
         return self.tiers.tier_b if self.tiers else []
 
+    def _paper_db(self) -> PaperTradingDB:
+        return PaperTradingDB(
+            self.db,
+            position_size_usd=self.config.paper_trading.default_position_size_usd,
+            friction_pct=self.config.paper_trading.assumed_round_trip_friction_pct,
+        )
+
     def mark_paper_trade(self, market_id: str, title: str, side: str,
                          price: float, market_type: str | None = None,
                          score: float | None = None) -> str:
-        with PaperTradingDB(
-            self.config.paper_trading.data_file,
-            position_size_usd=self.config.paper_trading.default_position_size_usd,
-            friction_pct=self.config.paper_trading.assumed_round_trip_friction_pct,
-        ) as db:
-            trade = db.mark(
-                market_id=market_id, title=title, side=side,
-                entry_price=price, market_type=market_type,
-                beauty_score=score,
-                scan_id=getattr(self, "last_scan_id", None),
-            )
-            return trade.id
+        ptdb = self._paper_db()
+        trade = ptdb.mark(
+            market_id=market_id, title=title, side=side,
+            entry_price=price, market_type=market_type,
+            structure_score=score,
+            scan_id=getattr(self, "last_scan_id", None),
+        )
+        return trade.id
 
     def get_paper_trades(self) -> list:
-        with PaperTradingDB(self.config.paper_trading.data_file) as db:
-            return db.list_open()
+        return self._paper_db().list_open()
 
     def get_paper_stats(self) -> dict:
-        with PaperTradingDB(self.config.paper_trading.data_file) as db:
-            return db.stats()
+        return self._paper_db().stats()

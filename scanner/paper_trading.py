@@ -41,6 +41,12 @@ class PaperTradingDB:
         self.position_size_usd = position_size_usd
         self.friction_pct = friction_pct
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass  # PolilyDB owns the connection, not us
+
     def mark(
         self,
         market_id: str,

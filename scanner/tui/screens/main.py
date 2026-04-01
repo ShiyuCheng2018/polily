@@ -65,12 +65,10 @@ class MainScreen(Screen):
     def on_mount(self) -> None:
         sidebar = self.query_one("#sidebar", Sidebar)
         sidebar.set_active_menu("tasks")
-        from scanner.market_state import get_watched_markets, load_market_states
-        state_file = self.service.config.archiving.market_state_file
-        states = load_market_states(state_file)
+        states = self.service.get_all_market_states()
         research = len([c for c in self.service.get_research()
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
-        watch = len(get_watched_markets(state_file))
+        watch = self.service.get_watch_count()
         paper = len(self.service.get_paper_trades())
         sidebar.update_counts(research, watch, paper)
         if self.service.tiers:
@@ -116,12 +114,10 @@ class MainScreen(Screen):
         """Main thread: update status, do NOT auto-navigate."""
         self._loading = False
         total = self.service.total_scanned
-        from scanner.market_state import get_watched_markets, load_market_states
-        state_file = self.service.config.archiving.market_state_file
-        states = load_market_states(state_file)
+        states = self.service.get_all_market_states()
         research = len([c for c in self.service.get_research()
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
-        watch = len(get_watched_markets(state_file))
+        watch = self.service.get_watch_count()
         paper = len(self.service.get_paper_trades())
 
         self.query_one("#status-bar", Static).update(
@@ -170,12 +166,10 @@ class MainScreen(Screen):
                 view.focus()
 
     def refresh_sidebar_counts(self):
-        from scanner.market_state import get_watched_markets, load_market_states
-        state_file = self.service.config.archiving.market_state_file
-        states = load_market_states(state_file)
+        states = self.service.get_all_market_states()
         research = len([c for c in self.service.get_research()
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
-        watch = len(get_watched_markets(state_file))
+        watch = self.service.get_watch_count()
         paper = len(self.service.get_paper_trades())
         self.query_one("#sidebar", Sidebar).update_counts(research, watch, paper)
 
@@ -230,7 +224,11 @@ class MainScreen(Screen):
             def _heartbeat(elapsed: float, status: str):
                 self.app.call_from_thread(self._update_heartbeat, elapsed, status)
 
-            await self.service.analyze_market(candidate, on_heartbeat=_heartbeat)
+            await self.service.analyze_market(
+                candidate.market.market_id,
+                candidate=candidate,
+                on_heartbeat=_heartbeat,
+            )
             self.app.call_from_thread(self._on_analysis_complete, candidate)
         except Exception as e:
             error_msg = str(e)
@@ -386,15 +384,13 @@ class MainScreen(Screen):
             current_steps = list(self.service._steps) if self._loading else None
             self._switch_view(ScanLogView(logs, current_steps), "tasks")
         elif menu_id == "research":
-            from scanner.market_state import load_market_states
-            state_file = self.service.config.archiving.market_state_file
-            states = load_market_states(state_file)
+            states = self.service.get_all_market_states()
             research = [c for c in self.service.get_research()
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")]
             self._switch_view(MarketListView(research, self.service, "研究队列"), "research")
         elif menu_id == "watchlist":
             from scanner.market_state import get_watched_markets
-            watched = get_watched_markets(self.service.config.archiving.market_state_file)
+            watched = get_watched_markets(self.service.db)
             self._switch_view(WatchListView(watched), "watchlist")
         elif menu_id == "paper":
             self._switch_view(PaperStatusView(self.service), "paper")

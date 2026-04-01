@@ -112,7 +112,7 @@ class MarketDetailView(Widget):
         from scanner.analysis_store import get_market_analyses
         self._versions = get_market_analyses(
             self.candidate.market.market_id,
-            self.service.config.archiving.analyses_file,
+            self.service.db,
         )
         if self._versions:
             self._version_idx = len(self._versions) - 1
@@ -527,10 +527,7 @@ class MarketDetailView(Widget):
         from scanner.market_state import MarketState, set_market_state
         state = MarketState(status="pass", updated_at=datetime.now(UTC).isoformat(),
                             title=self.candidate.market.title)
-        set_market_state(
-            self.candidate.market.market_id, state,
-            self.service.config.archiving.market_state_file,
-        )
+        set_market_state(self.candidate.market.market_id, state, self.service.db)
         self.notify(f"PASS: {self.candidate.market.title[:30]}")
         self.screen.refresh_sidebar_counts()
 
@@ -548,12 +545,17 @@ class MarketDetailView(Widget):
             status="watch",
             updated_at=datetime.now(UTC).isoformat(),
             title=self.candidate.market.title,
-            watch_conditions=watch_cond,
+            wc_watch_reason=watch_cond.watch_reason,
+            wc_better_entry=watch_cond.better_entry,
+            wc_trigger_event=watch_cond.trigger_event,
+            wc_invalidation=watch_cond.invalidation,
+            next_check_at=getattr(watch_cond, "next_check_at", None),
+            watch_reason=getattr(watch_cond, "reason", None),
+            price_at_watch=self.candidate.market.yes_price,
+            resolution_time=(self.candidate.market.resolution_time.isoformat()
+                           if self.candidate.market.resolution_time else None),
         )
-        set_market_state(
-            self.candidate.market.market_id, state,
-            self.service.config.archiving.market_state_file,
-        )
+        set_market_state(self.candidate.market.market_id, state, self.service.db)
         self.notify(f"WATCH: {self.candidate.market.title[:30]}")
         self.screen.refresh_sidebar_counts()
 

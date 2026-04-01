@@ -35,6 +35,22 @@ def main(ctx: typer.Context):
         run_tui()
 
 
+def _open_db(config: ScannerConfig):
+    """Open the unified PolilyDB."""
+    from scanner.db import PolilyDB
+    return PolilyDB(config.archiving.db_file)
+
+
+def _open_paper_db(config: ScannerConfig):
+    """Open PaperTradingDB backed by PolilyDB."""
+    from scanner.paper_trading import PaperTradingDB
+    return PaperTradingDB(
+        _open_db(config),
+        position_size_usd=config.paper_trading.default_position_size_usd,
+        friction_pct=config.paper_trading.assumed_round_trip_friction_pct,
+    )
+
+
 def _resolve_config(config_path: str | None) -> ScannerConfig:
     if config_path:
         p = Path(config_path)
@@ -138,11 +154,7 @@ def daily(
         console.print(f"\n [dim]{briefing.summary}[/dim]")
 
     # Auto-resolve paper trades
-    from scanner.paper_trading import PaperTradingDB
-    with PaperTradingDB(
-        config.paper_trading.data_file,
-        friction_pct=config.paper_trading.assumed_round_trip_friction_pct,
-    ) as db:
+    with _open_paper_db(config) as db:
         try:
             from scanner.auto_resolve import auto_resolve_trades
             open_count = len(db.list_open())
@@ -196,8 +208,7 @@ def backtest(
         with open(resolutions_file) as f:
             resolutions = json.load(f)
     else:
-        from scanner.paper_trading import PaperTradingDB
-        with PaperTradingDB(config.paper_trading.data_file) as db:
+        with _open_paper_db(config) as db:
             for t in db.list_all():
                 if t.status == "resolved" and t.resolved_result:
                     resolutions[t.market_id] = t.resolved_result
@@ -244,9 +255,7 @@ def review(
 ):
     """AI-powered paper trading performance review (weekly recommended)."""
     config = _resolve_config(config_path)
-    from scanner.paper_trading import PaperTradingDB
-
-    with PaperTradingDB(config.paper_trading.data_file) as db:
+    with _open_paper_db(config) as db:
         stats = db.stats()
 
     if stats["total_trades"] == 0:
@@ -334,8 +343,7 @@ def export(
     from scanner.export import export_scans_csv, export_trades_csv
 
     if what == "trades":
-        from scanner.paper_trading import PaperTradingDB
-        with PaperTradingDB(config.paper_trading.data_file) as db:
+        with _open_paper_db(config) as db:
             export_trades_csv(db, output)
         console.print(f"[green]✅ 导出 trades → {output}[/green]")
     elif what == "scans":
@@ -388,18 +396,13 @@ def mark(
         console.print("[red]No price found. Use --price to specify.[/red]")
         raise typer.Exit(1)
 
-    from scanner.paper_trading import PaperTradingDB
-    with PaperTradingDB(
-        config.paper_trading.data_file,
-        position_size_usd=config.paper_trading.default_position_size_usd,
-        friction_pct=config.paper_trading.assumed_round_trip_friction_pct,
-    ) as db:
+    with _open_paper_db(config) as db:
         from scanner.archive import get_latest_scan_id
         scan_id = get_latest_scan_id(config.archiving.archive_dir)
         trade = db.mark(
             market_id=market_id, title=title, side=side, entry_price=price,
             market_type=entry.get("market_type"),
-            beauty_score=entry.get("structure_score"),
+            structure_score=entry.get("structure_score"),
             mispricing_signal=entry.get("mispricing_signal"),
             scan_id=scan_id,
         )
@@ -413,9 +416,7 @@ def mark(
 def paper_status(config_path: str = typer.Option(None, "--config", "-c")):
     """Show open paper trade positions."""
     config = _resolve_config(config_path)
-    from scanner.paper_trading import PaperTradingDB
-
-    with PaperTradingDB(config.paper_trading.data_file) as db:
+    with _open_paper_db(config) as db:
         open_trades = db.list_open()
 
     if not open_trades:
@@ -440,9 +441,7 @@ def paper_report(
 ):
     """Paper trading performance report."""
     config = _resolve_config(config_path)
-    from scanner.paper_trading import PaperTradingDB
-
-    with PaperTradingDB(config.paper_trading.data_file) as db:
+    with _open_paper_db(config) as db:
         stats = db.stats(days=days)
 
     if stats["total_trades"] == 0:
@@ -466,7 +465,7 @@ def paper_report(
 
     # Graduation assessment
     from scanner.graduation import assess_graduation
-    with PaperTradingDB(config.paper_trading.data_file) as db2:
+    with _open_paper_db(config) as db2:
         grad = assess_graduation(db2)
     color = "green" if grad.ready else "yellow"
     console.print(f"\n [{color} bold]GRADUATION ASSESSMENT[/{color} bold]")
@@ -488,12 +487,7 @@ def resolve(
         raise typer.Exit(1)
 
     config = _resolve_config(config_path)
-    from scanner.paper_trading import PaperTradingDB
-
-    with PaperTradingDB(
-        config.paper_trading.data_file,
-        friction_pct=config.paper_trading.assumed_round_trip_friction_pct,
-    ) as db:
+    with _open_paper_db(config) as db:
         try:
             trade = db.resolve(trade_id, result=result)
         except ValueError as e:
