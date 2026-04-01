@@ -29,6 +29,7 @@ dependencies = [
     "pyyaml>=6.0,<7.0",
     "ccxt>=4.0",
     "textual>=3.0",
+    "apscheduler>=3.10,<4.0",
 ]
 
 [project.optional-dependencies]
