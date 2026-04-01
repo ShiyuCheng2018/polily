@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from datetime import UTC
 from pathlib import Path
 
 import typer
@@ -498,6 +499,124 @@ def resolve(
     console.print(f"[{color}]Resolved:[/{color}] {trade.id} → {result.upper()}")
     console.print(f"  Paper PnL: ${trade.paper_pnl:+.2f}")
     console.print(f"  Friction-adjusted: ${trade.friction_adjusted_pnl:+.2f}")
+
+
+# --- WATCH lifecycle commands ---
+
+
+@app.command(name="watch-list")
+def watch_list(config_path: str = typer.Option(None, "--config", "-c")):
+    """Show all WATCH markets with next_check_at."""
+    config = _resolve_config(config_path)
+    db = _open_db(config)
+    from scanner.market_state import get_watched_markets
+    watched = get_watched_markets(db)
+    if not watched:
+        console.print("[dim]No markets being watched.[/dim]")
+        return
+    from rich.table import Table
+    table = Table(title="WATCH Markets")
+    table.add_column("Market", style="cyan")
+    table.add_column("Next Check", style="yellow")
+    table.add_column("Reason", style="dim")
+    table.add_column("#", style="magenta", justify="right")
+    table.add_column("Auto", style="green", justify="center")
+    for mid, state in watched.items():
+        table.add_row(
+            state.title[:40] or mid[:12],
+            state.next_check_at[:16] if state.next_check_at else "-",
+            state.watch_reason or "-",
+            str(state.watch_sequence),
+            "ON" if state.auto_monitor else "-",
+        )
+    console.print(table)
+    db.close()
+
+
+@app.command(name="pass-market")
+def pass_market(
+    market_id: str = typer.Argument(help="Market ID to mark as PASS"),
+    config_path: str = typer.Option(None, "--config", "-c"),
+):
+    """Mark a market as PASS — stop watching."""
+    from datetime import datetime
+
+    config = _resolve_config(config_path)
+    db = _open_db(config)
+    from scanner.market_state import MarketState, get_market_state, set_market_state
+    state = get_market_state(market_id, db)
+    if state is None:
+        console.print(f"[red]Market {market_id} not found.[/red]")
+        raise typer.Exit(1)
+    state.status = "pass"
+    state.updated_at = datetime.now(UTC).isoformat()
+    state.auto_monitor = False
+    state.next_check_at = None
+    state.watch_reason = None
+    set_market_state(market_id, state, db)
+    console.print(f"[green]PASS:[/green] {state.title or market_id}")
+    db.close()
+
+
+@app.command(name="watch")
+def watch_toggle(
+    market_id: str = typer.Argument(help="Market ID"),
+    enable: bool = typer.Option(False, "--enable", help="Enable auto-monitor"),
+    disable: bool = typer.Option(False, "--disable", help="Disable auto-monitor"),
+    config_path: str = typer.Option(None, "--config", "-c"),
+):
+    """Enable or disable auto-monitor for a WATCH market."""
+    from datetime import datetime
+
+    config = _resolve_config(config_path)
+    db = _open_db(config)
+    from scanner.market_state import get_market_state, set_market_state
+    state = get_market_state(market_id, db)
+    if state is None:
+        console.print(f"[red]Market {market_id} not found.[/red]")
+        raise typer.Exit(1)
+    if enable:
+        state.auto_monitor = True
+    elif disable:
+        state.auto_monitor = False
+    else:
+        console.print("[dim]Use --enable or --disable[/dim]")
+        raise typer.Exit(1)
+    state.updated_at = datetime.now(UTC).isoformat()
+    set_market_state(market_id, state, db)
+    label = "ON" if state.auto_monitor else "OFF"
+    console.print(f"Auto-monitor [{label}]: {state.title or market_id}")
+    db.close()
+
+
+@app.command(name="check")
+def check_market(
+    market_id: str = typer.Argument(help="Market ID to recheck"),
+    config_path: str = typer.Option(None, "--config", "-c"),
+):
+    """Recheck a single WATCH market — fetch latest data + AI re-evaluation."""
+    config = _resolve_config(config_path)
+    db = _open_db(config)
+    from scanner.watch_recheck import recheck_market
+    try:
+        result = recheck_market(market_id, db=db, trigger_source="manual")
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
+
+    labels = {"buy_yes": "GO BUY YES", "buy_no": "GO BUY NO",
+              "watch": "WATCH", "pass": "PASS", "closed": "CLOSED"}
+    label = labels.get(result.new_status, result.new_status)
+    color = "green" if result.new_status in ("buy_yes", "buy_no") else "yellow" if result.new_status == "watch" else "dim"
+    console.print(f"[{color}][{label}][/{color}] {market_id[:16]}")
+    if result.previous_price and result.current_price:
+        delta = (result.current_price - result.previous_price) / result.previous_price * 100
+        console.print(f"  YES: {result.previous_price:.2f} → {result.current_price:.2f} ({delta:+.1f}%)")
+    if result.next_check_at:
+        console.print(f"  Next check: {result.next_check_at[:16]}")
+    if result.reason:
+        console.print(f"  Reason: {result.reason}")
+    db.close()
 
 
 # --- Helpers ---
