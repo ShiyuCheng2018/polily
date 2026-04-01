@@ -159,3 +159,50 @@ class TestSemanticValidation:
         )
         errors = out.semantic_errors()
         assert any("summary" in e for e in errors)
+
+    def test_watch_requires_next_check_at(self):
+        out = NarrativeWriterOutput(
+            market_id="test", action="WATCH",
+            watch=WatchCondition(
+                watch_reason="test",
+                next_check_at="2026-04-05T20:00:00",
+                reason="tariff announcement",
+            ),
+            why_not_now="waiting for catalyst to materialize",
+            invalidation_findings=[ResearchFinding(finding="x", source="y", impact="z")],
+            summary="test summary here",
+            one_line_verdict="test verdict",
+        )
+        assert len(out.semantic_errors()) == 0
+
+    def test_watch_without_next_check_at_is_error(self):
+        out = NarrativeWriterOutput(
+            market_id="test", action="WATCH",
+            watch=WatchCondition(watch_reason="test"),
+            why_not_now="waiting for something to happen",
+            invalidation_findings=[ResearchFinding(finding="x", source="y", impact="z")],
+            summary="test summary", one_line_verdict="test verdict",
+        )
+        errors = out.semantic_errors()
+        assert any("next_check_at" in e for e in errors)
+
+    def test_pass_must_not_have_watch_conditions(self):
+        out = NarrativeWriterOutput(
+            market_id="test", action="PASS",
+            watch=WatchCondition(watch_reason="should not be here"),
+            why_not_now="not worth it at all",
+            invalidation_findings=[ResearchFinding(finding="x", source="y", impact="z")],
+            summary="test summary", one_line_verdict="test verdict",
+        )
+        errors = out.semantic_errors()
+        assert any("PASS" in e for e in errors)
+
+    def test_watch_condition_has_new_fields(self):
+        wc = WatchCondition(
+            watch_reason="price not right",
+            better_entry="YES <= 0.50",
+            next_check_at="2026-04-05T20:00:00",
+            reason="tariff announcement expected that evening",
+        )
+        assert wc.next_check_at == "2026-04-05T20:00:00"
+        assert wc.reason == "tariff announcement expected that evening"
