@@ -41,6 +41,7 @@ class ScanService:
         self._steps: list[StepInfo] = []
         self._current_log: ScanLogEntry | None = None
         self._load_from_archive()
+        self._restore_narratives()
 
     def _load_default_config(self) -> ScannerConfig:
         minimal = Path("config.minimal.yaml")
