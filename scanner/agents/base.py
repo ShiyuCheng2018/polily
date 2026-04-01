@@ -16,8 +16,8 @@ DEFAULT_MAX_PROMPT_CHARS = 5000
 # Global registry of active subprocess PIDs for cleanup on exit
 _active_pids: set[int] = set()
 
-# Debug log directory
-_DEBUG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")
+# Debug log directory — resolve relative to project root via config, fallback to CWD/data
+_DEBUG_DIR = os.path.join(os.getcwd(), "data")
 
 
 def _dump_debug(tag: str, content: str):
