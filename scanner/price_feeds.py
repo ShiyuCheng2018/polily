@@ -2,6 +2,7 @@
 
 import logging
 import math
+import os
 import re
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,12 @@ class BinancePriceFeed:
     async def _get_exchange(self):
         if self._exchange is None:
             import ccxt.async_support as ccxt
-            self._exchange = ccxt.binance({"enableRateLimit": True})
+            config = {"enableRateLimit": True}
+            # Support proxy via HTTPS_PROXY or POLILY_PROXY env var
+            proxy = os.environ.get("POLILY_PROXY") or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+            if proxy:
+                config["proxies"] = {"http": proxy, "https": proxy}
+            self._exchange = ccxt.binance(config)
         return self._exchange
 
     async def get_current_price(self, symbol: str) -> float | None:
