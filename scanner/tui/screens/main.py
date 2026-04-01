@@ -188,8 +188,10 @@ class MainScreen(Screen):
         self._switch_view(MarketDetailView(message.candidate, self.service))
 
     def on_switch_version_requested(self, message: SwitchVersionRequested) -> None:
+        is_analyzing = self._analyzing and self._analyzing_candidate is message.candidate
         self._switch_view(MarketDetailView(
             message.candidate, self.service,
+            analyzing=is_analyzing,
             version_idx=message.version_idx,
             show_detail=message.show_detail,
         ))
