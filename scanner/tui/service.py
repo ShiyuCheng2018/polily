@@ -669,6 +669,37 @@ class ScanService:
         ).fetchone()
         return row[0] if row else 0
 
+    def get_unread_notification_count(self) -> int:
+        """Get count of unread notifications."""
+        from scanner.notifications import get_unread_notifications
+        return len(get_unread_notifications(self.db))
+
+    def get_watch_summary(self) -> dict:
+        """Get summary of WATCH markets: total, triggered (overdue), expired."""
+        from datetime import datetime
+        watches = self.get_all_market_states()
+        now = datetime.now(UTC)
+        total = triggered = expired = 0
+        for state in watches.values():
+            if state.status != "watch":
+                continue
+            total += 1
+            if state.next_check_at:
+                try:
+                    check_at = datetime.fromisoformat(state.next_check_at)
+                    if check_at <= now:
+                        triggered += 1
+                except ValueError:
+                    pass
+            if state.resolution_time:
+                try:
+                    res_time = datetime.fromisoformat(state.resolution_time)
+                    if res_time <= now:
+                        expired += 1
+                except ValueError:
+                    pass
+        return {"total": total, "triggered": triggered, "expired": expired}
+
     def get_all_candidates(self) -> list[ScoredCandidate]:
         if not self.tiers:
             return []

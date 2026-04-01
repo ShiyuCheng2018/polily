@@ -120,9 +120,18 @@ class MainScreen(Screen):
         watch = self.service.get_watch_count()
         paper = len(self.service.get_paper_trades())
 
-        self.query_one("#status-bar", Static).update(
-            f"扫描完成: 研{research} 观{watch} ({total} 市场)"
-        )
+        # Watch summary: count triggered (overdue) and expired
+        watch_summary = self.service.get_watch_summary()
+        status_parts = [f"扫描完成: 研{research} 观{watch} ({total} 市场)"]
+        if watch_summary["total"] > 0:
+            parts = []
+            if watch_summary["triggered"] > 0:
+                parts.append(f"{watch_summary['triggered']}个触发")
+            if watch_summary["expired"] > 0:
+                parts.append(f"{watch_summary['expired']}个过期")
+            if parts:
+                status_parts.append(f"观察: {', '.join(parts)}")
+        self.query_one("#status-bar", Static).update(" | ".join(status_parts))
         sidebar = self.query_one("#sidebar", Sidebar)
         sidebar.update_counts(research, watch, paper)
         # B4 fix: mark pages that have new data, not tasks
