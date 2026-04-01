@@ -14,7 +14,7 @@ from scanner.mispricing import MispricingResult, detect_mispricing
 from scanner.models import Market
 from scanner.orderbook import is_stale_book
 from scanner.reporting import ScoredCandidate, TierResult, classify_tiers
-from scanner.scoring import compute_beauty_score
+from scanner.scoring import compute_structure_score
 
 logger = logging.getLogger(__name__)
 
@@ -129,15 +129,9 @@ def run_scan_pipeline(
     _report("评分 + 定价检测", "start")
     candidates: list[ScoredCandidate] = []
     for market in passed:
-        type_config = config.market_types.get(market.market_type or "")
-        overrides = type_config.scoring_overrides if type_config else None
-
-        score = compute_beauty_score(
+        score = compute_structure_score(
             market,
             config.scoring.weights,
-            config.filters,
-            weight_overrides=overrides,
-            probability_penalty_mode=config.scoring.thresholds.probability_penalty_mode,
         )
 
         # Try enrichment module mispricing, fall through to generic

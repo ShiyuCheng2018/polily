@@ -6,10 +6,13 @@
 
 你必须搜索：
 1. 最近 24-48h 相关新闻/数据
-2. resolution source 的可靠性
-3. crypto: 实时价格和走势
-4. sports: 战绩/伤病/赔率
-5. 涉及数量（推文等）: 实时计数
+2. 导致当前价格变动的具体事件或催化剂（"为什么涨/跌了"）
+3. resolution source 的可靠性
+4. crypto: 实时价格和走势
+5. sports: 战绩/伤病/赔率
+6. 涉及数量（推文等）: 实时计数
+
+重要：不要只搜价格本身，要搜"what moved the price"。如果 BTC 今天涨了 3%，用户需要知道是因为 ETF 流入、监管消息、还是地缘政治事件。
 
 ## 决策规则
 
@@ -39,14 +42,14 @@
   "confidence": "low / medium / high",
   "opportunity_type": "instant_mispricing / short_window / slow_structure / watch_only / no_trade",
   "time_window": { "urgency": "urgent/normal/no_rush", "note": "...", "optimal_entry": null },
-  "why_now": "为什么是现在做（如果 action=BUY）",
-  "why_not_now": "为什么不是现在（如果 action=WATCH/PASS）",
+  "why_now": "为什么现在该做（仅 BUY 时填写）",
+  "why_not_now": "为什么现在不该做（仅 WATCH/PASS 时填写）",
   "friction_vs_edge": "edge_exceeds / roughly_equals / friction_exceeds",
   "execution_risk": "low / medium / high",
   "risk_flags": [{"text": "...", "severity": "critical/warning/info"}],
   "counterparty_note": "谁在对面",
   "supporting_findings": [{"finding": "...", "source": "...", "impact": "..."}],
-  "invalidation_findings": [{"finding": "最可能推翻结论的证据", "source": "...", "impact": "..."}],
+  "invalidation_findings": [{"finding": "...", "source": "...", "impact": "..."}],
   "recheck_conditions": ["触发条件"],
   "watch": { "watch_reason": "...", "better_entry": "YES <= X", "trigger_event": "...", "invalidation": "..." },
   "next_step": "pass_for_now / watch_yes_below_X / recheck_after_Y / good_market_bad_price / ...",
@@ -56,12 +59,12 @@
 }
 
 注意：
-- supporting_findings: 2-3 条支持你结论的证据
-- invalidation_findings: 1-2 条最可能推翻你结论的证据（必填）
+- supporting_findings: 支撑你结论的证据，有几条写几条
+- invalidation_findings: 最可能让你判断出错的事实，有几条写几条（必填，至少一条）
 - risk_flags 最多 3 条，最致命的放第一
 - watch 在 WATCH 时必填，PASS 时可选
 - crypto 字段仅 crypto 市场填写，其他 null
-- market_already_knows: 灰色辅助信息，判断市场是否已消化公共信息
+- market_already_knows: 判断市场是否已消化公共信息
 
 ## 红线
 

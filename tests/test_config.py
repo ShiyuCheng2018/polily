@@ -44,7 +44,7 @@ class TestLoadConfig:
         config = load_config(Path("config.example.yaml"))
         assert config is not None
         assert config.filters.max_spread_pct_yes == 0.04
-        assert config.scoring.weights.objectivity == 20
+        assert config.scoring.weights.objective_verifiability == 25
 
     def test_load_minimal_config_merges_with_defaults(self):
         config = load_config(Path("config.minimal.yaml"), defaults_path=Path("config.example.yaml"))
@@ -53,15 +53,15 @@ class TestLoadConfig:
         assert config.discipline.max_single_trade_usd == 20
         # inherits all other defaults from example
         assert config.filters.max_spread_pct_yes == 0.04
-        assert config.scoring.weights.objectivity == 20
+        assert config.scoring.weights.objective_verifiability == 25
 
     def test_scoring_weights_sum_to_100(self):
         config = load_config(Path("config.example.yaml"))
         w = config.scoring.weights
         total = (
-            w.time_to_resolution + w.objectivity + w.probability_zone
-            + w.liquidity_depth + w.exitability + w.catalyst_proxy
-            + w.small_account_friendliness
+            w.liquidity_structure + w.objective_verifiability
+            + w.probability_space + w.time_structure
+            + w.trading_friction
         )
         assert total == 100
 
@@ -85,17 +85,15 @@ filters:
   max_spread_pct_yes: 0.02
 scoring:
   weights:
-    objectivity: 25
-    time_to_resolution: 10
-    probability_zone: 20
-    liquidity_depth: 20
-    exitability: 10
-    catalyst_proxy: 5
-    small_account_friendliness: 10
+    liquidity_structure: 35
+    objective_verifiability: 20
+    probability_space: 20
+    time_structure: 15
+    trading_friction: 10
 """
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             f.flush()
             config = load_config(Path(f.name), defaults_path=Path("config.example.yaml"))
             assert config.filters.max_spread_pct_yes == 0.02
-            assert config.scoring.weights.objectivity == 25
+            assert config.scoring.weights.liquidity_structure == 35

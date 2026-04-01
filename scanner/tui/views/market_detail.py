@@ -25,6 +25,11 @@ class AnalyzeRequested(Message):
         self.candidate = candidate
 
 
+class CancelAnalysisRequested(Message):
+    """Request MainScreen to cancel running AI analysis."""
+    pass
+
+
 class SwitchVersionRequested(Message):
     """Request MainScreen to rebuild detail view at a specific version index."""
     def __init__(self, candidate: ScoredCandidate, version_idx: int, show_detail: bool = False):
@@ -179,8 +184,12 @@ class MarketDetailView(Widget):
     def _compose_conclusion_card(self, n) -> ComposeResult:
         """Decision conclusion card — the most important thing on screen."""
         # Detect if this is a rule-based fallback (no AI ran successfully)
+        # Real AI output has substantive content even without supporting_findings
         supporting = getattr(n, "supporting_findings", [])
-        is_fallback = not supporting and getattr(n, "confidence", "") == "low"
+        invalidation = getattr(n, "invalidation_findings", [])
+        why_not = getattr(n, "why_not_now", "") or ""
+        has_substance = bool(supporting or invalidation or len(why_not) > 80)
+        is_fallback = not has_substance and getattr(n, "confidence", "") == "low"
         if is_fallback:
             yield Static("  [yellow]AI 分析未成功，以下为规则估算。按 a 重试。[/yellow]", classes="detail-row")
 
@@ -188,8 +197,7 @@ class MarketDetailView(Widget):
         confidence = getattr(n, "confidence", "low")
         conf_bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
 
-        # New fields: why_now / why_not_now (fallback to legacy action_reasoning)
-        why = getattr(n, "why_now", "") or getattr(n, "why_not_now", "") or getattr(n, "action_reasoning", "")
+        why = getattr(n, "why_now", "") or getattr(n, "why_not_now", "")
 
         verdict = getattr(n, "one_line_verdict", "")
         yield Static("")
@@ -276,21 +284,15 @@ class MarketDetailView(Widget):
         if action not in ("PASS", "WATCH", "avoid", "watch_only"):
             return
 
-        # New field: why_not_now (str), legacy: why_not_opportunity (list)
         why_not_now = getattr(n, "why_not_now", "")
-        why_not_list = getattr(n, "why_not_opportunity", [])
         recheck = getattr(n, "recheck_conditions", [])
 
         if why_not_now:
-            yield Static(" 为什么不是现在", classes="section-title")
+            yield Static(" 不做的理由", classes="section-title")
             yield Static(f"  {why_not_now}", classes="detail-row")
-        elif why_not_list:
-            yield Static(" 为什么不是机会", classes="section-title")
-            for reason in why_not_list[:3]:
-                yield Static(f"  - {reason}", classes="detail-row")
 
         if recheck:
-            yield Static(" 重新看它的条件", classes="section-title")
+            yield Static(" 什么情况下值得再看", classes="section-title")
             for cond in recheck[:3]:
                 yield Static(f"  - {cond}", classes="detail-row")
 
@@ -353,16 +355,11 @@ class MarketDetailView(Widget):
         supporting = getattr(n, "supporting_findings", [])
         invalidation = getattr(n, "invalidation_findings", [])
         # Legacy compat
-        legacy = getattr(n, "research_findings", []) if not supporting else []
-        checklist = getattr(n, "research_checklist", []) if not supporting and not legacy else []
-
         all_findings = []
         if supporting:
-            all_findings.append(("支持结论", supporting))
+            all_findings.append(("依据", supporting))
         if invalidation:
-            all_findings.append(("可能推翻", invalidation))
-        if legacy:
-            all_findings.append(("研究发现", legacy))
+            all_findings.append(("可能判断错的地方", invalidation))
 
         for section_title, findings in all_findings:
             yield Static(f" {section_title}", classes="section-title")
@@ -377,11 +374,6 @@ class MarketDetailView(Widget):
                     impact = f.get("impact", "")
                     if impact:
                         yield Static(f"    -> {impact}", classes="finding-impact")
-
-        if not all_findings and checklist:
-            yield Static(" 研究清单", classes="section-title")
-            for item in checklist:
-                yield Static(f"  {item}", classes="detail-row")
 
     def _compose_three_scores(self, s) -> ComposeResult:
         """Three-score bar gauges — shown right below title."""
@@ -400,70 +392,73 @@ class MarketDetailView(Widget):
         yield Static(f"  {q_bar}   {v_bar}   {e_bar}")
 
     def _compose_score_detail(self, s) -> ComposeResult:
-        """7-item score breakdown with explanations — collapsible."""
+        """5-item score breakdown with explanations — collapsible."""
         m = self.candidate.market
         if self._show_detail:
             # Build explanations from actual market data
-            days = m.days_to_resolution
-            days_note = f"距结算 {days:.1f} 天" if days else "结算时间未知"
-            if days and 0.5 <= days <= 7:
-                days_note += "，在最佳窗口内"
-            elif days and days < 0.5:
-                days_note += "，即将结算"
+            spread = m.spread_pct_yes
+            bid = m.total_bid_depth_usd
+            liq_parts = []
+            if spread is not None:
+                liq_parts.append(f"价差 {spread:.1%}")
+            if bid is not None:
+                liq_parts.append(f"买深 ${bid:,.0f}")
+            liq_note = "，".join(liq_parts) if liq_parts else "无深度数据"
 
-            res_src = m.resolution_source or "未知"
-            obj_note = f"结算来源: {res_src[:30]}" if res_src != "未知" else "结算标准不明确"
+            import re as _re
+            res_src = m.resolution_source
+            if not res_src:
+                # Check rules/description text for resolution source mention
+                rules_text = (m.rules or "") + " " + (m.description or "")
+                match = _re.search(r"resolution source.*?\bis\b\s+(\w+)", rules_text, _re.IGNORECASE)
+                if match:
+                    res_src = match.group(1)
+                elif _re.search(r"resolves? to .yes.", rules_text, _re.IGNORECASE):
+                    res_src = "(规则文本中)"
+            obj_note = f"结算来源: {res_src[:30]}" if res_src else "结算标准不明确"
 
             p = m.yes_price or 0
             prob_note = f"YES {p:.2f}"
             if 0.30 <= p <= 0.70:
-                prob_note += "，在甜蜜区 (0.30-0.70)"
+                prob_note += "，在甜蜜区"
             elif p < 0.15 or p > 0.85:
                 prob_note += "，极端概率"
 
-            bid = m.total_bid_depth_usd
-            bid_note = f"买方深度 ${bid:,.0f}" if bid else "无深度数据"
-
-            ask = m.total_ask_depth_usd
-            ask_note = f"卖方深度 ${ask:,.0f}" if ask else "无深度数据"
-
-            catalyst_note = "有事件驱动" if s.catalyst_proxy > 3 else "催化剂较弱"
+            days = m.days_to_resolution
+            time_note = f"距结算 {days:.1f} 天" if days else "结算时间未知"
+            if days and 1.0 <= days <= 5.0:
+                time_note += "，最佳窗口"
 
             friction_pct = m.round_trip_friction_pct
-            small_note = f"摩擦 {friction_pct:.1%}" if friction_pct else "摩擦未知"
+            fric_note = f"来回 {friction_pct:.1%}" if friction_pct else "摩擦未知"
 
             explanations = {
-                "结算时间": days_note,
-                "客观性": obj_note,
-                "概率区间": prob_note,
-                "流动性": bid_note,
-                "可退出性": ask_note,
-                "催化剂": catalyst_note,
-                "小账户": small_note,
+                "流动性结构": liq_note,
+                "客观验证": obj_note,
+                "概率空间": prob_note,
+                "时间结构": time_note,
+                "交易摩擦": fric_note,
             }
 
             for name, val, mx in [
-                ("结算时间", s.time_to_resolution, 15),
-                ("客观性", s.objectivity, 20),
-                ("概率区间", s.probability_zone, 20),
-                ("流动性", s.liquidity_depth, 20),
-                ("可退出性", s.exitability, 10),
-                ("催化剂", s.catalyst_proxy, 5),
-                ("小账户", s.small_account_friendliness, 10),
+                ("流动性结构", s.liquidity_structure, 30),
+                ("客观验证", s.objective_verifiability, 25),
+                ("概率空间", s.probability_space, 20),
+                ("时间结构", s.time_structure, 15),
+                ("交易摩擦", s.trading_friction, 10),
             ]:
                 bar_len = int(val / mx * 10) if mx > 0 else 0
                 bar_str = "█" * bar_len + "░" * (10 - bar_len)
                 note = explanations.get(name, "")
-                yield Static(f"  {name:8s} {bar_str} {val:.1f}/{mx}  [dim]{note}[/dim]", classes="detail-row")
+                yield Static(f"  {name:6s} {bar_str} {val:.1f}/{mx}  [dim]{note}[/dim]", classes="detail-row")
             yield Static(f"  [bold]总分: {s.total:.0f}/100[/bold]  [dim]按 d 收起[/dim]", classes="detail-row")
         else:
             # Collapsed: single line
             parts = []
             for name, val, mx in [
-                ("时间", s.time_to_resolution, 15), ("客观", s.objectivity, 20),
-                ("概率", s.probability_zone, 20), ("流动", s.liquidity_depth, 20),
-                ("退出", s.exitability, 10), ("催化", s.catalyst_proxy, 5),
-                ("小户", s.small_account_friendliness, 10),
+                ("流动", s.liquidity_structure, 30), ("客观", s.objective_verifiability, 25),
+                ("概率", s.probability_space, 20), ("时间", s.time_structure, 15),
+                ("摩擦", s.trading_friction, 10),
             ]:
                 pct = int(val / mx * 100) if mx > 0 else 0
                 parts.append(f"{name}:{pct}%")
@@ -477,7 +472,10 @@ class MarketDetailView(Widget):
         ))
 
     def action_go_back(self) -> None:
-        self.post_message(BackToList())
+        if self._analyzing:
+            self.post_message(CancelAnalysisRequested())
+        else:
+            self.post_message(BackToList())
 
     def action_analyze(self) -> None:
         if self._analyzing:

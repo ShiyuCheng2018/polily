@@ -10,6 +10,7 @@ from scanner.tui.service import ScanService
 from scanner.tui.views.market_detail import (
     AnalyzeRequested,
     BackToList,
+    CancelAnalysisRequested,
     MarketDetailView,
     SwitchVersionRequested,
 )
@@ -50,6 +51,7 @@ class MainScreen(Screen):
         self._loading = False
         self._current_menu = "tasks"
         self._analyzing_candidate: object | None = None
+        self._analyzing = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -186,8 +188,10 @@ class MainScreen(Screen):
         self._switch_view(MarketDetailView(message.candidate, self.service))
 
     def on_switch_version_requested(self, message: SwitchVersionRequested) -> None:
+        is_analyzing = self._analyzing and self._analyzing_candidate is message.candidate
         self._switch_view(MarketDetailView(
             message.candidate, self.service,
+            analyzing=is_analyzing,
             version_idx=message.version_idx,
             show_detail=message.show_detail,
         ))
@@ -197,10 +201,22 @@ class MainScreen(Screen):
 
     def on_analyze_requested(self, message: AnalyzeRequested) -> None:
         self._analyzing_candidate = message.candidate
+        self._analyzing = True
         title_short = message.candidate.market.title[:30]
         self.query_one("#status-bar", Static).update(f"AI 分析中: {title_short}...")
         self._switch_view(MarketDetailView(message.candidate, self.service, analyzing=True))
         self.run_worker(self._do_analyze, name="analyze", thread=True, exclusive=True)
+
+    def _cancel_analysis(self):
+        """Cancel the running AI analysis — triggered by Esc during analysis."""
+        if not self._analyzing:
+            return
+        self._analyzing = False
+        self.service.cancel_analysis()
+        self.query_one("#status-bar", Static).update("分析已取消")
+        if self._analyzing_candidate:
+            self._switch_view(MarketDetailView(self._analyzing_candidate, self.service))
+            self._analyzing_candidate = None
 
     async def _do_analyze(self):
         import os
@@ -210,12 +226,40 @@ class MainScreen(Screen):
             self.service.on_progress = lambda steps: self.app.call_from_thread(
                 self._update_progress, steps
             )
-            await self.service.analyze_market(candidate)
+
+            def _heartbeat(elapsed: float, status: str):
+                self.app.call_from_thread(self._update_heartbeat, elapsed, status)
+
+            await self.service.analyze_market(candidate, on_heartbeat=_heartbeat)
             self.app.call_from_thread(self._on_analysis_complete, candidate)
         except Exception as e:
-            self.app.call_from_thread(self._on_analysis_failed, str(e))
+            error_msg = str(e)
+            if "cancelled" in error_msg.lower():
+                return  # already handled by _cancel_analysis
+            self.app.call_from_thread(self._on_analysis_failed, error_msg)
         finally:
             os.environ.pop("POLILY_TUI", None)
+            self._analyzing = False
+
+    def _update_heartbeat(self, elapsed: float, status: str):
+        """Update status bar with heartbeat info during AI analysis."""
+        title = self._analyzing_candidate.market.title[:25] if self._analyzing_candidate else ""
+        mins = int(elapsed) // 60
+        secs = int(elapsed) % 60
+        time_str = f"{mins}:{secs:02d}" if mins else f"{secs}s"
+
+        if status == "unresponsive":
+            self.query_one("#status-bar", Static).update(
+                f"[red]AI 长时间无响应 ({time_str})[/red] {title} [dim]Esc 取消[/dim]"
+            )
+        elif status == "slow":
+            self.query_one("#status-bar", Static).update(
+                f"[yellow]AI 可能在搜索 ({time_str})[/yellow] {title} [dim]Esc 取消[/dim]"
+            )
+        else:
+            self.query_one("#status-bar", Static).update(
+                f"AI 分析中 ({time_str}) {title} [dim]Esc 取消[/dim]"
+            )
 
     def _on_analysis_complete(self, candidate):
         self.query_one("#status-bar", Static).update("分析完成")
@@ -227,6 +271,9 @@ class MainScreen(Screen):
         self.query_one("#status-bar", Static).update(f"分析失败: {error_short}")
         if self._analyzing_candidate:
             self._switch_view(MarketDetailView(self._analyzing_candidate, self.service))
+
+    def on_cancel_analysis_requested(self, message: CancelAnalysisRequested) -> None:
+        self._cancel_analysis()
 
     def on_open_market_from_log(self, message: OpenMarketFromLog) -> None:
         """Navigate to market detail from a log entry."""

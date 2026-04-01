@@ -19,7 +19,7 @@ def _make_version(version: int = 1) -> AnalysisVersion:
         market_title="BTC above $66K?",
         yes_price_at_analysis=0.64,
         analyst_output={"objectivity_score": 85, "market_type": "crypto_threshold"},
-        narrative_output={"summary": "test", "risk_flags": [], "research_checklist": []},
+        narrative_output={"summary": "test", "risk_flags": []},
         elapsed_seconds=5.0,
     )
 

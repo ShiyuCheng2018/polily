@@ -118,10 +118,6 @@ def render_candidate_card(idx: int, c: ScoredCandidate, verbose: bool = False, s
     if c.narrative:
         n = c.narrative
         console.print(f"     [bold]AI 分析:[/bold] {n.summary}")
-        if n.suggested_style:
-            style_cn = {"research_candidate": "值得研究", "watch_only": "仅观察",
-                    "research_repricing": "关注重定价", "avoid_despite_score": "尽管分高但回避"}.get(n.suggested_style, n.suggested_style)
-        console.print(f"     建议: [cyan]{style_cn}[/cyan]")
 
     if verbose:
         render_deep_dive(c)
@@ -138,13 +134,11 @@ def render_deep_dive(c: ScoredCandidate):
     table.add_column("Component", style="dim")
     table.add_column("Score", justify="right")
     for name, val, max_val in [
-        ("结算时间", s.time_to_resolution, 15),
-        ("客观性", s.objectivity, 20),
-        ("概率区间", s.probability_zone, 20),
-        ("流动性/深度", s.liquidity_depth, 20),
-        ("可退出性", s.exitability, 10),
-        ("催化剂", s.catalyst_proxy, 5),
-        ("小账户友好", s.small_account_friendliness, 10),
+        ("流动性结构", s.liquidity_structure, 30),
+        ("客观可验证性", s.objective_verifiability, 25),
+        ("概率空间", s.probability_space, 20),
+        ("时间结构", s.time_structure, 15),
+        ("交易摩擦", s.trading_friction, 10),
     ]:
         table.add_row(f"     {name}", f"{val:.1f}/{max_val}")
     console.print(table)
@@ -160,9 +154,6 @@ def render_deep_dive(c: ScoredCandidate):
         for flag in n.risk_flags:
             console.print(f"     [red]•[/red] {flag}")
         console.print(f"\n     [bold]对手方[/bold]: {n.counterparty_note}")
-        console.print("\n     [bold]研究清单[/bold]")
-        for item in n.research_checklist:
-            console.print(f"     [ ] {item}")
     elif m.market_type:
         # Static checklist fallback when no AI narrative
         from scanner.checklist import load_checklist
@@ -278,14 +269,16 @@ def render_candidate_simple(idx: int, c: ScoredCandidate) -> str:
 
     # One-sentence score explanation: top 2 reasons
     score_reasons = []
-    if s.liquidity_depth >= 15:
-        score_reasons.append("成本低")
-    if s.time_to_resolution >= 12:
-        score_reasons.append("时间合适")
-    if s.objectivity >= 16:
+    if s.liquidity_structure >= 20:
+        score_reasons.append("流动性好")
+    if s.objective_verifiability >= 18:
         score_reasons.append("结算清晰")
-    if s.probability_zone >= 16:
+    if s.probability_space >= 14:
         score_reasons.append("概率适中")
+    if s.time_structure >= 10:
+        score_reasons.append("时间合适")
+    if s.trading_friction >= 7:
+        score_reasons.append("摩擦低")
     score_why = "，".join(score_reasons[:2]) if score_reasons else "综合表现不错"
 
     link = m.polymarket_url
