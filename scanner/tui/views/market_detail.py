@@ -418,8 +418,17 @@ class MarketDetailView(Widget):
                 liq_parts.append(f"买深 ${bid:,.0f}")
             liq_note = "，".join(liq_parts) if liq_parts else "无深度数据"
 
-            res_src = m.resolution_source or "未知"
-            obj_note = f"结算来源: {res_src[:30]}" if res_src != "未知" else "结算标准不明确"
+            import re as _re
+            res_src = m.resolution_source
+            if not res_src:
+                # Check rules/description text for resolution source mention
+                rules_text = (m.rules or "") + " " + (m.description or "")
+                match = _re.search(r"resolution source.*?is\s+(\w+)", rules_text, _re.IGNORECASE)
+                if match:
+                    res_src = match.group(1)
+                elif _re.search(r"resolves? to .yes.", rules_text, _re.IGNORECASE):
+                    res_src = "(规则文本中)"
+            obj_note = f"结算来源: {res_src[:30]}" if res_src else "结算标准不明确"
 
             p = m.yes_price or 0
             prob_note = f"YES {p:.2f}"
