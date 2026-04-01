@@ -139,7 +139,7 @@ def _score_objective_verifiability(m: Market) -> float:
     has_resolution_source = bool(m.resolution_source and len(m.resolution_source.strip()) > 3)
     if not has_resolution_source:
         rules_text = (m.rules or "") + " " + (m.description or "")
-        if re.search(r"resolution source|resolves? to .yes.|resolves? to .no.", rules_text, re.IGNORECASE):
+        if re.search(r"resolution source.*?\bis\b|resolves? to .yes.|resolves? to .no.", rules_text, re.IGNORECASE):
             has_resolution_source = True
     if has_resolution_source:
         score += 0.30

@@ -423,7 +423,7 @@ class MarketDetailView(Widget):
             if not res_src:
                 # Check rules/description text for resolution source mention
                 rules_text = (m.rules or "") + " " + (m.description or "")
-                match = _re.search(r"resolution source.*?is\s+(\w+)", rules_text, _re.IGNORECASE)
+                match = _re.search(r"resolution source.*?\bis\b\s+(\w+)", rules_text, _re.IGNORECASE)
                 if match:
                     res_src = match.group(1)
                 elif _re.search(r"resolves? to .yes.", rules_text, _re.IGNORECASE):
