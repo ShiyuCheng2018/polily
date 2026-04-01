@@ -96,6 +96,33 @@ def _execute_recheck(market_id: str, db) -> None:
         logger.exception("Recheck failed for %s", market_id)
 
 
+def generate_launchd_plist(working_dir: str, python_path: str | None = None) -> bytes:
+    """Generate a macOS launchd plist for the scheduler daemon.
+
+    Args:
+        working_dir: Project root directory.
+        python_path: Path to Python executable. Defaults to sys.executable.
+    """
+    import plistlib
+
+    if python_path is None:
+        python_path = sys.executable
+
+    log_path = f"{working_dir}/data/scheduler.log"
+    plist = {
+        "Label": "com.polily.scheduler",
+        "ProgramArguments": [python_path, "-m", "scanner.cli", "scheduler", "run"],
+        "WorkingDirectory": working_dir,
+        "KeepAlive": {"SuccessfulExit": False},
+        "StandardOutPath": log_path,
+        "StandardErrorPath": log_path,
+        "EnvironmentVariables": {
+            "PATH": "/usr/local/bin:/usr/bin:/bin",
+        },
+    }
+    return plistlib.dumps(plist, fmt=plistlib.FMT_XML)
+
+
 def run_daemon(db) -> None:
     """Daemon entry point: start scheduler, restore jobs, block until SIGTERM."""
     scheduler = WatchScheduler(db)

@@ -619,6 +619,97 @@ def check_market(
     db.close()
 
 
+# --- Scheduler daemon commands ---
+
+scheduler_app = typer.Typer(help="Manage the background watch scheduler daemon")
+app.add_typer(scheduler_app, name="scheduler")
+
+PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / "com.polily.scheduler.plist"
+
+
+@scheduler_app.command()
+def start(config_path: str = typer.Option(None, "--config", "-c")):
+    """Start the scheduler daemon via launchd."""
+    import subprocess
+    from scanner.watch_scheduler import generate_launchd_plist
+    config = _resolve_config(config_path)
+    working_dir = str(Path.cwd())
+    # Ensure data dir exists for logs
+    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
+    plist_bytes = generate_launchd_plist(working_dir=working_dir)
+    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PLIST_PATH.write_bytes(plist_bytes)
+    subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+    console.print("[green]Scheduler daemon started.[/green]")
+    console.print(f"  Plist: {PLIST_PATH}")
+    console.print(f"  Log: {working_dir}/data/scheduler.log")
+
+
+@scheduler_app.command()
+def stop():
+    """Stop the scheduler daemon."""
+    import subprocess
+    if not PLIST_PATH.exists():
+        console.print("[dim]Scheduler not installed.[/dim]")
+        return
+    subprocess.run(["launchctl", "unload", str(PLIST_PATH)], check=False)
+    PLIST_PATH.unlink(missing_ok=True)
+    console.print("[green]Scheduler daemon stopped.[/green]")
+
+
+@scheduler_app.command()
+def status(config_path: str = typer.Option(None, "--config", "-c")):
+    """Show scheduler daemon status and pending jobs."""
+    import subprocess
+    # Check if running
+    result = subprocess.run(
+        ["launchctl", "list"], capture_output=True, text=True,
+    )
+    running = "com.polily.scheduler" in result.stdout
+    if running:
+        console.print("[green]Daemon: RUNNING[/green]")
+    else:
+        console.print("[dim]Daemon: NOT RUNNING[/dim]")
+    # Show pending jobs from DB
+    config = _resolve_config(config_path)
+    db = _open_db(config)
+    from scanner.market_state import get_auto_monitor_watches
+    watches = get_auto_monitor_watches(db)
+    if watches:
+        from rich.table import Table
+        table = Table(title="Auto-monitored markets")
+        table.add_column("Market", style="cyan")
+        table.add_column("Next Check", style="yellow")
+        table.add_column("Reason", style="dim")
+        for mid, s in watches.items():
+            table.add_row(
+                s.title[:35] or mid[:12],
+                s.next_check_at[:16] if s.next_check_at else "-",
+                s.watch_reason or "-",
+            )
+        console.print(table)
+    else:
+        console.print("[dim]No auto-monitored watches.[/dim]")
+    db.close()
+
+
+@scheduler_app.command(name="run")
+def run_scheduler_daemon(config_path: str = typer.Option(None, "--config", "-c")):
+    """Run the scheduler daemon (called by launchd, not user)."""
+    import logging
+    config = _resolve_config(config_path)
+    # Setup file logging
+    log_path = Path(config.archiving.db_file).parent / "scheduler.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[logging.FileHandler(str(log_path)), logging.StreamHandler()],
+    )
+    db = _open_db(config)
+    from scanner.watch_scheduler import run_daemon
+    run_daemon(db)
+
+
 # --- Helpers ---
 
 
