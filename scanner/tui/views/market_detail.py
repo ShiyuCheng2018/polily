@@ -288,11 +288,11 @@ class MarketDetailView(Widget):
         recheck = getattr(n, "recheck_conditions", [])
 
         if why_not_now:
-            yield Static(" 为什么不是现在", classes="section-title")
+            yield Static(" 不做的理由", classes="section-title")
             yield Static(f"  {why_not_now}", classes="detail-row")
 
         if recheck:
-            yield Static(" 重新看它的条件", classes="section-title")
+            yield Static(" 什么情况下值得再看", classes="section-title")
             for cond in recheck[:3]:
                 yield Static(f"  - {cond}", classes="detail-row")
 
@@ -357,9 +357,9 @@ class MarketDetailView(Widget):
         # Legacy compat
         all_findings = []
         if supporting:
-            all_findings.append(("支持结论", supporting))
+            all_findings.append(("依据", supporting))
         if invalidation:
-            all_findings.append(("可能推翻", invalidation))
+            all_findings.append(("可能判断错的地方", invalidation))
 
         for section_title, findings in all_findings:
             yield Static(f" {section_title}", classes="section-title")
