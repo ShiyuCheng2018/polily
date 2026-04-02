@@ -45,7 +45,7 @@ class MainScreen(Screen):
         Binding("down", "menu_next", show=False),
     ]
 
-    MENU_ORDER = ["tasks", "research", "watchlist", "paper"]
+    MENU_ORDER = ["tasks", "research", "watchlist", "paper", "notifications"]
 
     def __init__(self, service: ScanService):
         super().__init__()
@@ -136,7 +136,8 @@ class MainScreen(Screen):
                 status_parts.append(f"观察: {', '.join(parts)}")
         self.query_one("#status-bar", Static).update(" | ".join(status_parts))
         sidebar = self.query_one("#sidebar", Sidebar)
-        sidebar.update_counts(research, watch, paper)
+        notif_count = self.service.get_unread_notification_count()
+        sidebar.update_counts(research, watch, paper, notif_count)
         # B4 fix: mark pages that have new data, not tasks
         if research:
             sidebar.mark_new_data("research")
@@ -183,7 +184,8 @@ class MainScreen(Screen):
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
         watch = self.service.get_watch_count()
         paper = len(self.service.get_paper_trades())
-        self.query_one("#sidebar", Sidebar).update_counts(research, watch, paper)
+        notif_count = self.service.get_unread_notification_count()
+        self.query_one("#sidebar", Sidebar).update_counts(research, watch, paper, notif_count)
 
     # --- Message handlers ---
 

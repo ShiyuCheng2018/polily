@@ -103,7 +103,7 @@ class Sidebar(Widget):
             elif item.menu_id == "paper":
                 item.set_count(paper)
             elif item.menu_id == "notifications":
-                item.set_count(paper)
+                item.set_count(notifications)
 
     def set_active_menu(self, menu_id: str):
         for item in self.query(SidebarItem):
