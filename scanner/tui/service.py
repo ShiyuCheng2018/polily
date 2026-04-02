@@ -1,6 +1,7 @@
 """ScanService: bridge between TUI and existing pipeline/paper_trading modules."""
 
 import contextlib
+import dataclasses
 import logging
 import time
 from datetime import UTC
@@ -472,7 +473,7 @@ class ScanService:
                 narrative_output=narrative_output.model_dump(),
                 trigger_source=trigger_source,
                 structure_score=candidate.score.total if candidate.score else None,
-                score_breakdown=candidate.score.model_dump() if candidate.score else None,
+                score_breakdown=dataclasses.asdict(candidate.score) if candidate.score else None,
                 elapsed_seconds=time.time() - start_time,
             )
 

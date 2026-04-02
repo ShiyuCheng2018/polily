@@ -145,7 +145,9 @@ class NarrativeWriterOutput(BaseModel):
             elif not self.watch.next_check_at:
                 errors.append("action=WATCH requires watch.next_check_at")
         if self.action == "PASS" and self.watch is not None:
-            errors.append("action=PASS must not have watch conditions — use WATCH instead")
+            # Auto-clear: AI may still attach watch conditions to PASS (old training).
+            # Don't error — just strip them. The caller decides if this should be WATCH.
+            self.watch = None
         if not self.invalidation_findings:
             errors.append("invalidation_findings must have at least 1 entry")
         if not self.summary or len(self.summary.strip()) < 5:

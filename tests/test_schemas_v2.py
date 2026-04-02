@@ -186,7 +186,7 @@ class TestSemanticValidation:
         errors = out.semantic_errors()
         assert any("next_check_at" in e for e in errors)
 
-    def test_pass_must_not_have_watch_conditions(self):
+    def test_pass_auto_clears_watch_conditions(self):
         out = NarrativeWriterOutput(
             market_id="test", action="PASS",
             watch=WatchCondition(watch_reason="should not be here"),
@@ -195,7 +195,9 @@ class TestSemanticValidation:
             summary="test summary", one_line_verdict="test verdict",
         )
         errors = out.semantic_errors()
-        assert any("PASS" in e for e in errors)
+        # PASS with watch should auto-clear, not error
+        assert not any("PASS" in e for e in errors)
+        assert out.watch is None
 
     def test_watch_condition_has_new_fields(self):
         wc = WatchCondition(
