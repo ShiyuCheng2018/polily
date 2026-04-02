@@ -349,7 +349,6 @@ class ScanService:
         from scanner.analysis_store import (
             AnalysisVersion,
             append_analysis,
-            build_previous_context,
             get_market_analyses,
         )
 
@@ -433,27 +432,15 @@ class ScanService:
             except Exception as e:
                 self._step_done(f"部分失败: {e}")
 
-            # Step 2: Single AI call — unified decision analysis
+            # Step 2: AI decision analysis — agent reads DB + searches web on its own
             self._step_start("AI 决策分析")
             existing = get_market_analyses(market.market_id, self.db)
             narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
             self._current_narrator = narrator
 
-            # Build context: previous analysis + data change since scan
-            context_parts = []
-            prev_context = build_previous_context(existing)
-            if prev_context:
-                context_parts.append(prev_context)
-            if price_change:
-                context_parts.append(
-                    f"--- 数据变化 (扫描 {scan_snapshot['data_time']} → 分析 {datetime.now(UTC).strftime('%H:%M:%S')}) ---\n"
-                    f"{price_change}"
-                )
-            context = "\n\n".join(context_parts) if context_parts else None
-
             include_bias = self.config.execution_hints.show_conditional_advice
             narrative_output = await narrator.generate(
-                candidate, context=context, include_bias=include_bias,
+                candidate, include_bias=include_bias,
                 on_heartbeat=on_heartbeat,
             )
             self._current_narrator = None
