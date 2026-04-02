@@ -1,22 +1,14 @@
 """Tests for paper trading graduation assessment."""
 
-import tempfile
-from pathlib import Path
-
 import pytest
 
-from scanner.db import PolilyDB
 from scanner.graduation import assess_graduation
 from scanner.paper_trading import PaperTradingDB
 
 
 @pytest.fixture
-def db():
-    tmp = tempfile.mkdtemp()
-    polily_db = PolilyDB(Path(tmp) / "polily.db")
-    store = PaperTradingDB(polily_db)
-    yield store
-    polily_db.close()
+def db(polily_db):
+    return PaperTradingDB(polily_db)
 
 
 class TestGraduation:

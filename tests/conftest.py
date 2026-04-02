@@ -3,7 +3,18 @@
 import json
 from datetime import UTC, datetime
 
+import pytest
+
+from scanner.db import PolilyDB
 from scanner.models import BookLevel, Market
+
+
+@pytest.fixture
+def polily_db(tmp_path):
+    """Provide a PolilyDB in a temp directory that auto-cleans up."""
+    db = PolilyDB(tmp_path / "polily.db")
+    yield db
+    db.close()
 
 
 def make_market(**overrides) -> Market:

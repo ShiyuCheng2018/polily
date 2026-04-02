@@ -1,25 +1,13 @@
 """Tests for paper trading (SQLite-backed via PolilyDB)."""
 
-import tempfile
-from pathlib import Path
-
 import pytest
 
-from scanner.db import PolilyDB
 from scanner.paper_trading import PaperTradingDB
 
 
 @pytest.fixture
-def db():
-    tmp = tempfile.mkdtemp()
-    polily_db = PolilyDB(Path(tmp) / "polily.db")
-    yield polily_db
-    polily_db.close()
-
-
-@pytest.fixture
-def ptdb(db):
-    return PaperTradingDB(db)
+def ptdb(polily_db):
+    return PaperTradingDB(polily_db)
 
 
 class TestPaperTradeMark:
