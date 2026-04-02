@@ -11,7 +11,7 @@ from scanner.reporting import ScoredCandidate
 
 logger = logging.getLogger(__name__)
 
-PROMPT_FILE = Path(__file__).parent / "prompts" / "narrative_writer.txt"
+PROMPT_FILE = Path(__file__).parent / "prompts" / "narrative_writer.md"
 if PROMPT_FILE.exists():
     SYSTEM_PROMPT = PROMPT_FILE.read_text()
 else:
