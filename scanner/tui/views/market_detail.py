@@ -78,7 +78,6 @@ class MarketDetailView(Widget):
         Binding("p", "mark_pass", "PASS"),
         Binding("w", "mark_watch", "WATCH"),
         Binding("m", "toggle_auto_monitor", "自动监控"),
-        Binding("c", "manual_check", "立即检查"),
         Binding("y", "trade_yes", "买 YES"),
         Binding("n", "trade_no", "买 NO"),
         Binding("o", "open_link", "打开链接"),
@@ -142,6 +141,10 @@ class MarketDetailView(Widget):
             data_time = m.data_fetched_at.astimezone().strftime("%Y-%m-%d %H:%M:%S") if m.data_fetched_at else "?"
             yield Static(f" [bold]{m.title}[/bold]", classes="section-title")
             yield Static(f"  {m.market_type or 'other'} | 结算: {days_str} | [dim]数据: {data_time}[/dim]")
+            # Show WATCH status if market is being watched
+            watch_line = self._compose_watch_status(m.market_id)
+            if watch_line:
+                yield Static(watch_line)
             yield from self._compose_three_scores(s)
 
             # === FIRST SCREEN: DECISION ZONE ===
@@ -182,6 +185,18 @@ class MarketDetailView(Widget):
                 yield Static("  [dim]Esc 返回 | a 分析 | < > 版本 | p PASS | w WATCH | y YES | n NO | o 链接[/dim]")
             else:
                 yield Static("  [dim]Esc 返回 | a AI分析 | p PASS | w WATCH | y YES | n NO | o 链接[/dim]")
+
+    def _compose_watch_status(self, market_id: str) -> str | None:
+        """Return a WATCH status line if market is being watched, else None."""
+        from scanner.market_state import get_market_state
+        state = get_market_state(market_id, self.service.db)
+        if state is None or state.status != "watch":
+            return None
+        parts = [f"  [yellow]WATCH #{state.watch_sequence}[/yellow]"]
+        parts.append(f"自动监控 [{'green]ON' if state.auto_monitor else 'dim]-'}[/{'green' if state.auto_monitor else 'dim'}]")
+        if state.next_check_at:
+            parts.append(f"下次检查: {state.next_check_at[:16]}")
+        return " | ".join(parts)
 
     def _compose_conclusion_card(self, n) -> ComposeResult:
         """Decision conclusion card — the most important thing on screen."""
@@ -602,23 +617,7 @@ class MarketDetailView(Widget):
         label = "ON" if state.auto_monitor else "OFF"
         self.notify(f"自动监控 [{label}]: {self.candidate.market.title[:30]}")
 
-    def action_manual_check(self) -> None:
-        """Trigger a manual recheck of this market."""
-        from scanner.market_state import get_market_state
-        from scanner.watch_recheck import recheck_market
-        mid = self.candidate.market.market_id
-        state = get_market_state(mid, self.service.db)
-        if state is None:
-            self.notify("市场未在观察列表中", severity="warning")
-            return
-        try:
-            result = recheck_market(mid, db=self.service.db, trigger_source="manual")
-            labels = {"buy_yes": "GO YES", "buy_no": "GO NO", "watch": "WATCH",
-                      "pass": "PASS", "closed": "CLOSED"}
-            label = labels.get(result.new_status, result.new_status)
-            self.notify(f"[{label}] {self.candidate.market.title[:30]}")
-        except Exception as e:
-            self.notify(f"检查失败: {e}", severity="error")
+
 
     def action_open_link(self) -> None:
         import webbrowser
