@@ -57,7 +57,7 @@ Single source of truth. All tiers saved with `"tier": "research"|"watchlist"|"fi
 - English for code, variable names, comments
 - No unnecessary abstractions — three similar lines beats a premature abstraction
 - Config-driven: thresholds, weights, behavior all in YAML
-- Every AI agent has a rule-based fallback
+- Single AI agent (NarrativeWriter) with rule-based fallback
 
 ## Key Files
 
@@ -66,13 +66,15 @@ Single source of truth. All tiers saved with `"tier": "research"|"watchlist"|"fi
 | `scanner/__init__.py` | Public API surface |
 | `scanner/pipeline.py` | Orchestrator: filter → score → mispricing → AI → tier |
 | `scanner/config.py` | All Pydantic config models |
-| `scanner/agents/base.py` | BaseAgent: claude CLI invoke + retry + JSON parsing |
+| `scanner/agents/base.py` | BaseAgent: claude CLI invoke + retry + JSON parsing + tool mode |
+| `scanner/agents/prompts/narrative_writer.md` | NarrativeWriter prompt with WATCH rules + DB queries |
 | `scanner/tui/app.py` | Textual TUI entry point |
 | `scanner/tui/screens/main.py` | Main screen: sidebar + content + worker |
 
 ## Common Pitfalls
 
-- `claude -p --output-format json` (CLI v2.1+) returns a **JSON array**: `[{"type":"system",...}, {"type":"assistant",...}, {"type":"result","result":"..."}]`. Find the `{"type":"result"}` element (last in array), then parse `result` field. Uses `--bare` to skip hooks/plugins overhead. Legacy single-object format `{"type":"result","result":"..."}` is also handled.
+- NarrativeWriter agent uses `claude -p --allowedTools Read,Bash,Grep,WebSearch,StructuredOutput` — agent autonomously reads DB, searches web, then outputs via StructuredOutput. Prompt rules in `scanner/agents/prompts/narrative_writer.md`.
+- `claude -p --output-format json` (CLI v2.1+) returns a **JSON array**: `[{"type":"system",...}, {"type":"assistant",...}, {"type":"result","result":"..."}]`. Find the `{"type":"result"}` element (last in array), then parse `result` field. Legacy mode uses `--bare`, tool mode does not.
 - Pipeline's `_timed_status` uses threading for spinner — don't mix with direct UI updates in Textual TUI mode. Set `POLILY_TUI=1` env var to silence Rich console.
 - `run_worker(self._do_scan, thread=True)` — pass function reference (no parentheses), not coroutine. All UI updates from worker must use `call_from_thread`.
 - TUI exit uses `os._exit(0)` because `claude -p` spawns Node.js subprocesses that survive normal shutdown. This is a known limitation documented in README.

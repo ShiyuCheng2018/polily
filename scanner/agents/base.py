@@ -61,6 +61,7 @@ class BaseAgent:
         cli_command: str = "claude",
         fallback_fn: Callable[[str], dict] | None = None,
         max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+        allowed_tools: list[str] | None = None,
         # Legacy compat — these are ignored now (no system kill)
         idle_timeout_seconds: float = 0,
         timeout_seconds: float | None = None,
@@ -71,6 +72,7 @@ class BaseAgent:
         self.cli_command = cli_command
         self.fallback_fn = fallback_fn
         self.max_prompt_chars = max_prompt_chars
+        self.allowed_tools = allowed_tools
         self._current_proc: asyncio.subprocess.Process | None = None
         self._cancelled = False
 
@@ -150,14 +152,27 @@ class BaseAgent:
         """
         import time
 
-        args = [
-            self.cli_command, "-p", prompt,
-            "--output-format", "json",
-            "--bare",
-            "--json-schema", json.dumps(self.json_schema),
-            "--system-prompt", self.system_prompt,
-            "--model", self.model,
-        ]
+        if self.allowed_tools:
+            # Tool mode: agent has Read/Bash/WebSearch etc.
+            # No --bare (agent needs file access), no --system-prompt (in user prompt).
+            full_prompt = f"{self.system_prompt}\n\n{prompt}"
+            args = [
+                self.cli_command, "-p", full_prompt,
+                "--output-format", "json",
+                "--allowedTools", ",".join(self.allowed_tools),
+                "--json-schema", json.dumps(self.json_schema),
+                "--model", self.model,
+            ]
+        else:
+            # Legacy mode: no tools, uses --bare
+            args = [
+                self.cli_command, "-p", prompt,
+                "--output-format", "json",
+                "--bare",
+                "--json-schema", json.dumps(self.json_schema),
+                "--system-prompt", self.system_prompt,
+                "--model", self.model,
+            ]
 
         proc = await asyncio.create_subprocess_exec(
             *args,

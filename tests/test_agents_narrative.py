@@ -92,66 +92,6 @@ class TestNarrativeWriterAgent:
             assert len(result.summary) > 0
 
 
-class TestNarrativeWriterBatchWithContext:
-    @pytest.mark.asyncio
-    async def test_batch_with_per_candidate_context(self):
-        """generate_batch passes per-candidate context into prompts."""
-        agent = NarrativeWriterAgent(AgentConfig(model="sonnet"))
-        c1 = _make_scored_candidate(market_id="m1")
-        c2 = _make_scored_candidate(market_id="m2")
-
-        out1 = {**SAMPLE_NARRATIVE_OUTPUT, "market_id": "m1"}
-        out2 = {**SAMPLE_NARRATIVE_OUTPUT, "market_id": "m2"}
-
-        captured_prompts = []
-
-        async def mock_invoke(prompt, **kwargs):
-            captured_prompts.append(prompt)
-            # Return based on which market
-            if "m1" in prompt:
-                return out1
-            return out2
-
-        with patch.object(agent._agent, "invoke", side_effect=mock_invoke):
-            with patch.object(agent._agent, "invoke_batch") as mock_batch:
-                # Make invoke_batch call invoke for each prompt
-                async def batch_impl(prompts, **kw):
-                    return [await mock_invoke(p) for p in prompts]
-                mock_batch.side_effect = batch_impl
-
-                contexts = {
-                    "m1": "上次分析: BTC价格可能上涨",
-                    # m2 has no context
-                }
-                results = await agent.generate_batch([c1, c2], contexts=contexts)
-
-                assert len(results) == 2
-                # m1's prompt should contain context
-                m1_prompt = [p for p in captured_prompts if "m1" in p][0]
-                assert "上次分析" in m1_prompt
-                # m2's prompt should NOT contain m1's context
-                m2_prompt = [p for p in captured_prompts if "m2" in p][0]
-                assert "上次分析" not in m2_prompt
-
-    @pytest.mark.asyncio
-    async def test_batch_without_context_unchanged(self):
-        """generate_batch without contexts works as before."""
-        agent = NarrativeWriterAgent(AgentConfig(model="sonnet"))
-        c1 = _make_scored_candidate(market_id="m1")
-
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
-            proc = AsyncMock()
-            proc.communicate.return_value = (
-                make_cli_response_structured({**SAMPLE_NARRATIVE_OUTPUT, "market_id": "m1"}), b""
-            )
-            proc.returncode = 0
-            mock_exec.return_value = proc
-
-            results = await agent.generate_batch([c1])
-            assert len(results) == 1
-            assert results[0].market_id == "m1"
-
-
 class TestNarrativeFallback:
     def test_fallback_returns_valid_output(self):
         candidate = _make_scored_candidate()

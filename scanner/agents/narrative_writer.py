@@ -1,4 +1,4 @@
-"""NarrativeWriter Agent: generate analysis narratives for scored candidates."""
+"""NarrativeWriter Agent: autonomous decision analysis with tool access."""
 
 import json
 import logging
@@ -11,16 +11,25 @@ from scanner.reporting import ScoredCandidate
 
 logger = logging.getLogger(__name__)
 
-PROMPT_FILE = Path(__file__).parent / "prompts" / "narrative_writer.txt"
+PROMPT_FILE = Path(__file__).parent / "prompts" / "narrative_writer.md"
 if PROMPT_FILE.exists():
     SYSTEM_PROMPT = PROMPT_FILE.read_text()
 else:
     logger.warning("Prompt file not found: %s — using minimal fallback prompt", PROMPT_FILE)
     SYSTEM_PROMPT = "You are a Polymarket trading analyst."
 
+# Tools the agent can use for research
+AGENT_TOOLS = ["Read", "Bash", "Grep", "WebSearch", "TodoWrite", "StructuredOutput"]
+
 
 class NarrativeWriterAgent:
-    """Agent 2: Generate natural-language narratives for scored candidates."""
+    """Decision advisor agent with autonomous research capabilities.
+
+    Uses claude -p with --allowedTools to:
+    - Read polily.db for analysis history
+    - Search the web for news and prices
+    - Output structured decisions via StructuredOutput
+    """
 
     def __init__(self, config: AgentConfig):
         self.config = config
@@ -29,6 +38,7 @@ class NarrativeWriterAgent:
             json_schema=NarrativeWriterOutput.model_json_schema(),
             model=config.model,
             timeout_seconds=config.timeout_seconds,
+            allowed_tools=AGENT_TOOLS,
             fallback_fn=lambda prompt: self._fallback_from_prompt(prompt),
         )
 
@@ -36,13 +46,11 @@ class NarrativeWriterAgent:
         """Cancel the currently running analysis."""
         self._agent.cancel()
 
-    async def generate(self, candidate: ScoredCandidate, context: str | None = None,
+    async def generate(self, candidate: ScoredCandidate,
                        include_bias: bool = False,
                        on_heartbeat=None) -> NarrativeWriterOutput:
-        """Generate narrative with semantic validation + error-context retry."""
+        """Generate analysis with semantic validation + retry."""
         prompt = self._build_prompt(candidate, include_bias=include_bias)
-        if context:
-            prompt += f"\n\n{context}"
 
         last_output = None
         for attempt in range(2):  # 1 initial + 1 retry
@@ -74,43 +82,12 @@ class NarrativeWriterAgent:
         # Retries exhausted — return last output (partial is better than fallback)
         return last_output
 
-    async def generate_batch(
-        self, candidates: list[ScoredCandidate],
-        max_concurrent: int | None = None,
-        contexts: dict[str, str] | None = None,
-        include_bias: bool = False,
-    ) -> list[NarrativeWriterOutput]:
-        """Generate narratives for multiple candidates in parallel.
-
-        Args:
-            contexts: optional {market_id: context_str} — per-candidate
-                      previous analysis context appended to each prompt.
-        """
-        concurrency = max_concurrent or self.config.max_concurrent
-        prompts = []
-        for c in candidates:
-            prompt = self._build_prompt(c, include_bias=include_bias)
-            if contexts:
-                ctx = contexts.get(c.market.market_id)
-                if ctx:
-                    prompt += f"\n\n{ctx}"
-            prompts.append(prompt)
-        raw_results = await self._agent.invoke_batch(prompts, max_concurrent=concurrency)
-
-        outputs = []
-        for i, raw in enumerate(raw_results):
-            try:
-                outputs.append(NarrativeWriterOutput.model_validate(raw))
-            except Exception:
-                outputs.append(narrative_fallback(candidates[i]))
-        return outputs
-
     def _build_prompt(self, candidate: ScoredCandidate, include_bias: bool = False) -> str:
+        """Build minimal prompt — agent reads DB and searches web on its own."""
         m = candidate.market
         s = candidate.score
         mp = candidate.mispricing
 
-        # Calculate friction vs edge for prompt context
         friction = m.round_trip_friction_pct if m.round_trip_friction_pct is not None else 0.04
         edge = mp.deviation_pct if mp.deviation_pct is not None else 0
         friction_ratio = (friction / edge * 100) if edge > 0 else None
@@ -128,6 +105,7 @@ class NarrativeWriterAgent:
             "friction_vs_edge": f"摩擦吃掉 {friction_ratio:.0f}% 潜在利润" if friction_ratio else "无可测量 edge",
             "volume": m.volume,
             "days_to_resolution": m.days_to_resolution,
+            "resolution_time": m.resolution_time.isoformat() if m.resolution_time else None,
             "total_bid_depth_usd": m.total_bid_depth_usd,
             "total_ask_depth_usd": m.total_ask_depth_usd,
             "resolution_source": m.resolution_source,
@@ -138,9 +116,17 @@ class NarrativeWriterAgent:
             "theoretical_fair_value": mp.theoretical_fair_value,
             "model_confidence": mp.model_confidence,
         }
-        prompt = f"请对以下市场做决策分析:\n{json.dumps(data, default=str, ensure_ascii=False)}"
+
+        prompt = f"""请分析市场 {m.market_id}。
+
+指令文件: scanner/agents/prompts/narrative_writer.md
+数据库: data/polily.db
+
+当前市场数据:
+{json.dumps(data, default=str, ensure_ascii=False)}"""
+
         if include_bias:
-            prompt += "\n\n请额外输出 bias 字段（方向倾向的条件建议）。格式：{direction: lean_yes/lean_no/neutral, reasoning, confidence, caveat}"
+            prompt += "\n\n请额外输出 bias 字段（方向倾向的条件建议）。"
         else:
             prompt += "\n\nbias 字段设为 null。"
         return prompt
@@ -167,7 +153,6 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
     edge = mp.deviation_pct if mp.deviation_pct is not None else 0
     friction_ratio = friction / edge if edge > 0 else float("inf")
 
-    # Action
     if friction_ratio > 0.8:
         action = "PASS"
     elif friction_ratio > 0.5:
@@ -179,7 +164,6 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
     else:
         action = "WATCH"
 
-    # Friction vs edge
     if edge > 0 and friction < edge * 0.5:
         fve = "edge_exceeds"
     elif edge > 0 and friction < edge:
@@ -187,7 +171,6 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
     else:
         fve = "friction_exceeds"
 
-    # Risk flags
     risks = []
     if friction:
         severity = "critical" if friction_ratio > 0.5 else "warning"
@@ -195,17 +178,14 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
     if mp.signal == "none":
         risks.append(RiskFlag(text="未检测到定价偏差", severity="warning"))
 
-    # Time
     days = m.days_to_resolution
     urgency = "urgent" if days and days < 1 else "normal" if days and days < 3 else "no_rush"
 
-    # Summary
     parts = [f"{'二元' if m.is_binary else '多选项'} {m.market_type or '市场'}"]
     if days:
         parts.append(f"{days:.1f} 天后结算")
     summary = f"{', '.join(parts)}。"
 
-    # Why not now
     why_not = ""
     if action in ("PASS", "WATCH"):
         if fve == "friction_exceeds":
@@ -215,7 +195,6 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
         else:
             why_not = "当前价格没有明显优势"
 
-    # Recheck + watch
     recheck = []
     watch = None
     if action == "WATCH":

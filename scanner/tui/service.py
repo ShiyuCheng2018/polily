@@ -349,7 +349,6 @@ class ScanService:
         from scanner.analysis_store import (
             AnalysisVersion,
             append_analysis,
-            build_previous_context,
             get_market_analyses,
         )
 
@@ -433,27 +432,15 @@ class ScanService:
             except Exception as e:
                 self._step_done(f"部分失败: {e}")
 
-            # Step 2: Single AI call — unified decision analysis
+            # Step 2: AI decision analysis — agent reads DB + searches web on its own
             self._step_start("AI 决策分析")
             existing = get_market_analyses(market.market_id, self.db)
             narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
             self._current_narrator = narrator
 
-            # Build context: previous analysis + data change since scan
-            context_parts = []
-            prev_context = build_previous_context(existing)
-            if prev_context:
-                context_parts.append(prev_context)
-            if price_change:
-                context_parts.append(
-                    f"--- 数据变化 (扫描 {scan_snapshot['data_time']} → 分析 {datetime.now(UTC).strftime('%H:%M:%S')}) ---\n"
-                    f"{price_change}"
-                )
-            context = "\n\n".join(context_parts) if context_parts else None
-
             include_bias = self.config.execution_hints.show_conditional_advice
             narrative_output = await narrator.generate(
-                candidate, context=context, include_bias=include_bias,
+                candidate, include_bias=include_bias,
                 on_heartbeat=on_heartbeat,
             )
             self._current_narrator = None
@@ -477,9 +464,12 @@ class ScanService:
                 elapsed_seconds=time.time() - start_time,
             )
 
-            # Persist
+            # Persist analysis
             append_analysis(market.market_id, version, self.db)
             candidate.narrative = narrative_output
+
+            # Auto-transition market state based on AI action
+            self._transition_market_state(market, narrative_output)
 
             # Log
             finish_log_entry(
@@ -515,97 +505,87 @@ class ScanService:
         mispricing = detect_mispricing(market, self.config.mispricing)
         return ScoredCandidate(market=market, score=score, mispricing=mispricing)
 
+    def _transition_market_state(self, market, narrative_output):
+        """Auto-update market state based on AI action output."""
+        from datetime import datetime
+        from scanner.market_state import MarketState, get_market_state, set_market_state
+
+        action = narrative_output.action
+        mid = market.market_id
+
+        # Map AI action to DB status
+        status_map = {"BUY_YES": "buy_yes", "BUY_NO": "buy_no", "WATCH": "watch", "PASS": "pass"}
+        new_status = status_map.get(action)
+        if not new_status:
+            return
+
+        state = get_market_state(mid, self.db)
+        if state is None:
+            state = MarketState(status=new_status, title=market.title)
+
+        state.status = new_status
+        state.updated_at = datetime.now(UTC).isoformat()
+        state.resolution_time = market.resolution_time.isoformat() if market.resolution_time else None
+
+        if new_status == "watch" and narrative_output.watch:
+            wc = narrative_output.watch
+            state.watch_sequence = state.watch_sequence + 1
+            state.price_at_watch = market.yes_price
+            state.next_check_at = getattr(wc, "next_check_at", None)
+            state.watch_reason = getattr(wc, "reason", None)
+            state.wc_watch_reason = wc.watch_reason
+            state.wc_better_entry = wc.better_entry
+            state.wc_trigger_event = wc.trigger_event
+            state.wc_invalidation = wc.invalidation
+        elif new_status in ("buy_yes", "buy_no", "pass"):
+            state.auto_monitor = False
+            state.next_check_at = None
+            state.watch_reason = None
+
+        set_market_state(mid, state, self.db)
+
     # --- Position analysis ---
 
     async def analyze_position(self, candidate: ScoredCandidate, entry_price: float,
                                 side: str, days_held: float):
-        """Run AI position analysis — HOLD/REDUCE/EXIT perspective."""
-        import json
-        from pathlib import Path
+        """Run position analysis — delegates to analyze_market.
 
-        from scanner.agents.base import BaseAgent
+        NarrativeWriter agent reads paper_trades from DB and naturally
+        adapts its analysis to include hold/reduce/exit advice.
+        Returns PositionAdvice extracted from the NarrativeWriterOutput.
+        """
         from scanner.agents.schemas import PositionAdvice
 
-        market = candidate.market
-        current_price = market.yes_price or 0
+        version = await self.analyze_market(
+            candidate.market.market_id,
+            candidate=candidate,
+            trigger_source="manual",
+        )
 
-        # PnL calculation
-        if side.lower() == "yes" and entry_price > 0:
-            pnl_pct = (current_price - entry_price) / entry_price
-        elif side.lower() == "no" and (1 - entry_price) > 0:
-            pnl_pct = (entry_price - current_price) / (1 - entry_price)
+        # Extract position advice from narrative output
+        n = version.narrative_output if isinstance(version.narrative_output, dict) else {}
+        action = n.get("action", "PASS")
+        summary = n.get("summary", "")
+
+        # Map NarrativeWriter action to position advice
+        if action in ("BUY_YES", "BUY_NO"):
+            advice = "hold"
+        elif action == "WATCH":
+            advice = "reduce"
         else:
-            pnl_pct = 0
+            advice = "exit"
 
-        # Build prompt
-        prompt_file = Path(__file__).parent.parent / "agents" / "prompts" / "position_advisor.txt"
-        system_prompt = prompt_file.read_text() if prompt_file.exists() else "你是持仓管理顾问。"
-
-        data = {
-            "market_id": market.market_id,
-            "title": market.title,
-            "market_type": market.market_type,
-            "current_yes_price": current_price,
-            "days_to_resolution": market.days_to_resolution,
-            "entry_price": entry_price,
-            "side": side,
-            "days_held": round(days_held, 1),
-            "pnl_pct": f"{pnl_pct:+.1%}",
-            "spread_pct": market.spread_pct_yes,
-            "friction": market.round_trip_friction_pct,
-        }
-        prompt = f"请对以下持仓做管理分析:\n{json.dumps(data, default=str, ensure_ascii=False)}"
-
-        # Log entry
-        log = create_log_entry()
-        log.type = "analyze"
-        log.market_id = market.market_id
-        log.market_title = market.title
-        self._steps = []
-        self._current_log = log
-        self._persist_log(log)
-
-        try:
-            self._step_start("AI 持仓分析")
-            agent = BaseAgent(
-                system_prompt=system_prompt,
-                json_schema=PositionAdvice.model_json_schema(),
-                model=self.config.ai.narrative_writer.model,
-                idle_timeout_seconds=120,
-                fallback_fn=lambda _: PositionAdvice(
-                    advice="hold", reasoning="AI 超时，默认继续持有", risk_note="请手动评估",
-                ).model_dump(),
-            )
-            raw = await agent.invoke(prompt)
-            try:
-                result = PositionAdvice.model_validate(raw)
-            except Exception:
-                result = PositionAdvice(
-                    advice="hold",
-                    reasoning="AI 分析解析失败，默认继续持有",
-                    risk_note="请手动评估",
-                )
-            self._step_done("完成")
-
-            finish_log_entry(log, "completed", self._steps_to_records(), total_markets=1)
-            self._persist_log(log)
-            self._current_log = None
-            return result
-
-        except Exception as e:
-            finish_log_entry(log, "failed", self._steps_to_records(), error=str(e))
-            self._persist_log(log)
-            self._current_log = None
-            # Rule-based fallback
-            from scanner.position_phase import compute_position_phase
-            phase = compute_position_phase(entry_price, current_price, side, days_held,
-                                           market.days_to_resolution)
-            advice = "exit" if phase in ("high_risk", "invalidated") else "hold" if phase != "take_profit" else "reduce"
-            return PositionAdvice(
-                advice=advice,
-                reasoning=f"AI 分析失败，基于规则判断: {phase}",
-                risk_note=str(e)[:80],
-            )
+        return PositionAdvice(
+            advice=advice,
+            reasoning=summary,
+            thesis_intact=action in ("BUY_YES", "BUY_NO", "WATCH"),
+            thesis_note=n.get("why_now") or n.get("why_not_now") or "",
+            risk_note=n.get("risk_flags", [{}])[0].get("text", "") if n.get("risk_flags") else "",
+            research_findings=[
+                {"finding": f.get("finding", ""), "source": f.get("source", ""), "impact": f.get("impact", "")}
+                for f in n.get("supporting_findings", [])[:3]
+            ],
+        )
 
     # --- Real-time price fetch ---
 

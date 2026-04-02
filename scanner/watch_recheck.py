@@ -58,43 +58,17 @@ def recheck_market(
             watch_sequence=state.watch_sequence,
         )
 
-    # Full AI analysis — same path as TUI
+    # Full AI analysis — analyze_market handles state transition
     import asyncio
+    previous_price = state.price_at_watch
     version = asyncio.run(
         service.analyze_market(market_id, trigger_source=trigger_source),
     )
 
-    # Read AI output action
-    narrative = version.narrative_output
-    action = narrative.get("action", "PASS") if isinstance(narrative, dict) else "PASS"
-
-    # Map AI action → DB status
-    status_map = {"BUY_YES": "buy_yes", "BUY_NO": "buy_no", "WATCH": "watch", "PASS": "pass"}
-    new_status = status_map.get(action, "pass")
-
+    # Read updated state (analyze_market already transitioned it)
+    updated_state = get_market_state(market_id, db)
+    new_status = updated_state.status if updated_state else "pass"
     current_price = version.yes_price_at_analysis
-    previous_price = state.price_at_watch
-
-    # State transition
-    if new_status == "watch":
-        watch_data = narrative.get("watch", {}) if isinstance(narrative, dict) else {}
-        state.status = "watch"
-        state.watch_sequence = state.watch_sequence + 1
-        state.next_check_at = watch_data.get("next_check_at")
-        state.watch_reason = watch_data.get("reason")
-        state.price_at_watch = current_price
-        state.wc_watch_reason = watch_data.get("watch_reason", "")
-        state.wc_better_entry = watch_data.get("better_entry", "")
-        state.wc_trigger_event = watch_data.get("trigger_event", "")
-        state.wc_invalidation = watch_data.get("invalidation", "")
-    else:
-        state.status = new_status
-        state.next_check_at = None
-        state.watch_reason = None
-        state.auto_monitor = False
-
-    state.updated_at = datetime.now(UTC).isoformat()
-    set_market_state(market_id, state, db)
 
     _notify(db, market_id, state.title, new_status, previous_price, current_price, trigger_source)
 
@@ -103,9 +77,9 @@ def recheck_market(
         new_status=new_status,
         previous_price=previous_price,
         current_price=current_price,
-        watch_sequence=state.watch_sequence,
-        next_check_at=state.next_check_at,
-        reason=state.watch_reason,
+        watch_sequence=updated_state.watch_sequence if updated_state else 0,
+        next_check_at=updated_state.next_check_at if updated_state else None,
+        reason=updated_state.watch_reason if updated_state else None,
     )
 
 

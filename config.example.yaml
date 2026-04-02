@@ -186,31 +186,12 @@ ai:
   fallback_on_error: true                # auto-fallback to rules if CLI call fails
   cli_command: "claude"                  # path to claude CLI binary
 
-  market_analyst:                        # Agent 1: text analysis on ~50 filtered markets
-    enabled: true
-    model: "haiku"                       # fast, cheap for structured extraction
-    max_concurrent: 3                    # max parallel CLI invocations
-    timeout_seconds: 60
-
-  narrative_writer:                      # Agent 2: decision advisor for top candidates
+  narrative_writer:                      # Decision advisor — the only AI agent
     enabled: true
     model: "sonnet"                      # needs synthesis, web search, generation quality
     max_candidates: 8                    # max markets to generate analysis for
     max_concurrent: 2                    # reduced from 3 (web search is heavier)
     timeout_seconds: 300                 # 5 min — agent does web searches, needs time
-
-  briefing_analyst:                      # Agent 3: daily briefing interpretation
-    enabled: true
-    model: "sonnet"
-    timeout_seconds: 60
-
-  cross_domain:                          # Agent 4: triggered only on calendar × market type cross
-    enabled: true
-    model: "sonnet"
-
-  review_analyst:                        # Agent 5: weekly paper trading review
-    enabled: true
-    model: "sonnet"
 
 # Mispricing detection configuration
 mispricing:
