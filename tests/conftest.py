@@ -9,6 +9,12 @@ from scanner.db import PolilyDB
 from scanner.models import BookLevel, Market
 
 
+@pytest.fixture(autouse=True)
+def _suppress_desktop_notifications(monkeypatch):
+    """Globally prevent real macOS notifications during all tests."""
+    monkeypatch.setattr("scanner.notifications.subprocess.run", lambda *a, **kw: None)
+
+
 @pytest.fixture
 def polily_db(tmp_path):
     """Provide a PolilyDB in a temp directory that auto-cleans up."""

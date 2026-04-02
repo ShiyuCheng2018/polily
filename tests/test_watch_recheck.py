@@ -6,6 +6,7 @@ from scanner.market_state import MarketState, get_market_state, set_market_state
 from scanner.watch_recheck import RecheckResult, recheck_market
 
 
+
 def test_recheck_expired_market_closes(polily_db):
     set_market_state("0xabc", MarketState(
         status="watch",
