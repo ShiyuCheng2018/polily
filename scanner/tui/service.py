@@ -464,9 +464,12 @@ class ScanService:
                 elapsed_seconds=time.time() - start_time,
             )
 
-            # Persist
+            # Persist analysis
             append_analysis(market.market_id, version, self.db)
             candidate.narrative = narrative_output
+
+            # Auto-transition market state based on AI action
+            self._transition_market_state(market, narrative_output)
 
             # Log
             finish_log_entry(
@@ -501,6 +504,45 @@ class ScanService:
         score = compute_structure_score(market, self.config.scoring.weights)
         mispricing = detect_mispricing(market, self.config.mispricing)
         return ScoredCandidate(market=market, score=score, mispricing=mispricing)
+
+    def _transition_market_state(self, market, narrative_output):
+        """Auto-update market state based on AI action output."""
+        from datetime import datetime
+        from scanner.market_state import MarketState, get_market_state, set_market_state
+
+        action = narrative_output.action
+        mid = market.market_id
+
+        # Map AI action to DB status
+        status_map = {"BUY_YES": "buy_yes", "BUY_NO": "buy_no", "WATCH": "watch", "PASS": "pass"}
+        new_status = status_map.get(action)
+        if not new_status:
+            return
+
+        state = get_market_state(mid, self.db)
+        if state is None:
+            state = MarketState(status=new_status, title=market.title)
+
+        state.status = new_status
+        state.updated_at = datetime.now(UTC).isoformat()
+        state.resolution_time = market.resolution_time.isoformat() if market.resolution_time else None
+
+        if new_status == "watch" and narrative_output.watch:
+            wc = narrative_output.watch
+            state.watch_sequence = state.watch_sequence + 1
+            state.price_at_watch = market.yes_price
+            state.next_check_at = getattr(wc, "next_check_at", None)
+            state.watch_reason = getattr(wc, "reason", None)
+            state.wc_watch_reason = wc.watch_reason
+            state.wc_better_entry = wc.better_entry
+            state.wc_trigger_event = wc.trigger_event
+            state.wc_invalidation = wc.invalidation
+        elif new_status in ("buy_yes", "buy_no", "pass"):
+            state.auto_monitor = False
+            state.next_check_at = None
+            state.watch_reason = None
+
+        set_market_state(mid, state, self.db)
 
     # --- Position analysis ---
 
