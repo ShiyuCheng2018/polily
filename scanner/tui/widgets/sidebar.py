@@ -84,15 +84,12 @@ class Sidebar(Widget):
         yield SidebarItem("通知", "notifications")
         yield Static("")
         yield Static("  [dim]快捷键[/dim]")
-        yield Static("  [dim]0-4   切换视图[/dim]")
-        yield Static("  [dim]y/n   买YES/NO[/dim]")
-        yield Static("  [dim]p/w   PASS/WATCH[/dim]")
-        yield Static("  [dim]m     自动监控[/dim]")
-        yield Static("  [dim]c     立即检查[/dim]")
-        yield Static("  [dim]o     打开链接[/dim]")
-        yield Static("  [dim]r     刷新页面[/dim]")
-        yield Static("  [dim]s     新扫描[/dim]")
-        yield Static("  [dim]q     退出[/dim]")
+        yield Static("  [dim]0-4  切换视图[/dim]")
+        yield Static("  [dim]s    新扫描[/dim]")
+        yield Static("  [dim]r    刷新[/dim]")
+        yield Static("  [dim]q    退出[/dim]")
+        yield Static("")
+        yield Static("  [dim]其他见底栏[/dim]")
 
     def update_counts(self, research: int, watchlist: int, paper: int, notifications: int = 0):
         for item in self.query(SidebarItem):

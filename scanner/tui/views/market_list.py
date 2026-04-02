@@ -21,9 +21,11 @@ class MarketListView(Widget):
     """Market list with inline actions."""
 
     BINDINGS = [
-        Binding("y", "trade_yes", "买 YES", show=True),
-        Binding("n", "trade_no", "买 NO", show=True),
-        Binding("o", "open_link", "打开链接", show=True),
+        Binding("enter", "view_detail", "详情"),
+        Binding("y", "trade_yes", "买 YES"),
+        Binding("n", "trade_no", "买 NO"),
+        Binding("p", "quick_pass", "PASS"),
+        Binding("o", "open_link", "打开链接"),
     ]
 
     DEFAULT_CSS = """
@@ -146,6 +148,29 @@ class MarketListView(Widget):
             self._pending_trade = (m.market_id, side)
             title_short = m.title[:30]
             self.notify(f"再按一次 {side[0]} 确认: {side.upper()} {title_short} @ {price:.2f}")
+
+    def action_quick_pass(self) -> None:
+        c = self._get_selected()
+        if not c:
+            return
+        from datetime import UTC, datetime
+        from scanner.market_state import MarketState, get_market_state, set_market_state
+        mid = c.market.market_id
+        state = get_market_state(mid, self.service.db)
+        if state is None:
+            state = MarketState(status="pass", title=c.market.title)
+        state.status = "pass"
+        state.updated_at = datetime.now(UTC).isoformat()
+        state.auto_monitor = False
+        state.next_check_at = None
+        set_market_state(mid, state, self.service.db)
+        self.notify(f"PASS: {c.market.title[:30]}")
+        self.screen.refresh_sidebar_counts()
+
+    def action_view_detail(self) -> None:
+        c = self._get_selected()
+        if c:
+            self.post_message(ViewDetailRequested(c))
 
     def action_open_link(self) -> None:
         c = self._get_selected()

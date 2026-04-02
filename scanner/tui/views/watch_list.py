@@ -18,7 +18,9 @@ class ViewWatchDetail(Message):
 class WatchListView(Widget):
     """Watch list with trigger conditions and better entry prices."""
 
-    BINDINGS = []
+    BINDINGS = [
+        ("enter", "view_detail", "查看详情"),
+    ]
 
     DEFAULT_CSS = """
     WatchListView { height: 1fr; }
