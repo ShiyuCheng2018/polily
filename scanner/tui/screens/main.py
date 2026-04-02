@@ -34,13 +34,13 @@ class MainScreen(Screen):
     """Main screen with sidebar navigation and content area."""
 
     BINDINGS = [
-        Binding("0", "show_tasks", "任务"),
-        Binding("r", "refresh", "刷新"),
-        Binding("s", "new_scan", "扫描"),
-        Binding("1", "show_research", "研究"),
-        Binding("2", "show_watch", "观察"),
-        Binding("3", "show_paper", "持仓"),
-        Binding("4", "show_notifications", "通知"),
+        Binding("0", "show_tasks", show=False),
+        Binding("r", "refresh", show=False),
+        Binding("s", "new_scan", show=False),
+        Binding("1", "show_research", show=False),
+        Binding("2", "show_watch", show=False),
+        Binding("3", "show_paper", show=False),
+        Binding("4", "show_notifications", show=False),
         Binding("up", "menu_prev", show=False),
         Binding("down", "menu_next", show=False),
     ]
