@@ -73,11 +73,10 @@ class TestLoadConfig:
         assert f.preferred_min_yes_price >= f.min_yes_price
         assert f.preferred_max_yes_price <= f.max_yes_price
 
-    def test_ai_config_has_all_agents(self):
+    def test_ai_config_has_narrative_writer(self):
         config = load_config(Path("config.example.yaml"))
-        assert config.ai.market_analyst.model == "haiku"
         assert config.ai.narrative_writer.model == "sonnet"
-        assert config.ai.briefing_analyst.model == "sonnet"
+        assert config.ai.narrative_writer.timeout_seconds == 300
 
     def test_custom_yaml(self):
         yaml_content = """

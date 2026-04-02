@@ -143,11 +143,7 @@ class AiConfig(BaseModel):
     enabled: bool = True
     fallback_on_error: bool = True
     cli_command: str = "claude"
-    market_analyst: AgentConfig = AgentConfig(model="haiku", max_candidates=15)
     narrative_writer: AgentConfig = AgentConfig(model="sonnet", max_candidates=8, max_concurrent=2, timeout_seconds=300)
-    briefing_analyst: AgentConfig = AgentConfig(model="sonnet")
-    cross_domain: AgentConfig = AgentConfig(model="sonnet")
-    review_analyst: AgentConfig = AgentConfig(model="sonnet")
 
 
 class CryptoMispricingConfig(BaseModel):

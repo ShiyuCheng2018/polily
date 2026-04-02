@@ -50,23 +50,7 @@ def render_dashboard(tiers: TierResult, config: ScannerConfig, total_scanned: in
             if config.calendar.cross_domain_linking:
                 all_markets = [c.market for c in tiers.tier_a + tiers.tier_b[:5]]
                 pairs = match_markets_to_events(all_markets, upcoming)
-                if config.ai.enabled and config.ai.cross_domain.enabled and pairs:
-                    try:
-                        import asyncio as _aio
-
-                        from scanner.agents.cross_domain import CrossDomainAgent
-                        _agent = CrossDomainAgent(config.ai.cross_domain)
-                        _ai_notes = []
-                        for _m, _e in pairs[:2]:
-                            _r = _aio.run(_agent.analyze(_m, _e))
-                            _ai_notes.append(f"[{_e.name}] × [{_m.title[:40]}]: {_r.cross_domain_link}")
-                        if _ai_notes:
-                            calendar_lines += "\n\nCROSS-DOMAIN (AI)\n" + "\n".join(_ai_notes)
-                    except Exception:
-                        cross_notes = generate_cross_domain_notes(pairs)
-                        if cross_notes:
-                            calendar_lines += "\n\nCROSS-DOMAIN\n" + "\n".join(cross_notes[:2])
-                else:
+                if pairs:
                     cross_notes = generate_cross_domain_notes(pairs)
                     if cross_notes:
                         calendar_lines += "\n\nCROSS-DOMAIN\n" + "\n".join(cross_notes[:2])

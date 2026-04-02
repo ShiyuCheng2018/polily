@@ -137,18 +137,6 @@ def daily(
 
     briefing = generate_briefing(Path(config.archiving.archive_dir))
 
-    # AI-enhanced briefing (Agent 3)
-    if config.ai.enabled and config.ai.briefing_analyst.enabled and briefing.deltas:
-        try:
-            from scanner.agents.briefing_analyst import BriefingAnalystAgent
-            agent = BriefingAnalystAgent(config.ai.briefing_analyst)
-            ai_briefing = asyncio.run(agent.analyze(briefing))
-            console.print(f"\n [bold]AI BRIEFING[/bold]: {ai_briefing.market_narrative}")
-            if ai_briefing.action_summary:
-                console.print(f" [cyan]Action:[/cyan] {ai_briefing.action_summary}")
-        except Exception:
-            pass  # fallback to mechanical rendering below
-
     if briefing.deltas or briefing.new_markets:
         render_daily_deltas(briefing.deltas, briefing.new_markets)
     else:
@@ -263,34 +251,13 @@ def review(
         console.print("[dim]No paper trades yet. Use 'polily mark' to start.[/dim]")
         return
 
-    if config.ai.enabled and config.ai.review_analyst.enabled:
-        import asyncio
-
-        from scanner.agents.review_analyst import ReviewAnalystAgent
-        agent = ReviewAnalystAgent(config.ai.review_analyst)
-        try:
-            result = asyncio.run(agent.analyze(stats))
-        except Exception:
-            from scanner.agents.review_analyst import review_fallback
-            result = review_fallback(stats)
-    else:
-        from scanner.agents.review_analyst import review_fallback
-        result = review_fallback(stats)
-
     console.print(Panel(
-        f"[bold]PERFORMANCE REVIEW[/bold]\n\n"
-        f"[bold]Analysis:[/bold] {result.behavior_analysis}\n\n"
-        f"[bold]Calibration:[/bold] {result.calibration_feedback}\n\n"
-        f"[bold]Recommendations:[/bold]",
+        f"[bold]PAPER TRADING REVIEW[/bold]\n\n"
+        f"Total: {stats['total_trades']} | Resolved: {stats['resolved']} | Open: {stats['open']}\n"
+        f"Wins: {stats['wins']} | Losses: {stats['losses']} | Win Rate: {stats['win_rate']:.0%}\n"
+        f"Paper PnL: ${stats['total_paper_pnl']:+.2f} | After Friction: ${stats['total_friction_adjusted_pnl']:+.2f}",
         border_style="magenta",
     ))
-    for rec in result.recommendations:
-        console.print(f"  [cyan]•[/cyan] {rec}")
-
-    if result.category_insights:
-        console.print("\n[bold]Category Insights:[/bold]")
-        for insight in result.category_insights:
-            console.print(f"  {insight}")
 
 
 @app.command()
