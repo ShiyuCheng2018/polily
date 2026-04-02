@@ -500,20 +500,10 @@ class ScanService:
         from scanner.mispricing import MispricingResult, detect_mispricing
         from scanner.scoring import compute_structure_score
 
-        # Fetch market from Polymarket API
+        # Fetch single market from Polymarket API
         client = PolymarketClient(self.config.api)
         try:
-            events = await client.fetch_all_events(
-                max_events=self.config.scanner.max_markets_to_fetch // 2,
-            )
-            market = None
-            for event in events:
-                for m in parse_gamma_event(event):
-                    if m.market_id == market_id:
-                        market = m
-                        break
-                if market:
-                    break
+            market = await client.fetch_single_market(market_id)
             if market is None:
                 raise ValueError(f"Market {market_id} not found on Polymarket")
         finally:
