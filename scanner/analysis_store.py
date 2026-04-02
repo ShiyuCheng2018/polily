@@ -77,51 +77,6 @@ def get_market_analyses(market_id: str, db) -> list[AnalysisVersion]:
     return result
 
 
-def build_previous_context(existing: list[AnalysisVersion]) -> str | None:
-    """Build full trajectory context from ALL analysis versions.
-
-    Returns a string showing the complete history of analyses for the AI
-    to understand how the market has evolved over time.
-    """
-    if not existing:
-        return None
-
-    parts = []
-    for v in existing:
-        n = v.narrative_output
-        action = n.get("action", "?") if isinstance(n, dict) else "?"
-        verdict = n.get("one_line_verdict", "N/A") if isinstance(n, dict) else "N/A"
-        summary = n.get("summary", "N/A") if isinstance(n, dict) else "N/A"
-        risk_flags = n.get("risk_flags", []) if isinstance(n, dict) else []
-        risk_texts = []
-        for rf in risk_flags:
-            if isinstance(rf, dict):
-                risk_texts.append(rf.get("text", str(rf)))
-            else:
-                risk_texts.append(str(rf))
-
-        price_str = f"YES={v.yes_price_at_analysis}" if v.yes_price_at_analysis else "?"
-        score_str = f"score={v.structure_score}" if v.structure_score else ""
-        trigger_str = f"[{v.trigger_source}]" if v.trigger_source != "manual" else ""
-
-        parts.append(
-            f"--- v{v.version} ({v.created_at[:10]}, {price_str}"
-            f"{', ' + score_str if score_str else ''}"
-            f"{' ' + trigger_str if trigger_str else ''}) ---\n"
-            f"action: {action}\n"
-            f"summary: {summary}\n"
-            f"risks: {', '.join(risk_texts) if risk_texts else 'none'}\n"
-            f"verdict: {verdict}"
-        )
-
-    trajectory = "\n\n".join(parts)
-    return (
-        f"--- Analysis History ({len(existing)} versions) ---\n\n"
-        f"{trajectory}\n\n"
-        f"---\n"
-        f"请基于以上轨迹和当前最新数据进行分析。如果情况有变化，指出和之前的不同。"
-    )
-
 
 def _row_to_version(row) -> AnalysisVersion:
     return AnalysisVersion(

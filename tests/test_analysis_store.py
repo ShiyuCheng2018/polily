@@ -3,7 +3,6 @@
 from scanner.analysis_store import (
     AnalysisVersion,
     append_analysis,
-    build_previous_context,
     get_market_analyses,
 )
 
@@ -81,29 +80,3 @@ def test_new_fields(polily_db):
     assert loaded.price_at_watch == 0.55
     assert loaded.structure_score == 72.5
 
-
-def test_build_previous_context_full_history(polily_db):
-    for i in range(3):
-        v = _make_version(
-            version=i + 1,
-            created_at=f"2026-04-0{i + 1}T10:00:00",
-            yes_price_at_analysis=0.65 - i * 0.05,
-            narrative_output={
-                "summary": f"summary_{i}",
-                "one_line_verdict": f"verdict_{i}",
-                "risk_flags": [],
-                "action": "WATCH" if i < 2 else "BUY_YES",
-            },
-        )
-        append_analysis("0xabc", v, polily_db)
-    ctx = build_previous_context(get_market_analyses("0xabc", polily_db))
-    assert ctx is not None
-    assert "verdict_0" in ctx
-    assert "verdict_1" in ctx
-    assert "verdict_2" in ctx
-    assert "0.65" in ctx
-    assert "0.55" in ctx
-
-
-def test_build_previous_context_empty():
-    assert build_previous_context([]) is None
