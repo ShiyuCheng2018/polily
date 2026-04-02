@@ -566,8 +566,8 @@ class ScanService:
         else:
             pnl_pct = 0
 
-        # Build prompt
-        prompt_file = Path(__file__).parent.parent / "agents" / "prompts" / "position_advisor.txt"
+        # Build prompt — agent reads DB and searches web on its own
+        prompt_file = Path(__file__).parent.parent / "agents" / "prompts" / "position_advisor.md"
         system_prompt = prompt_file.read_text() if prompt_file.exists() else "你是持仓管理顾问。"
 
         data = {
@@ -583,7 +583,13 @@ class ScanService:
             "spread_pct": market.spread_pct_yes,
             "friction": market.round_trip_friction_pct,
         }
-        prompt = f"请对以下持仓做管理分析:\n{json.dumps(data, default=str, ensure_ascii=False)}"
+        prompt = f"""请对以下持仓做管理分析。
+
+指令文件: scanner/agents/prompts/position_advisor.md
+数据库: data/polily.db
+
+持仓数据:
+{json.dumps(data, default=str, ensure_ascii=False)}"""
 
         # Log entry
         log = create_log_entry()
@@ -600,7 +606,7 @@ class ScanService:
                 system_prompt=system_prompt,
                 json_schema=PositionAdvice.model_json_schema(),
                 model=self.config.ai.narrative_writer.model,
-                idle_timeout_seconds=120,
+                allowed_tools=["Read", "Bash", "Grep", "WebSearch", "StructuredOutput"],
                 fallback_fn=lambda _: PositionAdvice(
                     advice="hold", reasoning="AI 超时，默认继续持有", risk_note="请手动评估",
                 ).model_dump(),
