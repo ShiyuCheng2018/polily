@@ -553,30 +553,36 @@ class MarketDetailView(Widget):
         self.screen.refresh_sidebar_counts()
 
     def action_mark_watch(self) -> None:
-        """Add to watch list with conditions from AI narrative."""
+        """Add to watch list — use AI watch conditions if available, otherwise manual watch."""
         from datetime import datetime
 
-        from scanner.market_state import MarketState, set_market_state
+        from scanner.market_state import MarketState, get_market_state, set_market_state
+        mid = self.candidate.market.market_id
         n = self._current_narrative()
         watch_cond = getattr(n, "watch", None) if n else None
-        if not watch_cond:
-            self.notify("请先按 a 进行 AI 分析", severity="warning")
-            return
-        state = MarketState(
-            status="watch",
-            updated_at=datetime.now(UTC).isoformat(),
-            title=self.candidate.market.title,
-            wc_watch_reason=watch_cond.watch_reason,
-            wc_better_entry=watch_cond.better_entry,
-            wc_trigger_event=watch_cond.trigger_event,
-            wc_invalidation=watch_cond.invalidation,
-            next_check_at=getattr(watch_cond, "next_check_at", None),
-            watch_reason=getattr(watch_cond, "reason", None),
-            price_at_watch=self.candidate.market.yes_price,
-            resolution_time=(self.candidate.market.resolution_time.isoformat()
-                           if self.candidate.market.resolution_time else None),
-        )
-        set_market_state(self.candidate.market.market_id, state, self.service.db)
+
+        # Build state — with or without AI conditions
+        state = get_market_state(mid, self.service.db)
+        if state is None:
+            state = MarketState(status="watch", title=self.candidate.market.title)
+        state.status = "watch"
+        state.updated_at = datetime.now(UTC).isoformat()
+        state.price_at_watch = self.candidate.market.yes_price
+        state.resolution_time = (self.candidate.market.resolution_time.isoformat()
+                                 if self.candidate.market.resolution_time else None)
+        if watch_cond:
+            state.wc_watch_reason = watch_cond.watch_reason
+            state.wc_better_entry = watch_cond.better_entry
+            state.wc_trigger_event = watch_cond.trigger_event
+            state.wc_invalidation = watch_cond.invalidation
+            state.next_check_at = getattr(watch_cond, "next_check_at", None)
+            state.watch_reason = getattr(watch_cond, "reason", None)
+        else:
+            # Manual watch — use recheck_conditions from narrative if available
+            recheck = getattr(n, "recheck_conditions", []) if n else []
+            state.wc_watch_reason = "; ".join(recheck) if recheck else "手动观察"
+
+        set_market_state(mid, state, self.service.db)
         self.notify(f"WATCH: {self.candidate.market.title[:30]}")
         self.screen.refresh_sidebar_counts()
 
