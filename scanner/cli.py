@@ -508,9 +508,9 @@ def resolve(
 def watch_list(config_path: str = typer.Option(None, "--config", "-c")):
     """Show all WATCH markets with next_check_at."""
     config = _resolve_config(config_path)
-    db = _open_db(config)
-    from scanner.market_state import get_watched_markets
-    watched = get_watched_markets(db)
+    with _open_db(config) as db:
+        from scanner.market_state import get_watched_markets
+        watched = get_watched_markets(db)
     if not watched:
         console.print("[dim]No markets being watched.[/dim]")
         return
@@ -530,7 +530,6 @@ def watch_list(config_path: str = typer.Option(None, "--config", "-c")):
             "ON" if state.auto_monitor else "-",
         )
     console.print(table)
-    db.close()
 
 
 @app.command(name="pass-market")
@@ -542,20 +541,19 @@ def pass_market(
     from datetime import datetime
 
     config = _resolve_config(config_path)
-    db = _open_db(config)
-    from scanner.market_state import MarketState, get_market_state, set_market_state
-    state = get_market_state(market_id, db)
-    if state is None:
-        console.print(f"[red]Market {market_id} not found.[/red]")
-        raise typer.Exit(1)
-    state.status = "pass"
-    state.updated_at = datetime.now(UTC).isoformat()
-    state.auto_monitor = False
-    state.next_check_at = None
-    state.watch_reason = None
-    set_market_state(market_id, state, db)
+    with _open_db(config) as db:
+        from scanner.market_state import MarketState, get_market_state, set_market_state
+        state = get_market_state(market_id, db)
+        if state is None:
+            console.print(f"[red]Market {market_id} not found.[/red]")
+            raise typer.Exit(1)
+        state.status = "pass"
+        state.updated_at = datetime.now(UTC).isoformat()
+        state.auto_monitor = False
+        state.next_check_at = None
+        state.watch_reason = None
+        set_market_state(market_id, state, db)
     console.print(f"[green]PASS:[/green] {state.title or market_id}")
-    db.close()
 
 
 @app.command(name="watch")
@@ -569,24 +567,23 @@ def watch_toggle(
     from datetime import datetime
 
     config = _resolve_config(config_path)
-    db = _open_db(config)
-    from scanner.market_state import get_market_state, set_market_state
-    state = get_market_state(market_id, db)
-    if state is None:
-        console.print(f"[red]Market {market_id} not found.[/red]")
-        raise typer.Exit(1)
-    if enable:
-        state.auto_monitor = True
-    elif disable:
-        state.auto_monitor = False
-    else:
-        console.print("[dim]Use --enable or --disable[/dim]")
-        raise typer.Exit(1)
-    state.updated_at = datetime.now(UTC).isoformat()
-    set_market_state(market_id, state, db)
+    with _open_db(config) as db:
+        from scanner.market_state import get_market_state, set_market_state
+        state = get_market_state(market_id, db)
+        if state is None:
+            console.print(f"[red]Market {market_id} not found.[/red]")
+            raise typer.Exit(1)
+        if enable:
+            state.auto_monitor = True
+        elif disable:
+            state.auto_monitor = False
+        else:
+            console.print("[dim]Use --enable or --disable[/dim]")
+            raise typer.Exit(1)
+        state.updated_at = datetime.now(UTC).isoformat()
+        set_market_state(market_id, state, db)
     label = "ON" if state.auto_monitor else "OFF"
     console.print(f"Auto-monitor [{label}]: {state.title or market_id}")
-    db.close()
 
 
 @app.command(name="check")
@@ -672,9 +669,9 @@ def status(config_path: str = typer.Option(None, "--config", "-c")):
         console.print("[dim]Daemon: NOT RUNNING[/dim]")
     # Show pending jobs from DB
     config = _resolve_config(config_path)
-    db = _open_db(config)
-    from scanner.market_state import get_auto_monitor_watches
-    watches = get_auto_monitor_watches(db)
+    with _open_db(config) as db:
+        from scanner.market_state import get_auto_monitor_watches
+        watches = get_auto_monitor_watches(db)
     if watches:
         from rich.table import Table
         table = Table(title="Auto-monitored markets")
@@ -690,7 +687,6 @@ def status(config_path: str = typer.Option(None, "--config", "-c")):
         console.print(table)
     else:
         console.print("[dim]No auto-monitored watches.[/dim]")
-    db.close()
 
 
 @scheduler_app.command(name="run")

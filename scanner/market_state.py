@@ -1,9 +1,14 @@
 """Market state persistence — SQLite-backed."""
 
+from __future__ import annotations
+
 import logging
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from scanner.db import PolilyDB
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +32,7 @@ class MarketState(BaseModel):
     notes: str = ""
 
 
-def set_market_state(market_id: str, state: MarketState, db) -> None:
+def set_market_state(market_id: str, state: MarketState, db: PolilyDB) -> None:
     """Insert or update a market's state."""
     db.conn.execute(
         """INSERT OR REPLACE INTO market_states
@@ -47,7 +52,7 @@ def set_market_state(market_id: str, state: MarketState, db) -> None:
     db.conn.commit()
 
 
-def get_market_state(market_id: str, db) -> MarketState | None:
+def get_market_state(market_id: str, db: PolilyDB) -> MarketState | None:
     """Get state for a single market. Returns None if not found."""
     row = db.conn.execute(
         "SELECT * FROM market_states WHERE market_id = ?", (market_id,),
@@ -57,7 +62,7 @@ def get_market_state(market_id: str, db) -> MarketState | None:
     return _row_to_state(row)
 
 
-def get_watched_markets(db) -> dict[str, MarketState]:
+def get_watched_markets(db: PolilyDB) -> dict[str, MarketState]:
     """Get all markets with status='watch'."""
     rows = db.conn.execute(
         "SELECT * FROM market_states WHERE status = 'watch'",
@@ -65,7 +70,7 @@ def get_watched_markets(db) -> dict[str, MarketState]:
     return {r["market_id"]: _row_to_state(r) for r in rows}
 
 
-def get_auto_monitor_watches(db) -> dict[str, MarketState]:
+def get_auto_monitor_watches(db: PolilyDB) -> dict[str, MarketState]:
     """Get all WATCH markets with auto_monitor enabled."""
     rows = db.conn.execute(
         "SELECT * FROM market_states WHERE status = 'watch' AND auto_monitor = 1",
@@ -73,7 +78,7 @@ def get_auto_monitor_watches(db) -> dict[str, MarketState]:
     return {r["market_id"]: _row_to_state(r) for r in rows}
 
 
-def is_passed(market_id: str, db) -> bool:
+def is_passed(market_id: str, db: PolilyDB) -> bool:
     """Check if a market is marked as PASS."""
     state = get_market_state(market_id, db)
     return state is not None and state.status == "pass"

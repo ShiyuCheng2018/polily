@@ -671,8 +671,10 @@ class ScanService:
 
     def get_unread_notification_count(self) -> int:
         """Get count of unread notifications."""
-        from scanner.notifications import get_unread_notifications
-        return len(get_unread_notifications(self.db))
+        row = self.db.conn.execute(
+            "SELECT COUNT(*) FROM notifications WHERE is_read = 0",
+        ).fetchone()
+        return row[0] if row else 0
 
     def get_watch_summary(self) -> dict:
         """Get summary of WATCH markets: total, triggered (overdue), expired."""

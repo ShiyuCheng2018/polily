@@ -119,8 +119,7 @@ def build_previous_context(existing: list[AnalysisVersion]) -> str | None:
         f"--- Analysis History ({len(existing)} versions) ---\n\n"
         f"{trajectory}\n\n"
         f"---\n"
-        f"Based on the trajectory above and current data, provide your analysis. "
-        f"If conditions have changed, highlight what is different."
+        f"请基于以上轨迹和当前最新数据进行分析。如果情况有变化，指出和之前的不同。"
     )
 
 
