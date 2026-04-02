@@ -70,8 +70,8 @@ class WatchCondition(BaseModel):
     better_entry: str = ""          # "YES <= 0.58"
     trigger_event: str = ""         # "BTC 与阈值距离扩大到 2% 以上"
     invalidation: str = ""          # "距结算 <12h 且价格未变"
-    next_check_at: str = ""         # ISO 8601 datetime for next scheduled check
-    reason: str = ""                # why this check time was chosen
+    next_check_at: str | None = None  # ISO 8601 datetime for next scheduled check
+    reason: str = ""                  # why this check time was chosen
 
 
 class PositionAdvice(BaseModel):

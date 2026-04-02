@@ -81,22 +81,28 @@ class Sidebar(Widget):
         yield SidebarItem("研究队列", "research")
         yield SidebarItem("观察列表", "watchlist")
         yield SidebarItem("持仓", "paper")
+        yield SidebarItem("通知", "notifications")
         yield Static("")
         yield Static("  [dim]快捷键[/dim]")
-        yield Static("  [dim]0/1/2/3 切换视图[/dim]")
+        yield Static("  [dim]0-4   切换视图[/dim]")
         yield Static("  [dim]y/n   买YES/NO[/dim]")
+        yield Static("  [dim]p/w   PASS/WATCH[/dim]")
+        yield Static("  [dim]m     自动监控[/dim]")
+        yield Static("  [dim]c     立即检查[/dim]")
         yield Static("  [dim]o     打开链接[/dim]")
         yield Static("  [dim]r     刷新页面[/dim]")
         yield Static("  [dim]s     新扫描[/dim]")
         yield Static("  [dim]q     退出[/dim]")
 
-    def update_counts(self, research: int, watchlist: int, paper: int):
+    def update_counts(self, research: int, watchlist: int, paper: int, notifications: int = 0):
         for item in self.query(SidebarItem):
             if item.menu_id == "research":
                 item.set_count(research)
             elif item.menu_id == "watchlist":
                 item.set_count(watchlist)
             elif item.menu_id == "paper":
+                item.set_count(paper)
+            elif item.menu_id == "notifications":
                 item.set_count(paper)
 
     def set_active_menu(self, menu_id: str):

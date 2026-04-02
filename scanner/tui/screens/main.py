@@ -25,6 +25,7 @@ from scanner.tui.views.scan_log import (
     StepInfo,
     ViewScanLogDetail,
 )
+from scanner.tui.views.notification_list import NotificationListView
 from scanner.tui.views.watch_list import ViewWatchDetail, WatchListView
 from scanner.tui.widgets.sidebar import MenuSelected, Sidebar
 
@@ -39,6 +40,7 @@ class MainScreen(Screen):
         Binding("1", "show_research", "研究"),
         Binding("2", "show_watch", "观察"),
         Binding("3", "show_paper", "持仓"),
+        Binding("4", "show_notifications", "通知"),
         Binding("up", "menu_prev", show=False),
         Binding("down", "menu_next", show=False),
     ]
@@ -70,7 +72,8 @@ class MainScreen(Screen):
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
         watch = self.service.get_watch_count()
         paper = len(self.service.get_paper_trades())
-        sidebar.update_counts(research, watch, paper)
+        notif_count = self.service.get_unread_notification_count()
+        sidebar.update_counts(research, watch, paper, notif_count)
         if self.service.tiers:
             self.query_one("#status-bar", Static).update(
                 f"上次扫描: 研{research} 观{watch} ({self.service.total_scanned} 市场)"
@@ -403,6 +406,8 @@ class MainScreen(Screen):
             self._switch_view(WatchListView(watched), "watchlist")
         elif menu_id == "paper":
             self._switch_view(PaperStatusView(self.service), "paper")
+        elif menu_id == "notifications":
+            self._switch_view(NotificationListView(self.service.db), "notifications")
         self._current_menu = menu_id
 
     def action_show_tasks(self) -> None:
@@ -416,6 +421,9 @@ class MainScreen(Screen):
 
     def action_show_paper(self) -> None:
         self._navigate_to("paper")
+
+    def action_show_notifications(self) -> None:
+        self._navigate_to("notifications")
 
     def action_refresh(self) -> None:
         self._navigate_to(self._current_menu)

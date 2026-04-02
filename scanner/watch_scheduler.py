@@ -42,7 +42,7 @@ class WatchScheduler:
             run_date=run_at,
             id=market_id,
             replace_existing=True,
-            kwargs={"market_id": market_id, "db": self.db, "config": self.config},
+            kwargs={"market_id": market_id, "db": self.db, "config": self.config, "watch_scheduler": self},
         )
         logger.info("Scheduled recheck for %s at %s", market_id, run_at)
 
@@ -85,8 +85,9 @@ class WatchScheduler:
         return count
 
 
-def _execute_recheck(market_id: str, db, config=None) -> None:
+def _execute_recheck(market_id: str, db, config=None, watch_scheduler=None) -> None:
     """Job function called by APScheduler. Runs recheck and re-schedules if continuing watch."""
+    from scanner.market_state import get_market_state
     from scanner.watch_recheck import recheck_market
 
     logger.info("Executing scheduled recheck for %s", market_id)
@@ -96,11 +97,21 @@ def _execute_recheck(market_id: str, db, config=None) -> None:
         if config is not None:
             from scanner.tui.service import ScanService
             service = ScanService(config)
-            # Use the service's db to avoid opening a second connection
-            db = service.db
 
-        result = recheck_market(market_id, db=db, service=service, trigger_source="scheduled")
+        result = recheck_market(
+            market_id, db=service.db if service else db,
+            service=service, trigger_source="scheduled",
+        )
         logger.info("Recheck result for %s: %s", market_id, result.new_status)
+
+        # Re-schedule if still WATCH with next_check_at
+        if result.new_status == "watch" and result.next_check_at and watch_scheduler is not None:
+            try:
+                next_time = datetime.fromisoformat(result.next_check_at)
+                watch_scheduler.schedule(market_id, next_time)
+                logger.info("Re-scheduled %s for %s", market_id, result.next_check_at)
+            except ValueError:
+                logger.warning("Invalid next_check_at for %s: %s", market_id, result.next_check_at)
     except Exception:
         logger.exception("Recheck failed for %s", market_id)
 
