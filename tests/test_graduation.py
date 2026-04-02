@@ -1,7 +1,5 @@
 """Tests for paper trading graduation assessment."""
 
-import tempfile
-
 import pytest
 
 from scanner.graduation import assess_graduation
@@ -9,12 +7,8 @@ from scanner.paper_trading import PaperTradingDB
 
 
 @pytest.fixture
-def db():
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = f.name
-    store = PaperTradingDB(db_path)
-    yield store
-    store.close()
+def db(polily_db):
+    return PaperTradingDB(polily_db)
 
 
 class TestGraduation:

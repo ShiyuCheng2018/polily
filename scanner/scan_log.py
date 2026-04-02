@@ -1,10 +1,12 @@
-"""Scan log: persist scan execution metadata (timing, steps, results)."""
+"""Scan log: persist scan execution metadata in SQLite."""
 
 import json
+import logging
 from datetime import UTC, datetime
-from pathlib import Path
 
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class ScanStepRecord(BaseModel):
@@ -38,26 +40,57 @@ class ScanLogEntry(BaseModel):
     steps: list[ScanStepRecord] = []
 
 
-def load_scan_logs(path: str | Path) -> list[ScanLogEntry]:
-    """Load scan logs from JSON file."""
-    p = Path(path)
-    if not p.exists():
-        return []
-    try:
-        with open(p) as f:
-            data = json.load(f)
-        return [ScanLogEntry.model_validate(entry) for entry in data]
-    except (json.JSONDecodeError, ValueError):
-        return []
+def save_scan_log(entry: ScanLogEntry, db) -> None:
+    """Save a single scan log entry to SQLite."""
+    steps_json = json.dumps(
+        [s.model_dump() for s in entry.steps], ensure_ascii=False,
+    ) if entry.steps else None
+    db.conn.execute(
+        """INSERT OR REPLACE INTO scan_logs
+        (scan_id, type, market_id, market_title, started_at, finished_at,
+         total_elapsed, status, error, total_markets,
+         research_count, watchlist_count, filtered_count, steps)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            entry.scan_id, entry.type, entry.market_id, entry.market_title,
+            entry.started_at, entry.finished_at,
+            entry.total_elapsed, entry.status, entry.error,
+            entry.total_markets, entry.research_count,
+            entry.watchlist_count, entry.filtered_count, steps_json,
+        ),
+    )
+    db.conn.commit()
 
 
-def save_scan_logs(logs: list[ScanLogEntry], path: str | Path, max_entries: int = 30):
-    """Save scan logs to JSON file, truncating to max_entries."""
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    trimmed = logs[-max_entries:]
-    with open(p, "w") as f:
-        json.dump([entry.model_dump() for entry in trimmed], f, indent=2, ensure_ascii=False)
+def load_scan_logs(db, limit: int = 100) -> list[ScanLogEntry]:
+    """Load scan logs from SQLite, most recent first."""
+    rows = db.conn.execute(
+        "SELECT * FROM scan_logs ORDER BY started_at DESC LIMIT ?", (limit,),
+    ).fetchall()
+    result = []
+    for row in rows:
+        try:
+            steps_raw = json.loads(row["steps"]) if row["steps"] else []
+            steps = [ScanStepRecord.model_validate(s) for s in steps_raw]
+            result.append(ScanLogEntry(
+                scan_id=row["scan_id"],
+                type=row["type"],
+                market_id=row["market_id"],
+                market_title=row["market_title"],
+                started_at=row["started_at"],
+                finished_at=row["finished_at"],
+                total_elapsed=row["total_elapsed"],
+                status=row["status"],
+                error=row["error"],
+                total_markets=row["total_markets"],
+                research_count=row["research_count"],
+                watchlist_count=row["watchlist_count"],
+                filtered_count=row["filtered_count"],
+                steps=steps,
+            ))
+        except Exception as e:
+            logger.warning("Failed to parse scan log entry: %s", e)
+    return result
 
 
 def create_log_entry() -> ScanLogEntry:
@@ -86,7 +119,6 @@ def finish_log_entry(
     entry.status = status
     entry.error = error
     entry.steps = steps
-    # Wall clock time from start to finish
     try:
         started = datetime.fromisoformat(entry.started_at)
         entry.total_elapsed = (now - started).total_seconds()

@@ -75,8 +75,10 @@ class MarketDetailView(Widget):
         Binding("d", "toggle_detail", show=False),
         Binding("left", "prev_version", show=False),
         Binding("right", "next_version", show=False),
-        Binding("p", "mark_pass", show=False),
-        Binding("w", "mark_watch", show=False),
+        Binding("p", "mark_pass", "PASS"),
+        Binding("w", "mark_watch", "WATCH"),
+        Binding("m", "toggle_auto_monitor", "自动监控"),
+        Binding("c", "manual_check", "立即检查"),
         Binding("y", "trade_yes", "买 YES"),
         Binding("n", "trade_no", "买 NO"),
         Binding("o", "open_link", "打开链接"),
@@ -112,7 +114,7 @@ class MarketDetailView(Widget):
         from scanner.analysis_store import get_market_analyses
         self._versions = get_market_analyses(
             self.candidate.market.market_id,
-            self.service.config.archiving.analyses_file,
+            self.service.db,
         )
         if self._versions:
             self._version_idx = len(self._versions) - 1
@@ -512,6 +514,18 @@ class MarketDetailView(Widget):
                 market_id=m.market_id, title=m.title, side=side,
                 price=price, market_type=m.market_type, score=self.candidate.score.total,
             )
+            # Sync market state to buy_yes/buy_no
+            from datetime import datetime
+            from scanner.market_state import MarketState, get_market_state, set_market_state
+            status = "buy_yes" if side == "yes" else "buy_no"
+            state = get_market_state(m.market_id, self.service.db)
+            if state is None:
+                state = MarketState(status=status, title=m.title)
+            state.status = status
+            state.updated_at = datetime.now(UTC).isoformat()
+            state.auto_monitor = False
+            state.next_check_at = None
+            set_market_state(m.market_id, state, self.service.db)
             self.notify(f"Paper trade: {side.upper()} @ {price:.2f} -> {trade_id}")
             self._pending_trade = None
             self.screen.refresh_sidebar_counts()
@@ -524,38 +538,87 @@ class MarketDetailView(Widget):
         """Mark this market as PASS — won't appear in research queue."""
         from datetime import datetime
 
-        from scanner.market_state import MarketState, set_market_state
-        state = MarketState(status="pass", updated_at=datetime.now(UTC).isoformat(),
-                            title=self.candidate.market.title)
-        set_market_state(
-            self.candidate.market.market_id, state,
-            self.service.config.archiving.market_state_file,
-        )
+        from scanner.market_state import MarketState, get_market_state, set_market_state
+        mid = self.candidate.market.market_id
+        state = get_market_state(mid, self.service.db)
+        if state is None:
+            state = MarketState(status="pass", title=self.candidate.market.title)
+        state.status = "pass"
+        state.updated_at = datetime.now(UTC).isoformat()
+        state.auto_monitor = False
+        state.next_check_at = None
+        state.watch_reason = None
+        set_market_state(mid, state, self.service.db)
         self.notify(f"PASS: {self.candidate.market.title[:30]}")
         self.screen.refresh_sidebar_counts()
 
     def action_mark_watch(self) -> None:
-        """Add to watch list with conditions from AI narrative."""
+        """Add to watch list — use AI watch conditions if available, otherwise manual watch."""
         from datetime import datetime
 
-        from scanner.market_state import MarketState, set_market_state
+        from scanner.market_state import MarketState, get_market_state, set_market_state
+        mid = self.candidate.market.market_id
         n = self._current_narrative()
         watch_cond = getattr(n, "watch", None) if n else None
-        if not watch_cond:
-            self.notify("请先按 a 进行 AI 分析", severity="warning")
-            return
-        state = MarketState(
-            status="watch",
-            updated_at=datetime.now(UTC).isoformat(),
-            title=self.candidate.market.title,
-            watch_conditions=watch_cond,
-        )
-        set_market_state(
-            self.candidate.market.market_id, state,
-            self.service.config.archiving.market_state_file,
-        )
+
+        # Build state — with or without AI conditions
+        state = get_market_state(mid, self.service.db)
+        if state is None:
+            state = MarketState(status="watch", title=self.candidate.market.title)
+        state.status = "watch"
+        state.updated_at = datetime.now(UTC).isoformat()
+        state.price_at_watch = self.candidate.market.yes_price
+        state.resolution_time = (self.candidate.market.resolution_time.isoformat()
+                                 if self.candidate.market.resolution_time else None)
+        if watch_cond:
+            state.wc_watch_reason = watch_cond.watch_reason
+            state.wc_better_entry = watch_cond.better_entry
+            state.wc_trigger_event = watch_cond.trigger_event
+            state.wc_invalidation = watch_cond.invalidation
+            state.next_check_at = getattr(watch_cond, "next_check_at", None)
+            state.watch_reason = getattr(watch_cond, "reason", None)
+        else:
+            # Manual watch — use recheck_conditions from narrative if available
+            recheck = getattr(n, "recheck_conditions", []) if n else []
+            state.wc_watch_reason = "; ".join(recheck) if recheck else "手动观察"
+
+        set_market_state(mid, state, self.service.db)
         self.notify(f"WATCH: {self.candidate.market.title[:30]}")
         self.screen.refresh_sidebar_counts()
+
+    def action_toggle_auto_monitor(self) -> None:
+        """Toggle auto_monitor for this market's WATCH state."""
+        from datetime import datetime
+
+        from scanner.market_state import get_market_state, set_market_state
+        mid = self.candidate.market.market_id
+        state = get_market_state(mid, self.service.db)
+        if state is None or state.status != "watch":
+            self.notify("需要先标记为 WATCH", severity="warning")
+            return
+        state.auto_monitor = not state.auto_monitor
+        state.updated_at = datetime.now(UTC).isoformat()
+        set_market_state(mid, state, self.service.db)
+        label = "ON" if state.auto_monitor else "OFF"
+        self.notify(f"自动监控 [{label}]: {self.candidate.market.title[:30]}")
+
+    def action_manual_check(self) -> None:
+        """Trigger a manual recheck of this market."""
+        from scanner.market_state import get_market_state
+        from scanner.watch_recheck import recheck_market
+        mid = self.candidate.market.market_id
+        state = get_market_state(mid, self.service.db)
+        if state is None:
+            self.notify("市场未在观察列表中", severity="warning")
+            return
+        try:
+            result = recheck_market(mid, db=self.service.db, trigger_source="manual")
+            labels = {"buy_yes": "GO YES", "buy_no": "GO NO", "watch": "WATCH",
+                      "pass": "PASS", "closed": "CLOSED"}
+            label = labels.get(result.new_status, result.new_status)
+            self.notify(f"[{label}] {self.candidate.market.title[:30]}")
+        except Exception as e:
+            self.notify(f"检查失败: {e}", severity="error")
 
     def action_open_link(self) -> None:
         import webbrowser

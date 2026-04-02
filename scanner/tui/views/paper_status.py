@@ -23,7 +23,7 @@ class PaperStatusView(Widget):
     """Paper trading positions with status labels."""
 
     BINDINGS = [
-        Binding("a", "analyze_position", show=False),
+        Binding("a", "analyze_position", "持仓分析"),
     ]
 
     DEFAULT_CSS = """

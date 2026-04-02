@@ -25,6 +25,7 @@ from scanner.tui.views.scan_log import (
     StepInfo,
     ViewScanLogDetail,
 )
+from scanner.tui.views.notification_list import NotificationListView
 from scanner.tui.views.watch_list import ViewWatchDetail, WatchListView
 from scanner.tui.widgets.sidebar import MenuSelected, Sidebar
 
@@ -33,17 +34,18 @@ class MainScreen(Screen):
     """Main screen with sidebar navigation and content area."""
 
     BINDINGS = [
-        Binding("0", "show_tasks", "任务"),
-        Binding("r", "refresh", "刷新"),
-        Binding("s", "new_scan", "扫描"),
-        Binding("1", "show_research", "研究"),
-        Binding("2", "show_watch", "观察"),
-        Binding("3", "show_paper", "持仓"),
+        Binding("0", "show_tasks", show=False),
+        Binding("r", "refresh", show=False),
+        Binding("s", "new_scan", show=False),
+        Binding("1", "show_research", show=False),
+        Binding("2", "show_watch", show=False),
+        Binding("3", "show_paper", show=False),
+        Binding("4", "show_notifications", show=False),
         Binding("up", "menu_prev", show=False),
         Binding("down", "menu_next", show=False),
     ]
 
-    MENU_ORDER = ["tasks", "research", "watchlist", "paper"]
+    MENU_ORDER = ["tasks", "research", "watchlist", "paper", "notifications"]
 
     def __init__(self, service: ScanService):
         super().__init__()
@@ -65,14 +67,13 @@ class MainScreen(Screen):
     def on_mount(self) -> None:
         sidebar = self.query_one("#sidebar", Sidebar)
         sidebar.set_active_menu("tasks")
-        from scanner.market_state import get_watched_markets, load_market_states
-        state_file = self.service.config.archiving.market_state_file
-        states = load_market_states(state_file)
+        states = self.service.get_all_market_states()
         research = len([c for c in self.service.get_research()
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
-        watch = len(get_watched_markets(state_file))
+        watch = self.service.get_watch_count()
         paper = len(self.service.get_paper_trades())
-        sidebar.update_counts(research, watch, paper)
+        notif_count = self.service.get_unread_notification_count()
+        sidebar.update_counts(research, watch, paper, notif_count)
         if self.service.tiers:
             self.query_one("#status-bar", Static).update(
                 f"上次扫描: 研{research} 观{watch} ({self.service.total_scanned} 市场)"
@@ -116,19 +117,27 @@ class MainScreen(Screen):
         """Main thread: update status, do NOT auto-navigate."""
         self._loading = False
         total = self.service.total_scanned
-        from scanner.market_state import get_watched_markets, load_market_states
-        state_file = self.service.config.archiving.market_state_file
-        states = load_market_states(state_file)
+        states = self.service.get_all_market_states()
         research = len([c for c in self.service.get_research()
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
-        watch = len(get_watched_markets(state_file))
+        watch = self.service.get_watch_count()
         paper = len(self.service.get_paper_trades())
 
-        self.query_one("#status-bar", Static).update(
-            f"扫描完成: 研{research} 观{watch} ({total} 市场)"
-        )
+        # Watch summary: count triggered (overdue) and expired
+        watch_summary = self.service.get_watch_summary()
+        status_parts = [f"扫描完成: 研{research} 观{watch} ({total} 市场)"]
+        if watch_summary["total"] > 0:
+            parts = []
+            if watch_summary["triggered"] > 0:
+                parts.append(f"{watch_summary['triggered']}个触发")
+            if watch_summary["expired"] > 0:
+                parts.append(f"{watch_summary['expired']}个过期")
+            if parts:
+                status_parts.append(f"观察: {', '.join(parts)}")
+        self.query_one("#status-bar", Static).update(" | ".join(status_parts))
         sidebar = self.query_one("#sidebar", Sidebar)
-        sidebar.update_counts(research, watch, paper)
+        notif_count = self.service.get_unread_notification_count()
+        sidebar.update_counts(research, watch, paper, notif_count)
         # B4 fix: mark pages that have new data, not tasks
         if research:
             sidebar.mark_new_data("research")
@@ -170,14 +179,13 @@ class MainScreen(Screen):
                 view.focus()
 
     def refresh_sidebar_counts(self):
-        from scanner.market_state import get_watched_markets, load_market_states
-        state_file = self.service.config.archiving.market_state_file
-        states = load_market_states(state_file)
+        states = self.service.get_all_market_states()
         research = len([c for c in self.service.get_research()
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
-        watch = len(get_watched_markets(state_file))
+        watch = self.service.get_watch_count()
         paper = len(self.service.get_paper_trades())
-        self.query_one("#sidebar", Sidebar).update_counts(research, watch, paper)
+        notif_count = self.service.get_unread_notification_count()
+        self.query_one("#sidebar", Sidebar).update_counts(research, watch, paper, notif_count)
 
     # --- Message handlers ---
 
@@ -230,7 +238,11 @@ class MainScreen(Screen):
             def _heartbeat(elapsed: float, status: str):
                 self.app.call_from_thread(self._update_heartbeat, elapsed, status)
 
-            await self.service.analyze_market(candidate, on_heartbeat=_heartbeat)
+            await self.service.analyze_market(
+                candidate.market.market_id,
+                candidate=candidate,
+                on_heartbeat=_heartbeat,
+            )
             self.app.call_from_thread(self._on_analysis_complete, candidate)
         except Exception as e:
             error_msg = str(e)
@@ -386,18 +398,18 @@ class MainScreen(Screen):
             current_steps = list(self.service._steps) if self._loading else None
             self._switch_view(ScanLogView(logs, current_steps), "tasks")
         elif menu_id == "research":
-            from scanner.market_state import load_market_states
-            state_file = self.service.config.archiving.market_state_file
-            states = load_market_states(state_file)
+            states = self.service.get_all_market_states()
             research = [c for c in self.service.get_research()
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")]
             self._switch_view(MarketListView(research, self.service, "研究队列"), "research")
         elif menu_id == "watchlist":
             from scanner.market_state import get_watched_markets
-            watched = get_watched_markets(self.service.config.archiving.market_state_file)
+            watched = get_watched_markets(self.service.db)
             self._switch_view(WatchListView(watched), "watchlist")
         elif menu_id == "paper":
             self._switch_view(PaperStatusView(self.service), "paper")
+        elif menu_id == "notifications":
+            self._switch_view(NotificationListView(self.service.db), "notifications")
         self._current_menu = menu_id
 
     def action_show_tasks(self) -> None:
@@ -411,6 +423,9 @@ class MainScreen(Screen):
 
     def action_show_paper(self) -> None:
         self._navigate_to("paper")
+
+    def action_show_notifications(self) -> None:
+        self._navigate_to("notifications")
 
     def action_refresh(self) -> None:
         self._navigate_to(self._current_menu)

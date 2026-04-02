@@ -44,3 +44,9 @@ htmlcov/
 
 # Claude Code
 .claude/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.log
+*.db-shm
+*.db-wal

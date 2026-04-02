@@ -3,7 +3,24 @@
 import json
 from datetime import UTC, datetime
 
+import pytest
+
+from scanner.db import PolilyDB
 from scanner.models import BookLevel, Market
+
+
+@pytest.fixture(autouse=True)
+def _suppress_desktop_notifications(monkeypatch):
+    """Globally prevent real macOS notifications during all tests."""
+    monkeypatch.setattr("scanner.notifications.subprocess.run", lambda *a, **kw: None)
+
+
+@pytest.fixture
+def polily_db(tmp_path):
+    """Provide a PolilyDB in a temp directory that auto-cleans up."""
+    db = PolilyDB(tmp_path / "polily.db")
+    yield db
+    db.close()
 
 
 def make_market(**overrides) -> Market:
@@ -29,26 +46,34 @@ def make_market(**overrides) -> Market:
 
 
 def make_cli_response(structured_output: dict) -> bytes:
-    """Simulate claude CLI JSON output (legacy format without --json-schema).
+    """Simulate claude CLI JSON output (v2.1+ array format without --json-schema).
 
-    Matches format: {"type":"result", "result":"```json\n{...}\n```"}
+    Matches format: [{"type":"system",...}, {"type":"result","result":"```json\n{...}\n```"}]
     """
     json_text = json.dumps(structured_output)
-    return json.dumps({
-        "type": "result",
-        "result": f"```json\n{json_text}\n```",
-        "session_id": "test-session",
-    }).encode()
+    return json.dumps([
+        {"type": "system", "subtype": "init", "cwd": "/test", "session_id": "test-session"},
+        {
+            "type": "result",
+            "subtype": "success",
+            "result": f"```json\n{json_text}\n```",
+            "session_id": "test-session",
+        },
+    ]).encode()
 
 
 def make_cli_response_structured(structured_output: dict) -> bytes:
-    """Simulate claude CLI JSON output with --json-schema (structured_output field).
+    """Simulate claude CLI JSON output (v2.1+ array format with --json-schema).
 
     When --json-schema is used, response comes in structured_output, not result.
     """
-    return json.dumps({
-        "type": "result",
-        "result": "",
-        "structured_output": structured_output,
-        "session_id": "test-session",
-    }).encode()
+    return json.dumps([
+        {"type": "system", "subtype": "init", "cwd": "/test", "session_id": "test-session"},
+        {
+            "type": "result",
+            "subtype": "success",
+            "result": "",
+            "structured_output": structured_output,
+            "session_id": "test-session",
+        },
+    ]).encode()

@@ -1,79 +1,109 @@
-"""Tests for analysis store persistence."""
-
-import tempfile
-from pathlib import Path
+"""Tests for SQLite-backed analysis store."""
 
 from scanner.analysis_store import (
     AnalysisVersion,
     append_analysis,
+    build_previous_context,
     get_market_analyses,
-    load_analyses,
-    save_analyses,
 )
 
 
-def _make_version(version: int = 1) -> AnalysisVersion:
-    return AnalysisVersion(
+def _make_version(version: int = 1, **overrides) -> AnalysisVersion:
+    defaults = dict(
         version=version,
         created_at="2026-03-30T00:00:00+00:00",
         market_title="BTC above $66K?",
         yes_price_at_analysis=0.64,
         analyst_output={"objectivity_score": 85, "market_type": "crypto_threshold"},
-        narrative_output={"summary": "test", "risk_flags": []},
+        narrative_output={"summary": "test summary", "one_line_verdict": "verdict", "risk_flags": []},
+        trigger_source="manual",
         elapsed_seconds=5.0,
     )
+    defaults.update(overrides)
+    return AnalysisVersion(**defaults)
 
 
-class TestAnalysisStore:
-    def test_load_nonexistent(self):
-        assert load_analyses("/nonexistent/path.json") == {}
+def test_append_and_get(polily_db):
+    v = _make_version(structure_score=72.5)
+    append_analysis("0xabc", v, polily_db)
+    versions = get_market_analyses("0xabc", polily_db)
+    assert len(versions) == 1
+    assert versions[0].version == 1
+    assert versions[0].structure_score == 72.5
+    assert versions[0].market_title == "BTC above $66K?"
 
-    def test_save_and_load(self):
-        with tempfile.TemporaryDirectory() as d:
-            path = Path(d) / "analyses.json"
-            data = {"m1": [_make_version().model_dump()]}
-            save_analyses(data, path)
-            loaded = load_analyses(path)
-            assert "m1" in loaded
-            assert len(loaded["m1"]) == 1
 
-    def test_get_market_analyses(self):
-        with tempfile.TemporaryDirectory() as d:
-            path = Path(d) / "analyses.json"
-            v = _make_version()
-            save_analyses({"m1": [v.model_dump()]}, path)
-            versions = get_market_analyses("m1", path)
-            assert len(versions) == 1
-            assert versions[0].version == 1
+def test_get_empty(polily_db):
+    assert get_market_analyses("0xnonexistent", polily_db) == []
 
-    def test_get_market_analyses_empty(self):
-        with tempfile.TemporaryDirectory() as d:
-            path = Path(d) / "analyses.json"
-            assert get_market_analyses("nonexistent", path) == []
 
-    def test_append_analysis(self):
-        with tempfile.TemporaryDirectory() as d:
-            path = Path(d) / "analyses.json"
-            append_analysis("m1", _make_version(1), path)
-            append_analysis("m1", _make_version(2), path)
-            versions = get_market_analyses("m1", path)
-            assert len(versions) == 2
-            assert versions[0].version == 1
-            assert versions[1].version == 2
+def test_no_version_limit(polily_db):
+    for i in range(20):
+        append_analysis("0xabc", _make_version(i + 1), polily_db)
+    versions = get_market_analyses("0xabc", polily_db)
+    assert len(versions) == 20
+    assert versions[0].version == 1
+    assert versions[-1].version == 20
 
-    def test_append_truncates_to_max(self):
-        with tempfile.TemporaryDirectory() as d:
-            path = Path(d) / "analyses.json"
-            for i in range(15):
-                append_analysis("m1", _make_version(i + 1), path, max_versions=5)
-            versions = get_market_analyses("m1", path)
-            assert len(versions) == 5
-            assert versions[0].version == 11  # kept last 5
 
-    def test_multiple_markets(self):
-        with tempfile.TemporaryDirectory() as d:
-            path = Path(d) / "analyses.json"
-            append_analysis("m1", _make_version(1), path)
-            append_analysis("m2", _make_version(1), path)
-            assert len(get_market_analyses("m1", path)) == 1
-            assert len(get_market_analyses("m2", path)) == 1
+def test_multiple_markets(polily_db):
+    append_analysis("0x1", _make_version(1), polily_db)
+    append_analysis("0x2", _make_version(1), polily_db)
+    append_analysis("0x1", _make_version(2), polily_db)
+    assert len(get_market_analyses("0x1", polily_db)) == 2
+    assert len(get_market_analyses("0x2", polily_db)) == 1
+
+
+def test_dict_fields_serialized(polily_db):
+    v = _make_version(
+        analyst_output={"key": "value", "nested": {"a": 1}},
+        narrative_output={"summary": "s", "one_line_verdict": "v", "risk_flags": [{"text": "r", "severity": "info"}]},
+        score_breakdown={"liquidity": 20, "objectivity": 18},
+    )
+    append_analysis("0xabc", v, polily_db)
+    loaded = get_market_analyses("0xabc", polily_db)
+    assert loaded[0].analyst_output["nested"]["a"] == 1
+    assert loaded[0].narrative_output["risk_flags"][0]["text"] == "r"
+    assert loaded[0].score_breakdown["liquidity"] == 20
+
+
+def test_new_fields(polily_db):
+    v = _make_version(
+        trigger_source="scheduled",
+        watch_sequence=3,
+        price_at_watch=0.55,
+        structure_score=72.5,
+    )
+    append_analysis("0xabc", v, polily_db)
+    loaded = get_market_analyses("0xabc", polily_db)[0]
+    assert loaded.trigger_source == "scheduled"
+    assert loaded.watch_sequence == 3
+    assert loaded.price_at_watch == 0.55
+    assert loaded.structure_score == 72.5
+
+
+def test_build_previous_context_full_history(polily_db):
+    for i in range(3):
+        v = _make_version(
+            version=i + 1,
+            created_at=f"2026-04-0{i + 1}T10:00:00",
+            yes_price_at_analysis=0.65 - i * 0.05,
+            narrative_output={
+                "summary": f"summary_{i}",
+                "one_line_verdict": f"verdict_{i}",
+                "risk_flags": [],
+                "action": "WATCH" if i < 2 else "BUY_YES",
+            },
+        )
+        append_analysis("0xabc", v, polily_db)
+    ctx = build_previous_context(get_market_analyses("0xabc", polily_db))
+    assert ctx is not None
+    assert "verdict_0" in ctx
+    assert "verdict_1" in ctx
+    assert "verdict_2" in ctx
+    assert "0.65" in ctx
+    assert "0.55" in ctx
+
+
+def test_build_previous_context_empty():
+    assert build_previous_context([]) is None

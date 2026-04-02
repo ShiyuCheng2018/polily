@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from datetime import UTC
 from pathlib import Path
 
 import typer
@@ -33,6 +34,22 @@ def main(ctx: typer.Context):
     if ctx.invoked_subcommand is None:
         from scanner.tui.app import run_tui
         run_tui()
+
+
+def _open_db(config: ScannerConfig):
+    """Open the unified PolilyDB."""
+    from scanner.db import PolilyDB
+    return PolilyDB(config.archiving.db_file)
+
+
+def _open_paper_db(config: ScannerConfig):
+    """Open PaperTradingDB backed by PolilyDB."""
+    from scanner.paper_trading import PaperTradingDB
+    return PaperTradingDB(
+        _open_db(config),
+        position_size_usd=config.paper_trading.default_position_size_usd,
+        friction_pct=config.paper_trading.assumed_round_trip_friction_pct,
+    )
 
 
 def _resolve_config(config_path: str | None) -> ScannerConfig:
@@ -138,11 +155,7 @@ def daily(
         console.print(f"\n [dim]{briefing.summary}[/dim]")
 
     # Auto-resolve paper trades
-    from scanner.paper_trading import PaperTradingDB
-    with PaperTradingDB(
-        config.paper_trading.data_file,
-        friction_pct=config.paper_trading.assumed_round_trip_friction_pct,
-    ) as db:
+    with _open_paper_db(config) as db:
         try:
             from scanner.auto_resolve import auto_resolve_trades
             open_count = len(db.list_open())
@@ -196,8 +209,7 @@ def backtest(
         with open(resolutions_file) as f:
             resolutions = json.load(f)
     else:
-        from scanner.paper_trading import PaperTradingDB
-        with PaperTradingDB(config.paper_trading.data_file) as db:
+        with _open_paper_db(config) as db:
             for t in db.list_all():
                 if t.status == "resolved" and t.resolved_result:
                     resolutions[t.market_id] = t.resolved_result
@@ -244,9 +256,7 @@ def review(
 ):
     """AI-powered paper trading performance review (weekly recommended)."""
     config = _resolve_config(config_path)
-    from scanner.paper_trading import PaperTradingDB
-
-    with PaperTradingDB(config.paper_trading.data_file) as db:
+    with _open_paper_db(config) as db:
         stats = db.stats()
 
     if stats["total_trades"] == 0:
@@ -334,8 +344,7 @@ def export(
     from scanner.export import export_scans_csv, export_trades_csv
 
     if what == "trades":
-        from scanner.paper_trading import PaperTradingDB
-        with PaperTradingDB(config.paper_trading.data_file) as db:
+        with _open_paper_db(config) as db:
             export_trades_csv(db, output)
         console.print(f"[green]✅ 导出 trades → {output}[/green]")
     elif what == "scans":
@@ -388,18 +397,13 @@ def mark(
         console.print("[red]No price found. Use --price to specify.[/red]")
         raise typer.Exit(1)
 
-    from scanner.paper_trading import PaperTradingDB
-    with PaperTradingDB(
-        config.paper_trading.data_file,
-        position_size_usd=config.paper_trading.default_position_size_usd,
-        friction_pct=config.paper_trading.assumed_round_trip_friction_pct,
-    ) as db:
+    with _open_paper_db(config) as db:
         from scanner.archive import get_latest_scan_id
         scan_id = get_latest_scan_id(config.archiving.archive_dir)
         trade = db.mark(
             market_id=market_id, title=title, side=side, entry_price=price,
             market_type=entry.get("market_type"),
-            beauty_score=entry.get("structure_score"),
+            structure_score=entry.get("structure_score"),
             mispricing_signal=entry.get("mispricing_signal"),
             scan_id=scan_id,
         )
@@ -413,9 +417,7 @@ def mark(
 def paper_status(config_path: str = typer.Option(None, "--config", "-c")):
     """Show open paper trade positions."""
     config = _resolve_config(config_path)
-    from scanner.paper_trading import PaperTradingDB
-
-    with PaperTradingDB(config.paper_trading.data_file) as db:
+    with _open_paper_db(config) as db:
         open_trades = db.list_open()
 
     if not open_trades:
@@ -440,9 +442,7 @@ def paper_report(
 ):
     """Paper trading performance report."""
     config = _resolve_config(config_path)
-    from scanner.paper_trading import PaperTradingDB
-
-    with PaperTradingDB(config.paper_trading.data_file) as db:
+    with _open_paper_db(config) as db:
         stats = db.stats(days=days)
 
     if stats["total_trades"] == 0:
@@ -466,7 +466,7 @@ def paper_report(
 
     # Graduation assessment
     from scanner.graduation import assess_graduation
-    with PaperTradingDB(config.paper_trading.data_file) as db2:
+    with _open_paper_db(config) as db2:
         grad = assess_graduation(db2)
     color = "green" if grad.ready else "yellow"
     console.print(f"\n [{color} bold]GRADUATION ASSESSMENT[/{color} bold]")
@@ -488,12 +488,7 @@ def resolve(
         raise typer.Exit(1)
 
     config = _resolve_config(config_path)
-    from scanner.paper_trading import PaperTradingDB
-
-    with PaperTradingDB(
-        config.paper_trading.data_file,
-        friction_pct=config.paper_trading.assumed_round_trip_friction_pct,
-    ) as db:
+    with _open_paper_db(config) as db:
         try:
             trade = db.resolve(trade_id, result=result)
         except ValueError as e:
@@ -504,6 +499,211 @@ def resolve(
     console.print(f"[{color}]Resolved:[/{color}] {trade.id} → {result.upper()}")
     console.print(f"  Paper PnL: ${trade.paper_pnl:+.2f}")
     console.print(f"  Friction-adjusted: ${trade.friction_adjusted_pnl:+.2f}")
+
+
+# --- WATCH lifecycle commands ---
+
+
+@app.command(name="watch-list")
+def watch_list(config_path: str = typer.Option(None, "--config", "-c")):
+    """Show all WATCH markets with next_check_at."""
+    config = _resolve_config(config_path)
+    with _open_db(config) as db:
+        from scanner.market_state import get_watched_markets
+        watched = get_watched_markets(db)
+    if not watched:
+        console.print("[dim]No markets being watched.[/dim]")
+        return
+    from rich.table import Table
+    table = Table(title="WATCH Markets")
+    table.add_column("Market", style="cyan")
+    table.add_column("Next Check", style="yellow")
+    table.add_column("Reason", style="dim")
+    table.add_column("#", style="magenta", justify="right")
+    table.add_column("Auto", style="green", justify="center")
+    for mid, state in watched.items():
+        table.add_row(
+            state.title[:40] or mid[:12],
+            state.next_check_at[:16] if state.next_check_at else "-",
+            state.watch_reason or "-",
+            str(state.watch_sequence),
+            "ON" if state.auto_monitor else "-",
+        )
+    console.print(table)
+
+
+@app.command(name="pass-market")
+def pass_market(
+    market_id: str = typer.Argument(help="Market ID to mark as PASS"),
+    config_path: str = typer.Option(None, "--config", "-c"),
+):
+    """Mark a market as PASS — stop watching."""
+    from datetime import datetime
+
+    config = _resolve_config(config_path)
+    with _open_db(config) as db:
+        from scanner.market_state import MarketState, get_market_state, set_market_state
+        state = get_market_state(market_id, db)
+        if state is None:
+            console.print(f"[red]Market {market_id} not found.[/red]")
+            raise typer.Exit(1)
+        state.status = "pass"
+        state.updated_at = datetime.now(UTC).isoformat()
+        state.auto_monitor = False
+        state.next_check_at = None
+        state.watch_reason = None
+        set_market_state(market_id, state, db)
+    console.print(f"[green]PASS:[/green] {state.title or market_id}")
+
+
+@app.command(name="watch")
+def watch_toggle(
+    market_id: str = typer.Argument(help="Market ID"),
+    enable: bool = typer.Option(False, "--enable", help="Enable auto-monitor"),
+    disable: bool = typer.Option(False, "--disable", help="Disable auto-monitor"),
+    config_path: str = typer.Option(None, "--config", "-c"),
+):
+    """Enable or disable auto-monitor for a WATCH market."""
+    from datetime import datetime
+
+    config = _resolve_config(config_path)
+    with _open_db(config) as db:
+        from scanner.market_state import get_market_state, set_market_state
+        state = get_market_state(market_id, db)
+        if state is None:
+            console.print(f"[red]Market {market_id} not found.[/red]")
+            raise typer.Exit(1)
+        if enable:
+            state.auto_monitor = True
+        elif disable:
+            state.auto_monitor = False
+        else:
+            console.print("[dim]Use --enable or --disable[/dim]")
+            raise typer.Exit(1)
+        state.updated_at = datetime.now(UTC).isoformat()
+        set_market_state(market_id, state, db)
+    label = "ON" if state.auto_monitor else "OFF"
+    console.print(f"Auto-monitor [{label}]: {state.title or market_id}")
+
+
+@app.command(name="check")
+def check_market(
+    market_id: str = typer.Argument(help="Market ID to recheck"),
+    config_path: str = typer.Option(None, "--config", "-c"),
+):
+    """Recheck a single WATCH market — fetch latest data + AI re-evaluation."""
+    config = _resolve_config(config_path)
+    from scanner.tui.service import ScanService
+    from scanner.watch_recheck import recheck_market
+    service = ScanService(config)
+    try:
+        result = recheck_market(market_id, db=service.db, service=service, trigger_source="manual")
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
+
+    labels = {"buy_yes": "GO BUY YES", "buy_no": "GO BUY NO",
+              "watch": "WATCH", "pass": "PASS", "closed": "CLOSED"}
+    label = labels.get(result.new_status, result.new_status)
+    color = "green" if result.new_status in ("buy_yes", "buy_no") else "yellow" if result.new_status == "watch" else "dim"
+    console.print(f"[{color}][{label}][/{color}] {market_id[:16]}")
+    if result.previous_price and result.current_price:
+        delta = (result.current_price - result.previous_price) / result.previous_price * 100
+        console.print(f"  YES: {result.previous_price:.2f} → {result.current_price:.2f} ({delta:+.1f}%)")
+    if result.next_check_at:
+        console.print(f"  Next check: {result.next_check_at[:16]}")
+    if result.reason:
+        console.print(f"  Reason: {result.reason}")
+
+
+# --- Scheduler daemon commands ---
+
+scheduler_app = typer.Typer(help="Manage the background watch scheduler daemon")
+app.add_typer(scheduler_app, name="scheduler")
+
+PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / "com.polily.scheduler.plist"
+
+
+@scheduler_app.command()
+def start(config_path: str = typer.Option(None, "--config", "-c")):
+    """Start the scheduler daemon via launchd."""
+    import subprocess
+    from scanner.watch_scheduler import generate_launchd_plist
+    config = _resolve_config(config_path)
+    working_dir = str(Path.cwd())
+    # Ensure data dir exists for logs
+    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
+    plist_bytes = generate_launchd_plist(working_dir=working_dir)
+    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PLIST_PATH.write_bytes(plist_bytes)
+    subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+    console.print("[green]Scheduler daemon started.[/green]")
+    console.print(f"  Plist: {PLIST_PATH}")
+    console.print(f"  Log: {working_dir}/data/scheduler.log")
+
+
+@scheduler_app.command()
+def stop():
+    """Stop the scheduler daemon."""
+    import subprocess
+    if not PLIST_PATH.exists():
+        console.print("[dim]Scheduler not installed.[/dim]")
+        return
+    subprocess.run(["launchctl", "unload", str(PLIST_PATH)], check=False)
+    PLIST_PATH.unlink(missing_ok=True)
+    console.print("[green]Scheduler daemon stopped.[/green]")
+
+
+@scheduler_app.command()
+def status(config_path: str = typer.Option(None, "--config", "-c")):
+    """Show scheduler daemon status and pending jobs."""
+    import subprocess
+    # Check if running
+    result = subprocess.run(
+        ["launchctl", "list"], capture_output=True, text=True,
+    )
+    running = "com.polily.scheduler" in result.stdout
+    if running:
+        console.print("[green]Daemon: RUNNING[/green]")
+    else:
+        console.print("[dim]Daemon: NOT RUNNING[/dim]")
+    # Show pending jobs from DB
+    config = _resolve_config(config_path)
+    with _open_db(config) as db:
+        from scanner.market_state import get_auto_monitor_watches
+        watches = get_auto_monitor_watches(db)
+    if watches:
+        from rich.table import Table
+        table = Table(title="Auto-monitored markets")
+        table.add_column("Market", style="cyan")
+        table.add_column("Next Check", style="yellow")
+        table.add_column("Reason", style="dim")
+        for mid, s in watches.items():
+            table.add_row(
+                s.title[:35] or mid[:12],
+                s.next_check_at[:16] if s.next_check_at else "-",
+                s.watch_reason or "-",
+            )
+        console.print(table)
+    else:
+        console.print("[dim]No auto-monitored watches.[/dim]")
+
+
+@scheduler_app.command(name="run")
+def run_scheduler_daemon(config_path: str = typer.Option(None, "--config", "-c")):
+    """Run the scheduler daemon (called by launchd, not user)."""
+    import logging
+    config = _resolve_config(config_path)
+    # Setup file logging
+    log_path = Path(config.archiving.db_file).parent / "scheduler.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[logging.FileHandler(str(log_path)), logging.StreamHandler()],
+    )
+    db = _open_db(config)
+    from scanner.watch_scheduler import run_daemon
+    run_daemon(db, config=config)
 
 
 # --- Helpers ---

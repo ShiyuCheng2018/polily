@@ -21,9 +21,11 @@ class MarketListView(Widget):
     """Market list with inline actions."""
 
     BINDINGS = [
-        Binding("y", "trade_yes", "买 YES", show=True),
-        Binding("n", "trade_no", "买 NO", show=True),
-        Binding("o", "open_link", "打开链接", show=True),
+        Binding("enter", "view_detail", "详情"),
+        Binding("y", "trade_yes", "买 YES"),
+        Binding("n", "trade_no", "买 NO"),
+        Binding("p", "quick_pass", "PASS"),
+        Binding("o", "open_link", "打开链接"),
     ]
 
     DEFAULT_CSS = """
@@ -58,7 +60,8 @@ class MarketListView(Widget):
         table.cursor_type = "row"
         from scanner.scoring import compute_three_scores
         table.add_columns("市场", "质量", "价值", "动作", "YES", "结算", "类型")
-        for c in self.candidates:
+        seen_ids: set[str] = set()
+        for idx, c in enumerate(self.candidates):
             m = c.market
             n = c.narrative
             days = f"{m.days_to_resolution:.1f}天" if m.days_to_resolution else "?"
@@ -90,8 +93,9 @@ class MarketListView(Widget):
                 f"{m.yes_price:.2f}" if m.yes_price else "?",
                 days,
                 m.market_type or "other",
-                key=m.market_id,
+                key=m.market_id if m.market_id not in seen_ids else f"{m.market_id}_{idx}",
             )
+            seen_ids.add(m.market_id)
 
     def _get_selected(self) -> ScoredCandidate | None:
         if not self.candidates:
@@ -146,6 +150,29 @@ class MarketListView(Widget):
             self._pending_trade = (m.market_id, side)
             title_short = m.title[:30]
             self.notify(f"再按一次 {side[0]} 确认: {side.upper()} {title_short} @ {price:.2f}")
+
+    def action_quick_pass(self) -> None:
+        c = self._get_selected()
+        if not c:
+            return
+        from datetime import UTC, datetime
+        from scanner.market_state import MarketState, get_market_state, set_market_state
+        mid = c.market.market_id
+        state = get_market_state(mid, self.service.db)
+        if state is None:
+            state = MarketState(status="pass", title=c.market.title)
+        state.status = "pass"
+        state.updated_at = datetime.now(UTC).isoformat()
+        state.auto_monitor = False
+        state.next_check_at = None
+        set_market_state(mid, state, self.service.db)
+        self.notify(f"PASS: {c.market.title[:30]}")
+        self.screen.refresh_sidebar_counts()
+
+    def action_view_detail(self) -> None:
+        c = self._get_selected()
+        if c:
+            self.post_message(ViewDetailRequested(c))
 
     def action_open_link(self) -> None:
         c = self._get_selected()

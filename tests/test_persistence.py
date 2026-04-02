@@ -2,8 +2,10 @@
 
 import csv
 import tempfile
+from pathlib import Path
 
 from scanner.archive import find_entry_by_rank, load_latest_archive, save_scan_unified
+from scanner.db import PolilyDB
 from scanner.export import export_scans_csv, export_trades_csv
 from scanner.mispricing import MispricingResult
 from scanner.paper_trading import PaperTradingDB
@@ -68,22 +70,23 @@ class TestUnifiedScanArchive:
             assert entry["market_id"] == "m-high"
 
 
-# --- Schema migration ---
+# --- Schema ---
 
-class TestSchemaMigration:
-    def test_new_db_has_structure_score_column(self):
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            db = PaperTradingDB(f.name)
-            t = db.mark(market_id="m1", title="T", side="yes", entry_price=0.50, beauty_score=80)
-            # Should work with the column name (internal is still beauty_score)
-            assert t.beauty_score == 80
+class TestSchema:
+    def test_structure_score_column(self):
+        with tempfile.TemporaryDirectory() as d:
+            db = PolilyDB(Path(d) / "polily.db")
+            ptdb = PaperTradingDB(db)
+            t = ptdb.mark(market_id="m1", title="T", side="yes", entry_price=0.50, structure_score=80)
+            assert t.structure_score == 80
             db.close()
 
-    def test_new_db_has_scan_id_column(self):
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            db = PaperTradingDB(f.name)
-            t = db.mark(market_id="m1", title="T", side="yes", entry_price=0.50, scan_id="20260329_100000")
-            fetched = db.get(t.id)
+    def test_scan_id_column(self):
+        with tempfile.TemporaryDirectory() as d:
+            db = PolilyDB(Path(d) / "polily.db")
+            ptdb = PaperTradingDB(db)
+            t = ptdb.mark(market_id="m1", title="T", side="yes", entry_price=0.50, scan_id="20260329_100000")
+            fetched = ptdb.get(t.id)
             assert fetched.scan_id == "20260329_100000"
             db.close()
 
@@ -92,13 +95,14 @@ class TestSchemaMigration:
 
 class TestExportTradesCSV:
     def test_export_trades(self):
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            db = PaperTradingDB(f.name)
-            db.mark(market_id="m1", title="BTC 88K", side="yes", entry_price=0.42)
-            db.mark(market_id="m2", title="CPI 3.5%", side="no", entry_price=0.60)
+        with tempfile.TemporaryDirectory() as d:
+            db = PolilyDB(Path(d) / "polily.db")
+            ptdb = PaperTradingDB(db)
+            ptdb.mark(market_id="m1", title="BTC 88K", side="yes", entry_price=0.42)
+            ptdb.mark(market_id="m2", title="CPI 3.5%", side="no", entry_price=0.60)
 
             with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as out:
-                export_trades_csv(db, out.name)
+                export_trades_csv(ptdb, out.name)
 
             with open(out.name, encoding="utf-8-sig") as f2:
                 reader = csv.DictReader(f2)
@@ -110,10 +114,11 @@ class TestExportTradesCSV:
             db.close()
 
     def test_export_empty(self):
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            db = PaperTradingDB(f.name)
+        with tempfile.TemporaryDirectory() as d:
+            db = PolilyDB(Path(d) / "polily.db")
+            ptdb = PaperTradingDB(db)
             with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as out:
-                export_trades_csv(db, out.name)
+                export_trades_csv(ptdb, out.name)
             with open(out.name, encoding="utf-8-sig") as f2:
                 content = f2.read()
             assert "market_id" in content

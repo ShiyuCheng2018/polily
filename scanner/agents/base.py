@@ -153,6 +153,7 @@ class BaseAgent:
         args = [
             self.cli_command, "-p", prompt,
             "--output-format", "json",
+            "--bare",
             "--json-schema", json.dumps(self.json_schema),
             "--system-prompt", self.system_prompt,
             "--model", self.model,
@@ -204,32 +205,46 @@ class BaseAgent:
             raise
 
     def _parse_response(self, raw_output: str) -> dict:
-        """Parse JSON from claude CLI output. Handles multiple response formats."""
-        # Try 1: Parse as claude CLI JSON envelope ({"type":"result", "result":"..."})
-        try:
-            envelope = json.loads(raw_output)
-            if isinstance(envelope, dict):
-                # Check for structured_output first (if --json-schema worked)
-                if "structured_output" in envelope and envelope["structured_output"]:
-                    return envelope["structured_output"]
-                # Extract result text and parse JSON from it
-                result_text = envelope.get("result", "")
-                if isinstance(result_text, dict):
-                    return result_text
-                if isinstance(result_text, str):
-                    return self._extract_json_from_text(result_text)
-        except json.JSONDecodeError:
-            pass
+        """Parse JSON from claude CLI output. Handles multiple response formats.
 
-        # Try 2: Raw output might be JSON directly
+        Claude Code CLI v2.1+ with --output-format json returns a JSON array:
+          [{"type":"system","subtype":"init",...}, {"type":"assistant",...}, {"type":"result",...}]
+        Older versions returned a single JSON object:
+          {"type":"result","result":"..."}
+        """
+        # Try 1: Parse as JSON (array or object)
         try:
             parsed = json.loads(raw_output)
-            if isinstance(parsed, dict):
-                return parsed
+
+            # New format (CLI v2.1+): JSON array with multiple objects
+            if isinstance(parsed, list):
+                envelope = None
+                for item in reversed(parsed):  # result is typically the last element
+                    if isinstance(item, dict) and item.get("type") == "result":
+                        envelope = item
+                        break
+                if envelope is None:
+                    raise RuntimeError(
+                        f"No result object found in claude CLI array response ({len(parsed)} items)"
+                    )
+            elif isinstance(parsed, dict):
+                # Legacy single-object format
+                envelope = parsed
+            else:
+                raise RuntimeError(f"Unexpected JSON type from claude CLI: {type(parsed).__name__}")
+
+            # Extract structured output or result text from envelope
+            if "structured_output" in envelope and envelope["structured_output"]:
+                return envelope["structured_output"]
+            result_text = envelope.get("result", "")
+            if isinstance(result_text, dict):
+                return result_text
+            if isinstance(result_text, str):
+                return self._extract_json_from_text(result_text)
         except json.JSONDecodeError:
             pass
 
-        # Try 3: Extract JSON from text (might have markdown fences)
+        # Try 2: Extract JSON from raw text (might have markdown fences)
         return self._extract_json_from_text(raw_output)
 
     def _extract_json_from_text(self, text: str) -> dict:

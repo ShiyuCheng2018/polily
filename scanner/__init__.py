@@ -6,6 +6,7 @@ Public API for programmatic use (without CLI).
 __version__ = "0.1.0"
 
 from scanner.config import ScannerConfig, load_config
+from scanner.db import PolilyDB
 from scanner.filters import FilterResult, apply_hard_filters
 from scanner.mispricing import MispricingResult, detect_mispricing
 from scanner.models import BookLevel, Market
@@ -17,7 +18,7 @@ from scanner.tag_classifier import classify_from_tags
 
 __all__ = [
     # Core types
-    "Market", "BookLevel", "ScannerConfig", "load_config",
+    "Market", "BookLevel", "ScannerConfig", "load_config", "PolilyDB",
     # Pipeline
     "run_scan_pipeline", "ScoredCandidate", "TierResult",
     # Scoring

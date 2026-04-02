@@ -1,5 +1,6 @@
 """Smoke tests for TUI: startup, navigation, basic interactions."""
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,11 +17,14 @@ def _mock_service():
     """Create a ScanService with pre-loaded mock data."""
     service = ScanService.__new__(ScanService)
     service.config = MagicMock()
-    service.config.paper_trading.data_file = ":memory:"
     service.config.paper_trading.default_position_size_usd = 20
     service.config.paper_trading.assumed_round_trip_friction_pct = 0.04
-    service.config.archiving.scan_log_file = "/tmp/test_scan_logs.json"
-    service.config.archiving.scan_log_max_entries = 30
+    service.config.archiving.db_file = "/tmp/test_polily.db"
+    import tempfile
+    from scanner.db import PolilyDB
+    _tmp = tempfile.TemporaryDirectory()
+    service._tmp_dir = _tmp  # prevent GC cleanup during test
+    service.db = PolilyDB(Path(_tmp.name) / "polily.db")
     service.total_scanned = 100
     service.on_progress = None
     service._steps = []

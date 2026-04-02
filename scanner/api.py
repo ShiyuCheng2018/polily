@@ -192,6 +192,30 @@ class PolymarketClient:
 
         return all_events[:max_events]
 
+    async def fetch_single_market(self, market_id: str) -> Market | None:
+        """Fetch a single market by condition_id from Gamma API."""
+        try:
+            response = await self._get(
+                f"{GAMMA_BASE}/markets",
+                params={"condition_id": market_id, "limit": 1},
+            )
+            data = response.json()
+            if not data:
+                return None
+            md = data[0] if isinstance(data, list) else data
+            from datetime import UTC, datetime
+            market = _parse_single_market(
+                md,
+                event_id=md.get("event_id"),
+                event_slug=md.get("event_slug"),
+                event_oi=None,
+                tags=[],
+                now=datetime.now(UTC),
+            )
+            return market
+        except Exception:
+            return None
+
     async def fetch_book(self, token_id: str) -> tuple[list[BookLevel], list[BookLevel]]:
         """Fetch order book for a token from CLOB API."""
         response = await self._get(

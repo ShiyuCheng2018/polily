@@ -70,6 +70,8 @@ class WatchCondition(BaseModel):
     better_entry: str = ""          # "YES <= 0.58"
     trigger_event: str = ""         # "BTC 与阈值距离扩大到 2% 以上"
     invalidation: str = ""          # "距结算 <12h 且价格未变"
+    next_check_at: str | None = None  # ISO 8601 datetime for next scheduled check
+    reason: str = ""                  # why this check time was chosen
 
 
 class PositionAdvice(BaseModel):
@@ -137,8 +139,15 @@ class NarrativeWriterOutput(BaseModel):
         if self.action in ("WATCH", "PASS"):
             if not self.why_not_now or len((self.why_not_now or "").strip()) < 10:
                 errors.append("action=WATCH/PASS requires substantive why_not_now")
-        if self.action == "WATCH" and not self.watch:
-            errors.append("action=WATCH requires watch condition")
+        if self.action == "WATCH":
+            if not self.watch:
+                errors.append("action=WATCH requires watch condition")
+            elif not self.watch.next_check_at:
+                errors.append("action=WATCH requires watch.next_check_at")
+        if self.action == "PASS" and self.watch is not None:
+            # Auto-clear: AI may still attach watch conditions to PASS (old training).
+            # Don't error — just strip them. The caller decides if this should be WATCH.
+            self.watch = None
         if not self.invalidation_findings:
             errors.append("invalidation_findings must have at least 1 entry")
         if not self.summary or len(self.summary.strip()) < 5:
