@@ -72,7 +72,7 @@ Single source of truth. All tiers saved with `"tier": "research"|"watchlist"|"fi
 
 ## Common Pitfalls
 
-- `claude -p --output-format json` returns `{"type":"result","result":"..."}`, NOT `{"structured_output":...}`. Parse `result` field and extract JSON from markdown fences.
+- `claude -p --output-format json` (CLI v2.1+) returns a **JSON array**: `[{"type":"system",...}, {"type":"assistant",...}, {"type":"result","result":"..."}]`. Find the `{"type":"result"}` element (last in array), then parse `result` field. Uses `--bare` to skip hooks/plugins overhead. Legacy single-object format `{"type":"result","result":"..."}` is also handled.
 - Pipeline's `_timed_status` uses threading for spinner — don't mix with direct UI updates in Textual TUI mode. Set `POLILY_TUI=1` env var to silence Rich console.
 - `run_worker(self._do_scan, thread=True)` — pass function reference (no parentheses), not coroutine. All UI updates from worker must use `call_from_thread`.
 - TUI exit uses `os._exit(0)` because `claude -p` spawns Node.js subprocesses that survive normal shutdown. This is a known limitation documented in README.
