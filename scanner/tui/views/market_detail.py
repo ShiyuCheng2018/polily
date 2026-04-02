@@ -193,7 +193,10 @@ class MarketDetailView(Widget):
         if state is None or state.status != "watch":
             return None
         parts = [f"  [yellow]WATCH #{state.watch_sequence}[/yellow]"]
-        parts.append(f"自动监控 [{'green]ON' if state.auto_monitor else 'dim]-'}[/{'green' if state.auto_monitor else 'dim'}]")
+        if state.auto_monitor:
+            parts.append("自动监控 [green]ON[/green]")
+        else:
+            parts.append("自动监控 [dim]-[/dim]")
         if state.next_check_at:
             parts.append(f"下次检查: {state.next_check_at[:16]}")
         return " | ".join(parts)
