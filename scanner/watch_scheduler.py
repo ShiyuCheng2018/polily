@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
 class WatchScheduler:
     """Schedule watch rechecks at exact next_check_at times."""
 
-    def __init__(self, db):
+    def __init__(self, db, config=None):
         self.db = db
+        self.config = config
         executors = {"default": ThreadPoolExecutor(1)}
         self.scheduler = BackgroundScheduler(
             executors=executors,
@@ -41,7 +42,7 @@ class WatchScheduler:
             run_date=run_at,
             id=market_id,
             replace_existing=True,
-            kwargs={"market_id": market_id, "db": self.db},
+            kwargs={"market_id": market_id, "db": self.db, "config": self.config},
         )
         logger.info("Scheduled recheck for %s at %s", market_id, run_at)
 
@@ -84,13 +85,21 @@ class WatchScheduler:
         return count
 
 
-def _execute_recheck(market_id: str, db) -> None:
+def _execute_recheck(market_id: str, db, config=None) -> None:
     """Job function called by APScheduler. Runs recheck and re-schedules if continuing watch."""
     from scanner.watch_recheck import recheck_market
 
     logger.info("Executing scheduled recheck for %s", market_id)
     try:
-        result = recheck_market(market_id, db=db, trigger_source="scheduled")
+        # Build a ScanService for full AI analysis
+        service = None
+        if config is not None:
+            from scanner.tui.service import ScanService
+            service = ScanService(config)
+            # Use the service's db to avoid opening a second connection
+            db = service.db
+
+        result = recheck_market(market_id, db=db, service=service, trigger_source="scheduled")
         logger.info("Recheck result for %s: %s", market_id, result.new_status)
     except Exception:
         logger.exception("Recheck failed for %s", market_id)
@@ -123,9 +132,9 @@ def generate_launchd_plist(working_dir: str, python_path: str | None = None) -> 
     return plistlib.dumps(plist, fmt=plistlib.FMT_XML)
 
 
-def run_daemon(db) -> None:
+def run_daemon(db, config=None) -> None:
     """Daemon entry point: start scheduler, restore jobs, block until SIGTERM."""
-    scheduler = WatchScheduler(db)
+    scheduler = WatchScheduler(db, config=config)
     scheduler.start()
     restored = scheduler.restore_from_db()
     logger.info("Daemon started with %d jobs", restored)

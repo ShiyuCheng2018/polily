@@ -596,10 +596,11 @@ def check_market(
 ):
     """Recheck a single WATCH market — fetch latest data + AI re-evaluation."""
     config = _resolve_config(config_path)
-    db = _open_db(config)
+    from scanner.tui.service import ScanService
     from scanner.watch_recheck import recheck_market
+    service = ScanService(config)
     try:
-        result = recheck_market(market_id, db=db, trigger_source="manual")
+        result = recheck_market(market_id, db=service.db, service=service, trigger_source="manual")
     except ValueError as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1) from e
@@ -616,7 +617,6 @@ def check_market(
         console.print(f"  Next check: {result.next_check_at[:16]}")
     if result.reason:
         console.print(f"  Reason: {result.reason}")
-    db.close()
 
 
 # --- Scheduler daemon commands ---
@@ -707,7 +707,7 @@ def run_scheduler_daemon(config_path: str = typer.Option(None, "--config", "-c")
     )
     db = _open_db(config)
     from scanner.watch_scheduler import run_daemon
-    run_daemon(db)
+    run_daemon(db, config=config)
 
 
 # --- Helpers ---
