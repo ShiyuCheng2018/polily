@@ -548,99 +548,44 @@ class ScanService:
 
     async def analyze_position(self, candidate: ScoredCandidate, entry_price: float,
                                 side: str, days_held: float):
-        """Run AI position analysis — HOLD/REDUCE/EXIT perspective."""
-        import json
-        from pathlib import Path
+        """Run position analysis — delegates to analyze_market.
 
-        from scanner.agents.base import BaseAgent
+        NarrativeWriter agent reads paper_trades from DB and naturally
+        adapts its analysis to include hold/reduce/exit advice.
+        Returns PositionAdvice extracted from the NarrativeWriterOutput.
+        """
         from scanner.agents.schemas import PositionAdvice
 
-        market = candidate.market
-        current_price = market.yes_price or 0
+        version = await self.analyze_market(
+            candidate.market.market_id,
+            candidate=candidate,
+            trigger_source="manual",
+        )
 
-        # PnL calculation
-        if side.lower() == "yes" and entry_price > 0:
-            pnl_pct = (current_price - entry_price) / entry_price
-        elif side.lower() == "no" and (1 - entry_price) > 0:
-            pnl_pct = (entry_price - current_price) / (1 - entry_price)
+        # Extract position advice from narrative output
+        n = version.narrative_output if isinstance(version.narrative_output, dict) else {}
+        action = n.get("action", "PASS")
+        summary = n.get("summary", "")
+
+        # Map NarrativeWriter action to position advice
+        if action in ("BUY_YES", "BUY_NO"):
+            advice = "hold"
+        elif action == "WATCH":
+            advice = "reduce"
         else:
-            pnl_pct = 0
+            advice = "exit"
 
-        # Build prompt — agent reads DB and searches web on its own
-        prompt_file = Path(__file__).parent.parent / "agents" / "prompts" / "position_advisor.md"
-        system_prompt = prompt_file.read_text() if prompt_file.exists() else "你是持仓管理顾问。"
-
-        data = {
-            "market_id": market.market_id,
-            "title": market.title,
-            "market_type": market.market_type,
-            "current_yes_price": current_price,
-            "days_to_resolution": market.days_to_resolution,
-            "entry_price": entry_price,
-            "side": side,
-            "days_held": round(days_held, 1),
-            "pnl_pct": f"{pnl_pct:+.1%}",
-            "spread_pct": market.spread_pct_yes,
-            "friction": market.round_trip_friction_pct,
-        }
-        prompt = f"""请对以下持仓做管理分析。
-
-指令文件: scanner/agents/prompts/position_advisor.md
-数据库: data/polily.db
-
-持仓数据:
-{json.dumps(data, default=str, ensure_ascii=False)}"""
-
-        # Log entry
-        log = create_log_entry()
-        log.type = "analyze"
-        log.market_id = market.market_id
-        log.market_title = market.title
-        self._steps = []
-        self._current_log = log
-        self._persist_log(log)
-
-        try:
-            self._step_start("AI 持仓分析")
-            agent = BaseAgent(
-                system_prompt=system_prompt,
-                json_schema=PositionAdvice.model_json_schema(),
-                model=self.config.ai.narrative_writer.model,
-                allowed_tools=["Read", "Bash", "Grep", "WebSearch", "StructuredOutput"],
-                fallback_fn=lambda _: PositionAdvice(
-                    advice="hold", reasoning="AI 超时，默认继续持有", risk_note="请手动评估",
-                ).model_dump(),
-            )
-            raw = await agent.invoke(prompt)
-            try:
-                result = PositionAdvice.model_validate(raw)
-            except Exception:
-                result = PositionAdvice(
-                    advice="hold",
-                    reasoning="AI 分析解析失败，默认继续持有",
-                    risk_note="请手动评估",
-                )
-            self._step_done("完成")
-
-            finish_log_entry(log, "completed", self._steps_to_records(), total_markets=1)
-            self._persist_log(log)
-            self._current_log = None
-            return result
-
-        except Exception as e:
-            finish_log_entry(log, "failed", self._steps_to_records(), error=str(e))
-            self._persist_log(log)
-            self._current_log = None
-            # Rule-based fallback
-            from scanner.position_phase import compute_position_phase
-            phase = compute_position_phase(entry_price, current_price, side, days_held,
-                                           market.days_to_resolution)
-            advice = "exit" if phase in ("high_risk", "invalidated") else "hold" if phase != "take_profit" else "reduce"
-            return PositionAdvice(
-                advice=advice,
-                reasoning=f"AI 分析失败，基于规则判断: {phase}",
-                risk_note=str(e)[:80],
-            )
+        return PositionAdvice(
+            advice=advice,
+            reasoning=summary,
+            thesis_intact=action in ("BUY_YES", "BUY_NO", "WATCH"),
+            thesis_note=n.get("why_now") or n.get("why_not_now") or "",
+            risk_note=n.get("risk_flags", [{}])[0].get("text", "") if n.get("risk_flags") else "",
+            research_findings=[
+                {"finding": f.get("finding", ""), "source": f.get("source", ""), "impact": f.get("impact", "")}
+                for f in n.get("supporting_findings", [])[:3]
+            ],
+        )
 
     # --- Real-time price fetch ---
 
