@@ -60,7 +60,8 @@ class MarketListView(Widget):
         table.cursor_type = "row"
         from scanner.scoring import compute_three_scores
         table.add_columns("市场", "质量", "价值", "动作", "YES", "结算", "类型")
-        for c in self.candidates:
+        seen_ids: set[str] = set()
+        for idx, c in enumerate(self.candidates):
             m = c.market
             n = c.narrative
             days = f"{m.days_to_resolution:.1f}天" if m.days_to_resolution else "?"
@@ -92,8 +93,9 @@ class MarketListView(Widget):
                 f"{m.yes_price:.2f}" if m.yes_price else "?",
                 days,
                 m.market_type or "other",
-                key=m.market_id,
+                key=m.market_id if m.market_id not in seen_ids else f"{m.market_id}_{idx}",
             )
+            seen_ids.add(m.market_id)
 
     def _get_selected(self) -> ScoredCandidate | None:
         if not self.candidates:
