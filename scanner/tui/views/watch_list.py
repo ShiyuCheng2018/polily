@@ -1,4 +1,4 @@
-"""WatchListView: actionable watch list with trigger conditions."""
+"""MonitorListView: shows all markets with auto_monitor enabled."""
 
 from textual.app import ComposeResult
 from textual.message import Message
@@ -7,64 +7,61 @@ from textual.widgets import DataTable, Static
 
 from scanner.market_state import MarketState
 
+_STATUS_LABELS = {
+    "buy_yes": "持YES",
+    "buy_no": "持NO",
+    "watch": "观察",
+}
 
-class ViewWatchDetail(Message):
-    """Request to view a watched market's detail."""
+
+class ViewMonitorDetail(Message):
+    """Request to view a monitored market's detail."""
     def __init__(self, market_id: str):
         super().__init__()
         self.market_id = market_id
 
 
-class WatchListView(Widget):
-    """Watch list with trigger conditions and better entry prices."""
+class MonitorListView(Widget):
+    """Monitor list showing all auto_monitor=1 markets regardless of status."""
 
     BINDINGS = [
         ("enter", "view_detail", "查看详情"),
     ]
 
     DEFAULT_CSS = """
-    WatchListView { height: 1fr; }
-    WatchListView #watch-title { padding: 1 0 0 0; text-style: bold; }
-    WatchListView .empty-msg { text-align: center; color: $text-muted; padding: 4; }
+    MonitorListView { height: 1fr; }
+    MonitorListView #monitor-title { padding: 1 0 0 0; text-style: bold; }
+    MonitorListView .empty-msg { text-align: center; color: $text-muted; padding: 4; }
     """
 
-    def __init__(self, watched: dict[str, MarketState]):
+    def __init__(self, monitored: dict[str, MarketState]):
         super().__init__()
-        # Sort: items with trigger conditions first, then by updated_at desc
-        def sort_key(item):
-            _mid, state = item
-            has_trigger = bool(state.wc_trigger_event)
-            return (has_trigger, state.updated_at)
-
-        sorted_items = sorted(watched.items(), key=sort_key, reverse=True)
-        self._watched = dict(sorted_items)
-        self._market_ids = list(self._watched.keys())
+        sorted_items = sorted(monitored.items(), key=lambda x: x[1].updated_at, reverse=True)
+        self._monitored = dict(sorted_items)
+        self._market_ids = list(self._monitored.keys())
 
     def compose(self) -> ComposeResult:
-        yield Static(f" 观察列表 ({len(self._watched)})", id="watch-title")
-        if not self._watched:
-            yield Static(" 观察列表为空。在市场详情页按 w 添加。", classes="empty-msg")
+        yield Static(f" 监控列表 ({len(self._monitored)})", id="monitor-title")
+        if not self._monitored:
+            yield Static(" 监控列表为空。在市场详情页按 m 开启自动监控。", classes="empty-msg")
         else:
-            yield DataTable(id="watch-table")
+            yield DataTable(id="monitor-table")
 
     def on_mount(self) -> None:
-        if not self._watched:
+        if not self._monitored:
             return
         try:
-            table = self.query_one("#watch-table", DataTable)
+            table = self.query_one("#monitor-table", DataTable)
         except Exception:
             return
         table.cursor_type = "row"
-        table.add_columns("市场", "原因", "下次检查", "触发条件", "#", "自动")
-        for mid, state in self._watched.items():
-            title = state.title[:30] if state.title else mid[:20]
-            reason = (state.wc_watch_reason or state.watch_reason or "-")[:25]
+        table.add_columns("状态", "市场", "下次检查")
+        for mid, state in self._monitored.items():
+            status_label = _STATUS_LABELS.get(state.status, state.status)
+            title = state.title[:35] if state.title else mid[:20]
             next_check = state.next_check_at[:16] if state.next_check_at else "-"
-            trigger = (state.wc_trigger_event or "-")[:20]
-            seq = str(state.watch_sequence)
-            auto = "ON" if state.auto_monitor else "-"
-            table.add_row(title, reason, next_check, trigger, seq, auto, key=mid)
+            table.add_row(status_label, title, next_check, key=mid)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.row_key and event.row_key.value:
-            self.post_message(ViewWatchDetail(event.row_key.value))
+            self.post_message(ViewMonitorDetail(event.row_key.value))

@@ -82,6 +82,7 @@ def render_candidate_json(candidate: ScoredCandidate) -> str:
         "is_binary": m.is_binary,
         "resolution_source": m.resolution_source,
         "clob_token_id_yes": m.clob_token_id_yes,
+        "condition_id": m.condition_id,
         "structure_score": s.total,
         "structure_score_breakdown": {
             "liquidity_structure": s.liquidity_structure,

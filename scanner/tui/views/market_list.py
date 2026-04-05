@@ -166,6 +166,8 @@ class MarketListView(Widget):
         state.auto_monitor = False
         state.next_check_at = None
         set_market_state(mid, state, self.service.db)
+        from scanner.auto_monitor import cleanup_closed_market
+        cleanup_closed_market(mid)
         self.notify(f"PASS: {c.market.title[:30]}")
         self.screen.refresh_sidebar_counts()
 

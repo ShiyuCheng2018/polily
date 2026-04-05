@@ -76,7 +76,6 @@ class MarketDetailView(Widget):
         Binding("left", "prev_version", show=False),
         Binding("right", "next_version", show=False),
         Binding("p", "mark_pass", "PASS"),
-        Binding("w", "mark_watch", "WATCH"),
         Binding("m", "toggle_auto_monitor", "自动监控"),
         Binding("y", "trade_yes", "买 YES"),
         Binding("n", "trade_no", "买 NO"),
@@ -129,6 +128,9 @@ class MarketDetailView(Widget):
                 pass
         return self.candidate.narrative
 
+    def on_mount(self) -> None:
+        self._live_timer = self.set_interval(5, self._update_live_price)
+
     def compose(self) -> ComposeResult:
         m = self.candidate.market
         s = self.candidate.score
@@ -141,11 +143,12 @@ class MarketDetailView(Widget):
             data_time = m.data_fetched_at.astimezone().strftime("%Y-%m-%d %H:%M:%S") if m.data_fetched_at else "?"
             yield Static(f" [bold]{m.title}[/bold]", classes="section-title")
             yield Static(f"  {m.market_type or 'other'} | 结算: {days_str} | [dim]数据: {data_time}[/dim]")
-            # Show WATCH status if market is being watched
-            watch_line = self._compose_watch_status(m.market_id)
-            if watch_line:
-                yield Static(watch_line)
+            # Show monitor status if auto_monitor is enabled
+            monitor_line = self._compose_monitor_status(m.market_id)
+            if monitor_line:
+                yield Static(monitor_line)
             yield from self._compose_three_scores(s)
+            yield from self._compose_live_price_bar(m.market_id)
 
             # === FIRST SCREEN: DECISION ZONE ===
             if self._analyzing:
@@ -182,24 +185,96 @@ class MarketDetailView(Widget):
             # Footer
             yield Static("")
             if self._versions:
-                yield Static("  [dim]Esc 返回 | a 分析 | < > 版本 | p PASS | w WATCH | y YES | n NO | o 链接[/dim]")
+                yield Static("  [dim]Esc 返回 | a 分析 | < > 版本 | p PASS | m 监控 | y YES | n NO | o 链接[/dim]")
             else:
-                yield Static("  [dim]Esc 返回 | a AI分析 | p PASS | w WATCH | y YES | n NO | o 链接[/dim]")
+                yield Static("  [dim]Esc 返回 | a AI分析 | p PASS | m 监控 | y YES | n NO | o 链接[/dim]")
 
-    def _compose_watch_status(self, market_id: str) -> str | None:
-        """Return a WATCH status line if market is being watched, else None."""
+    def _compose_monitor_status(self, market_id: str) -> str | None:
+        """Return monitor status line if auto_monitor is enabled."""
         from scanner.market_state import get_market_state
         state = get_market_state(market_id, self.service.db)
-        if state is None or state.status != "watch":
+        if state is None:
             return None
-        parts = [f"  [yellow]WATCH #{state.watch_sequence}[/yellow]"]
         if state.auto_monitor:
-            parts.append("自动监控 [green]ON[/green]")
+            return "  [green]●[/green] 自动监控 [green]ON[/green]"
+        return None
+
+    def _compose_live_price_bar(self, market_id: str) -> ComposeResult:
+        """Show live price from movement_log. Updated by timer."""
+        yield Static("", id="live-price-bar", classes="detail-row")
+        yield Static("", id="live-price-warning", classes="detail-row")
+        # Initial render
+        self._update_live_price()
+
+    def _format_live_price(self) -> tuple[str, str]:
+        """Build live price bar text and warning text from DB."""
+        from scanner.movement_store import get_price_status
+        from scanner.market_state import get_market_state
+
+        mid = self.candidate.market.market_id
+        state = get_market_state(mid, self.service.db)
+        watch_price = state.price_at_watch if state else None
+        status = get_price_status(mid, self.service.db, watch_price=watch_price)
+        if status is None:
+            return "", ""
+
+        yes = status["current_price"]
+        no = round(1 - yes, 3) if yes else 0
+        change = status["change_pct"]
+        mag = status["magnitude"]
+        qual = status["quality"]
+        label = status["label"]
+        updated = status["updated_at"][:16] if status.get("updated_at") else "?"
+
+        if change > 0:
+            change_str = f"[green]+{change:.1f}%[/green]"
+        elif change < 0:
+            change_str = f"[red]{change:.1f}%[/red]"
         else:
-            parts.append("自动监控 [dim]-[/dim]")
-        if state.next_check_at:
-            parts.append(f"下次检查: {state.next_check_at[:16]}")
-        return " | ".join(parts)
+            change_str = "0.0%"
+
+        # NO change is inverse
+        no_change = -change
+        if no_change > 0:
+            no_change_str = f"[green]+{no_change:.1f}%[/green]"
+        elif no_change < 0:
+            no_change_str = f"[red]{no_change:.1f}%[/red]"
+        else:
+            no_change_str = "0.0%"
+
+        label_colors = {
+            "consensus": "green", "whale_move": "yellow",
+            "slow_build": "cyan", "noise": "dim",
+        }
+        lc = label_colors.get(label, "dim")
+
+        bar = (
+            f"  [bold]实时[/bold] YES {yes:.3f} ({change_str})"
+            f" | NO {no:.3f} ({no_change_str})"
+            f" | M={mag:.0f} Q={qual:.0f} [{lc}]{label}[/{lc}]"
+            f" | [dim]{updated}[/dim]"
+        )
+
+        # Divergence warning
+        warning = ""
+        analysis_price = self.candidate.market.yes_price
+        if analysis_price and analysis_price > 0:
+            divergence_pct = (yes - analysis_price) / analysis_price * 100
+            if abs(divergence_pct) >= 5.0:
+                warning = f"  [yellow]⚠ 价格已偏离分析时 ({analysis_price:.2f}) {abs(divergence_pct):.1f}%，建议按 a 重新分析[/yellow]"
+
+        return bar, warning
+
+    def _update_live_price(self) -> None:
+        """Refresh the live price bar widget."""
+        try:
+            bar_widget = self.query_one("#live-price-bar", Static)
+            warn_widget = self.query_one("#live-price-warning", Static)
+        except Exception:
+            return
+        bar, warning = self._format_live_price()
+        bar_widget.update(bar)
+        warn_widget.update(warning)
 
     def _compose_conclusion_card(self, n) -> ComposeResult:
         """Decision conclusion card — the most important thing on screen."""
@@ -249,6 +324,14 @@ class MarketDetailView(Widget):
         next_step = getattr(n, "next_step", "")
         if next_step:
             yield Static(f"  下一步: {next_step}", classes="detail-row")
+
+        # Next check time from AI
+        next_check = getattr(n, "next_check_at", None)
+        next_reason = getattr(n, "next_check_reason", "")
+        if next_check:
+            check_display = next_check[:16] if len(next_check) > 16 else next_check
+            reason_str = f" | {next_reason}" if next_reason else ""
+            yield Static(f"  下次检查: [cyan]{check_display}[/cyan]{reason_str}", classes="detail-row")
 
         # Version selector
         if self._versions:
@@ -541,8 +624,6 @@ class MarketDetailView(Widget):
                 state = MarketState(status=status, title=m.title)
             state.status = status
             state.updated_at = datetime.now(UTC).isoformat()
-            state.auto_monitor = False
-            state.next_check_at = None
             set_market_state(m.market_id, state, self.service.db)
             self.notify(f"Paper trade: {side.upper()} @ {price:.2f} -> {trade_id}")
             self._pending_trade = None
@@ -567,58 +648,54 @@ class MarketDetailView(Widget):
         state.next_check_at = None
         state.watch_reason = None
         set_market_state(mid, state, self.service.db)
+        from scanner.auto_monitor import cleanup_closed_market
+        cleanup_closed_market(mid)
         self.notify(f"PASS: {self.candidate.market.title[:30]}")
         self.screen.refresh_sidebar_counts()
 
-    def action_mark_watch(self) -> None:
-        """Add to watch list — use AI watch conditions if available, otherwise manual watch."""
+    def action_toggle_auto_monitor(self) -> None:
+        """Toggle auto_monitor — creates market_states entry if needed."""
         from datetime import datetime
-
         from scanner.market_state import MarketState, get_market_state, set_market_state
+        from scanner.auto_monitor import toggle_auto_monitor
+
         mid = self.candidate.market.market_id
-        n = self._current_narrative()
-        watch_cond = getattr(n, "watch", None) if n else None
-
-        # Build state — with or without AI conditions
+        m = self.candidate.market
         state = get_market_state(mid, self.service.db)
-        if state is None:
-            state = MarketState(status="watch", title=self.candidate.market.title)
-        state.status = "watch"
-        state.updated_at = datetime.now(UTC).isoformat()
-        state.price_at_watch = self.candidate.market.yes_price
-        state.resolution_time = (self.candidate.market.resolution_time.isoformat()
-                                 if self.candidate.market.resolution_time else None)
-        if watch_cond:
-            state.wc_watch_reason = watch_cond.watch_reason
-            state.wc_better_entry = watch_cond.better_entry
-            state.wc_trigger_event = watch_cond.trigger_event
-            state.wc_invalidation = watch_cond.invalidation
-            state.next_check_at = getattr(watch_cond, "next_check_at", None)
-            state.watch_reason = getattr(watch_cond, "reason", None)
-        else:
-            # Manual watch — use recheck_conditions from narrative if available
-            recheck = getattr(n, "recheck_conditions", []) if n else []
-            state.wc_watch_reason = "; ".join(recheck) if recheck else "手动观察"
 
-        set_market_state(mid, state, self.service.db)
-        self.notify(f"WATCH: {self.candidate.market.title[:30]}")
+        if state is not None and state.status in ("closed", "pass"):
+            self.notify("已关闭或已放弃的市场无法开启监控", severity="warning")
+            return
+
+        # First time: create market_states entry
+        if state is None:
+            n = self._current_narrative()
+            state = MarketState(
+                status="watch", title=m.title,
+                updated_at=datetime.now(UTC).isoformat(),
+                price_at_watch=m.yes_price,
+                market_type=getattr(m, "market_type", None),
+                clob_token_id_yes=getattr(m, "clob_token_id_yes", None),
+                condition_id=getattr(m, "condition_id", None),
+                resolution_time=m.resolution_time.isoformat() if m.resolution_time else None,
+                next_check_at=getattr(n, "next_check_at", None) if n else None,
+            )
+            set_market_state(mid, state, self.service.db)
+
+        new_value = not state.auto_monitor
+        toggle_auto_monitor(mid, enable=new_value, db=self.service.db, config=self.service.config)
+        label = "ON" if new_value else "OFF"
+        self.notify(f"自动监控 [{label}]: {self.candidate.market.title[:30]}")
         self.screen.refresh_sidebar_counts()
 
-    def action_toggle_auto_monitor(self) -> None:
-        """Toggle auto_monitor for this market's WATCH state."""
-        from datetime import datetime
-
-        from scanner.market_state import get_market_state, set_market_state
-        mid = self.candidate.market.market_id
-        state = get_market_state(mid, self.service.db)
-        if state is None or state.status != "watch":
-            self.notify("需要先标记为 WATCH", severity="warning")
-            return
-        state.auto_monitor = not state.auto_monitor
-        state.updated_at = datetime.now(UTC).isoformat()
-        set_market_state(mid, state, self.service.db)
-        label = "ON" if state.auto_monitor else "OFF"
-        self.notify(f"自动监控 [{label}]: {self.candidate.market.title[:30]}")
+        # Auto-start daemon when enabling monitoring
+        if new_value:
+            try:
+                from scanner.watch_scheduler import ensure_daemon_running
+                if ensure_daemon_running():
+                    self.notify("后台监控 daemon 已自动启动")
+            except Exception:
+                pass
 
 
 
