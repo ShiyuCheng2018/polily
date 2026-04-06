@@ -2,6 +2,7 @@
 
 import logging
 import math
+import os
 import re
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,12 @@ class BinancePriceFeed:
     async def _get_exchange(self):
         if self._exchange is None:
             import ccxt.async_support as ccxt
-            self._exchange = ccxt.binance({"enableRateLimit": True})
+            config = {"enableRateLimit": True}
+            # Support proxy via HTTPS_PROXY or POLILY_PROXY env var
+            proxy = os.environ.get("POLILY_PROXY") or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+            if proxy:
+                config["proxies"] = {"http": proxy, "https": proxy}
+            self._exchange = ccxt.binance(config)
         return self._exchange
 
     async def get_current_price(self, symbol: str) -> float | None:
@@ -91,6 +97,17 @@ class BinancePriceFeed:
             return [candle[4] for candle in ohlcv]  # index 4 = close
         except Exception as e:
             logger.warning("Failed to fetch OHLCV for %s: %s", symbol, e)
+            return []
+
+    async def get_short_term_prices(self, symbol: str, timeframe: str = "1h",
+                                     limit: int = 24) -> list[float]:
+        """Fetch short-term close prices (e.g., hourly) for signal calculation."""
+        try:
+            exchange = await self._get_exchange()
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            return [candle[4] for candle in ohlcv]  # index 4 = close
+        except Exception as e:
+            logger.warning("Failed to fetch %s OHLCV for %s: %s", timeframe, symbol, e)
             return []
 
     async def get_crypto_params(self, market_title: str, vol_days: int = 30) -> dict | None:

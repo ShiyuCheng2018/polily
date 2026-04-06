@@ -21,9 +21,11 @@ class MarketListView(Widget):
     """Market list with inline actions."""
 
     BINDINGS = [
-        Binding("y", "trade_yes", "买 YES", show=True),
-        Binding("n", "trade_no", "买 NO", show=True),
-        Binding("o", "open_link", "打开链接", show=True),
+        Binding("enter", "view_detail", "详情"),
+        Binding("y", "trade_yes", "买 YES"),
+        Binding("n", "trade_no", "买 NO"),
+        Binding("p", "quick_pass", "PASS"),
+        Binding("o", "open_link", "打开链接"),
     ]
 
     DEFAULT_CSS = """
@@ -34,7 +36,13 @@ class MarketListView(Widget):
 
     def __init__(self, candidates: list[ScoredCandidate], service: ScanService, title: str = "市场"):
         super().__init__()
-        self.candidates = candidates
+        # Sort by value score descending
+        from scanner.scoring import compute_three_scores
+        self.candidates = sorted(
+            candidates,
+            key=lambda c: compute_three_scores(c.score, c.mispricing, c.market).get("value", 0),
+            reverse=True,
+        )
         self.service = service
         self._title = title
 
@@ -50,24 +58,46 @@ class MarketListView(Widget):
             return
         table = self.query_one("#market-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("市场", "YES", "结构分", "结算", "价差", "摩擦", "AI")
-        for c in self.candidates:
+        from scanner.scoring import compute_three_scores
+        table.add_columns("市场", "质量", "价值", "动作", "YES", "结算", "类型")
+        seen_ids: set[str] = set()
+        for idx, c in enumerate(self.candidates):
             m = c.market
-            days = f"{m.days_to_resolution:.1f}天" if m.days_to_resolution else "?"
-            spread = f"{m.spread_pct_yes:.1%}" if m.spread_pct_yes else "?"
-            friction = f"{m.round_trip_friction_pct:.1%}" if m.round_trip_friction_pct else "?"
-            title = m.title[:45] + "..." if len(m.title) > 45 else m.title
-            ai_tag = "v" if c.narrative else ""
+            n = c.narrative
+            from scanner.tui.utils import format_countdown
+            res_time = m.resolution_time.isoformat() if m.resolution_time else None
+            days = format_countdown(res_time)
+            title = m.title[:38] + "..." if len(m.title) > 38 else m.title
+
+            # Three scores
+            three = compute_three_scores(c.score, c.mispricing, m)
+            quality = f"{three['quality']:.0f}"
+            value = f"{three['value']:.0f}"
+
+            # Action from AI narrative (if analyzed)
+            action_map = {
+                "small_position_ok": "GO",
+                "worth_research": "RESEARCH",
+                "watch_only": "WATCH",
+                "avoid": "AVOID",
+                "BUY_YES": "BUY YES",
+                "BUY_NO": "BUY NO",
+                "PASS": "PASS",
+                "WATCH": "WATCH",
+            }
+            action = action_map.get(getattr(n, "action", ""), "-") if n else "-"
+
             table.add_row(
                 title,
+                quality,
+                value,
+                action,
                 f"{m.yes_price:.2f}" if m.yes_price else "?",
-                f"{c.score.total:.0f}",
                 days,
-                spread,
-                friction,
-                ai_tag,
-                key=m.market_id,
+                m.market_type or "other",
+                key=m.market_id if m.market_id not in seen_ids else f"{m.market_id}_{idx}",
             )
+            seen_ids.add(m.market_id)
 
     def _get_selected(self) -> ScoredCandidate | None:
         if not self.candidates:
@@ -122,6 +152,31 @@ class MarketListView(Widget):
             self._pending_trade = (m.market_id, side)
             title_short = m.title[:30]
             self.notify(f"再按一次 {side[0]} 确认: {side.upper()} {title_short} @ {price:.2f}")
+
+    def action_quick_pass(self) -> None:
+        c = self._get_selected()
+        if not c:
+            return
+        from datetime import UTC, datetime
+        from scanner.market_state import MarketState, get_market_state, set_market_state
+        mid = c.market.market_id
+        state = get_market_state(mid, self.service.db)
+        if state is None:
+            state = MarketState(status="pass", title=c.market.title)
+        state.status = "pass"
+        state.updated_at = datetime.now(UTC).isoformat()
+        state.auto_monitor = False
+        state.next_check_at = None
+        set_market_state(mid, state, self.service.db)
+        from scanner.auto_monitor import cleanup_closed_market
+        cleanup_closed_market(mid)
+        self.notify(f"PASS: {c.market.title[:30]}")
+        self.screen.refresh_sidebar_counts()
+
+    def action_view_detail(self) -> None:
+        c = self._get_selected()
+        if c:
+            self.post_message(ViewDetailRequested(c))
 
     def action_open_link(self) -> None:
         c = self._get_selected()

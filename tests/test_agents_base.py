@@ -140,6 +140,84 @@ class TestBaseAgentFallback:
                 await agent.invoke("test")
 
 
+class TestBaseAgentToolMode:
+    @pytest.mark.asyncio
+    async def test_tool_mode_passes_allowed_tools(self):
+        agent = BaseAgent(
+            system_prompt="test",
+            json_schema={"type": "object"},
+            model="sonnet",
+            allowed_tools=["Read", "Bash", "WebSearch", "StructuredOutput"],
+        )
+        stdout = make_cli_response({"ok": True})
+
+        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.communicate.return_value = (stdout, b"")
+            proc.returncode = 0
+            mock_exec.return_value = proc
+
+            await agent.invoke("test prompt")
+
+            args = mock_exec.call_args[0]
+            assert "--allowedTools" in args
+            tools_idx = list(args).index("--allowedTools") + 1
+            assert "Read" in args[tools_idx]
+            assert "Bash" in args[tools_idx]
+            assert "WebSearch" in args[tools_idx]
+            # Tool mode should NOT use --bare (needs file access)
+            assert "--bare" not in args
+
+    @pytest.mark.asyncio
+    async def test_legacy_mode_uses_bare(self):
+        agent = BaseAgent(
+            system_prompt="test",
+            json_schema={"type": "object"},
+            model="sonnet",
+        )
+        stdout = make_cli_response({"ok": True})
+
+        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.communicate.return_value = (stdout, b"")
+            proc.returncode = 0
+            mock_exec.return_value = proc
+
+            await agent.invoke("test prompt")
+
+            args = mock_exec.call_args[0]
+            assert "--bare" in args
+            assert "--allowedTools" not in args
+
+    @pytest.mark.asyncio
+    async def test_tool_mode_includes_system_prompt_in_user_prompt(self):
+        """In tool mode, system prompt is prepended to user prompt (no --system-prompt flag)."""
+        agent = BaseAgent(
+            system_prompt="You are a helpful assistant.",
+            json_schema={"type": "object"},
+            model="sonnet",
+            allowed_tools=["StructuredOutput"],
+        )
+        stdout = make_cli_response({"ok": True})
+
+        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.communicate.return_value = (stdout, b"")
+            proc.returncode = 0
+            mock_exec.return_value = proc
+
+            await agent.invoke("analyze this")
+
+            args = mock_exec.call_args[0]
+            # --system-prompt not used in tool mode
+            assert "--system-prompt" not in args
+            # User prompt should contain both system prompt and user message
+            prompt_idx = list(args).index("-p") + 1
+            prompt = args[prompt_idx]
+            assert "helpful assistant" in prompt
+            assert "analyze this" in prompt
+
+
 class TestBaseAgentBatch:
     @pytest.mark.asyncio
     async def test_invoke_batch_parallel(self):

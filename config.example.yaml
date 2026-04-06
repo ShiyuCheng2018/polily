@@ -139,31 +139,26 @@ heuristics:
 
 scoring:
   weights:
-    time_to_resolution: 15            # was 20, reduced: proximity alone ≠ edge
-    objectivity: 20                   # unchanged
-    probability_zone: 20              # was 15, increased: determines repricing room
-    liquidity_depth: 20               # was 15 "liquidity", increased: spread eats edge directly
-    exitability: 10                   # unchanged
-    catalyst_proxy: 5                 # was 10, reduced: keyword heuristic is unreliable
-    small_account_friendliness: 10    # unchanged
+    liquidity_structure: 30           # spread + log-scale depth + bid/ask balance
+    objective_verifiability: 25       # resolution source + rules + title analysis
+    probability_space: 20             # symmetric min(p, 1-p) linear
+    time_structure: 15                # sweet spot [1,5] days + catalyst proximity
+    trading_friction: 10              # pure friction 6-tier
 
   thresholds:
-    tier_a_min_score: 75
-    tier_b_min_score: 60
+    tier_a_min_score: 70
+    tier_b_min_score: 45
     # Tier A mode: set false so Tier A is score-only (always has content)
     # Set true to require mispricing signal (stricter, may be empty most days)
     tier_a_require_mispricing: false
-    # Probability penalty: "mid_bias" (prefer 0.30-0.70), "flat" (no penalty in range), "disabled"
-    probability_penalty_mode: "mid_bias"
 
 # Market type classification and type-specific scoring adjustments
 market_types:
-  # Note: scoring_overrides change individual weights. Code must re-normalize so weights sum to 100.
+  # Note: scoring_overrides are no longer used in the 5-dimension system.
+  # Market type config retained for mispricing_enabled and classification.
   crypto_threshold:
     keywords: ["btc", "eth", "bitcoin", "ethereum", "above", "below", "price"]
-    scoring_overrides:
-      catalyst_proxy: 2               # less useful for crypto (can compute fair value directly)
-      liquidity_depth: 22             # more important (bots dominate, need tight execution)
+    scoring_overrides: {}
     mispricing_enabled: true          # can compute theoretical fair value from vol model
   political:
     keywords: ["election", "president", "governor", "senate", "vote", "nominee", "party"]
@@ -171,8 +166,7 @@ market_types:
     mispricing_enabled: false         # no quantitative model available
   economic_data:
     keywords: ["cpi", "inflation", "rate cut", "fomc", "jobs", "gdp", "nonfarm", "earnings"]
-    scoring_overrides:
-      catalyst_proxy: 10              # economic calendar makes catalyst estimation reliable
+    scoring_overrides: {}
     mispricing_enabled: false         # consensus data too efficient for retail edge
     note: "Repricing happens instantly at data release — no exit window for repricing trades"
   sports:
@@ -192,30 +186,12 @@ ai:
   fallback_on_error: true                # auto-fallback to rules if CLI call fails
   cli_command: "claude"                  # path to claude CLI binary
 
-  market_analyst:                        # Agent 1: text analysis on ~50 filtered markets
+  narrative_writer:                      # Decision advisor — the only AI agent
     enabled: true
-    model: "haiku"                       # fast, cheap for structured extraction
-    max_concurrent: 3                    # max parallel CLI invocations
-    timeout_seconds: 60
-
-  narrative_writer:                      # Agent 2: narrative for Tier A + top Tier B
-    enabled: true
-    model: "sonnet"                      # needs synthesis and generation quality
-    max_candidates: 8                    # max markets to generate narratives for
-    timeout_seconds: 90
-
-  briefing_analyst:                      # Agent 3: daily briefing interpretation
-    enabled: true
-    model: "sonnet"
-    timeout_seconds: 60
-
-  cross_domain:                          # Agent 4: triggered only on calendar × market type cross
-    enabled: true
-    model: "sonnet"
-
-  review_analyst:                        # Agent 5: weekly paper trading review
-    enabled: true
-    model: "sonnet"
+    model: "sonnet"                      # needs synthesis, web search, generation quality
+    max_candidates: 8                    # max markets to generate analysis for
+    max_concurrent: 2                    # reduced from 3 (web search is heavier)
+    timeout_seconds: 300                 # 5 min — agent does web searches, needs time
 
 # Mispricing detection configuration
 mispricing:
@@ -337,3 +313,16 @@ watchlist:
     min_yes_price: 0.30
     max_yes_price: 0.70
   alert_on_mispricing_signal: "moderate"  # alert when mispricing signal reaches this level
+
+movement:
+  enabled: true
+  magnitude_threshold: 70
+  quality_threshold: 60
+  daily_analysis_limit: 10
+  rolling_window_hours: 6
+  poll_intervals:
+    crypto: 10
+    economic_data: 20
+    political: 60
+    sports: 15
+    default: 30

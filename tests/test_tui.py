@@ -1,5 +1,6 @@
 """Smoke tests for TUI: startup, navigation, basic interactions."""
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,11 +17,14 @@ def _mock_service():
     """Create a ScanService with pre-loaded mock data."""
     service = ScanService.__new__(ScanService)
     service.config = MagicMock()
-    service.config.paper_trading.data_file = ":memory:"
     service.config.paper_trading.default_position_size_usd = 20
     service.config.paper_trading.assumed_round_trip_friction_pct = 0.04
-    service.config.archiving.scan_log_file = "/tmp/test_scan_logs.json"
-    service.config.archiving.scan_log_max_entries = 30
+    service.config.archiving.db_file = "/tmp/test_polily.db"
+    import tempfile
+    from scanner.db import PolilyDB
+    _tmp = tempfile.TemporaryDirectory()
+    service._tmp_dir = _tmp  # prevent GC cleanup during test
+    service.db = PolilyDB(Path(_tmp.name) / "polily.db")
     service.total_scanned = 100
     service.on_progress = None
     service._steps = []
@@ -29,14 +33,14 @@ def _mock_service():
 
     c1 = ScoredCandidate(
         market=make_market(market_id="m1", title="BTC above $88K?", yes_price=0.55),
-        score=ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80),
+        score=ScoreBreakdown(20, 18, 16, 12, 8, total=74),
         mispricing=MispricingResult(signal="moderate", direction="underpriced",
                                      theoretical_fair_value=0.65, deviation_pct=0.10,
                                      details="模型估值 0.65, 市价 0.55"),
     )
     c2 = ScoredCandidate(
         market=make_market(market_id="m2", title="CPI exceed 3.5%?", yes_price=0.50),
-        score=ScoreBreakdown(10, 14, 14, 14, 6, 2, 7, total=67),
+        score=ScoreBreakdown(15, 14, 12, 10, 6, total=57),
         mispricing=MispricingResult(signal="none"),
     )
 

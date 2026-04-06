@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 TRADE_COLUMNS = [
     "id", "market_id", "title", "market_type", "side", "entry_price",
-    "beauty_score", "mispricing_signal", "scan_id",
+    "structure_score", "mispricing_signal", "scan_id",
     "status", "resolved_result", "paper_pnl", "friction_adjusted_pnl",
     "marked_at", "resolved_at", "position_size_usd",
 ]

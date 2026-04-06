@@ -95,8 +95,8 @@ class TestEnrichWithOrderbook:
             assert enriched[0].book_depth_bids is None
 
     @pytest.mark.asyncio
-    async def test_respects_top_n_limit(self):
-        """Only fetch books for top N markets."""
+    async def test_fetches_all_markets(self):
+        """Fetch books for all passed markets."""
         markets = [
             make_market(market_id=f"m{i}", clob_token_id_yes=f"tok-{i}", book_depth_bids=None, book_depth_asks=None)
             for i in range(10)
@@ -116,20 +116,18 @@ class TestEnrichWithOrderbook:
             MockClient.return_value = client_instance
 
             config = ScannerConfig()
-            config.scanner.orderbook_fetch_top_n = 3
             enriched = await enrich_with_orderbook(markets, config)
 
-            assert fetch_count == 3
-            # First 3 should have depth, rest should not
+            assert fetch_count == 10  # all markets fetched
             assert enriched[0].book_depth_bids is not None
-            assert enriched[3].book_depth_bids is None
+            assert enriched[9].book_depth_bids is not None
 
 
 class TestOrderBookIntegrationWithScoring:
     def test_market_with_depth_scores_higher_liquidity(self):
         """Market with real depth data should score higher on liquidity than one without."""
-        from scanner.config import FiltersConfig, ScoringWeights
-        from scanner.scoring import compute_beauty_score
+        from scanner.config import ScoringWeights
+        from scanner.scoring import compute_structure_score
 
         m_with_depth = make_market(
             best_bid_yes=0.54, best_ask_yes=0.56,
@@ -141,10 +139,10 @@ class TestOrderBookIntegrationWithScoring:
             book_depth_bids=None, book_depth_asks=None,
         )
 
-        s1 = compute_beauty_score(m_with_depth, ScoringWeights(), FiltersConfig())
-        s2 = compute_beauty_score(m_no_depth, ScoringWeights(), FiltersConfig())
+        s1 = compute_structure_score(m_with_depth, ScoringWeights())
+        s2 = compute_structure_score(m_no_depth, ScoringWeights())
 
-        assert s1.liquidity_depth > s2.liquidity_depth
+        assert s1.liquidity_structure > s2.liquidity_structure
 
     def test_depth_filter_rejects_shallow_book(self):
         """Market with very thin depth should be rejected by depth filter."""

@@ -106,21 +106,17 @@ class HeuristicsConfig(BaseModel):
 
 
 class ScoringWeights(BaseModel):
-    time_to_resolution: int = 15
-    objectivity: int = 20
-    probability_zone: int = 20
-    liquidity_depth: int = 20
-    exitability: int = 10
-    catalyst_proxy: int = 5
-    small_account_friendliness: int = 10
+    liquidity_structure: int = 30
+    objective_verifiability: int = 25
+    probability_space: int = 20
+    time_structure: int = 15
+    trading_friction: int = 10
 
 
 class ScoringThresholds(BaseModel):
-    tier_a_min_score: int = 75
-    tier_b_min_score: int = 60
+    tier_a_min_score: int = 70
+    tier_b_min_score: int = 45
     tier_a_require_mispricing: bool = False
-    # Probability penalty mode: "mid_bias" (default), "flat" (no penalty in 0.20-0.80), "disabled"
-    probability_penalty_mode: str = "mid_bias"
 
 
 class ScoringConfig(BaseModel):
@@ -147,11 +143,7 @@ class AiConfig(BaseModel):
     enabled: bool = True
     fallback_on_error: bool = True
     cli_command: str = "claude"
-    market_analyst: AgentConfig = AgentConfig(model="haiku", max_candidates=15)
-    narrative_writer: AgentConfig = AgentConfig(model="sonnet", max_candidates=8, timeout_seconds=90)
-    briefing_analyst: AgentConfig = AgentConfig(model="sonnet")
-    cross_domain: AgentConfig = AgentConfig(model="sonnet")
-    review_analyst: AgentConfig = AgentConfig(model="sonnet")
+    narrative_writer: AgentConfig = AgentConfig(model="sonnet", max_candidates=8, max_concurrent=2, timeout_seconds=300)
 
 
 class CryptoMispricingConfig(BaseModel):
@@ -215,7 +207,6 @@ class ReportingConfig(BaseModel):
     include_friction_estimate: bool = True
     include_counterparty_note: bool = True
     include_mispricing_signal: bool = True
-    include_research_checklist: bool = True
     include_worst_case_loss: bool = True
     include_net_edge_after_friction: bool = True
     include_discipline_status: bool = True
@@ -225,9 +216,7 @@ class ReportingConfig(BaseModel):
 class ArchivingConfig(BaseModel):
     enabled: bool = True
     archive_dir: str = "./data/scans"
-    scan_log_file: str = "./data/scan_logs.json"
-    scan_log_max_entries: int = 30
-    analyses_file: str = "./data/analyses.json"
+    db_file: str = "./data/polily.db"
     archive_all_passing: bool = True
 
 
@@ -239,6 +228,52 @@ class ExecutionHintsConfig(BaseModel):
     friction_floor_pct: float = 0.04
     # Conditional advice ("if you're bullish, this may have edge") — off by default, enable with --lean
     show_conditional_advice: bool = False
+
+
+class MovementWeights(BaseModel):
+    """Per-market-type signal weights for magnitude and quality."""
+    magnitude: dict[str, float] = {}
+    quality: dict[str, float] = {}
+
+
+class MovementConfig(BaseModel):
+    enabled: bool = True
+    magnitude_threshold: float = 70
+    quality_threshold: float = 60
+    daily_analysis_limit: int = 10  # max AI analyses per market per day
+    rolling_window_hours: int = 6   # baseline window for volume ratio
+    poll_intervals: dict[str, int] = {
+        "crypto": 10,           # 10s
+        "economic_data": 20,    # 20s
+        "political": 60,        # 60s
+        "sports": 15,           # 15s
+        "default": 30,          # 30s
+    }
+    # Note: open_interest_delta and correlated_asset_move removed —
+    # Polymarket CLOB API does not expose per-poll OI or correlated assets.
+    # Weights redistributed to computable signals (all groups sum to 1.0).
+    weights: dict[str, MovementWeights] = {
+        "crypto": MovementWeights(
+            magnitude={"price_z_score": 0.15, "book_imbalance": 0.10,
+                       "fair_value_divergence": 0.40, "underlying_z_score": 0.20, "cross_divergence": 0.15},
+            quality={"volume_ratio": 0.40, "trade_concentration": 0.35, "volume_price_confirmation": 0.25},
+        ),
+        "political": MovementWeights(
+            magnitude={"price_z_score": 0.35, "book_imbalance": 0.25,
+                       "sustained_drift": 0.40},
+            quality={"volume_ratio": 0.35, "trade_concentration": 0.40, "volume_price_confirmation": 0.25},
+        ),
+        "economic_data": MovementWeights(
+            magnitude={"price_z_score": 0.30, "book_imbalance": 0.15,
+                       "time_decay_adjusted_move": 0.55},
+            quality={"volume_ratio": 0.40, "trade_concentration": 0.30, "volume_price_confirmation": 0.30},
+        ),
+        "default": MovementWeights(
+            magnitude={"price_z_score": 0.45, "book_imbalance": 0.30,
+                       "volume_ratio": 0.25},
+            quality={"volume_ratio": 0.40, "trade_concentration": 0.35, "volume_price_confirmation": 0.25},
+        ),
+    }
 
 
 class ScannerConfig(BaseModel):
@@ -276,6 +311,7 @@ class ScannerConfig(BaseModel):
     reporting: ReportingConfig = ReportingConfig()
     archiving: ArchivingConfig = ArchivingConfig()
     execution_hints: ExecutionHintsConfig = ExecutionHintsConfig()
+    movement: MovementConfig = MovementConfig()
 
 
 def load_config(

@@ -1,6 +1,5 @@
 """Tests for paper trade auto-resolve via Polymarket API."""
 
-import tempfile
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -10,12 +9,8 @@ from scanner.paper_trading import PaperTradingDB
 
 
 @pytest.fixture
-def db():
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = f.name
-    store = PaperTradingDB(db_path)
-    yield store
-    store.close()
+def db(polily_db):
+    return PaperTradingDB(polily_db)
 
 
 class TestAutoResolve:

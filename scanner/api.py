@@ -8,12 +8,13 @@ import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from scanner.config import ApiConfig
-from scanner.models import BookLevel, Market
+from scanner.models import BookLevel, Market, Trade
 
 logger = logging.getLogger(__name__)
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 CLOB_BASE = "https://clob.polymarket.com"
+DATA_API_BASE = "https://data-api.polymarket.com"
 
 
 def _parse_iso(s: str | None) -> datetime | None:
@@ -99,6 +100,7 @@ def _parse_single_market(
         no_price=no_price,
         clob_token_id_yes=clob_token_id_yes,
         clob_token_id_no=clob_token_id_no,
+        condition_id=md.get("conditionId"),
         best_bid_yes=md.get("bestBid"),
         best_ask_yes=md.get("bestAsk"),
         spread_yes=md.get("spread"),
@@ -128,6 +130,26 @@ def parse_clob_book(book_data: dict) -> tuple[list[BookLevel], list[BookLevel]]:
     bids.sort(key=lambda x: x.price, reverse=True)
     asks.sort(key=lambda x: x.price)
     return bids, asks
+
+
+def parse_data_api_trades(raw_trades: list[dict]) -> list[Trade]:
+    """Parse Data API /trades response into Trade objects.
+
+    Data API fields: side, price, size, timestamp, outcome, proxyWallet, ...
+    """
+    trades = []
+    for t in raw_trades:
+        try:
+            trades.append(Trade(
+                id=t.get("transactionHash", ""),
+                price=float(t["price"]),
+                size=float(t["size"]),
+                side=t.get("side", ""),
+                timestamp=str(t.get("timestamp", "")),
+            ))
+        except (KeyError, ValueError):
+            continue
+    return trades
 
 
 class PolymarketClient:
@@ -192,6 +214,30 @@ class PolymarketClient:
 
         return all_events[:max_events]
 
+    async def fetch_single_market(self, market_id: str) -> Market | None:
+        """Fetch a single market by condition_id from Gamma API."""
+        try:
+            response = await self._get(
+                f"{GAMMA_BASE}/markets",
+                params={"condition_id": market_id, "limit": 1},
+            )
+            data = response.json()
+            if not data:
+                return None
+            md = data[0] if isinstance(data, list) else data
+            from datetime import UTC, datetime
+            market = _parse_single_market(
+                md,
+                event_id=md.get("event_id"),
+                event_slug=md.get("event_slug"),
+                event_oi=None,
+                tags=[],
+                now=datetime.now(UTC),
+            )
+            return market
+        except Exception:
+            return None
+
     async def fetch_book(self, token_id: str) -> tuple[list[BookLevel], list[BookLevel]]:
         """Fetch order book for a token from CLOB API."""
         response = await self._get(
@@ -199,6 +245,36 @@ class PolymarketClient:
             params={"token_id": token_id},
         )
         return parse_clob_book(response.json())
+
+    async def fetch_trades(self, condition_id: str, limit: int = 100) -> list[Trade]:
+        """Fetch recent public trades for a market from Data API.
+
+        Uses data-api.polymarket.com (public, no auth required).
+        Query by condition_id (not token_id).
+        """
+        if not condition_id:
+            return []
+        response = await self._get(
+            f"{DATA_API_BASE}/trades",
+            params={"market": condition_id, "limit": limit},
+        )
+        data = response.json()
+        if isinstance(data, list):
+            raw = data
+        elif isinstance(data, dict):
+            raw = data.get("data", [])
+        else:
+            return []
+        return parse_data_api_trades(raw)
+
+    async def fetch_price_history(self, token_id: str, interval: str = "1h", fidelity: int = 60) -> list[dict]:
+        """Fetch price history for a token from CLOB API."""
+        response = await self._get(
+            f"{CLOB_BASE}/prices-history",
+            params={"market": token_id, "interval": interval, "fidelity": fidelity},
+        )
+        data = response.json()
+        return data.get("history", []) if isinstance(data, dict) else data
 
     async def close(self):
         if self._client:

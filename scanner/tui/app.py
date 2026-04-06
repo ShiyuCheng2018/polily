@@ -23,7 +23,21 @@ class PolilyApp(App):
         self.service = ScanService()
 
     def on_mount(self) -> None:
+        self._ensure_daemon()
         self.push_screen(MainScreen(self.service))
+
+    def _ensure_daemon(self) -> None:
+        """Auto-start scheduler daemon if not running and there are auto-monitored markets."""
+        from scanner.market_state import get_auto_monitor_watches
+        watches = get_auto_monitor_watches(self.service.db)
+        if not watches:
+            return
+        try:
+            from scanner.watch_scheduler import ensure_daemon_running
+            if ensure_daemon_running():
+                self.notify("后台监控已自动启动")
+        except Exception:
+            pass  # non-fatal — daemon can be started manually
 
     async def action_quit(self) -> None:
         """Kill everything and exit immediately."""

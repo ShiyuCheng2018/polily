@@ -10,12 +10,11 @@ from contextlib import contextmanager
 from scanner.api import PolymarketClient
 from scanner.config import ScannerConfig
 from scanner.filters import apply_hard_filters
-from scanner.market_classifier import classify_market_type
-from scanner.mispricing import detect_mispricing
+from scanner.mispricing import MispricingResult, detect_mispricing
 from scanner.models import Market
 from scanner.orderbook import is_stale_book
 from scanner.reporting import ScoredCandidate, TierResult, classify_tiers
-from scanner.scoring import compute_beauty_score
+from scanner.scoring import compute_structure_score
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +76,10 @@ def run_scan_pipeline(
     _report("过滤市场", "start")
     with _timed_status(_console, "Filtering markets"):
         filter_result = apply_hard_filters(markets, config.filters, config.heuristics)
-    _report("过滤市场", "done", f"{len(filter_result.passed)} 通过")
+    total = len(markets)
+    passed_n = len(filter_result.passed)
+    rejected_n = len(filter_result.rejected)
+    _report("过滤市场", "done", f"{passed_n}/{total} 通过 ({rejected_n} 过滤)")
     logger.info(
         "Filters: %d passed, %d rejected out of %d",
         len(filter_result.passed), len(filter_result.rejected), len(markets),
@@ -85,86 +87,60 @@ def run_scan_pipeline(
 
     passed = filter_result.passed
 
-    # Two-pass: fetch order books for top candidates
+    # Fetch order books for all passed markets
     if config.scanner.two_pass_scan and passed:
-        top_n = config.scanner.orderbook_fetch_top_n
         _report("获取订单簿", "start")
         try:
-            with _timed_status(_console, f"Fetching order books (top {top_n})"):
+            with _timed_status(_console, f"Fetching order books ({len(passed)} markets)"):
                 passed = _run_async(enrich_with_orderbook(passed, config))
-            _report("获取订单簿", "done", f"前 {top_n} 个")
-            logger.info("Order books fetched for top %d markets", top_n)
+            _report("获取订单簿", "done", f"{len(passed)} 个市场")
+            logger.info("Order books fetched for %d markets", len(passed))
         except Exception as e:
             _report("获取订单簿", "fail")
             logger.warning("Order book fetch failed, continuing without depth data: %s", e)
 
-    # Phase 9: Market type classification (rule-based for all, AI for top N only)
+    # Market type classification from Polymarket tags
+    from scanner.tag_classifier import classify_from_tags
     for market in passed:
-        market.market_type = classify_market_type(market, config.market_types)
+        market.market_type = classify_from_tags(market.tags)
 
-    # Pre-score all markets with rules first (fast) to identify top candidates for AI
-    ai_enrichments = {}
-    if config.ai.enabled and config.ai.market_analyst.enabled and passed:
-        # Pre-score with rules to rank markets, then only AI-analyze top N.
-        # Note: pre-score lacks AI objectivity, so ranking may differ slightly
-        # from final score. This is an intentional tradeoff for 10x speed.
-        pre_scores = sorted(
-            ((compute_beauty_score(m, config.scoring.weights, config.filters).total, m) for m in passed),
-            key=lambda x: x[0], reverse=True,
-        )
-        ai_top_n = min(config.ai.market_analyst.max_candidates or 15, len(pre_scores))
-        ai_candidates = [m for _, m in pre_scores[:ai_top_n]]
-
-        _report(f"AI 分析 {ai_top_n} 个市场", "start")
-        try:
-            with _timed_status(_console, f"AI analyzing top {ai_top_n} markets"):
-                ai_enrichments = _run_async(_run_market_analyst(ai_candidates, config))
-            _report(f"AI 分析 {ai_top_n} 个市场", "done")
-        except Exception as e:
-            _report(f"AI 分析 {ai_top_n} 个市场", "fail")
-            _console.print(" [yellow]AI fallback to rules[/yellow]")
-            logger.warning("AI MarketAnalyst failed: %s", e)
-
-    # Apply AI enrichments where available
-    for market in passed:
-        enrichment = ai_enrichments.get(market.market_id)
-        if enrichment:
-            market.market_type = enrichment.market_type
-
-    # Fetch crypto prices for mispricing detection
-    crypto_params: dict[str, dict] = {}
+    # Fetch price data via data enrichment modules
+    from scanner.market_types.registry import find_matching_module
+    price_params: dict[str, dict] = {}
     if config.mispricing.enabled:
-        _report("获取加密货币价格", "start")
+        _report("获取实时价格 (Binance)", "start")
         try:
-            with _timed_status(_console, "Fetching crypto prices (Binance)"):
-                crypto_params = _run_async(_fetch_crypto_params_batch(passed, config))
-            _report("获取加密货币价格", "done")
+            with _timed_status(_console, "Fetching price data"):
+                price_params = _run_async(_fetch_price_params_batch(passed, config))
+            # Build detail: show assets and prices
+            price_details = []
+            for _mid, params in list(price_params.items())[:3]:
+                p = params.get("current_underlying_price")
+                if p:
+                    price_details.append(f"${p:,.0f}")
+            detail = f"{len(price_params)} 个 crypto" + (f" ({', '.join(price_details)})" if price_details else "")
+            _report("获取实时价格 (Binance)", "done", detail)
         except Exception as e:
-            _report("获取加密货币价格", "skip")
-            _console.print(" [dim]Crypto prices skipped[/dim]")
-            logger.warning("Crypto price fetch failed: %s", e)
+            _report("获取实时价格 (Binance)", "skip")
+            _console.print(" [dim]Price data skipped[/dim]")
+            logger.warning("Price data fetch failed: %s", e)
 
-    # Phase 6 + 6b: Score + Mispricing
-    _report("评分 + 定价分析", "start")
+    # Score + Mispricing (pure rules, no AI)
+    _report("评分 + 定价检测", "start")
     candidates: list[ScoredCandidate] = []
     for market in passed:
-        type_config = config.market_types.get(market.market_type or "")
-        overrides = type_config.scoring_overrides if type_config else None
-
-        enrichment = ai_enrichments.get(market.market_id)
-        ai_objectivity = enrichment.objectivity_score if enrichment else None
-
-        score = compute_beauty_score(
+        score = compute_structure_score(
             market,
             config.scoring.weights,
-            config.filters,
-            weight_overrides=overrides,
-            objectivity_score=ai_objectivity,
-            probability_penalty_mode=config.scoring.thresholds.probability_penalty_mode,
         )
 
-        mispricing_kwargs = crypto_params.get(market.market_id, {})
-        mispricing = detect_mispricing(market, config.mispricing, **mispricing_kwargs)
+        # Try enrichment module mispricing, fall through to generic
+        mkt_params = price_params.get(market.market_id, {})
+        enrichment_mod = find_matching_module(market)
+        if enrichment_mod and mkt_params:
+            mispricing = enrichment_mod.detect_mispricing(market, mkt_params, config) or MispricingResult(signal="none")
+        else:
+            mispricing = detect_mispricing(market, config.mispricing)
 
         candidates.append(ScoredCandidate(
             market=market,
@@ -174,29 +150,11 @@ def run_scan_pipeline(
 
     # Tier classification
     tiers = classify_tiers(candidates, config.scoring.thresholds)
-    _report("评分 + 定价分析", "done", f"{len(candidates)} 个市场")
+    research_n = len(tiers.tier_a)
+    watch_n = len(tiers.tier_b)
+    _report("评分 + 定价检测", "done", f"研{research_n} 观{watch_n} (共{len(candidates)})")
 
-    # Agent 2: Narrative generation for top candidates only (max 5)
-    if config.ai.enabled and config.ai.narrative_writer.enabled:
-        max_narratives = config.ai.narrative_writer.max_candidates or 8
-        top_candidates = (tiers.tier_a + tiers.tier_b)[:max_narratives]
-        if top_candidates:
-            # Build per-candidate context from previous analyses
-            narrative_contexts = _build_narrative_contexts(
-                top_candidates, config.archiving.analyses_file,
-            )
-            _report(f"AI 撰写叙述 ({len(top_candidates)} 个)", "start")
-            try:
-                with _timed_status(_console, f"AI writing narratives ({len(top_candidates)} candidates)"):
-                    narratives = _run_async(_run_narrative_writer(
-                        top_candidates, config, contexts=narrative_contexts,
-                    ))
-                _attach_narratives(tiers, narratives)
-                _report(f"AI 撰写叙述 ({len(top_candidates)} 个)", "done")
-            except Exception as e:
-                _report(f"AI 撰写叙述 ({len(top_candidates)} 个)", "fail")
-                _console.print(" [dim]Narratives skipped[/dim]")
-                logger.warning("AI NarrativeWriter failed: %s", e)
+    # AI analysis removed from scan pipeline — triggered on-demand via 'a' key
 
     logger.info(
         "Tiers: A=%d, B=%d, C=%d",
@@ -209,18 +167,14 @@ async def enrich_with_orderbook(
     markets: list[Market],
     config: ScannerConfig,
 ) -> list[Market]:
-    """Fetch order books for top N markets from CLOB API.
+    """Fetch order books for all passed markets from CLOB API.
 
-    Markets beyond top_n or with fetch failures keep their existing depth (usually None).
+    Markets with fetch failures keep their existing depth (usually None).
     Stale books (bid≈0, ask≈1) are flagged by clearing depth to None.
     """
-    top_n = config.scanner.orderbook_fetch_top_n
-    to_fetch = markets[:top_n]
-    rest = markets[top_n:]
-
     client = PolymarketClient(config.api)
     try:
-        for market in to_fetch:
+        for market in markets:
             try:
                 token_id = market.clob_token_id_yes
                 if not token_id:
@@ -239,31 +193,26 @@ async def enrich_with_orderbook(
     finally:
         await client.close()
 
-    return to_fetch + rest
+    return markets
 
 
-async def _fetch_crypto_params_batch(
+async def _fetch_price_params_batch(
     markets: list[Market], config: ScannerConfig,
 ) -> dict[str, dict]:
-    """Fetch Binance price + vol for crypto_threshold markets. Returns {market_id: params}."""
-    from scanner.price_feeds import BinancePriceFeed
+    """Fetch price params for markets via data enrichment modules."""
+    from scanner.market_types.registry import find_matching_module
 
-    feed = BinancePriceFeed()
     results = {}
-    try:
-        for market in markets:
-            if market.market_type != "crypto_threshold":
-                continue
-            params = await feed.get_crypto_params(
-                market.title,
-                vol_days=config.mispricing.crypto.volatility_lookback_days,
-            )
+    for market in markets:
+        enrichment = find_matching_module(market)
+        if enrichment is None:
+            continue
+        try:
+            params = await enrichment.fetch_price_params(market, config)
             if params:
                 results[market.market_id] = params
-    except Exception as e:
-        logger.warning("Crypto price fetch failed: %s", e)
-    finally:
-        await feed.close()
+        except Exception as e:
+            logger.warning("Price fetch failed for %s: %s", market.market_id, e)
     return results
 
 
@@ -278,56 +227,4 @@ def _run_async(coro):
         return asyncio.run(coro)
 
 
-async def _run_market_analyst(
-    markets: list[Market], config: ScannerConfig,
-) -> dict:
-    """Run Agent 1 (MarketAnalyst) on filtered markets."""
-    from scanner.agents.market_analyst import MarketAnalystAgent
-
-    agent = MarketAnalystAgent(config.ai.market_analyst, config.heuristics)
-    results = await agent.analyze_batch(markets)
-
-    return {r.market_id: r for r in results}
-
-
-def _build_narrative_contexts(
-    candidates: list[ScoredCandidate], analyses_file: str,
-) -> dict[str, str]:
-    """Build per-candidate context from previous analyses. Single file read."""
-    from scanner.analysis_store import AnalysisVersion, build_previous_context, load_analyses
-
-    all_data = load_analyses(analyses_file)
-    contexts = {}
-    for c in candidates:
-        raw_list = all_data.get(c.market.market_id, [])
-        if not raw_list:
-            continue
-        try:
-            existing = [AnalysisVersion.model_validate(v) for v in raw_list]
-        except Exception:
-            continue
-        ctx = build_previous_context(existing)
-        if ctx:
-            contexts[c.market.market_id] = ctx
-    return contexts
-
-
-async def _run_narrative_writer(
-    candidates: list[ScoredCandidate], config: ScannerConfig,
-    contexts: dict[str, str] | None = None,
-) -> dict:
-    """Run Agent 2 (NarrativeWriter) on top candidates."""
-    from scanner.agents.narrative_writer import NarrativeWriterAgent
-
-    agent = NarrativeWriterAgent(config.ai.narrative_writer)
-    results = await agent.generate_batch(candidates, contexts=contexts)
-
-    return {r.market_id: r for r in results}
-
-
-def _attach_narratives(tiers: TierResult, narratives: dict):
-    """Attach AI-generated narratives to candidates (stored as metadata)."""
-    for c in tiers.tier_a + tiers.tier_b:
-        narrative = narratives.get(c.market.market_id)
-        if narrative:
-            c.narrative = narrative
+    # AI functions removed — analysis is now on-demand via service.analyze_market()

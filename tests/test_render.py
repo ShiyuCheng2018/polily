@@ -13,9 +13,9 @@ def _make_candidate(**overrides) -> ScoredCandidate:
         market=make_market(**{k: v for k, v in overrides.items()
                               if k in ("title", "yes_price", "market_type", "market_id")}),
         score=ScoreBreakdown(
-            time_to_resolution=12, objectivity=16, probability_zone=16,
-            liquidity_depth=18, exitability=7, catalyst_proxy=3,
-            small_account_friendliness=8, total=overrides.get("total", 80),
+            liquidity_structure=20, objective_verifiability=18,
+            probability_space=16, time_structure=12,
+            trading_friction=8, total=overrides.get("total", 74),
         ),
         mispricing=MispricingResult(signal="none"),
     )
@@ -31,7 +31,7 @@ class TestRenderCandidateSimple:
         m = make_market(best_bid_yes=0.548, best_ask_yes=0.552)  # ~0.7% spread → ~1.5% round-trip
         c = ScoredCandidate(
             market=m,
-            score=ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80),
+            score=ScoreBreakdown(20, 18, 16, 12, 8, total=74),
             mispricing=MispricingResult(signal="none"),
         )
         output = render_candidate_simple(1, c)
@@ -41,7 +41,7 @@ class TestRenderCandidateSimple:
         m = make_market(best_bid_yes=0.40, best_ask_yes=0.60)
         c = ScoredCandidate(
             market=m,
-            score=ScoreBreakdown(12, 16, 16, 18, 7, 3, 8, total=80),
+            score=ScoreBreakdown(20, 18, 16, 12, 8, total=74),
             mispricing=MispricingResult(signal="none"),
         )
         output = render_candidate_simple(1, c)
@@ -52,16 +52,16 @@ class TestScoreExplanation:
     def test_high_liquidity_shows_reason(self):
         c = ScoredCandidate(
             market=make_market(),
-            score=ScoreBreakdown(12, 18, 18, 18, 7, 3, 8, total=84),
+            score=ScoreBreakdown(22, 20, 16, 12, 8, total=78),
             mispricing=MispricingResult(signal="none"),
         )
         output = render_candidate_simple(1, c)
-        assert "成本低" in output
+        assert "流动性好" in output
 
     def test_all_low_shows_fallback(self):
         c = ScoredCandidate(
             market=make_market(),
-            score=ScoreBreakdown(5, 8, 8, 8, 4, 2, 5, total=40),
+            score=ScoreBreakdown(5, 5, 5, 3, 2, total=20),
             mispricing=MispricingResult(signal="none"),
         )
         output = render_candidate_simple(1, c)
