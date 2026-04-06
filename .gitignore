@@ -50,3 +50,4 @@ data/*.db-wal
 data/*.log
 *.db-shm
 *.db-wal
+data/scheduler.pid
