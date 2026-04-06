@@ -315,30 +315,31 @@ class MarketDetailView(Widget):
 
     def _update_realtime_scores(self, status: dict) -> None:
         """Recalculate structure score + three scores from live data."""
-        from copy import copy
+
 
         from scanner.models import BookLevel
         from scanner.scoring import compute_structure_score, compute_three_scores
 
         m = self.candidate.market
-        # Create a shallow copy with live data overlaid
-        live = copy(m)
-        live.yes_price = status["current_price"]
-        live.no_price = round(1 - live.yes_price, 4) if live.yes_price else live.no_price
+        yes = status["current_price"]
+        sp = status.get("spread")
 
-        # Overlay orderbook depth from movement_log
+        # Compute best_bid/ask from spread for computed properties
+        best_bid = yes - sp / 2 if sp else m.best_bid_yes
+        best_ask = yes + sp / 2 if sp else m.best_ask_yes
+
         bid_d = status.get("bid_depth", 0)
         ask_d = status.get("ask_depth", 0)
-        if bid_d > 0:
-            live.book_depth_bids = [BookLevel(price=1.0, size=bid_d)]
-        if ask_d > 0:
-            live.book_depth_asks = [BookLevel(price=1.0, size=ask_d)]
 
-        # Overlay spread
-        sp = status.get("spread")
-        if sp is not None:
-            live.spread_pct_yes = sp
-            live.round_trip_friction_pct = sp * 2
+        # Build a fresh Market with live data (avoids computed property setter issues)
+        live = m.model_copy(update={
+            "yes_price": yes,
+            "no_price": round(1 - yes, 4) if yes else m.no_price,
+            "best_bid_yes": best_bid,
+            "best_ask_yes": best_ask,
+            "book_depth_bids": [BookLevel(price=1.0, size=bid_d)] if bid_d > 0 else m.book_depth_bids,
+            "book_depth_asks": [BookLevel(price=1.0, size=ask_d)] if ask_d > 0 else m.book_depth_asks,
+        })
 
         try:
             score = compute_structure_score(live, self.service.config.scoring.weights)
