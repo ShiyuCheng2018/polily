@@ -265,8 +265,8 @@ class MarketDetailView(Widget):
 
     def _update_kpi(self) -> None:
         """Timer callback: refresh KPI cards from movement_log."""
-        from scanner.movement_store import get_price_status
         from scanner.market_state import get_market_state
+        from scanner.movement_store import get_price_status
 
         mid = self.candidate.market.market_id
         state = get_market_state(mid, self.service.db)
@@ -315,29 +315,31 @@ class MarketDetailView(Widget):
 
     def _update_realtime_scores(self, status: dict) -> None:
         """Recalculate structure score + three scores from live data."""
-        from copy import copy
-        from scanner.scoring import compute_structure_score, compute_three_scores
+
+
         from scanner.models import BookLevel
+        from scanner.scoring import compute_structure_score, compute_three_scores
 
         m = self.candidate.market
-        # Create a shallow copy with live data overlaid
-        live = copy(m)
-        live.yes_price = status["current_price"]
-        live.no_price = round(1 - live.yes_price, 4) if live.yes_price else live.no_price
+        yes = status["current_price"]
+        sp = status.get("spread")
 
-        # Overlay orderbook depth from movement_log
+        # Compute best_bid/ask from spread for computed properties
+        best_bid = yes - sp / 2 if sp else m.best_bid_yes
+        best_ask = yes + sp / 2 if sp else m.best_ask_yes
+
         bid_d = status.get("bid_depth", 0)
         ask_d = status.get("ask_depth", 0)
-        if bid_d > 0:
-            live.book_depth_bids = [BookLevel(price=1.0, size=bid_d)]
-        if ask_d > 0:
-            live.book_depth_asks = [BookLevel(price=1.0, size=ask_d)]
 
-        # Overlay spread
-        sp = status.get("spread")
-        if sp is not None:
-            live.spread_pct_yes = sp
-            live.round_trip_friction_pct = sp * 2
+        # Build a fresh Market with live data (avoids computed property setter issues)
+        live = m.model_copy(update={
+            "yes_price": yes,
+            "no_price": round(1 - yes, 4) if yes else m.no_price,
+            "best_bid_yes": best_bid,
+            "best_ask_yes": best_ask,
+            "book_depth_bids": [BookLevel(price=1.0, size=bid_d)] if bid_d > 0 else m.book_depth_bids,
+            "book_depth_asks": [BookLevel(price=1.0, size=ask_d)] if ask_d > 0 else m.book_depth_asks,
+        })
 
         try:
             score = compute_structure_score(live, self.service.config.scoring.weights)
@@ -358,20 +360,18 @@ class MarketDetailView(Widget):
             ]:
                 pct = int(val / mx * 100) if mx > 0 else 0
                 parts.append(f"{name}:{pct}%")
-            try:
+            import contextlib
+            with contextlib.suppress(Exception):
                 self.query_one("#score-bar", Static).update(
                     f" {' | '.join(parts)} | [bold]总分:{score.total:.0f}[/bold]"
                 )
-            except Exception:
-                pass
         except Exception:
             pass
 
     def _set_card(self, card_id: str, content: str) -> None:
-        try:
+        import contextlib
+        with contextlib.suppress(Exception):
             self.query_one(f"#{card_id}", MetricCard).update(content)
-        except Exception:
-            pass
 
     # ===================== DECISION ZONE =====================
 
@@ -469,7 +469,7 @@ class MarketDetailView(Widget):
             friction_cost = pos * friction_pct
             profit = (pos / m.yes_price) * 1.0 - pos
             net_profit = profit - friction_cost
-            yield Static(f"$20 投入:", classes="panel-row")
+            yield Static("$20 投入:", classes="panel-row")
             yield Static(f"  最坏 -${pos:.0f} | 摩擦 -${friction_cost:.2f} ({friction_pct:.1%})", classes="panel-row")
             yield Static(f"  判断对 +${net_profit:.2f}", classes="panel-row")
 
@@ -696,9 +696,10 @@ class MarketDetailView(Widget):
         status = "buy_yes" if side == "yes" else "buy_no"
 
         if self._pending_trade and self._pending_trade == (m.market_id, side):
-            from scanner.paper_trading import mark_paper_trade
             from datetime import datetime
+
             from scanner.market_state import MarketState, get_market_state, set_market_state
+            from scanner.paper_trading import mark_paper_trade
 
             trade_id = mark_paper_trade(
                 db=self.service.db, market_id=m.market_id, title=m.title,
@@ -723,6 +724,7 @@ class MarketDetailView(Widget):
 
     def action_mark_pass(self) -> None:
         from datetime import datetime
+
         from scanner.market_state import MarketState, get_market_state, set_market_state
 
         mid = self.candidate.market.market_id
@@ -742,8 +744,9 @@ class MarketDetailView(Widget):
 
     def action_toggle_auto_monitor(self) -> None:
         from datetime import datetime
-        from scanner.market_state import MarketState, get_market_state, set_market_state
+
         from scanner.auto_monitor import toggle_auto_monitor
+        from scanner.market_state import MarketState, get_market_state, set_market_state
 
         mid = self.candidate.market.market_id
         m = self.candidate.market

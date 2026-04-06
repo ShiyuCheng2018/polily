@@ -30,7 +30,7 @@ def test_db_context_manager():
 def test_db_creates_parent_dirs():
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "nested" / "dir" / "polily.db"
-        with PolilyDB(db_path) as db:
+        with PolilyDB(db_path):
             assert db_path.exists()
 
 

@@ -509,7 +509,7 @@ def pass_market(
 
     config = _resolve_config(config_path)
     with _open_db(config) as db:
-        from scanner.market_state import MarketState, get_market_state, set_market_state
+        from scanner.market_state import get_market_state, set_market_state
         state = get_market_state(market_id, db)
         if state is None:
             console.print(f"[red]Market {market_id} not found.[/red]")
@@ -588,13 +588,11 @@ def check_market(
 scheduler_app = typer.Typer(help="Manage the background watch scheduler daemon")
 app.add_typer(scheduler_app, name="scheduler")
 
-from scanner.watch_scheduler import PLIST_PATH
-
 
 @scheduler_app.command()
 def start(config_path: str = typer.Option(None, "--config", "-c")):
     """Start the scheduler daemon via launchd."""
-    from scanner.watch_scheduler import ensure_daemon_running
+    from scanner.watch_scheduler import PLIST_PATH, ensure_daemon_running
     _resolve_config(config_path)  # validate config
     started = ensure_daemon_running()
     if started:
@@ -609,6 +607,8 @@ def start(config_path: str = typer.Option(None, "--config", "-c")):
 def stop():
     """Stop the scheduler daemon."""
     import subprocess
+
+    from scanner.watch_scheduler import PLIST_PATH
     if not PLIST_PATH.exists():
         console.print("[dim]Scheduler not installed.[/dim]")
         return
@@ -663,6 +663,54 @@ def run_scheduler_daemon(config_path: str = typer.Option(None, "--config", "-c")
     db = _open_db(config)
     from scanner.watch_scheduler import run_daemon
     run_daemon(db, config=config)
+
+
+@app.command()
+def reset(
+    confirm: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+):
+    """Delete all generated data (DB, scans, logs) for a clean start."""
+    targets = [
+        ("data/polily.db", "数据库"),
+        ("data/polily.db-shm", "WAL shared memory"),
+        ("data/polily.db-wal", "WAL log"),
+        ("data/scheduler.pid", "Daemon PID"),
+        ("data/scheduler.log", "Daemon 日志"),
+        ("data/agent_debug.log", "Agent 调试日志"),
+    ]
+    scan_dir = Path("data/scans")
+
+    if not confirm:
+        console.print("[yellow]将删除以下数据:[/yellow]")
+        for path, label in targets:
+            exists = "✓" if Path(path).exists() else "–"
+            console.print(f"  {exists} {path} ({label})")
+        scan_count = len(list(scan_dir.glob("*.json"))) if scan_dir.exists() else 0
+        console.print(f"  {'✓' if scan_count else '–'} data/scans/*.json ({scan_count} 个扫描存档)")
+        console.print()
+        if not typer.confirm("确认删除所有数据？"):
+            console.print("[dim]已取消[/dim]")
+            return
+
+    # Stop daemon first
+    import subprocess
+    subprocess.run(["launchctl", "unload", str(Path.home() / "Library/LaunchAgents/com.polily.scheduler.plist")],
+                   capture_output=True, check=False)
+
+    deleted = 0
+    for path, _label in targets:
+        p = Path(path)
+        if p.exists():
+            p.unlink()
+            deleted += 1
+
+    # Clear scan archives
+    if scan_dir.exists():
+        for f in scan_dir.glob("*.json"):
+            f.unlink()
+            deleted += 1
+
+    console.print(f"[green]已清除 {deleted} 个文件。数据库将在下次启动时自动重建。[/green]")
 
 
 # --- Helpers ---

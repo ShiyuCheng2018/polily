@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 ActionLevel = Literal["BUY_YES", "BUY_NO", "WATCH", "PASS"]
 OpportunityType = Literal["instant_mispricing", "short_window", "slow_structure", "watch_only", "no_trade"]

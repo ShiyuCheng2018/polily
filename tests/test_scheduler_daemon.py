@@ -2,8 +2,6 @@
 
 import plistlib
 import sys
-import tempfile
-from pathlib import Path
 
 from scanner.watch_scheduler import generate_launchd_plist
 

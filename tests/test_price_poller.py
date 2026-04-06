@@ -1,11 +1,12 @@
-import pytest
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
+from scanner.config import ScannerConfig
 from scanner.db import PolilyDB
 from scanner.movement import MovementResult
-from scanner.price_poller import PricePoller
-from scanner.config import ScannerConfig
 from scanner.movement_store import append_movement
+from scanner.price_poller import PricePoller
 
 
 @pytest.fixture
@@ -91,7 +92,7 @@ def test_check_daily_limit(db):
     assert poller.check_daily_limit("m1") is False
 
     # Add triggered analyses up to the limit
-    for i in range(config.movement.daily_analysis_limit):
+    for _i in range(config.movement.daily_analysis_limit):
         append_movement("m1", MovementResult(magnitude=80.0, quality=70.0),
                         yes_price=0.55, prev_yes_price=0.50,
                         triggered_analysis=True, db=db)

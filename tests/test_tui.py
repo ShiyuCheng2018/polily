@@ -21,6 +21,7 @@ def _mock_service():
     service.config.paper_trading.assumed_round_trip_friction_pct = 0.04
     service.config.archiving.db_file = "/tmp/test_polily.db"
     import tempfile
+
     from scanner.db import PolilyDB
     _tmp = tempfile.TemporaryDirectory()
     service._tmp_dir = _tmp  # prevent GC cleanup during test

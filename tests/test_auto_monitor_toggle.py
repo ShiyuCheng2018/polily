@@ -1,9 +1,9 @@
 from unittest.mock import patch
 
-from scanner.db import PolilyDB
-from scanner.config import ScannerConfig
-from scanner.market_state import MarketState, set_market_state, get_market_state
 from scanner.auto_monitor import toggle_auto_monitor
+from scanner.config import ScannerConfig
+from scanner.db import PolilyDB
+from scanner.market_state import MarketState, get_market_state, set_market_state
 
 
 def test_enable_registers_poll_job(tmp_path):

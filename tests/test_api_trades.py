@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from scanner.api import PolymarketClient, parse_data_api_trades, parse_gamma_event
 from scanner.config import ApiConfig

@@ -158,6 +158,7 @@ class MarketListView(Widget):
         if not c:
             return
         from datetime import UTC, datetime
+
         from scanner.market_state import MarketState, get_market_state, set_market_state
         mid = c.market.market_id
         state = get_market_state(mid, self.service.db)
