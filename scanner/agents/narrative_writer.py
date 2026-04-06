@@ -231,7 +231,6 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
         next_check_at=next_check,
         next_check_reason="规则回退默认检查时间",
         recheck_conditions=recheck,
-        next_step="pass_for_now" if action == "PASS" else f"watch_yes_below_{m.yes_price * 0.85:.2f}" if action == "WATCH" and m.yes_price else "",
         summary=summary,
         one_line_verdict=f"{action}: {summary}",
     )

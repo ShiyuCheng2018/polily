@@ -19,3 +19,18 @@ def test_movement_summary_format(tmp_path):
     assert "TRIGGERED AI" in summary
     assert "0.55" in summary
     db.close()
+
+
+def test_get_monitor_count(tmp_path):
+    """Verify auto_monitor count query returns correct number."""
+    from scanner.db import PolilyDB
+    from scanner.market_state import MarketState, set_market_state
+
+    db = PolilyDB(tmp_path / "test.db")
+    set_market_state("m1", MarketState(status="watch", updated_at="2026-04-01", title="A", auto_monitor=True), db)
+    set_market_state("m2", MarketState(status="buy_yes", updated_at="2026-04-01", title="B", auto_monitor=True), db)
+    set_market_state("m3", MarketState(status="pass", updated_at="2026-04-01", title="C", auto_monitor=False), db)
+
+    count = db.conn.execute("SELECT COUNT(*) FROM market_states WHERE auto_monitor = 1").fetchone()[0]
+    assert count == 2
+    db.close()

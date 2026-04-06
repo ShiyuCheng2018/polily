@@ -384,25 +384,31 @@ class ScanService:
             }
             try:
                 # Fetch latest price from Polymarket API
-                prices = await self.fetch_current_prices([market.market_id])
-                new_price = prices.get(market.market_id)
-                if new_price is not None:
-                    old_price = market.yes_price
-                    market.yes_price = new_price
-                    market.no_price = round(1 - new_price, 4) if new_price else market.no_price
-                    market.data_fetched_at = datetime.now(UTC)
-
-                # Fetch latest orderbook
-                client = PolymarketClient(self.config.api)
                 try:
-                    if market.clob_token_id_yes:
-                        from scanner.orderbook import is_stale_book
-                        bids, asks = await client.fetch_book(market.clob_token_id_yes)
-                        if not is_stale_book(bids, asks):
-                            market.book_depth_bids = bids
-                            market.book_depth_asks = asks
-                finally:
-                    await client.close()
+                    prices = await self.fetch_current_prices([market.market_id])
+                    new_price = prices.get(market.market_id)
+                    if new_price is not None:
+                        old_price = market.yes_price
+                        market.yes_price = new_price
+                        market.no_price = round(1 - new_price, 4) if new_price else market.no_price
+                        market.data_fetched_at = datetime.now(UTC)
+                except Exception as e:
+                    logger.warning("Price fetch failed for %s: %s", market.market_id, e)
+
+                # Fetch latest orderbook (independent of price fetch)
+                try:
+                    client = PolymarketClient(self.config.api)
+                    try:
+                        if market.clob_token_id_yes:
+                            from scanner.orderbook import is_stale_book
+                            bids, asks = await client.fetch_book(market.clob_token_id_yes)
+                            if not is_stale_book(bids, asks):
+                                market.book_depth_bids = bids
+                                market.book_depth_asks = asks
+                    finally:
+                        await client.close()
+                except Exception as e:
+                    logger.warning("Orderbook fetch failed for %s: %s", market.market_id, e)
 
                 # Recalculate score with fresh data
                 from scanner.scoring import compute_structure_score
@@ -583,11 +589,12 @@ class ScanService:
     async def fetch_current_prices(self, market_ids: list[str]) -> dict[str, float]:
         """Fetch current YES prices from Polymarket API for given market IDs."""
         client = PolymarketClient(self.config.api)
+        http = await client._get_client()
         prices = {}
         try:
             for mid in market_ids:
                 try:
-                    resp = await client.client.get(
+                    resp = await http.get(
                         f"https://gamma-api.polymarket.com/markets/{mid}",
                         timeout=10,
                     )

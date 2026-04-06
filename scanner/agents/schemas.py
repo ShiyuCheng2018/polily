@@ -92,7 +92,6 @@ class NarrativeWriterOutput(BaseModel):
 
     # Recheck
     recheck_conditions: list[str] = []
-    next_step: str = ""
 
     # Crypto-specific (optional)
     crypto: CryptoContext | None = None

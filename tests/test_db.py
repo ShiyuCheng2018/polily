@@ -62,6 +62,18 @@ def test_db_has_movement_log_table():
         db.close()
 
 
+def test_db_market_states_has_condition_id():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "polily.db"
+        db = PolilyDB(db_path)
+        cols = db.conn.execute("PRAGMA table_info(market_states)").fetchall()
+        col_names = [c[1] for c in cols]
+        assert "condition_id" in col_names
+        assert "market_type" in col_names
+        assert "clob_token_id_yes" in col_names
+        db.close()
+
+
 def test_db_wal_mode():
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "polily.db"

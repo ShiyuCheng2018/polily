@@ -135,6 +135,38 @@ def test_execute_poll_cooldown_prevents_trigger(tmp_path):
     db.close()
 
 
+def test_execute_poll_closes_expired_market(tmp_path):
+    """Expired market should be closed and poll job removed."""
+    from datetime import UTC, datetime, timedelta
+
+    config = ScannerConfig()
+    db = PolilyDB(tmp_path / "test.db")
+
+    # Set up market with resolution_time in the past
+    past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    set_market_state("m1", MarketState(
+        status="watch", updated_at="2026-04-01T00:00:00",
+        title="Expired Market", auto_monitor=True,
+        resolution_time=past,
+    ), db)
+
+    mock_service = MagicMock()
+    init_poller(scheduler=None, config=config, db=db, service=mock_service)
+
+    with patch("scanner.price_poller.PricePoller") as MockPoller:
+        _execute_poll("m1", "other", "tok_1", "Expired Market")
+        MockPoller.assert_not_called()  # should exit before creating poller
+
+    # Verify market was closed
+    from scanner.market_state import get_market_state
+    state = get_market_state("m1", db)
+    assert state.status == "closed"
+    assert state.auto_monitor is False
+
+    init_poller(scheduler=None, config=None, db=None, service=None)
+    db.close()
+
+
 def test_execute_poll_removes_job_if_not_watch(tmp_path):
     """If market is no longer WATCH, poll job should be removed."""
     config = ScannerConfig()

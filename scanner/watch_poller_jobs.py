@@ -8,8 +8,10 @@ This module handles poll_job lifecycle.
 check_job is handled by watch_scheduler.py (from watch-lifecycle-plan).
 """
 
+import asyncio
 import logging
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from typing import Any
 
 from scanner.config import MovementConfig, ScannerConfig
@@ -18,23 +20,43 @@ from scanner.db import PolilyDB
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
+@dataclass
 class PollerContext:
-    """Immutable context — swapped atomically to avoid thread-safety races."""
+    """Mutable context with persistent event loop and HTTP clients."""
     scheduler: Any
     config: ScannerConfig
     db: PolilyDB
     service: Any
+    loop: asyncio.AbstractEventLoop | None = field(default=None, repr=False)
+    _poller: Any = field(default=None, repr=False)  # PricePoller, lazy init
+
+    def get_poller(self):
+        """Lazily create a persistent PricePoller (reuses httpx client)."""
+        if self._poller is None:
+            from scanner.price_poller import PricePoller
+            self._poller = PricePoller(config=self.config, db=self.db)
+        return self._poller
 
 
-# Single atomic reference (set once on daemon startup via init_poller)
+# Single reference (set once on daemon startup via init_poller)
 _ctx: PollerContext | None = None
 
 
+def _start_event_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """Run event loop forever in a background thread."""
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+
 def init_poller(scheduler, config, db, service):
-    """Initialize module-level context. Called once on daemon startup."""
+    """Initialize module-level context with persistent event loop."""
     global _ctx
-    _ctx = PollerContext(scheduler=scheduler, config=config, db=db, service=service)
+    loop = asyncio.new_event_loop()
+    _ctx = PollerContext(scheduler=scheduler, config=config, db=db, service=service, loop=loop)
+    # Start persistent event loop in daemon thread
+    t = threading.Thread(target=_start_event_loop, args=(loop,), daemon=True, name="poller-loop")
+    t.start()
+    logger.info("Persistent poller event loop started")
 
 
 def get_poll_interval(market_type: str, movement_config: MovementConfig) -> int:
@@ -138,17 +160,9 @@ def _execute_poll(
 ):
     """APScheduler callback: run a single poll cycle.
 
-    Two phases (each creates its own event loop via asyncio.run()):
-    1. Async poll (price fetch + signal computation)
-    2. Sync recheck_market (AI analysis + state transition) — only if triggered
-
-    IMPORTANT: Phase 1's asyncio.run() completes and closes its loop before
-    Phase 2 begins. Phase 2 creates a fresh loop. This is safe in CPython with
-    APScheduler 3.x BackgroundScheduler (thread pool, no pre-existing loop).
-    Do NOT migrate to AsyncIOScheduler without restructuring this flow.
+    Phase 1: submit async poll to persistent event loop (reuses httpx client)
+    Phase 2: sync recheck_market if triggered (uses its own asyncio.run for AI)
     """
-    import asyncio
-
     ctx = _ctx
     if ctx is None:
         logger.error("Poll job called before init_poller() — skipping")
@@ -158,37 +172,45 @@ def _execute_poll(
     db = ctx.db
 
     try:
-        from scanner.price_poller import PricePoller
         from scanner.market_state import get_market_state
 
-        # Check market is still in WATCH state
         state = get_market_state(market_id, db)
-        if not state or state.status != "watch":
-            logger.info("Market %s no longer in WATCH — removing poll job", market_id)
+        if not state or state.status in ("closed", "pass"):
+            logger.info("Market %s is %s — removing poll job", market_id, state.status if state else "gone")
             remove_poll_job(market_id)
             return
 
-        prev_price = state.price_at_watch
-
-        # Phase 1: async poll (price fetch + signal computation)
-        # poll_and_close wraps poll + client cleanup in a single event loop
-        # to avoid cross-loop RuntimeError on httpx transport close.
-        poller = PricePoller(config=config, db=db)
-
-        async def _poll_and_close():
+        # Check if market has expired
+        if state.resolution_time:
+            from datetime import UTC, datetime
             try:
-                return await poller.poll_single(
-                    market_id,
-                    market_type=market_type,
-                    token_id=token_id,
-                    condition_id=condition_id,
-                    prev_price=prev_price,
-                    market_title=market_title,
-                )
-            finally:
-                await poller.close()
+                res_time = datetime.fromisoformat(state.resolution_time)
+                if res_time < datetime.now(UTC):
+                    from scanner.watch_recheck import _close_market
+                    _close_market(market_id, state, db)
+                    from scanner.auto_monitor import cleanup_closed_market
+                    cleanup_closed_market(market_id)
+                    logger.info("Market %s expired — closed and removed poll job", market_id)
+                    return
+            except ValueError:
+                pass
 
-        result = asyncio.run(_poll_and_close())
+        prev_price = state.price_at_watch
+        poller = ctx.get_poller()
+
+        # Submit to persistent event loop — no new loop creation per poll
+        future = asyncio.run_coroutine_threadsafe(
+            poller.poll_single(
+                market_id,
+                market_type=market_type,
+                token_id=token_id,
+                condition_id=condition_id,
+                prev_price=prev_price,
+                market_title=market_title,
+            ),
+            ctx.loop,
+        )
+        result = future.result(timeout=30)
 
         # Check if should trigger AI
         mc = config.movement

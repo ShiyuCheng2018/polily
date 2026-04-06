@@ -117,6 +117,21 @@ class TestBinancePriceFeed:
         assert params["annual_volatility"] > 0
 
     @pytest.mark.asyncio
+    async def test_get_short_term_prices(self):
+        feed = BinancePriceFeed()
+        mock_exchange = AsyncMock()
+        mock_exchange.fetch_ohlcv = AsyncMock(return_value=[
+            [1000, 100, 110, 95, 105, 1000],  # [ts, open, high, low, close, volume]
+            [2000, 105, 115, 100, 110, 1200],
+        ])
+        feed._exchange = mock_exchange
+
+        prices = await feed.get_short_term_prices("BTC/USDT", "1h", limit=24)
+        assert prices == [105, 110]  # close prices
+        mock_exchange.fetch_ohlcv.assert_called_once_with("BTC/USDT", "1h", limit=24)
+        await feed.close()
+
+    @pytest.mark.asyncio
     async def test_get_crypto_params_non_crypto(self):
         feed = BinancePriceFeed()
         params = await feed.get_crypto_params("Will Trump win the election?")

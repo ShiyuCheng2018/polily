@@ -81,3 +81,19 @@ async def test_crypto_enrichment_adds_fair_value(db):
                                           market_title="BTC above $100K?")
         assert result.signals.fair_value_divergence == 0.12
         assert result.signals.underlying_z_score == 2.5
+
+
+def test_check_daily_limit(db):
+    config = ScannerConfig()
+    poller = PricePoller(config=config, db=db)
+
+    # No triggered analyses — should not be at limit
+    assert poller.check_daily_limit("m1") is False
+
+    # Add triggered analyses up to the limit
+    for i in range(config.movement.daily_analysis_limit):
+        append_movement("m1", MovementResult(magnitude=80.0, quality=70.0),
+                        yes_price=0.55, prev_yes_price=0.50,
+                        triggered_analysis=True, db=db)
+
+    assert poller.check_daily_limit("m1") is True

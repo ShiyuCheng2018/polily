@@ -109,7 +109,6 @@ sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE mar
   "next_check_at": "ISO 8601 — 下次检查时间（所有 action 必填）",
   "next_check_reason": "为什么选这个时间（简短）",
   "recheck_conditions": ["触发条件"],
-  "next_step": "pass_for_now / watch_yes_below_X / ...",
   "summary": "2-3 句总结",
   "one_line_verdict": "一句话",
   "crypto": { "distance_to_threshold_pct": 1.2, "buffer_pct": 1.2, "daily_vol_pct": 3.5, "buffer_conclusion": "thin/adequate/wide", "market_already_knows": "..." }

@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from scanner.api import PolymarketClient, parse_data_api_trades
+from scanner.api import PolymarketClient, parse_data_api_trades, parse_gamma_event
 from scanner.config import ApiConfig
 
 
@@ -43,3 +43,28 @@ async def test_fetch_trades_calls_data_api():
         assert len(trades) == 1
         assert trades[0].price == 0.6
     await client.close()
+
+
+def test_parse_gamma_event_includes_condition_id():
+    """condition_id should be parsed from Gamma API response."""
+    event_data = {
+        "id": "event_1",
+        "slug": "test-event",
+        "openInterest": 50000,
+        "tags": [],
+        "markets": [
+            {
+                "id": "market_abc",
+                "question": "Will BTC be above $100K?",
+                "outcomes": '["Yes","No"]',
+                "outcomePrices": '[0.55,0.45]',
+                "clobTokenIds": '["tok_yes","tok_no"]',
+                "conditionId": "0xabc123condition",
+            }
+        ],
+    }
+    markets = parse_gamma_event(event_data)
+    assert len(markets) == 1
+    assert markets[0].condition_id == "0xabc123condition"
+    assert markets[0].clob_token_id_yes == "tok_yes"
+    assert markets[0].clob_token_id_no == "tok_no"

@@ -85,12 +85,10 @@ class TestNarrativeWriterOutputV3:
     def test_model_dump_roundtrip(self):
         out = _valid_output(
             risk_flags=[RiskFlag(text="高摩擦", severity="critical")],
-            next_step="pass_for_now",
         )
         data = out.model_dump()
         restored = NarrativeWriterOutput.model_validate(data)
         assert restored.action == "PASS"
-        assert restored.next_step == "pass_for_now"
 
     def test_backward_compat_defaults(self):
         """Old data with minimal fields should still validate."""
