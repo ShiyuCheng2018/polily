@@ -7,6 +7,7 @@ import logging
 import signal
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -116,6 +117,37 @@ def _execute_recheck(market_id: str, db, config=None, watch_scheduler=None) -> N
         logger.exception("Recheck failed for %s", market_id)
 
 
+PLIST_LABEL = "com.polily.scheduler"
+PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
+
+
+def is_daemon_running() -> bool:
+    """Check if the scheduler daemon is running via launchd."""
+    import subprocess
+    result = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
+    return PLIST_LABEL in result.stdout
+
+
+def ensure_daemon_running() -> bool:
+    """Start the daemon via launchd if not already running.
+
+    Returns True if daemon was started, False if already running.
+    """
+    import subprocess
+
+    if is_daemon_running():
+        return False
+
+    working_dir = str(Path.cwd())
+    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
+    plist_bytes = generate_launchd_plist(working_dir=working_dir)
+    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PLIST_PATH.write_bytes(plist_bytes)
+    subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+    logger.info("Auto-started scheduler daemon via launchd")
+    return True
+
+
 def generate_launchd_plist(working_dir: str, python_path: str | None = None) -> bytes:
     """Generate a macOS launchd plist for the scheduler daemon.
 
@@ -148,19 +180,53 @@ def run_daemon(db, config=None) -> None:
     scheduler = WatchScheduler(db, config=config)
     scheduler.start()
     restored = scheduler.restore_from_db()
-    logger.info("Daemon started with %d jobs", restored)
 
-    def handle_signal(signum, frame):
+    # Initialize movement polling (poll_job alongside check_job)
+    service_db = db
+    if config is not None and config.movement.enabled:
+        from scanner.tui.service import ScanService
+        from scanner.watch_poller_jobs import init_poller, restore_poll_jobs_from_db
+
+        service = ScanService(config)
+        service_db = service.db
+        init_poller(scheduler.scheduler, config, service_db, service)
+        poll_count = restore_poll_jobs_from_db(config, service_db)
+        logger.info("Movement polling initialized: %d poll jobs", poll_count)
+
+    logger.info("Daemon started with %d check jobs", restored)
+
+    # Write PID file for SIGUSR1 notification
+    import os
+    pid_path = Path("data/scheduler.pid")
+    pid_path.write_text(str(os.getpid()))
+
+    def handle_shutdown(signum, frame):
         logger.info("Received signal %d, shutting down", signum)
+        pid_path.unlink(missing_ok=True)
         scheduler.shutdown()
         sys.exit(0)
 
-    signal.signal(signal.SIGTERM, handle_signal)
-    signal.signal(signal.SIGINT, handle_signal)
+    _reload_requested = False
 
-    # Block until signal
+    def handle_reload(signum, frame):
+        nonlocal _reload_requested
+        _reload_requested = True
+
+    signal.signal(signal.SIGTERM, handle_shutdown)
+    signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGUSR1, handle_reload)
+
+    # Block until signal; reload jobs when SIGUSR1 flag is set
     try:
-        signal.pause()
+        while True:
+            signal.pause()
+            if _reload_requested:
+                _reload_requested = False
+                logger.info("Reloading jobs from DB (SIGUSR1)")
+                scheduler.restore_from_db()
+                if config is not None and config.movement.enabled:
+                    from scanner.watch_poller_jobs import restore_poll_jobs_from_db
+                    restore_poll_jobs_from_db(config, service_db)
     except AttributeError:
         # Windows doesn't have signal.pause
         import time

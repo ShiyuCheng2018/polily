@@ -313,3 +313,16 @@ watchlist:
     min_yes_price: 0.30
     max_yes_price: 0.70
   alert_on_mispricing_signal: "moderate"  # alert when mispricing signal reaches this level
+
+movement:
+  enabled: true
+  magnitude_threshold: 70
+  quality_threshold: 60
+  daily_analysis_limit: 10
+  rolling_window_hours: 6
+  poll_intervals:
+    crypto: 10
+    economic_data: 20
+    political: 60
+    sports: 15
+    default: 30

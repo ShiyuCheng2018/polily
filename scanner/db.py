@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS market_states (
     price_at_watch  REAL,
     auto_monitor    INTEGER NOT NULL DEFAULT 0,
     resolution_time TEXT,
+    market_type     TEXT,
+    clob_token_id_yes TEXT,
+    condition_id    TEXT,
     wc_watch_reason TEXT,
     wc_better_entry TEXT,
     wc_trigger_event TEXT,
@@ -31,7 +34,7 @@ CREATE TABLE IF NOT EXISTS analyses (
     market_title    TEXT NOT NULL,
     yes_price_at_analysis REAL,
     trigger_source  TEXT NOT NULL DEFAULT 'manual'
-                    CHECK(trigger_source IN ('manual', 'scan', 'scheduled')),
+                    CHECK(trigger_source IN ('manual', 'scan', 'scheduled', 'movement')),
     watch_sequence  INTEGER NOT NULL DEFAULT 0,
     price_at_watch  REAL,
     analyst_output  TEXT NOT NULL,
@@ -98,14 +101,34 @@ CREATE TABLE IF NOT EXISTS notifications (
     read_at         TEXT
 );
 
+-- 6. Movement log (lightweight price poll snapshots)
+CREATE TABLE IF NOT EXISTS movement_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    market_id       TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    yes_price       REAL,
+    prev_yes_price  REAL,
+    trade_volume    REAL NOT NULL DEFAULT 0.0,
+    bid_depth       REAL NOT NULL DEFAULT 0.0,
+    ask_depth       REAL NOT NULL DEFAULT 0.0,
+    spread          REAL,
+    magnitude       REAL NOT NULL DEFAULT 0.0,
+    quality         REAL NOT NULL DEFAULT 0.0,
+    label           TEXT NOT NULL DEFAULT 'noise'
+                    CHECK(label IN ('consensus', 'whale_move', 'slow_build', 'noise')),
+    triggered_analysis INTEGER NOT NULL DEFAULT 0,
+    snapshot        TEXT NOT NULL DEFAULT '{}'
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_analyses_market ON analyses(market_id);
-CREATE INDEX IF NOT EXISTS idx_states_watch_due ON market_states(next_check_at)
-    WHERE status = 'watch' AND auto_monitor = 1;
+CREATE INDEX IF NOT EXISTS idx_states_monitor ON market_states(auto_monitor)
+    WHERE auto_monitor = 1;
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(is_read)
     WHERE is_read = 0;
 CREATE INDEX IF NOT EXISTS idx_paper_trades_status ON paper_trades(status);
 CREATE INDEX IF NOT EXISTS idx_paper_trades_market ON paper_trades(market_id);
+CREATE INDEX IF NOT EXISTS idx_movement_log_market ON movement_log(market_id, created_at);
 """
 
 

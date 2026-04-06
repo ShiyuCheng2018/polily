@@ -104,6 +104,7 @@ class ScanService:
                     event_slug=entry.get("event_slug"),
                     market_slug=entry.get("market_slug"),
                     clob_token_id_yes=entry.get("clob_token_id_yes"),
+                    condition_id=entry.get("condition_id"),
                 )
                 bd = entry.get("structure_score_breakdown", {})
                 score = ScoreBreakdown(
@@ -383,25 +384,31 @@ class ScanService:
             }
             try:
                 # Fetch latest price from Polymarket API
-                prices = await self.fetch_current_prices([market.market_id])
-                new_price = prices.get(market.market_id)
-                if new_price is not None:
-                    old_price = market.yes_price
-                    market.yes_price = new_price
-                    market.no_price = round(1 - new_price, 4) if new_price else market.no_price
-                    market.data_fetched_at = datetime.now(UTC)
-
-                # Fetch latest orderbook
-                client = PolymarketClient(self.config.api)
                 try:
-                    if market.clob_token_id_yes:
-                        from scanner.orderbook import is_stale_book
-                        bids, asks = await client.fetch_book(market.clob_token_id_yes)
-                        if not is_stale_book(bids, asks):
-                            market.book_depth_bids = bids
-                            market.book_depth_asks = asks
-                finally:
-                    await client.close()
+                    prices = await self.fetch_current_prices([market.market_id])
+                    new_price = prices.get(market.market_id)
+                    if new_price is not None:
+                        old_price = market.yes_price
+                        market.yes_price = new_price
+                        market.no_price = round(1 - new_price, 4) if new_price else market.no_price
+                        market.data_fetched_at = datetime.now(UTC)
+                except Exception as e:
+                    logger.warning("Price fetch failed for %s: %s", market.market_id, e)
+
+                # Fetch latest orderbook (independent of price fetch)
+                try:
+                    client = PolymarketClient(self.config.api)
+                    try:
+                        if market.clob_token_id_yes:
+                            from scanner.orderbook import is_stale_book
+                            bids, asks = await client.fetch_book(market.clob_token_id_yes)
+                            if not is_stale_book(bids, asks):
+                                market.book_depth_bids = bids
+                                market.book_depth_asks = asks
+                    finally:
+                        await client.close()
+                except Exception as e:
+                    logger.warning("Orderbook fetch failed for %s: %s", market.market_id, e)
 
                 # Recalculate score with fresh data
                 from scanner.scoring import compute_structure_score
@@ -439,9 +446,12 @@ class ScanService:
             self._current_narrator = narrator
 
             include_bias = self.config.execution_hints.show_conditional_advice
+            from scanner.movement_store import get_movement_summary
+            movement_context = get_movement_summary(market.market_id, self.db)
             narrative_output = await narrator.generate(
                 candidate, include_bias=include_bias,
                 on_heartbeat=on_heartbeat,
+                extra_context=movement_context,
             )
             self._current_narrator = None
             self._step_done("完成")
@@ -468,8 +478,19 @@ class ScanService:
             append_analysis(market.market_id, version, self.db)
             candidate.narrative = narrative_output
 
-            # Auto-transition market state based on AI action
-            self._transition_market_state(market, narrative_output)
+            # Sync market metadata (market_type, condition_id, etc.) to state
+            # but do NOT transition status — that's the user's decision.
+            self._sync_market_metadata(market)
+
+            # Persist next_check_at to market_states if market already tracked
+            if narrative_output.next_check_at:
+                from scanner.market_state import get_market_state, set_market_state
+                state = get_market_state(market.market_id, self.db)
+                if state:
+                    state.next_check_at = narrative_output.next_check_at
+                    set_market_state(market.market_id, state, self.db)
+                    from scanner.daemon_notify import notify_daemon
+                    notify_daemon()
 
             # Log
             finish_log_entry(
@@ -505,43 +526,19 @@ class ScanService:
         mispricing = detect_mispricing(market, self.config.mispricing)
         return ScoredCandidate(market=market, score=score, mispricing=mispricing)
 
-    def _transition_market_state(self, market, narrative_output):
-        """Auto-update market state based on AI action output."""
-        from datetime import datetime
-        from scanner.market_state import MarketState, get_market_state, set_market_state
+    def _sync_market_metadata(self, market):
+        """Sync market metadata (type, token IDs) to state without changing status."""
+        from scanner.market_state import get_market_state, set_market_state
 
-        action = narrative_output.action
         mid = market.market_id
-
-        # Map AI action to DB status
-        status_map = {"BUY_YES": "buy_yes", "BUY_NO": "buy_no", "WATCH": "watch", "PASS": "pass"}
-        new_status = status_map.get(action)
-        if not new_status:
-            return
-
         state = get_market_state(mid, self.db)
         if state is None:
-            state = MarketState(status=new_status, title=market.title)
+            return
 
-        state.status = new_status
-        state.updated_at = datetime.now(UTC).isoformat()
         state.resolution_time = market.resolution_time.isoformat() if market.resolution_time else None
-
-        if new_status == "watch" and narrative_output.watch:
-            wc = narrative_output.watch
-            state.watch_sequence = state.watch_sequence + 1
-            state.price_at_watch = market.yes_price
-            state.next_check_at = getattr(wc, "next_check_at", None)
-            state.watch_reason = getattr(wc, "reason", None)
-            state.wc_watch_reason = wc.watch_reason
-            state.wc_better_entry = wc.better_entry
-            state.wc_trigger_event = wc.trigger_event
-            state.wc_invalidation = wc.invalidation
-        elif new_status in ("buy_yes", "buy_no", "pass"):
-            state.auto_monitor = False
-            state.next_check_at = None
-            state.watch_reason = None
-
+        state.market_type = getattr(market, "market_type", None)
+        state.clob_token_id_yes = getattr(market, "clob_token_id_yes", None)
+        state.condition_id = getattr(market, "condition_id", None)
         set_market_state(mid, state, self.db)
 
     # --- Position analysis ---
@@ -592,11 +589,12 @@ class ScanService:
     async def fetch_current_prices(self, market_ids: list[str]) -> dict[str, float]:
         """Fetch current YES prices from Polymarket API for given market IDs."""
         client = PolymarketClient(self.config.api)
+        http = await client._get_client()
         prices = {}
         try:
             for mid in market_ids:
                 try:
-                    resp = await client.client.get(
+                    resp = await http.get(
                         f"https://gamma-api.polymarket.com/markets/{mid}",
                         timeout=10,
                     )
@@ -633,10 +631,10 @@ class ScanService:
         from scanner.market_state import _row_to_state
         return {r["market_id"]: _row_to_state(r) for r in rows}
 
-    def get_watch_count(self) -> int:
-        """Get count of markets with status='watch'."""
+    def get_monitor_count(self) -> int:
+        """Get count of markets with auto_monitor enabled."""
         row = self.db.conn.execute(
-            "SELECT COUNT(*) FROM market_states WHERE status = 'watch'",
+            "SELECT COUNT(*) FROM market_states WHERE auto_monitor = 1",
         ).fetchone()
         return row[0] if row else 0
 
@@ -646,32 +644,6 @@ class ScanService:
             "SELECT COUNT(*) FROM notifications WHERE is_read = 0",
         ).fetchone()
         return row[0] if row else 0
-
-    def get_watch_summary(self) -> dict:
-        """Get summary of WATCH markets: total, triggered (overdue), expired."""
-        from datetime import datetime
-        watches = self.get_all_market_states()
-        now = datetime.now(UTC)
-        total = triggered = expired = 0
-        for state in watches.values():
-            if state.status != "watch":
-                continue
-            total += 1
-            if state.next_check_at:
-                try:
-                    check_at = datetime.fromisoformat(state.next_check_at)
-                    if check_at <= now:
-                        triggered += 1
-                except ValueError:
-                    pass
-            if state.resolution_time:
-                try:
-                    res_time = datetime.fromisoformat(state.resolution_time)
-                    if res_time <= now:
-                        expired += 1
-                except ValueError:
-                    pass
-        return {"total": total, "triggered": triggered, "expired": expired}
 
     def get_all_candidates(self) -> list[ScoredCandidate]:
         if not self.tiers:

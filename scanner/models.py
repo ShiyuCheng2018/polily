@@ -12,6 +12,16 @@ class BookLevel(BaseModel):
     size: float
 
 
+class Trade(BaseModel):
+    """A single trade from CLOB API."""
+
+    id: str = ""
+    price: float
+    size: float
+    side: str  # "BUY" or "SELL"
+    timestamp: str = ""
+
+
 class Market(BaseModel):
     """Normalized market model with computed fields."""
 
@@ -52,6 +62,7 @@ class Market(BaseModel):
     # Token IDs for CLOB API (parsed from Gamma clobTokenIds JSON string)
     clob_token_id_yes: str | None = None
     clob_token_id_no: str | None = None
+    condition_id: str | None = None
 
     # Order book depth
     book_depth_bids: list[BookLevel] | None = None

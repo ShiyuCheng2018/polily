@@ -26,7 +26,7 @@ from scanner.tui.views.scan_log import (
     ViewScanLogDetail,
 )
 from scanner.tui.views.notification_list import NotificationListView
-from scanner.tui.views.watch_list import ViewWatchDetail, WatchListView
+from scanner.tui.views.watch_list import ViewMonitorDetail, MonitorListView
 from scanner.tui.widgets.sidebar import MenuSelected, Sidebar
 
 
@@ -38,14 +38,14 @@ class MainScreen(Screen):
         Binding("r", "refresh", show=False),
         Binding("s", "new_scan", show=False),
         Binding("1", "show_research", show=False),
-        Binding("2", "show_watch", show=False),
+        Binding("2", "show_monitor", show=False),
         Binding("3", "show_paper", show=False),
         Binding("4", "show_notifications", show=False),
         Binding("up", "menu_prev", show=False),
         Binding("down", "menu_next", show=False),
     ]
 
-    MENU_ORDER = ["tasks", "research", "watchlist", "paper", "notifications"]
+    MENU_ORDER = ["tasks", "research", "monitor", "paper", "notifications"]
 
     def __init__(self, service: ScanService):
         super().__init__()
@@ -70,13 +70,13 @@ class MainScreen(Screen):
         states = self.service.get_all_market_states()
         research = len([c for c in self.service.get_research()
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
-        watch = self.service.get_watch_count()
+        monitor = self.service.get_monitor_count()
         paper = len(self.service.get_paper_trades())
         notif_count = self.service.get_unread_notification_count()
-        sidebar.update_counts(research, watch, paper, notif_count)
+        sidebar.update_counts(research, monitor, paper, notif_count)
         if self.service.tiers:
             self.query_one("#status-bar", Static).update(
-                f"上次扫描: 研{research} 观{watch} ({self.service.total_scanned} 市场)"
+                f"上次扫描: 研{research} 监{monitor} ({self.service.total_scanned} 市场)"
             )
 
     def _start_scan(self):
@@ -120,29 +120,18 @@ class MainScreen(Screen):
         states = self.service.get_all_market_states()
         research = len([c for c in self.service.get_research()
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
-        watch = self.service.get_watch_count()
+        monitor = self.service.get_monitor_count()
         paper = len(self.service.get_paper_trades())
 
-        # Watch summary: count triggered (overdue) and expired
-        watch_summary = self.service.get_watch_summary()
-        status_parts = [f"扫描完成: 研{research} 观{watch} ({total} 市场)"]
-        if watch_summary["total"] > 0:
-            parts = []
-            if watch_summary["triggered"] > 0:
-                parts.append(f"{watch_summary['triggered']}个触发")
-            if watch_summary["expired"] > 0:
-                parts.append(f"{watch_summary['expired']}个过期")
-            if parts:
-                status_parts.append(f"观察: {', '.join(parts)}")
+        status_parts = [f"扫描完成: 研{research} 监{monitor} ({total} 市场)"]
         self.query_one("#status-bar", Static).update(" | ".join(status_parts))
         sidebar = self.query_one("#sidebar", Sidebar)
         notif_count = self.service.get_unread_notification_count()
-        sidebar.update_counts(research, watch, paper, notif_count)
-        # B4 fix: mark pages that have new data, not tasks
+        sidebar.update_counts(research, monitor, paper, notif_count)
         if research:
             sidebar.mark_new_data("research")
-        if watch:
-            sidebar.mark_new_data("watchlist")
+        if monitor:
+            sidebar.mark_new_data("monitor")
 
         if self._current_menu == "tasks":
             self._navigate_to("tasks")
@@ -182,10 +171,10 @@ class MainScreen(Screen):
         states = self.service.get_all_market_states()
         research = len([c for c in self.service.get_research()
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
-        watch = self.service.get_watch_count()
+        monitor = self.service.get_monitor_count()
         paper = len(self.service.get_paper_trades())
         notif_count = self.service.get_unread_notification_count()
-        self.query_one("#sidebar", Sidebar).update_counts(research, watch, paper, notif_count)
+        self.query_one("#sidebar", Sidebar).update_counts(research, monitor, paper, notif_count)
 
     # --- Message handlers ---
 
@@ -377,7 +366,7 @@ class MainScreen(Screen):
     def on_back_from_position_analysis(self, message: BackFromPositionAnalysis) -> None:
         self._navigate_to("paper")
 
-    def on_view_watch_detail(self, message: ViewWatchDetail) -> None:
+    def on_view_monitor_detail(self, message: ViewMonitorDetail) -> None:
         """Navigate to market detail from watch list."""
         candidates = self.service.get_all_candidates()
         for c in candidates:
@@ -402,10 +391,10 @@ class MainScreen(Screen):
             research = [c for c in self.service.get_research()
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")]
             self._switch_view(MarketListView(research, self.service, "研究队列"), "research")
-        elif menu_id == "watchlist":
-            from scanner.market_state import get_watched_markets
-            watched = get_watched_markets(self.service.db)
-            self._switch_view(WatchListView(watched), "watchlist")
+        elif menu_id == "monitor":
+            from scanner.market_state import get_auto_monitor_watches
+            monitored = get_auto_monitor_watches(self.service.db)
+            self._switch_view(MonitorListView(monitored), "monitor")
         elif menu_id == "paper":
             self._switch_view(PaperStatusView(self.service), "paper")
         elif menu_id == "notifications":
@@ -418,8 +407,8 @@ class MainScreen(Screen):
     def action_show_research(self) -> None:
         self._navigate_to("research")
 
-    def action_show_watch(self) -> None:
-        self._navigate_to("watchlist")
+    def action_show_monitor(self) -> None:
+        self._navigate_to("monitor")
 
     def action_show_paper(self) -> None:
         self._navigate_to("paper")

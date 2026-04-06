@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from scanner.agents.base import BaseAgent
-from scanner.agents.schemas import NarrativeWriterOutput, RiskFlag, TimeWindow, WatchCondition
+from scanner.agents.schemas import NarrativeWriterOutput, RiskFlag, TimeWindow
 from scanner.config import AgentConfig
 from scanner.reporting import ScoredCandidate
 
@@ -48,9 +48,11 @@ class NarrativeWriterAgent:
 
     async def generate(self, candidate: ScoredCandidate,
                        include_bias: bool = False,
-                       on_heartbeat=None) -> NarrativeWriterOutput:
+                       on_heartbeat=None,
+                       extra_context: str | None = None) -> NarrativeWriterOutput:
         """Generate analysis with semantic validation + retry."""
-        prompt = self._build_prompt(candidate, include_bias=include_bias)
+        prompt = self._build_prompt(candidate, include_bias=include_bias,
+                                    extra_context=extra_context)
 
         last_output = None
         for attempt in range(2):  # 1 initial + 1 retry
@@ -82,7 +84,8 @@ class NarrativeWriterAgent:
         # Retries exhausted — return last output (partial is better than fallback)
         return last_output
 
-    def _build_prompt(self, candidate: ScoredCandidate, include_bias: bool = False) -> str:
+    def _build_prompt(self, candidate: ScoredCandidate, include_bias: bool = False,
+                      extra_context: str | None = None) -> str:
         """Build minimal prompt — agent reads DB and searches web on its own."""
         m = candidate.market
         s = candidate.score
@@ -124,6 +127,9 @@ class NarrativeWriterAgent:
 
 当前市场数据:
 {json.dumps(data, default=str, ensure_ascii=False)}"""
+
+        if extra_context:
+            prompt += f"\n\n{extra_context}"
 
         if include_bias:
             prompt += "\n\n请额外输出 bias 字段（方向倾向的条件建议）。"
@@ -196,17 +202,17 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
             why_not = "当前价格没有明显优势"
 
     recheck = []
-    watch = None
     if action == "WATCH":
         if m.yes_price:
             recheck.append(f"YES 回到 {m.yes_price * 0.85:.2f} 以下")
         recheck.append("出现明确催化事件")
-        watch = WatchCondition(
-            watch_reason=why_not or "当前不值得做",
-            better_entry=f"YES <= {m.yes_price * 0.85:.2f}" if m.yes_price else "",
-            trigger_event=recheck[0] if recheck else "",
-            invalidation="距结算 <12h 且价格未变" if days else "",
-        )
+
+    # Default next_check_at: 1 day from now, or resolution time if sooner
+    from datetime import UTC, datetime, timedelta
+    default_check = datetime.now(UTC) + timedelta(days=1)
+    if m.resolution_time and m.resolution_time < default_check:
+        default_check = m.resolution_time - timedelta(hours=2)
+    next_check = default_check.isoformat()
 
     return NarrativeWriterOutput(
         market_id=m.market_id,
@@ -222,9 +228,9 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
         execution_risk="low",
         risk_flags=risks,
         counterparty_note=f"市场类型 '{m.market_type}'",
+        next_check_at=next_check,
+        next_check_reason="规则回退默认检查时间",
         recheck_conditions=recheck,
-        watch=watch,
-        next_step="pass_for_now" if action == "PASS" else f"watch_yes_below_{m.yes_price * 0.85:.2f}" if action == "WATCH" and m.yes_price else "",
         summary=summary,
         one_line_verdict=f"{action}: {summary}",
     )

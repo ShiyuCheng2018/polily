@@ -588,25 +588,21 @@ def check_market(
 scheduler_app = typer.Typer(help="Manage the background watch scheduler daemon")
 app.add_typer(scheduler_app, name="scheduler")
 
-PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / "com.polily.scheduler.plist"
+from scanner.watch_scheduler import PLIST_PATH
 
 
 @scheduler_app.command()
 def start(config_path: str = typer.Option(None, "--config", "-c")):
     """Start the scheduler daemon via launchd."""
-    import subprocess
-    from scanner.watch_scheduler import generate_launchd_plist
-    config = _resolve_config(config_path)
-    working_dir = str(Path.cwd())
-    # Ensure data dir exists for logs
-    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
-    plist_bytes = generate_launchd_plist(working_dir=working_dir)
-    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PLIST_PATH.write_bytes(plist_bytes)
-    subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
-    console.print("[green]Scheduler daemon started.[/green]")
+    from scanner.watch_scheduler import ensure_daemon_running
+    _resolve_config(config_path)  # validate config
+    started = ensure_daemon_running()
+    if started:
+        console.print("[green]Scheduler daemon started.[/green]")
+    else:
+        console.print("[dim]Scheduler daemon already running.[/dim]")
     console.print(f"  Plist: {PLIST_PATH}")
-    console.print(f"  Log: {working_dir}/data/scheduler.log")
+    console.print(f"  Log: {Path.cwd()}/data/scheduler.log")
 
 
 @scheduler_app.command()
@@ -624,12 +620,8 @@ def stop():
 @scheduler_app.command()
 def status(config_path: str = typer.Option(None, "--config", "-c")):
     """Show scheduler daemon status and pending jobs."""
-    import subprocess
-    # Check if running
-    result = subprocess.run(
-        ["launchctl", "list"], capture_output=True, text=True,
-    )
-    running = "com.polily.scheduler" in result.stdout
+    from scanner.watch_scheduler import is_daemon_running
+    running = is_daemon_running()
     if running:
         console.print("[green]Daemon: RUNNING[/green]")
     else:

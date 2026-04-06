@@ -79,7 +79,7 @@ class Sidebar(Widget):
         yield Static("")
         yield SidebarItem("任务记录", "tasks")
         yield SidebarItem("研究队列", "research")
-        yield SidebarItem("观察列表", "watchlist")
+        yield SidebarItem("监控列表", "monitor")
         yield SidebarItem("持仓", "paper")
         yield SidebarItem("通知", "notifications")
         yield Static("")
@@ -91,12 +91,12 @@ class Sidebar(Widget):
         yield Static("")
         yield Static("  [dim]其他见底栏[/dim]")
 
-    def update_counts(self, research: int, watchlist: int, paper: int, notifications: int = 0):
+    def update_counts(self, research: int, monitor: int, paper: int, notifications: int = 0):
         for item in self.query(SidebarItem):
             if item.menu_id == "research":
                 item.set_count(research)
-            elif item.menu_id == "watchlist":
-                item.set_count(watchlist)
+            elif item.menu_id == "monitor":
+                item.set_count(monitor)
             elif item.menu_id == "paper":
                 item.set_count(paper)
             elif item.menu_id == "notifications":

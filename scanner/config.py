@@ -230,6 +230,52 @@ class ExecutionHintsConfig(BaseModel):
     show_conditional_advice: bool = False
 
 
+class MovementWeights(BaseModel):
+    """Per-market-type signal weights for magnitude and quality."""
+    magnitude: dict[str, float] = {}
+    quality: dict[str, float] = {}
+
+
+class MovementConfig(BaseModel):
+    enabled: bool = True
+    magnitude_threshold: float = 70
+    quality_threshold: float = 60
+    daily_analysis_limit: int = 10  # max AI analyses per market per day
+    rolling_window_hours: int = 6   # baseline window for volume ratio
+    poll_intervals: dict[str, int] = {
+        "crypto": 10,           # 10s
+        "economic_data": 20,    # 20s
+        "political": 60,        # 60s
+        "sports": 15,           # 15s
+        "default": 30,          # 30s
+    }
+    # Note: open_interest_delta and correlated_asset_move removed —
+    # Polymarket CLOB API does not expose per-poll OI or correlated assets.
+    # Weights redistributed to computable signals (all groups sum to 1.0).
+    weights: dict[str, MovementWeights] = {
+        "crypto": MovementWeights(
+            magnitude={"price_z_score": 0.15, "book_imbalance": 0.10,
+                       "fair_value_divergence": 0.40, "underlying_z_score": 0.20, "cross_divergence": 0.15},
+            quality={"volume_ratio": 0.40, "trade_concentration": 0.35, "volume_price_confirmation": 0.25},
+        ),
+        "political": MovementWeights(
+            magnitude={"price_z_score": 0.35, "book_imbalance": 0.25,
+                       "sustained_drift": 0.40},
+            quality={"volume_ratio": 0.35, "trade_concentration": 0.40, "volume_price_confirmation": 0.25},
+        ),
+        "economic_data": MovementWeights(
+            magnitude={"price_z_score": 0.30, "book_imbalance": 0.15,
+                       "time_decay_adjusted_move": 0.55},
+            quality={"volume_ratio": 0.40, "trade_concentration": 0.30, "volume_price_confirmation": 0.30},
+        ),
+        "default": MovementWeights(
+            magnitude={"price_z_score": 0.45, "book_imbalance": 0.30,
+                       "volume_ratio": 0.25},
+            quality={"volume_ratio": 0.40, "trade_concentration": 0.35, "volume_price_confirmation": 0.25},
+        ),
+    }
+
+
 class ScannerConfig(BaseModel):
     """Top-level config model.
 
@@ -265,6 +311,7 @@ class ScannerConfig(BaseModel):
     reporting: ReportingConfig = ReportingConfig()
     archiving: ArchivingConfig = ArchivingConfig()
     execution_hints: ExecutionHintsConfig = ExecutionHintsConfig()
+    movement: MovementConfig = MovementConfig()
 
 
 def load_config(

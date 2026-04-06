@@ -99,6 +99,17 @@ class BinancePriceFeed:
             logger.warning("Failed to fetch OHLCV for %s: %s", symbol, e)
             return []
 
+    async def get_short_term_prices(self, symbol: str, timeframe: str = "1h",
+                                     limit: int = 24) -> list[float]:
+        """Fetch short-term close prices (e.g., hourly) for signal calculation."""
+        try:
+            exchange = await self._get_exchange()
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            return [candle[4] for candle in ohlcv]  # index 4 = close
+        except Exception as e:
+            logger.warning("Failed to fetch %s OHLCV for %s: %s", timeframe, symbol, e)
+            return []
+
     async def get_crypto_params(self, market_title: str, vol_days: int = 30) -> dict | None:
         """Extract asset from title, fetch price + vol, return mispricing params."""
         symbol = extract_crypto_asset(market_title)

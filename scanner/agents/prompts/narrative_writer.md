@@ -13,6 +13,7 @@
 - 查 `analyses` 表看分析历史
 - 查 `market_states` 表看当前状态（watch/buy_yes/buy_no/pass/closed）
 - 查 `paper_trades` 表看有没有 open 持仓
+- 查 `movement_log` 表看最近的异动记录
 - 联网搜索不超过 3 次，聚焦最关键的信息
 - 用 StructuredOutput 输出结果
 
@@ -25,10 +26,13 @@
 sqlite3 data/polily.db "SELECT version, created_at, yes_price_at_analysis, trigger_source, watch_sequence FROM analyses WHERE market_id='{market_id}' ORDER BY version"
 
 # 当前状态
-sqlite3 data/polily.db "SELECT status, next_check_at, watch_reason, watch_sequence, price_at_watch FROM market_states WHERE market_id='{market_id}'"
+sqlite3 data/polily.db "SELECT status, auto_monitor, next_check_at, price_at_watch FROM market_states WHERE market_id='{market_id}'"
 
 # 持仓记录
 sqlite3 data/polily.db "SELECT side, entry_price, status, marked_at, position_size_usd FROM paper_trades WHERE market_id='{market_id}' AND status='open'"
+
+# 最近异动（最新 10 条）
+sqlite3 data/polily.db "SELECT created_at, yes_price, magnitude, quality, label, trade_volume FROM movement_log WHERE market_id='{market_id}' ORDER BY id DESC LIMIT 10"
 
 # 完整叙事历史（如果需要更多上下文）
 sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE market_id='{market_id}' ORDER BY version"
@@ -40,21 +44,12 @@ sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE mar
 
 ### PASS — 真正跳过
 - 不值得关注的市场
-- **不附带 watch conditions**（watch 字段设为 null）
 - 如果你有任何回看条件想说，就不应该给 PASS，应该给 WATCH
 
 ### WATCH — 现在不做，但值得跟踪
 - 结构可以但时机不对，或者等催化事件
-- **必须填 watch 字段**，包括：
-  - `watch_reason`: 为什么值得盯
-  - `better_entry`: 更好的入场价格
-  - `trigger_event`: 什么事件发生后重新评估
-  - `invalidation`: 什么情况下这个观察作废
-  - `next_check_at`: **必填**，精确的下次检查时间（ISO 8601）。根据事件性质判断：
-    - 有明确日期的事件 → 用那个日期（如 CPI 公布日）
-    - 没有明确日期 → 给一个合理的回查时间（1-7 天内）
-    - **不能晚于市场过期时间**
-  - `reason`: 为什么选这个时间
+- 在 why_not_now 中说明为什么现在不做
+- 在 recheck_conditions 中列出触发重新评估的条件
 
 ### GO (BUY_YES / BUY_NO) — 可以做
 - edge 明显超过 friction
@@ -71,6 +66,26 @@ sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE mar
 - edge 在缩窄 → WATCH，summary 建议"考虑减仓"
 - 原有逻辑不成立 → PASS，summary 建议"建议清仓"
 - 在 risk_flags 中注明持仓相关风险
+
+### 下次检查时间（所有 action 必填）
+
+不管 action 是什么，都必须输出 `next_check_at` 和 `next_check_reason`：
+
+- **BUY_YES/BUY_NO**: 何时重新评估持仓？（数据发布、结算前 X 小时、关键事件）
+- **WATCH**: 何时回来看？（催化事件日期、价格目标检查）
+- **PASS**: 何时值得再看一眼？（条件变化窗口、相关事件）
+
+规则：
+- 精确到分钟（ISO 8601）
+- 不能晚于市场过期时间
+- 附简短理由
+
+### 分析焦点
+
+根据用户当前状态调整你的分析重心：
+- **未持仓**：重点评估入场时机、edge 大小、风险收益比
+- **已持仓**：重点评估出场信号、风险变化、是否该加仓/减仓/止损
+- 时刻站在用户最关心的角度思考
 
 ## 输出 JSON Schema
 
@@ -91,9 +106,9 @@ sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE mar
   "counterparty_note": "谁在对面",
   "supporting_findings": [{"finding": "...", "source": "...", "impact": "..."}],
   "invalidation_findings": [{"finding": "...", "source": "...", "impact": "..."}],
+  "next_check_at": "ISO 8601 — 下次检查时间（所有 action 必填）",
+  "next_check_reason": "为什么选这个时间（简短）",
   "recheck_conditions": ["触发条件"],
-  "watch": { "watch_reason": "...", "better_entry": "...", "trigger_event": "...", "invalidation": "...", "next_check_at": "ISO 8601", "reason": "为什么选这个时间" },
-  "next_step": "pass_for_now / watch_yes_below_X / ...",
   "summary": "2-3 句总结",
   "one_line_verdict": "一句话",
   "crypto": { "distance_to_threshold_pct": 1.2, "buffer_pct": 1.2, "daily_vol_pct": 3.5, "buffer_conclusion": "thin/adequate/wide", "market_already_knows": "..." }
@@ -104,7 +119,7 @@ sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE mar
 - supporting_findings: 支撑你结论的证据，有几条写几条
 - invalidation_findings: 最可能让你判断出错的事实（必填，至少一条）
 - risk_flags 最多 3 条，最致命的放第一
-- watch: WATCH 时**必填**（含 next_check_at），PASS 时**必须为 null**
+- next_check_at: **所有 action 必填**，精确到分钟
 - crypto 字段仅 crypto 市场填写，其他 null
 
 ## 语气
