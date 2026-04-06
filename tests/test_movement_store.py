@@ -1,11 +1,15 @@
+
 import pytest
-from pathlib import Path
 
 from scanner.db import PolilyDB
-from scanner.movement import MovementResult, MovementSignals
+from scanner.movement import MovementResult
 from scanner.movement_store import (
-    append_movement, get_recent_movements, get_movement_summary,
-    prune_old_movements, get_latest_movement, get_price_status,
+    append_movement,
+    get_latest_movement,
+    get_movement_summary,
+    get_price_status,
+    get_recent_movements,
+    prune_old_movements,
 )
 
 

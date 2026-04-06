@@ -88,7 +88,6 @@ class WatchScheduler:
 
 def _execute_recheck(market_id: str, db, config=None, watch_scheduler=None) -> None:
     """Job function called by APScheduler. Runs recheck and re-schedules if continuing watch."""
-    from scanner.market_state import get_market_state
     from scanner.watch_recheck import recheck_market
 
     logger.info("Executing scheduled recheck for %s", market_id)

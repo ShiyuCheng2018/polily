@@ -4,7 +4,7 @@ Zero AI cost — only math. Triggers analyze_market() when thresholds are exceed
 """
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from scanner.api import PolymarketClient
 from scanner.config import ScannerConfig
@@ -170,8 +170,8 @@ class PricePoller:
                                      prev_odds: float | None,
                                      days_to_resolution: float = 7.0) -> dict:
         """Fetch crypto-specific signals from Binance via CCXT."""
-        from scanner.price_feeds import BinancePriceFeed, extract_crypto_asset
         from scanner.mispricing import compute_crypto_fair_value
+        from scanner.price_feeds import BinancePriceFeed, extract_crypto_asset
 
         feed = BinancePriceFeed()
         try:
@@ -190,9 +190,9 @@ class PricePoller:
             prices_1h = await feed.get_short_term_prices(symbol, "1h", limit=24)
 
             from scanner.movement_signals import (
-                compute_underlying_z_score,
-                compute_fair_value_divergence,
                 compute_cross_divergence,
+                compute_fair_value_divergence,
+                compute_underlying_z_score,
             )
 
             underlying_z = compute_underlying_z_score(current_underlying, prices_1h)
@@ -207,11 +207,10 @@ class PricePoller:
 
             cross_div = compute_cross_divergence(underlying_change, odds_change)
 
+            import contextlib
             fair_val = current_odds  # fallback
-            try:
+            with contextlib.suppress(Exception):
                 fair_val = compute_crypto_fair_value(current_underlying, threshold, days_to_resolution, vol)
-            except Exception:
-                pass
 
             fv_div = compute_fair_value_divergence(current_odds, fair_val)
 

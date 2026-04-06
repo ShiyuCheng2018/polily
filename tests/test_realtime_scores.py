@@ -1,6 +1,7 @@
 """Tests for realtime scoring from movement_log data."""
 
 import pytest
+
 from scanner.db import PolilyDB
 from scanner.movement import MovementResult
 from scanner.movement_store import append_movement, get_price_status
@@ -54,10 +55,11 @@ def test_get_price_status_orderbook_defaults(db):
 
 def test_realtime_score_recalculation(db):
     """Structure score should change when computed with different price/depth."""
-    from scanner.scoring import compute_structure_score
+    from datetime import UTC, datetime, timedelta
+
     from scanner.config import ScannerConfig
-    from scanner.models import Market, BookLevel
-    from datetime import datetime, UTC, timedelta
+    from scanner.models import BookLevel, Market
+    from scanner.scoring import compute_structure_score
 
     config = ScannerConfig()
     resolution = (datetime.now(UTC) + timedelta(days=2)).isoformat()

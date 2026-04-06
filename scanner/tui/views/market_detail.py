@@ -265,8 +265,8 @@ class MarketDetailView(Widget):
 
     def _update_kpi(self) -> None:
         """Timer callback: refresh KPI cards from movement_log."""
-        from scanner.movement_store import get_price_status
         from scanner.market_state import get_market_state
+        from scanner.movement_store import get_price_status
 
         mid = self.candidate.market.market_id
         state = get_market_state(mid, self.service.db)
@@ -316,8 +316,9 @@ class MarketDetailView(Widget):
     def _update_realtime_scores(self, status: dict) -> None:
         """Recalculate structure score + three scores from live data."""
         from copy import copy
-        from scanner.scoring import compute_structure_score, compute_three_scores
+
         from scanner.models import BookLevel
+        from scanner.scoring import compute_structure_score, compute_three_scores
 
         m = self.candidate.market
         # Create a shallow copy with live data overlaid
@@ -358,20 +359,18 @@ class MarketDetailView(Widget):
             ]:
                 pct = int(val / mx * 100) if mx > 0 else 0
                 parts.append(f"{name}:{pct}%")
-            try:
+            import contextlib
+            with contextlib.suppress(Exception):
                 self.query_one("#score-bar", Static).update(
                     f" {' | '.join(parts)} | [bold]总分:{score.total:.0f}[/bold]"
                 )
-            except Exception:
-                pass
         except Exception:
             pass
 
     def _set_card(self, card_id: str, content: str) -> None:
-        try:
+        import contextlib
+        with contextlib.suppress(Exception):
             self.query_one(f"#{card_id}", MetricCard).update(content)
-        except Exception:
-            pass
 
     # ===================== DECISION ZONE =====================
 
@@ -469,7 +468,7 @@ class MarketDetailView(Widget):
             friction_cost = pos * friction_pct
             profit = (pos / m.yes_price) * 1.0 - pos
             net_profit = profit - friction_cost
-            yield Static(f"$20 投入:", classes="panel-row")
+            yield Static("$20 投入:", classes="panel-row")
             yield Static(f"  最坏 -${pos:.0f} | 摩擦 -${friction_cost:.2f} ({friction_pct:.1%})", classes="panel-row")
             yield Static(f"  判断对 +${net_profit:.2f}", classes="panel-row")
 
@@ -696,9 +695,10 @@ class MarketDetailView(Widget):
         status = "buy_yes" if side == "yes" else "buy_no"
 
         if self._pending_trade and self._pending_trade == (m.market_id, side):
-            from scanner.paper_trading import mark_paper_trade
             from datetime import datetime
+
             from scanner.market_state import MarketState, get_market_state, set_market_state
+            from scanner.paper_trading import mark_paper_trade
 
             trade_id = mark_paper_trade(
                 db=self.service.db, market_id=m.market_id, title=m.title,
@@ -723,6 +723,7 @@ class MarketDetailView(Widget):
 
     def action_mark_pass(self) -> None:
         from datetime import datetime
+
         from scanner.market_state import MarketState, get_market_state, set_market_state
 
         mid = self.candidate.market.market_id
@@ -742,8 +743,9 @@ class MarketDetailView(Widget):
 
     def action_toggle_auto_monitor(self) -> None:
         from datetime import datetime
-        from scanner.market_state import MarketState, get_market_state, set_market_state
+
         from scanner.auto_monitor import toggle_auto_monitor
+        from scanner.market_state import MarketState, get_market_state, set_market_state
 
         mid = self.candidate.market.market_id
         m = self.candidate.market

@@ -1,18 +1,18 @@
 import pytest
+
 from scanner.movement_signals import (
-    compute_price_z_score,
-    compute_volume_ratio,
     compute_book_imbalance,
-    compute_trade_concentration,
-    compute_open_interest_delta,
-    compute_fair_value_divergence,
-    compute_underlying_z_score,
     compute_cross_divergence,
+    compute_fair_value_divergence,
+    compute_open_interest_delta,
+    compute_price_z_score,
     compute_sustained_drift,
     compute_time_decay_adjusted_move,
+    compute_trade_concentration,
+    compute_underlying_z_score,
     compute_volume_price_confirmation,
+    compute_volume_ratio,
 )
-
 
 # --- Universal signals ---
 

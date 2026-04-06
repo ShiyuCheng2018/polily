@@ -509,7 +509,7 @@ def pass_market(
 
     config = _resolve_config(config_path)
     with _open_db(config) as db:
-        from scanner.market_state import MarketState, get_market_state, set_market_state
+        from scanner.market_state import get_market_state, set_market_state
         state = get_market_state(market_id, db)
         if state is None:
             console.print(f"[red]Market {market_id} not found.[/red]")
@@ -588,13 +588,11 @@ def check_market(
 scheduler_app = typer.Typer(help="Manage the background watch scheduler daemon")
 app.add_typer(scheduler_app, name="scheduler")
 
-from scanner.watch_scheduler import PLIST_PATH
-
 
 @scheduler_app.command()
 def start(config_path: str = typer.Option(None, "--config", "-c")):
     """Start the scheduler daemon via launchd."""
-    from scanner.watch_scheduler import ensure_daemon_running
+    from scanner.watch_scheduler import PLIST_PATH, ensure_daemon_running
     _resolve_config(config_path)  # validate config
     started = ensure_daemon_running()
     if started:
@@ -609,6 +607,8 @@ def start(config_path: str = typer.Option(None, "--config", "-c")):
 def stop():
     """Stop the scheduler daemon."""
     import subprocess
+
+    from scanner.watch_scheduler import PLIST_PATH
     if not PLIST_PATH.exists():
         console.print("[dim]Scheduler not installed.[/dim]")
         return

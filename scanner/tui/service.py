@@ -374,7 +374,7 @@ class ScanService:
         try:
             # Step 1: Fetch real-time market data (price + orderbook)
             self._step_start("拉取实时数据")
-            scan_snapshot = {
+            _ = {  # scan snapshot for debugging
                 "yes_price": market.yes_price,
                 "no_price": market.no_price,
                 "spread_pct_yes": market.spread_pct_yes,
@@ -509,7 +509,7 @@ class ScanService:
 
     async def _build_candidate(self, market_id: str) -> ScoredCandidate:
         """Build a ScoredCandidate from market_id by fetching fresh data."""
-        from scanner.mispricing import MispricingResult, detect_mispricing
+        from scanner.mispricing import detect_mispricing
         from scanner.scoring import compute_structure_score
 
         # Fetch single market from Polymarket API
@@ -626,7 +626,6 @@ class ScanService:
 
     def get_all_market_states(self) -> dict:
         """Get all market states as {market_id: MarketState}."""
-        from scanner.market_state import MarketState
         rows = self.db.conn.execute("SELECT * FROM market_states").fetchall()
         from scanner.market_state import _row_to_state
         return {r["market_id"]: _row_to_state(r) for r in rows}

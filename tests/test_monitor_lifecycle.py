@@ -1,12 +1,12 @@
 """Integration tests for decoupled monitoring lifecycle."""
 
-from unittest.mock import patch
 import os
+from unittest.mock import patch
 
-from scanner.db import PolilyDB
-from scanner.config import ScannerConfig
-from scanner.market_state import MarketState, set_market_state, get_market_state, get_auto_monitor_watches
 from scanner.auto_monitor import toggle_auto_monitor
+from scanner.config import ScannerConfig
+from scanner.db import PolilyDB
+from scanner.market_state import MarketState, get_auto_monitor_watches, get_market_state, set_market_state
 
 
 def test_monitor_independent_of_status(tmp_path):
@@ -68,8 +68,9 @@ def test_monitor_list_shows_mixed_statuses(tmp_path):
 
 def test_notify_daemon_sends_sigusr1(tmp_path):
     """notify_daemon should send SIGUSR1 to PID in file."""
-    from scanner.daemon_notify import notify_daemon
     import signal
+
+    from scanner.daemon_notify import notify_daemon
 
     pid_path = tmp_path / "scheduler.pid"
     pid_path.write_text(str(os.getpid()))
@@ -82,8 +83,9 @@ def test_notify_daemon_sends_sigusr1(tmp_path):
 
 
 def test_notify_daemon_no_pid_file():
-    from scanner.daemon_notify import notify_daemon
     from pathlib import Path
+
+    from scanner.daemon_notify import notify_daemon
 
     with patch("scanner.daemon_notify.PID_PATH", Path("/nonexistent/path")):
         result = notify_daemon()

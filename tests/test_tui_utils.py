@@ -1,6 +1,7 @@
 """Tests for TUI formatting utilities."""
 
 from datetime import UTC, datetime, timedelta
+
 from scanner.tui.utils import format_countdown
 
 

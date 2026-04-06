@@ -1,18 +1,16 @@
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from scanner.db import PolilyDB
 from scanner.config import ScannerConfig
+from scanner.db import PolilyDB
 from scanner.market_state import MarketState, set_market_state
 from scanner.movement import MovementResult
-from scanner.movement_store import append_movement
 from scanner.watch_poller_jobs import (
+    _execute_poll,
+    get_poll_interval,
+    init_poller,
     register_poll_job,
     remove_poll_job,
-    get_poll_interval,
     restore_poll_jobs_from_db,
-    _execute_poll,
-    init_poller,
-    PollerContext,
 )
 
 
