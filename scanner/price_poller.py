@@ -102,8 +102,11 @@ class PricePoller:
 
         price_history = self._build_price_history(market_id)
 
-        bid_depth = sum(b.size * b.price for b in data.get("bids", []))
-        ask_depth = sum(a.size * a.price for a in data.get("asks", []))
+        bids = data.get("bids", [])
+        asks = data.get("asks", [])
+        bid_depth = sum(b.size for b in bids)
+        ask_depth = sum(a.size for a in asks)
+        spread = (asks[0].price - bids[0].price) if bids and asks else None
 
         trades = data.get("trades", [])
         trade_sizes = [t.size for t in trades] if trades else []
@@ -155,6 +158,9 @@ class PricePoller:
             yes_price=current_price,
             prev_yes_price=prev_price,
             trade_volume=recent_volume,
+            bid_depth=bid_depth,
+            ask_depth=ask_depth,
+            spread=spread,
             db=self.db,
         )
 

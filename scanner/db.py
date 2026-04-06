@@ -109,6 +109,9 @@ CREATE TABLE IF NOT EXISTS movement_log (
     yes_price       REAL,
     prev_yes_price  REAL,
     trade_volume    REAL NOT NULL DEFAULT 0.0,
+    bid_depth       REAL NOT NULL DEFAULT 0.0,
+    ask_depth       REAL NOT NULL DEFAULT 0.0,
+    spread          REAL,
     magnitude       REAL NOT NULL DEFAULT 0.0,
     quality         REAL NOT NULL DEFAULT 0.0,
     label           TEXT NOT NULL DEFAULT 'noise'

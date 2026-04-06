@@ -19,6 +19,9 @@ def append_movement(
     yes_price: float | None = None,
     prev_yes_price: float | None = None,
     trade_volume: float = 0.0,
+    bid_depth: float = 0.0,
+    ask_depth: float = 0.0,
+    spread: float | None = None,
     triggered_analysis: bool = False,
     db: PolilyDB,
 ) -> None:
@@ -27,14 +30,18 @@ def append_movement(
     db.conn.execute(
         """INSERT INTO movement_log
         (market_id, created_at, yes_price, prev_yes_price, trade_volume,
+         bid_depth, ask_depth, spread,
          magnitude, quality, label, triggered_analysis, snapshot)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             market_id,
             datetime.now(UTC).isoformat(),
             yes_price,
             prev_yes_price,
             trade_volume,
+            bid_depth,
+            ask_depth,
+            spread,
             result.magnitude,
             result.quality,
             result.label,
@@ -149,6 +156,9 @@ def get_price_status(
         "quality": latest["quality"],
         "label": latest["label"],
         "trade_volume": latest.get("trade_volume", 0.0),
+        "bid_depth": latest.get("bid_depth", 0.0),
+        "ask_depth": latest.get("ask_depth", 0.0),
+        "spread": latest.get("spread"),
         "updated_at": latest["created_at"],
         "significant_change": abs(change_pct) >= significant_threshold,
     }

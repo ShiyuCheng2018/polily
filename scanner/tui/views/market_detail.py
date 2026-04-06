@@ -178,10 +178,12 @@ class MarketDetailView(Widget):
 
         with VerticalScroll():
             # === HEADER ===
-            days_str = f"{m.days_to_resolution:.1f}天" if m.days_to_resolution else "?"
+            from scanner.tui.utils import format_countdown
+            res_time = m.resolution_time.isoformat() if m.resolution_time else None
+            deadline_str = format_countdown(res_time)
             monitor_str = self._get_monitor_str(m.market_id)
             yield Static(f"[bold]{m.title}[/bold]", classes="header-title")
-            yield Static(f"{m.market_type or 'other'} | 结算: {days_str} | {monitor_str}", classes="header-sub")
+            yield Static(f"{m.market_type or 'other'} | 结算: {deadline_str} | {monitor_str}", classes="header-sub")
 
             # === KPI CARD ROW ===
             with HorizontalGroup(id="kpi-row"):
@@ -246,9 +248,9 @@ class MarketDetailView(Widget):
         self._set_card("kpi-no", f"{no_price:.3f}")
         self._set_card("kpi-movement", "[dim]--[/dim]")
 
-        days = m.days_to_resolution
-        time_str = f"{days:.1f}天" if days else "?"
-        self._set_card("kpi-time", time_str)
+        from scanner.tui.utils import format_countdown
+        res_time = m.resolution_time.isoformat() if m.resolution_time else None
+        self._set_card("kpi-time", format_countdown(res_time))
 
         from scanner.scoring import compute_three_scores
         three = compute_three_scores(s, self.candidate.mispricing, m)
@@ -256,7 +258,7 @@ class MarketDetailView(Widget):
         v = three.get("value")
         q_str = f"{q:.0f}" if q is not None else "?"
         v_str = f"{v:.0f}" if v is not None else "?"
-        self._set_card("kpi-score", f"质{q_str} 值{v_str}")
+        self._set_card("kpi-score", f"结构{q_str}\nedge{v_str}")
 
         # Try live data
         self._update_kpi()
@@ -301,6 +303,69 @@ class MarketDetailView(Widget):
             div_pct = (yes - analysis_price) / analysis_price * 100
             if abs(div_pct) >= 5.0:
                 self._set_card("kpi-yes", f"{yes:.3f} {fmt_change(change)}\n[yellow]⚠ 偏离{abs(div_pct):.0f}%[/yellow]")
+
+        # Refresh countdown
+        from scanner.tui.utils import format_countdown
+        m = self.candidate.market
+        res_time = m.resolution_time.isoformat() if m.resolution_time else None
+        self._set_card("kpi-time", format_countdown(res_time))
+
+        # Realtime score recalculation using latest market data
+        self._update_realtime_scores(status)
+
+    def _update_realtime_scores(self, status: dict) -> None:
+        """Recalculate structure score + three scores from live data."""
+        from copy import copy
+        from scanner.scoring import compute_structure_score, compute_three_scores
+        from scanner.models import BookLevel
+
+        m = self.candidate.market
+        # Create a shallow copy with live data overlaid
+        live = copy(m)
+        live.yes_price = status["current_price"]
+        live.no_price = round(1 - live.yes_price, 4) if live.yes_price else live.no_price
+
+        # Overlay orderbook depth from movement_log
+        bid_d = status.get("bid_depth", 0)
+        ask_d = status.get("ask_depth", 0)
+        if bid_d > 0:
+            live.book_depth_bids = [BookLevel(price=1.0, size=bid_d)]
+        if ask_d > 0:
+            live.book_depth_asks = [BookLevel(price=1.0, size=ask_d)]
+
+        # Overlay spread
+        sp = status.get("spread")
+        if sp is not None:
+            live.spread_pct_yes = sp
+            live.round_trip_friction_pct = sp * 2
+
+        try:
+            score = compute_structure_score(live, self.service.config.scoring.weights)
+            three = compute_three_scores(score, self.candidate.mispricing, live)
+
+            q = three.get("quality")
+            v = three.get("value")
+            q_str = f"{q:.0f}" if q is not None else "?"
+            v_str = f"{v:.0f}" if v is not None else "?"
+            self._set_card("kpi-score", f"结构 {q_str}\nedge {v_str}")
+
+            # Update score bar
+            parts = []
+            for name, val, mx in [
+                ("流动", score.liquidity_structure, 30), ("客观", score.objective_verifiability, 25),
+                ("概率", score.probability_space, 20), ("时间", score.time_structure, 15),
+                ("摩擦", score.trading_friction, 10),
+            ]:
+                pct = int(val / mx * 100) if mx > 0 else 0
+                parts.append(f"{name}:{pct}%")
+            try:
+                self.query_one("#score-bar", Static).update(
+                    f" {' | '.join(parts)} | [bold]总分:{score.total:.0f}[/bold]"
+                )
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def _set_card(self, card_id: str, content: str) -> None:
         try:

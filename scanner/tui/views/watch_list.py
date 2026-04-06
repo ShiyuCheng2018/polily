@@ -59,7 +59,8 @@ class MonitorListView(Widget):
         for mid, state in self._monitored.items():
             status_label = _STATUS_LABELS.get(state.status, state.status)
             title = state.title[:35] if state.title else mid[:20]
-            next_check = state.next_check_at[:16] if state.next_check_at else "-"
+            from scanner.tui.utils import format_countdown
+            next_check = format_countdown(state.next_check_at)
             table.add_row(status_label, title, next_check, key=mid)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:

@@ -64,7 +64,9 @@ class MarketListView(Widget):
         for idx, c in enumerate(self.candidates):
             m = c.market
             n = c.narrative
-            days = f"{m.days_to_resolution:.1f}天" if m.days_to_resolution else "?"
+            from scanner.tui.utils import format_countdown
+            res_time = m.resolution_time.isoformat() if m.resolution_time else None
+            days = format_countdown(res_time)
             title = m.title[:38] + "..." if len(m.title) > 38 else m.title
 
             # Three scores
