@@ -42,7 +42,6 @@ class PaperStatusView(Widget):
 
     def on_mount(self) -> None:
         self._trades = self.service.get_paper_trades()
-        self._http = httpx.AsyncClient(timeout=httpx.Timeout(10))
 
         table = self.query_one("#portfolio-table", DataTable)
         table.cursor_type = "row"
@@ -60,11 +59,9 @@ class PaperStatusView(Widget):
             # Immediately fetch once
             self._tick()
 
-    def on_unmount(self) -> None:
-        import contextlib
+    async def on_unmount(self) -> None:
         if self._http:
-            with contextlib.suppress(Exception):
-                asyncio.get_event_loop().create_task(self._http.aclose())
+            await self._http.aclose()
             self._http = None
 
     def _fill_table_initial(self) -> None:
@@ -94,6 +91,8 @@ class PaperStatusView(Widget):
     async def _async_fetch(self) -> None:
         """Concurrent price fetch for all open trades."""
         self._fetching = True
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=httpx.Timeout(10))
         try:
             market_ids = list({t.market_id for t in self._trades})
             tasks = [self._fetch_one(mid) for mid in market_ids]
@@ -171,17 +170,18 @@ class PaperStatusView(Widget):
             entry_time = self._format_entry_time(t.marked_at)
             countdown = self._get_countdown(t.market_id)
 
-            # Update row
+            # Update row via public API
+            import contextlib
+
+            from textual.coordinate import Coordinate
             row_key = t.id
-            try:
-                row_idx = table._row_order.index(table._row_key_to_row[row_key])
-                table.update_cell_at((row_idx, 3), f"{cur_display:.3f}{snapshot_label}")
-                table.update_cell_at((row_idx, 4), f"{pnl_data['shares']:.0f}")
-                table.update_cell_at((row_idx, 5), pnl_str)
-                table.update_cell_at((row_idx, 6), pnl_pct_str)
-                table.update_cell_at((row_idx, 7), f"{entry_time} {countdown}")
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                row_idx = table.get_row_index(row_key)
+                table.update_cell_at(Coordinate(row_idx, 3), f"{cur_display:.3f}{snapshot_label}")
+                table.update_cell_at(Coordinate(row_idx, 4), f"{pnl_data['shares']:.0f}")
+                table.update_cell_at(Coordinate(row_idx, 5), pnl_str)
+                table.update_cell_at(Coordinate(row_idx, 6), pnl_pct_str)
+                table.update_cell_at(Coordinate(row_idx, 7), f"{entry_time} {countdown}")
 
             total_value += pnl_data["current_value"]
             total_pnl += pnl_val

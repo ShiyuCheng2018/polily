@@ -47,17 +47,22 @@ class HistoryView(Widget):
             else:
                 settle_price = "?"
 
-            # P&L
+            # P&L — each colored independently
             pnl = t.paper_pnl or 0
             friction_pnl = t.friction_adjusted_pnl or 0
+
             if pnl > 0:
                 pnl_str = f"[green]+${pnl:.2f}[/green]"
-                friction_str = f"[green]+${friction_pnl:.2f}[/green]"
             elif pnl < 0:
                 pnl_str = f"[red]-${abs(pnl):.2f}[/red]"
-                friction_str = f"[red]-${abs(friction_pnl):.2f}[/red]"
             else:
                 pnl_str = "$0.00"
+
+            if friction_pnl > 0:
+                friction_str = f"[green]+${friction_pnl:.2f}[/green]"
+            elif friction_pnl < 0:
+                friction_str = f"[red]-${abs(friction_pnl):.2f}[/red]"
+            else:
                 friction_str = "$0.00"
 
             # P&L %

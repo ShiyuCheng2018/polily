@@ -176,7 +176,8 @@ class MainScreen(Screen):
         monitor = self.service.get_monitor_count()
         paper = len(self.service.get_paper_trades())
         notif_count = self.service.get_unread_notification_count()
-        self.query_one("#sidebar", Sidebar).update_counts(research, monitor, paper, notif_count)
+        history = self.service.get_history_count()
+        self.query_one("#sidebar", Sidebar).update_counts(research, monitor, paper, notif_count, history)
 
     # --- Message handlers ---
 
