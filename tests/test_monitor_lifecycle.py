@@ -6,7 +6,13 @@ from unittest.mock import patch
 from scanner.auto_monitor import toggle_auto_monitor
 from scanner.config import ScannerConfig
 from scanner.db import PolilyDB
-from scanner.market_state import MarketState, get_auto_monitor_watches, get_market_state, set_market_state
+from scanner.market_state import (
+    MarketState,
+    get_active_monitors,
+    get_auto_monitor_watches,
+    get_market_state,
+    set_market_state,
+)
 
 
 def test_monitor_independent_of_status(tmp_path):
@@ -102,3 +108,22 @@ def test_notify_daemon_stale_pid(tmp_path):
     with patch("scanner.daemon_notify.PID_PATH", pid_path):
         result = notify_daemon()
         assert result is False
+
+
+def test_closed_market_stays_in_monitor_list(tmp_path):
+    """Closed markets should remain in monitor list (display) but not in active monitors (polling)."""
+    db = PolilyDB(tmp_path / "test.db")
+
+    # Market was being monitored, then got closed (expired)
+    set_market_state("m1", MarketState(
+        status="closed", updated_at="2026-04-07", title="Expired BTC market", auto_monitor=True,
+    ), db)
+
+    # Should appear in display list
+    display = get_auto_monitor_watches(db)
+    assert "m1" in display
+
+    # Should NOT appear in polling list
+    active = get_active_monitors(db)
+    assert "m1" not in active
+    db.close()

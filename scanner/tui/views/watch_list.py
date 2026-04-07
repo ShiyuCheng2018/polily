@@ -11,6 +11,8 @@ _STATUS_LABELS = {
     "buy_yes": "持YES",
     "buy_no": "持NO",
     "watch": "观察",
+    "closed": "已结算",
+    "pass": "已放弃",
 }
 
 

@@ -2,6 +2,7 @@
 
 from scanner.market_state import (
     MarketState,
+    get_active_monitors,
     get_auto_monitor_watches,
     get_market_state,
     get_watched_markets,
@@ -121,3 +122,31 @@ def test_resolution_time_stored(polily_db):
     ), polily_db)
     loaded = get_market_state("0xabc", polily_db)
     assert loaded.resolution_time == "2026-04-10T00:00:00"
+
+
+def test_get_active_monitors_excludes_closed(polily_db):
+    """get_active_monitors should exclude closed and pass markets."""
+    set_market_state("m_watch", MarketState(
+        status="watch", updated_at="2026-04-01", title="Watch", auto_monitor=True,
+    ), polily_db)
+    set_market_state("m_buy", MarketState(
+        status="buy_yes", updated_at="2026-04-01", title="Buy", auto_monitor=True,
+    ), polily_db)
+    set_market_state("m_closed", MarketState(
+        status="closed", updated_at="2026-04-01", title="Closed", auto_monitor=True,
+    ), polily_db)
+    set_market_state("m_pass", MarketState(
+        status="pass", updated_at="2026-04-01", title="Pass", auto_monitor=True,
+    ), polily_db)
+
+    # Display query includes all
+    all_monitors = get_auto_monitor_watches(polily_db)
+    assert len(all_monitors) == 4
+
+    # Polling query excludes closed and pass
+    active = get_active_monitors(polily_db)
+    assert len(active) == 2
+    assert "m_watch" in active
+    assert "m_buy" in active
+    assert "m_closed" not in active
+    assert "m_pass" not in active

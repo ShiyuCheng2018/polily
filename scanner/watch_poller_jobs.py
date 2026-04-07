@@ -119,9 +119,9 @@ def restore_poll_jobs_from_db(config: ScannerConfig, db: PolilyDB) -> int:
     if pruned > 0:
         logger.info("Pruned %d stale movement_log entries", pruned)
 
-    from scanner.market_state import get_auto_monitor_watches
+    from scanner.market_state import get_active_monitors
 
-    watches = get_auto_monitor_watches(db)
+    watches = get_active_monitors(db)
     count = 0
     for market_id, state in watches.items():
         register_poll_job(

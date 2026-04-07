@@ -159,7 +159,7 @@ def test_execute_poll_closes_expired_market(tmp_path):
     from scanner.market_state import get_market_state
     state = get_market_state("m1", db)
     assert state.status == "closed"
-    assert state.auto_monitor is False
+    assert state.auto_monitor is True  # kept True — user sees [已结算] in monitor list
 
     init_poller(scheduler=None, config=None, db=None, service=None)
     db.close()

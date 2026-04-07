@@ -65,3 +65,20 @@ def test_recheck_result_fields(polily_db):
     assert result.market_id == "0xabc"
     assert result.previous_price == 0.65
     assert result.watch_sequence == 2
+
+
+def test_close_market_keeps_auto_monitor(polily_db):
+    """_close_market should NOT set auto_monitor=False — user sees [已结算] until dismissed."""
+    set_market_state("0xabc", MarketState(
+        status="watch",
+        updated_at="2026-03-30T10:00:00",
+        title="Expired BTC Market",
+        resolution_time="2026-03-31T00:00:00+00:00",
+        price_at_watch=0.65,
+        auto_monitor=True,
+    ), polily_db)
+    result = recheck_market("0xabc", db=polily_db)
+    assert result.new_status == "closed"
+    state = get_market_state("0xabc", polily_db)
+    assert state.status == "closed"
+    assert state.auto_monitor is True
