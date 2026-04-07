@@ -31,8 +31,8 @@ sqlite3 data/polily.db "SELECT status, auto_monitor, next_check_at, price_at_wat
 # 持仓记录
 sqlite3 data/polily.db "SELECT side, entry_price, status, marked_at, position_size_usd FROM paper_trades WHERE market_id='{market_id}' AND status='open'"
 
-# 最近异动（最新 10 条）
-sqlite3 data/polily.db "SELECT created_at, yes_price, magnitude, quality, label, trade_volume FROM movement_log WHERE market_id='{market_id}' ORDER BY id DESC LIMIT 10"
+# 最近异动（最新 10 条，含价格、深度、异动分数）
+sqlite3 data/polily.db "SELECT * FROM movement_log WHERE market_id='{market_id}' ORDER BY id DESC LIMIT 10"
 
 # 完整叙事历史（如果需要更多上下文）
 sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE market_id='{market_id}' ORDER BY version"
