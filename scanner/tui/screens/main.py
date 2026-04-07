@@ -39,12 +39,13 @@ class MainScreen(Screen):
         Binding("1", "show_research", show=False),
         Binding("2", "show_monitor", show=False),
         Binding("3", "show_paper", show=False),
-        Binding("4", "show_notifications", show=False),
+        Binding("4", "show_history", show=False),
+        Binding("5", "show_notifications", show=False),
         Binding("up", "menu_prev", show=False),
         Binding("down", "menu_next", show=False),
     ]
 
-    MENU_ORDER = ["tasks", "research", "monitor", "paper", "notifications"]
+    MENU_ORDER = ["tasks", "research", "monitor", "paper", "history", "notifications"]
 
     def __init__(self, service: ScanService):
         super().__init__()
@@ -72,7 +73,8 @@ class MainScreen(Screen):
         monitor = self.service.get_monitor_count()
         paper = len(self.service.get_paper_trades())
         notif_count = self.service.get_unread_notification_count()
-        sidebar.update_counts(research, monitor, paper, notif_count)
+        history = self.service.get_history_count()
+        sidebar.update_counts(research, monitor, paper, notif_count, history)
         if self.service.tiers:
             self.query_one("#status-bar", Static).update(
                 f"上次扫描: 研{research} 监{monitor} ({self.service.total_scanned} 市场)"
@@ -126,7 +128,8 @@ class MainScreen(Screen):
         self.query_one("#status-bar", Static).update(" | ".join(status_parts))
         sidebar = self.query_one("#sidebar", Sidebar)
         notif_count = self.service.get_unread_notification_count()
-        sidebar.update_counts(research, monitor, paper, notif_count)
+        history = self.service.get_history_count()
+        sidebar.update_counts(research, monitor, paper, notif_count, history)
         if research:
             sidebar.mark_new_data("research")
         if monitor:
@@ -319,6 +322,9 @@ class MainScreen(Screen):
             self._switch_view(MonitorListView(monitored), "monitor")
         elif menu_id == "paper":
             self._switch_view(PaperStatusView(self.service), "paper")
+        elif menu_id == "history":
+            from scanner.tui.views.history import HistoryView
+            self._switch_view(HistoryView(self.service), "history")
         elif menu_id == "notifications":
             self._switch_view(NotificationListView(self.service.db), "notifications")
         self._current_menu = menu_id
@@ -334,6 +340,9 @@ class MainScreen(Screen):
 
     def action_show_paper(self) -> None:
         self._navigate_to("paper")
+
+    def action_show_history(self) -> None:
+        self._navigate_to("history")
 
     def action_show_notifications(self) -> None:
         self._navigate_to("notifications")
