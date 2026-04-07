@@ -251,11 +251,15 @@ class MainScreen(Screen):
 
         if status == "unresponsive":
             self.query_one("#status-bar", Static).update(
-                f"[red]AI 长时间无响应 ({time_str})[/red] {title} [dim]Esc 取消[/dim]"
+                f"[red]AI 可能遇到问题 ({time_str})[/red] {title} [dim]Esc 取消[/dim]"
             )
-        elif status == "slow":
+        elif status == "long":
             self.query_one("#status-bar", Static).update(
-                f"[yellow]AI 可能在搜索 ({time_str})[/yellow] {title} [dim]Esc 取消[/dim]"
+                f"AI 深度分析中，请耐心等待 ({time_str}) {title} [dim]Esc 取消[/dim]"
+            )
+        elif status == "searching":
+            self.query_one("#status-bar", Static).update(
+                f"AI 正在搜索分析中 ({time_str}) {title} [dim]Esc 取消[/dim]"
             )
         else:
             self.query_one("#status-bar", Static).update(
