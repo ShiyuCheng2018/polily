@@ -75,8 +75,8 @@ class PaperStatusView(Widget):
             table.add_row(
                 t.title[:30],
                 t.side.upper(),
-                f"${t.entry_price:.2f} ...",
-                f"${t.position_size_usd:.2f} ...",
+                f"${t.entry_price:.2f} (--.-%)  ",  # wide placeholder for column sizing
+                f"${t.position_size_usd:.2f} (-$--.-- --.-%)  ",
                 shares,
                 f"{entry_time} {countdown}",
                 key=t.id,
