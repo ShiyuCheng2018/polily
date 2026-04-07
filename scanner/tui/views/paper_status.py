@@ -157,14 +157,14 @@ class PaperStatusView(Widget):
             cur_display = yes_price if t.side == "yes" else round(1 - yes_price, 3)
             snapshot_label = " [dim]快照[/dim]" if is_snapshot else ""
 
-            # Color P&L
+            # P&L display (plain text — DataTable cells don't render Rich markup)
             pnl_val = pnl_data["pnl"]
             if pnl_val > 0:
-                pnl_str = f"[green]+${pnl_val:.2f}[/green]"
-                pnl_pct_str = f"[green]+{pnl_data['pnl_pct']:.1f}%[/green]"
+                pnl_str = f"+${pnl_val:.2f}"
+                pnl_pct_str = f"+{pnl_data['pnl_pct']:.1f}%"
             elif pnl_val < 0:
-                pnl_str = f"[red]-${abs(pnl_val):.2f}[/red]"
-                pnl_pct_str = f"[red]{pnl_data['pnl_pct']:.1f}%[/red]"
+                pnl_str = f"-${abs(pnl_val):.2f}"
+                pnl_pct_str = f"{pnl_data['pnl_pct']:.1f}%"
             else:
                 pnl_str = "$0.00"
                 pnl_pct_str = "0.0%"
