@@ -59,7 +59,7 @@ class MarketListView(Widget):
         table = self.query_one("#market-table", DataTable)
         table.cursor_type = "row"
         from scanner.scoring import compute_three_scores
-        table.add_columns("市场", "质量", "价值", "动作", "YES", "结算", "类型")
+        table.add_columns("市场", "质量", "价值", "动作", "YES", "NO", "结算", "类型")
         seen_ids: set[str] = set()
         for idx, c in enumerate(self.candidates):
             m = c.market
@@ -87,12 +87,14 @@ class MarketListView(Widget):
             }
             action = action_map.get(getattr(n, "action", ""), "-") if n else "-"
 
+            no_price = round(1 - m.yes_price, 2) if m.yes_price else None
             table.add_row(
                 title,
                 quality,
                 value,
                 action,
                 f"{m.yes_price:.2f}" if m.yes_price else "?",
+                f"{no_price:.2f}" if no_price is not None else "?",
                 days,
                 m.market_type or "other",
                 key=m.market_id if m.market_id not in seen_ids else f"{m.market_id}_{idx}",
