@@ -12,7 +12,7 @@ from pathlib import Path
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from scanner.market_state import get_auto_monitor_watches
+from scanner.market_state import get_active_monitors
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class WatchScheduler:
 
         Returns the number of jobs restored.
         """
-        watches = get_auto_monitor_watches(self.db)
+        watches = get_active_monitors(self.db)
         now = datetime.now(UTC)
         count = 0
         for mid, state in watches.items():

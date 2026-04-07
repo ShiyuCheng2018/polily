@@ -76,9 +76,17 @@ def get_watched_markets(db: PolilyDB) -> dict[str, MarketState]:
 
 
 def get_auto_monitor_watches(db: PolilyDB) -> dict[str, MarketState]:
-    """Get all markets with auto_monitor enabled (any status)."""
+    """Get all markets with auto_monitor enabled (any status, for display)."""
     rows = db.conn.execute(
         "SELECT * FROM market_states WHERE auto_monitor = 1",
+    ).fetchall()
+    return {r["market_id"]: _row_to_state(r) for r in rows}
+
+
+def get_active_monitors(db: PolilyDB) -> dict[str, MarketState]:
+    """Get markets that should be actively polled (auto_monitor=1, not closed/pass)."""
+    rows = db.conn.execute(
+        "SELECT * FROM market_states WHERE auto_monitor = 1 AND status NOT IN ('closed', 'pass')",
     ).fetchall()
     return {r["market_id"]: _row_to_state(r) for r in rows}
 

@@ -87,7 +87,7 @@ def _close_market(market_id: str, state: MarketState, db) -> RecheckResult:
     """Transition a market to closed status."""
     state.status = "closed"
     state.updated_at = datetime.now(UTC).isoformat()
-    state.auto_monitor = False
+    # Keep auto_monitor — user sees [已结算] in monitor list until they dismiss
     state.next_check_at = None
     set_market_state(market_id, state, db)
 
