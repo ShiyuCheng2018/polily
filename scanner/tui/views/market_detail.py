@@ -681,7 +681,10 @@ class MarketDetailView(Widget):
         if not m.yes_price:
             self.notify("无价格数据", severity="warning")
             return
-        price = m.yes_price
+        if side == "yes":
+            price = m.yes_price
+        else:
+            price = m.no_price if m.no_price is not None else round(1 - (m.yes_price or 0.5), 4)
         status = "buy_yes" if side == "yes" else "buy_no"
 
         if self._pending_trade and self._pending_trade == (m.market_id, side):
