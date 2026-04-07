@@ -417,6 +417,12 @@ class MainScreen(Screen):
         self._navigate_to("notifications")
 
     def action_refresh(self) -> None:
+        # If viewing a market detail, rebuild it in-place (don't jump to list)
+        content = self.query_one("#content-area")
+        for child in content.children:
+            if isinstance(child, MarketDetailView):
+                self._switch_view(MarketDetailView(child.candidate, self.service))
+                return
         self._navigate_to(self._current_menu)
 
     def action_new_scan(self) -> None:
