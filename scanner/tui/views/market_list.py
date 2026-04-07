@@ -60,6 +60,9 @@ class MarketListView(Widget):
         table.cursor_type = "row"
         from scanner.scoring import compute_three_scores
         table.add_columns("市场", "质量", "价值", "动作", "YES", "NO", "结算", "类型")
+        # Load monitored market IDs for green dot indicator
+        from scanner.market_state import get_auto_monitor_watches
+        monitored_ids = set(get_auto_monitor_watches(self.service.db).keys())
         seen_ids: set[str] = set()
         for idx, c in enumerate(self.candidates):
             m = c.market
@@ -67,7 +70,8 @@ class MarketListView(Widget):
             from scanner.tui.utils import format_countdown
             res_time = m.resolution_time.isoformat() if m.resolution_time else None
             days = format_countdown(res_time)
-            title = m.title[:38] + "..." if len(m.title) > 38 else m.title
+            dot = "● " if m.market_id in monitored_ids else ""
+            title = f"{dot}{m.title[:36]}" + ("..." if len(m.title) > 36 else "") if dot else m.title[:38] + ("..." if len(m.title) > 38 else "")
 
             # Three scores
             three = compute_three_scores(c.score, c.mispricing, m)

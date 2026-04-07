@@ -31,8 +31,8 @@ sqlite3 data/polily.db "SELECT status, auto_monitor, next_check_at, price_at_wat
 # 持仓记录
 sqlite3 data/polily.db "SELECT side, entry_price, status, marked_at, position_size_usd FROM paper_trades WHERE market_id='{market_id}' AND status='open'"
 
-# 最近异动（最新 10 条）
-sqlite3 data/polily.db "SELECT created_at, yes_price, magnitude, quality, label, trade_volume FROM movement_log WHERE market_id='{market_id}' ORDER BY id DESC LIMIT 10"
+# 最近异动（最新 10 条，含价格、深度、异动分数）
+sqlite3 data/polily.db "SELECT * FROM movement_log WHERE market_id='{market_id}' ORDER BY id DESC LIMIT 10"
 
 # 完整叙事历史（如果需要更多上下文）
 sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE market_id='{market_id}' ORDER BY version"
@@ -69,16 +69,21 @@ sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE mar
 
 ### 下次检查时间（所有 action 必填）
 
-不管 action 是什么，都必须输出 `next_check_at` 和 `next_check_reason`：
+不管 action 是什么，都必须输出 `next_check_at` 和 `next_check_reason`。
 
-- **BUY_YES/BUY_NO**: 何时重新评估持仓？（数据发布、结算前 X 小时、关键事件）
-- **WATCH**: 何时回来看？（催化事件日期、价格目标检查）
-- **PASS**: 何时值得再看一眼？（条件变化窗口、相关事件）
+**你设定的时间会被系统注册为定时任务**，到时间自动触发一次新的 AI 分析（由你再次执行）。请认真选择时间点。
+
+**背景**：系统有实时异动检测机制（movement detection），根据市场类型以 10-60 秒间隔轮询价格和盘口，价格剧烈变动会自动触发重新分析。你可以在 `movement_log` 表中查看历史异动数据。因此你的 next_check_at 不需要担心突发价格波动——那部分已经被覆盖。
+
+**你的 next_check_at 应聚焦事件驱动**：
+- 搜索未来几天内可能影响该市场结果的最近一个关键事件
+- 围绕该事件选择最佳检查时间点（事件前评估预期定价，或事件后评估实际影响，由你判断）
+- 如果找不到明确事件，根据距结算时间设合理间隔（距结算越近越频繁）
 
 规则：
 - 精确到分钟（ISO 8601）
 - 不能晚于市场过期时间
-- 附简短理由
+- 附简短理由（包括你找到的事件是什么）
 
 ### 分析焦点
 

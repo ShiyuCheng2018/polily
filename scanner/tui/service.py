@@ -82,6 +82,13 @@ class ScanService:
                     with contextlib.suppress(ValueError, TypeError):
                         res_time = datetime.fromisoformat(entry["resolution_time"])
 
+                # Reconstruct book depth from archived totals
+                from scanner.models import BookLevel
+                bid_total = entry.get("total_bid_depth_usd")
+                ask_total = entry.get("total_ask_depth_usd")
+                book_bids = [BookLevel(price=1.0, size=bid_total)] if bid_total else None
+                book_asks = [BookLevel(price=1.0, size=ask_total)] if ask_total else None
+
                 market = Market(
                     market_id=entry.get("market_id", ""),
                     title=entry.get("title", ""),
@@ -105,6 +112,8 @@ class ScanService:
                     market_slug=entry.get("market_slug"),
                     clob_token_id_yes=entry.get("clob_token_id_yes"),
                     condition_id=entry.get("condition_id"),
+                    book_depth_bids=book_bids,
+                    book_depth_asks=book_asks,
                 )
                 bd = entry.get("structure_score_breakdown", {})
                 score = ScoreBreakdown(
