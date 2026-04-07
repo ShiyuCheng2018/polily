@@ -84,7 +84,7 @@ class PaperStatusView(Widget):
 
     def _tick(self) -> None:
         """Timer tick — fetch prices in background worker."""
-        if self._fetching or not self._trades or not self._http:
+        if self._fetching or not self._trades:
             return
         self.run_worker(self._async_fetch, thread=True, exclusive=True)
 
