@@ -190,10 +190,12 @@ class BaseAgent:
                 elapsed = time.monotonic() - start
                 # Emit heartbeat status
                 if on_heartbeat:
-                    if elapsed > 120:
+                    if elapsed > 600:
                         on_heartbeat(elapsed, "unresponsive")
-                    elif elapsed > 60:
-                        on_heartbeat(elapsed, "slow")
+                    elif elapsed > 300:
+                        on_heartbeat(elapsed, "long")
+                    elif elapsed > 120:
+                        on_heartbeat(elapsed, "searching")
                     else:
                         on_heartbeat(elapsed, "running")
                 logger.debug("Agent still running (%.0fs)...", elapsed)
