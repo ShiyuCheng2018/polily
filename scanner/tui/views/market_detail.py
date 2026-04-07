@@ -271,9 +271,19 @@ class MarketDetailView(Widget):
         from scanner.movement_store import get_price_status
 
         mid = self.candidate.market.market_id
-        state = get_market_state(mid, self.service.db)
-        watch_price = state.price_at_watch if state else None
-        status = get_price_status(mid, self.service.db, watch_price=watch_price)
+
+        # Base price: last analysis price → fallback to watch price → fallback to scan price
+        base_price = None
+        if self._versions:
+            v = self._versions[self._version_idx]
+            base_price = v.yes_price_at_analysis
+        if base_price is None:
+            state = get_market_state(mid, self.service.db)
+            base_price = state.price_at_watch if state else None
+        if base_price is None:
+            base_price = self.candidate.market.yes_price
+
+        status = get_price_status(mid, self.service.db, watch_price=base_price)
         if status is None:
             return
 
