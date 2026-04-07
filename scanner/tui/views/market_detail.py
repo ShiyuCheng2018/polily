@@ -271,9 +271,19 @@ class MarketDetailView(Widget):
         from scanner.movement_store import get_price_status
 
         mid = self.candidate.market.market_id
-        state = get_market_state(mid, self.service.db)
-        watch_price = state.price_at_watch if state else None
-        status = get_price_status(mid, self.service.db, watch_price=watch_price)
+
+        # Base price: last analysis price → fallback to watch price → fallback to scan price
+        base_price = None
+        if self._versions:
+            v = self._versions[self._version_idx]
+            base_price = v.yes_price_at_analysis
+        if base_price is None:
+            state = get_market_state(mid, self.service.db)
+            base_price = state.price_at_watch if state else None
+        if base_price is None:
+            base_price = self.candidate.market.yes_price
+
+        status = get_price_status(mid, self.service.db, watch_price=base_price)
         if status is None:
             return
 
@@ -678,25 +688,32 @@ class MarketDetailView(Widget):
 
     def _do_trade(self, side: str):
         m = self.candidate.market
-        if not m.yes_price:
+
+        # Use realtime price from movement_log, fallback to market snapshot
+        from scanner.movement_store import get_latest_movement
+        latest = get_latest_movement(m.market_id, self.service.db)
+        if latest and latest.get("yes_price"):
+            yes_price = latest["yes_price"]
+        elif m.yes_price:
+            yes_price = m.yes_price
+        else:
             self.notify("无价格数据", severity="warning")
             return
-        price = m.yes_price
+
+        if side == "yes":
+            price = yes_price
+        else:
+            price = round(1 - yes_price, 4)
         status = "buy_yes" if side == "yes" else "buy_no"
 
         if self._pending_trade and self._pending_trade == (m.market_id, side):
             from datetime import datetime
 
             from scanner.market_state import MarketState, get_market_state, set_market_state
-            from scanner.paper_trading import mark_paper_trade
-
-            trade_id = mark_paper_trade(
-                db=self.service.db, market_id=m.market_id, title=m.title,
-                side=side, entry_price=price, market_type=m.market_type,
-                structure_score=self.candidate.score.total if self.candidate.score else None,
-                mispricing_signal=self.candidate.mispricing.signal,
-                scan_id=self.service.last_scan_id,
-                position_size_usd=self.service.config.paper_trading.default_position_size_usd,
+            trade_id = self.service.mark_paper_trade(
+                market_id=m.market_id, title=m.title,
+                side=side, price=price, market_type=m.market_type,
+                score=self.candidate.score.total if self.candidate.score else None,
             )
             state = get_market_state(m.market_id, self.service.db)
             if state is None:

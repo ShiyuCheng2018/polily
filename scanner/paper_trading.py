@@ -134,6 +134,12 @@ class PaperTradingDB:
         ).fetchall()
         return [self._row_to_trade(r) for r in rows]
 
+    def list_resolved(self) -> list[PaperTrade]:
+        rows = self.db.conn.execute(
+            "SELECT * FROM paper_trades WHERE status='resolved' ORDER BY resolved_at DESC",
+        ).fetchall()
+        return [self._row_to_trade(r) for r in rows]
+
     def list_all(self) -> list[PaperTrade]:
         rows = self.db.conn.execute(
             "SELECT * FROM paper_trades ORDER BY marked_at DESC",

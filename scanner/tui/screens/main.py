@@ -16,8 +16,7 @@ from scanner.tui.views.market_detail import (
 )
 from scanner.tui.views.market_list import MarketListView, ViewDetailRequested
 from scanner.tui.views.notification_list import NotificationListView
-from scanner.tui.views.paper_status import AnalyzePositionRequested, PaperStatusView
-from scanner.tui.views.position_analysis import BackFromPositionAnalysis, PositionAnalysisView
+from scanner.tui.views.paper_status import PaperStatusView, ViewTradeDetail
 from scanner.tui.views.scan_log import (
     BackToScanLog,
     OpenMarketFromLog,
@@ -40,12 +39,13 @@ class MainScreen(Screen):
         Binding("1", "show_research", show=False),
         Binding("2", "show_monitor", show=False),
         Binding("3", "show_paper", show=False),
-        Binding("4", "show_notifications", show=False),
+        Binding("4", "show_history", show=False),
+        Binding("5", "show_notifications", show=False),
         Binding("up", "menu_prev", show=False),
         Binding("down", "menu_next", show=False),
     ]
 
-    MENU_ORDER = ["tasks", "research", "monitor", "paper", "notifications"]
+    MENU_ORDER = ["tasks", "research", "monitor", "paper", "history", "notifications"]
 
     def __init__(self, service: ScanService):
         super().__init__()
@@ -73,7 +73,8 @@ class MainScreen(Screen):
         monitor = self.service.get_monitor_count()
         paper = len(self.service.get_paper_trades())
         notif_count = self.service.get_unread_notification_count()
-        sidebar.update_counts(research, monitor, paper, notif_count)
+        history = self.service.get_history_count()
+        sidebar.update_counts(research, monitor, paper, notif_count, history)
         if self.service.tiers:
             self.query_one("#status-bar", Static).update(
                 f"上次扫描: 研{research} 监{monitor} ({self.service.total_scanned} 市场)"
@@ -127,7 +128,8 @@ class MainScreen(Screen):
         self.query_one("#status-bar", Static).update(" | ".join(status_parts))
         sidebar = self.query_one("#sidebar", Sidebar)
         notif_count = self.service.get_unread_notification_count()
-        sidebar.update_counts(research, monitor, paper, notif_count)
+        history = self.service.get_history_count()
+        sidebar.update_counts(research, monitor, paper, notif_count, history)
         if research:
             sidebar.mark_new_data("research")
         if monitor:
@@ -174,7 +176,8 @@ class MainScreen(Screen):
         monitor = self.service.get_monitor_count()
         paper = len(self.service.get_paper_trades())
         notif_count = self.service.get_unread_notification_count()
-        self.query_one("#sidebar", Sidebar).update_counts(research, monitor, paper, notif_count)
+        history = self.service.get_history_count()
+        self.query_one("#sidebar", Sidebar).update_counts(research, monitor, paper, notif_count, history)
 
     # --- Message handlers ---
 
@@ -289,89 +292,17 @@ class MainScreen(Screen):
                 return
         self.notify("未找到该市场（可能需要重新扫描）", severity="warning")
 
-    def on_analyze_position_requested(self, message: AnalyzePositionRequested) -> None:
-        """Handle position analysis — dedicated HOLD/REDUCE/EXIT flow."""
-        from datetime import UTC, datetime
-
-        trades = self.service.get_paper_trades()
-        trade = next((t for t in trades if t.id == message.trade_id), None)
-        if not trade:
-            self.notify("未找到该持仓", severity="warning")
-            return
-        candidates = self.service.get_all_candidates()
-        candidate = next((c for c in candidates if c.market.market_id == trade.market_id), None)
-        if not candidate:
-            self.notify("未找到该市场数据（可能需要重新扫描）", severity="warning")
-            return
-
-        current_price = candidate.market.yes_price or trade.entry_price
-        try:
-            marked = datetime.fromisoformat(trade.marked_at)
-            days_held = (datetime.now(UTC) - marked).total_seconds() / 86400
-        except (ValueError, TypeError):
-            days_held = 0
-        if trade.side.lower() == "yes" and trade.entry_price > 0:
-            pnl_pct = (current_price - trade.entry_price) / trade.entry_price
-        elif trade.side.lower() == "no" and (1 - trade.entry_price) > 0:
-            pnl_pct = (trade.entry_price - current_price) / (1 - trade.entry_price)
-        else:
-            pnl_pct = 0
-
-        # Show loading view
-        self._switch_view(PositionAnalysisView(
-            title=trade.title or candidate.market.title,
-            side=trade.side, entry_price=trade.entry_price,
-            current_price=current_price, pnl_pct=pnl_pct,
-            days_held=days_held, loading=True,
-        ))
-
-        # Store context for worker
-        self._position_context = {
-            "candidate": candidate,
-            "entry_price": trade.entry_price,
-            "side": trade.side,
-            "days_held": days_held,
-            "current_price": current_price,
-            "pnl_pct": pnl_pct,
-            "title": trade.title or candidate.market.title,
-        }
-
-        self.query_one("#status-bar", Static).update(f"持仓分析: {trade.title[:30]}...")
-        self.run_worker(self._do_position_analyze, name="pos_analyze", thread=True, exclusive=True)
-
-    async def _do_position_analyze(self):
-        """Worker: run position analysis."""
-        ctx = self._position_context
-        try:
-            result = await self.service.analyze_position(
-                ctx["candidate"], ctx["entry_price"], ctx["side"], ctx["days_held"],
-            )
-            self.app.call_from_thread(self._on_position_analysis_complete, ctx, result)
-        except Exception as e:
-            self.app.call_from_thread(self._on_position_analysis_failed, ctx, str(e))
-
-    def _on_position_analysis_complete(self, ctx, result):
-        self.query_one("#status-bar", Static).update("持仓分析完成")
-        self._switch_view(PositionAnalysisView(
-            title=ctx["title"], side=ctx["side"],
-            entry_price=ctx["entry_price"], current_price=ctx["current_price"],
-            pnl_pct=ctx["pnl_pct"], days_held=ctx["days_held"],
-            advice=result,
-        ))
-
-    def _on_position_analysis_failed(self, ctx, error):
-        self.query_one("#status-bar", Static).update(f"持仓分析失败: {error[:60]}")
-        self._switch_view(PositionAnalysisView(
-            title=ctx["title"], side=ctx["side"],
-            entry_price=ctx["entry_price"], current_price=ctx["current_price"],
-            pnl_pct=ctx["pnl_pct"], days_held=ctx["days_held"],
-        ))
-
-    def on_back_from_position_analysis(self, message: BackFromPositionAnalysis) -> None:
-        self._navigate_to("paper")
-
     def on_view_monitor_detail(self, message: ViewMonitorDetail) -> None:
-        """Navigate to market detail from watch list."""
+        """Navigate to market detail from monitor list."""
+        candidates = self.service.get_all_candidates()
+        for c in candidates:
+            if c.market.market_id == message.market_id:
+                self._switch_view(MarketDetailView(c, self.service))
+                return
+        self.notify("未找到该市场（可能需要重新扫描）", severity="warning")
+
+    def on_view_trade_detail(self, message: ViewTradeDetail) -> None:
+        """Navigate to market detail from portfolio."""
         candidates = self.service.get_all_candidates()
         for c in candidates:
             if c.market.market_id == message.market_id:
@@ -401,6 +332,9 @@ class MainScreen(Screen):
             self._switch_view(MonitorListView(monitored), "monitor")
         elif menu_id == "paper":
             self._switch_view(PaperStatusView(self.service), "paper")
+        elif menu_id == "history":
+            from scanner.tui.views.history import HistoryView
+            self._switch_view(HistoryView(self.service), "history")
         elif menu_id == "notifications":
             self._switch_view(NotificationListView(self.service.db), "notifications")
         self._current_menu = menu_id
@@ -416,6 +350,9 @@ class MainScreen(Screen):
 
     def action_show_paper(self) -> None:
         self._navigate_to("paper")
+
+    def action_show_history(self) -> None:
+        self._navigate_to("history")
 
     def action_show_notifications(self) -> None:
         self._navigate_to("notifications")
