@@ -678,13 +678,22 @@ class MarketDetailView(Widget):
 
     def _do_trade(self, side: str):
         m = self.candidate.market
-        if not m.yes_price:
+
+        # Use realtime price from movement_log, fallback to market snapshot
+        from scanner.movement_store import get_latest_movement
+        latest = get_latest_movement(m.market_id, self.service.db)
+        if latest and latest.get("yes_price"):
+            yes_price = latest["yes_price"]
+        elif m.yes_price:
+            yes_price = m.yes_price
+        else:
             self.notify("无价格数据", severity="warning")
             return
+
         if side == "yes":
-            price = m.yes_price
+            price = yes_price
         else:
-            price = m.no_price if m.no_price is not None else round(1 - (m.yes_price or 0.5), 4)
+            price = round(1 - yes_price, 4)
         status = "buy_yes" if side == "yes" else "buy_no"
 
         if self._pending_trade and self._pending_trade == (m.market_id, side):
