@@ -45,7 +45,7 @@ class PaperStatusView(Widget):
 
         table = self.query_one("#portfolio-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("市场", "方向", "入场", "现价", "份数", "P&L", "P&L%", "入场/结算")
+        table.add_columns("市场", "方向", "现价", "价值", "份数", "入场/结算")
 
         if not self._trades:
             self.query_one("#portfolio-summary", Static).update(
@@ -71,14 +71,13 @@ class PaperStatusView(Widget):
         for t in self._trades:
             entry_time = self._format_entry_time(t.marked_at)
             countdown = self._get_countdown(t.market_id)
+            shares = f"{t.position_size_usd / t.entry_price:.0f}" if t.entry_price > 0 else "?"
             table.add_row(
                 t.title[:30],
                 t.side.upper(),
-                f"{t.entry_price:.2f}",
-                "[dim]...[/dim]",  # loading
-                f"{t.position_size_usd / t.entry_price:.0f}" if t.entry_price > 0 else "?",
-                "[dim]...[/dim]",
-                "[dim]...[/dim]",
+                f"${t.entry_price:.2f} ...",
+                f"${t.position_size_usd:.2f} ...",
+                shares,
                 f"{entry_time} {countdown}",
                 key=t.id,
             )
@@ -137,55 +136,57 @@ class PaperStatusView(Widget):
         total_pnl = 0.0
         total_cost = 0.0
 
+        import contextlib
+
+        from textual.coordinate import Coordinate
+
         for t in self._trades:
             yes_price = self._prices.get(t.market_id)
 
             # Fallback chain: API → scan snapshot → entry price
+            is_snapshot = False
             if yes_price is None:
                 yes_price = self._get_scan_price(t.market_id)
                 is_snapshot = True
-            else:
-                is_snapshot = False
-
             if yes_price is None:
                 yes_price = t.entry_price if t.side == "yes" else (1 - t.entry_price)
                 is_snapshot = True
 
             pnl_data = calc_unrealized_pnl(t.side, t.entry_price, yes_price, t.position_size_usd)
 
-            # Current price display (side-aware)
-            cur_display = yes_price if t.side == "yes" else round(1 - yes_price, 3)
-            snapshot_label = " [dim]快照[/dim]" if is_snapshot else ""
-
-            # P&L display (plain text — DataTable cells don't render Rich markup)
-            pnl_val = pnl_data["pnl"]
-            if pnl_val > 0:
-                pnl_str = f"+${pnl_val:.2f}"
-                pnl_pct_str = f"+{pnl_data['pnl_pct']:.1f}%"
-            elif pnl_val < 0:
-                pnl_str = f"-${abs(pnl_val):.2f}"
-                pnl_pct_str = f"{pnl_data['pnl_pct']:.1f}%"
+            # Current price (side-aware) + change %
+            cur = yes_price if t.side == "yes" else round(1 - yes_price, 3)
+            change_pct = pnl_data["pnl_pct"]
+            snap = " 快照" if is_snapshot else ""
+            if change_pct > 0:
+                price_str = f"${cur:.2f} (+{change_pct:.1f}%){snap}"
+            elif change_pct < 0:
+                price_str = f"${cur:.2f} ({change_pct:.1f}%){snap}"
             else:
-                pnl_str = "$0.00"
-                pnl_pct_str = "0.0%"
+                price_str = f"${cur:.2f}{snap}"
+
+            # Value + P&L $ + P&L %
+            pnl_val = pnl_data["pnl"]
+            value = pnl_data["current_value"]
+            if pnl_val > 0:
+                value_str = f"${value:.2f} (+${pnl_val:.2f} +{change_pct:.1f}%)"
+            elif pnl_val < 0:
+                value_str = f"${value:.2f} (-${abs(pnl_val):.2f} {change_pct:.1f}%)"
+            else:
+                value_str = f"${value:.2f}"
 
             entry_time = self._format_entry_time(t.marked_at)
             countdown = self._get_countdown(t.market_id)
 
-            # Update row via public API
-            import contextlib
-
-            from textual.coordinate import Coordinate
-            row_key = t.id
+            # Update row — columns: 市场(0) 方向(1) 现价(2) 价值(3) 份数(4) 入场/结算(5)
             with contextlib.suppress(Exception):
-                row_idx = table.get_row_index(row_key)
-                table.update_cell_at(Coordinate(row_idx, 3), f"{cur_display:.3f}{snapshot_label}")
+                row_idx = table.get_row_index(t.id)
+                table.update_cell_at(Coordinate(row_idx, 2), price_str)
+                table.update_cell_at(Coordinate(row_idx, 3), value_str)
                 table.update_cell_at(Coordinate(row_idx, 4), f"{pnl_data['shares']:.0f}")
-                table.update_cell_at(Coordinate(row_idx, 5), pnl_str)
-                table.update_cell_at(Coordinate(row_idx, 6), pnl_pct_str)
-                table.update_cell_at(Coordinate(row_idx, 7), f"{entry_time} {countdown}")
+                table.update_cell_at(Coordinate(row_idx, 5), f"{entry_time} {countdown}")
 
-            total_value += pnl_data["current_value"]
+            total_value += value
             total_pnl += pnl_val
             total_cost += t.position_size_usd
 
