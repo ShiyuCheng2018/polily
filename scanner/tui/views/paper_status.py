@@ -59,10 +59,11 @@ class PaperStatusView(Widget):
             # Immediately fetch once
             self._tick()
 
-    async def on_unmount(self) -> None:
-        if self._http:
-            await self._http.aclose()
-            self._http = None
+    def on_unmount(self) -> None:
+        # httpx client is created/used in worker thread's event loop,
+        # cannot safely close from main thread. Set to None so next
+        # _async_fetch creates a fresh one if widget is remounted.
+        self._http = None
 
     def _fill_table_initial(self) -> None:
         """Fill table with entry prices before first API fetch."""
@@ -91,22 +92,23 @@ class PaperStatusView(Widget):
     async def _async_fetch(self) -> None:
         """Concurrent price fetch for all open trades."""
         self._fetching = True
-        if self._http is None:
-            self._http = httpx.AsyncClient(timeout=httpx.Timeout(10))
         try:
-            market_ids = list({t.market_id for t in self._trades})
-            tasks = [self._fetch_one(mid) for mid in market_ids]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            prices = {}
-            for mid, result in zip(market_ids, results, strict=True):
-                if isinstance(result, float):
-                    prices[mid] = result
-            self._prices.update(prices)
-            self._last_update = time.monotonic()
-            self.app.call_from_thread(self._update_table)
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10)) as client:
+                self._http = client  # for _fetch_one to use
+                market_ids = list({t.market_id for t in self._trades})
+                tasks = [self._fetch_one(mid) for mid in market_ids]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                prices = {}
+                for mid, result in zip(market_ids, results, strict=True):
+                    if isinstance(result, float):
+                        prices[mid] = result
+                self._prices.update(prices)
+                self._last_update = time.monotonic()
+                self.app.call_from_thread(self._update_table)
         except Exception:
             logger.debug("Portfolio price fetch failed", exc_info=True)
         finally:
+            self._http = None
             self._fetching = False
 
     async def _fetch_one(self, market_id: str) -> float:
