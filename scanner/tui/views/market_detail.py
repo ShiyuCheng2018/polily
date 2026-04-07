@@ -67,7 +67,6 @@ class MarketDetailView(Widget):
     BINDINGS = [
         Binding("escape", "go_back", "返回"),
         Binding("a", "analyze", "AI分析"),
-        Binding("d", "toggle_detail", show=False),
         Binding("left", "prev_version", show=False),
         Binding("right", "next_version", show=False),
         Binding("p", "mark_pass", "PASS"),
@@ -222,7 +221,7 @@ class MarketDetailView(Widget):
 
             # === FOOTER ===
             yield Static(
-                "[dim]Esc 返回 | a 分析 | < > 版本 | d 评分详情 | p PASS | m 监控 | y YES | n NO | o 链接[/dim]",
+                "[dim]Esc 返回 | a 分析 | < > 版本 | p PASS | m 监控 | y YES | n NO | o 链接[/dim]",
                 id="footer-hint",
             )
 
@@ -590,18 +589,7 @@ class MarketDetailView(Widget):
     # ===================== SCORE BAR =====================
 
     def _compose_score_bar(self, s) -> ComposeResult:
-        if self._show_detail:
-            yield from self._compose_score_detail(s)
-        else:
-            parts = []
-            for name, val, mx in [
-                ("流动", s.liquidity_structure, 30), ("客观", s.objective_verifiability, 25),
-                ("概率", s.probability_space, 20), ("时间", s.time_structure, 15),
-                ("摩擦", s.trading_friction, 10),
-            ]:
-                pct = int(val / mx * 100) if mx > 0 else 0
-                parts.append(f"{name}:{pct}%")
-            yield Static(f" {' | '.join(parts)} | [bold]总分:{s.total:.0f}[/bold]", id="score-bar")
+        yield from self._compose_score_detail(s)
 
     def _compose_score_detail(self, s) -> ComposeResult:
         m = self.candidate.market
@@ -653,13 +641,10 @@ class MarketDetailView(Widget):
             bar_str = "█" * bar_len + "░" * (10 - bar_len)
             note = explanations.get(name, "")
             yield Static(f" {name:6s} {bar_str} {val:.1f}/{mx}  [dim]{note}[/dim]", classes="panel-row")
-        yield Static(f" [bold]总分: {s.total:.0f}/100[/bold]  [dim]按 d 收起[/dim]", classes="panel-row")
+        yield Static(f" [bold]总分: {s.total:.0f}/100[/bold]", id="score-bar", classes="panel-row")
 
     # ===================== ACTIONS =====================
 
-    def action_toggle_detail(self) -> None:
-        self.post_message(SwitchVersionRequested(
-            self.candidate, self._version_idx, show_detail=not self._show_detail))
 
     def action_go_back(self) -> None:
         if self._analyzing:
