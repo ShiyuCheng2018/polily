@@ -687,5 +687,23 @@ class ScanService:
     def get_paper_trades(self) -> list:
         return self._paper_db().list_open()
 
+    def get_resolved_trades(self) -> list:
+        return self._paper_db().list_resolved()
+
+    def get_history_count(self) -> int:
+        return len(self.get_resolved_trades())
+
+    def get_resolved_stats(self) -> dict:
+        trades = self.get_resolved_trades()
+        wins = sum(1 for t in trades if t.paper_pnl and t.paper_pnl > 0)
+        total_pnl = sum(t.paper_pnl or 0 for t in trades)
+        total_friction_pnl = sum(t.friction_adjusted_pnl or 0 for t in trades)
+        return {
+            "total": len(trades), "wins": wins,
+            "win_rate": wins / len(trades) if trades else 0,
+            "total_pnl": total_pnl,
+            "total_friction_pnl": total_friction_pnl,
+        }
+
     def get_paper_stats(self) -> dict:
         return self._paper_db().stats()
