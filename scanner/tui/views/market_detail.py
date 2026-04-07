@@ -399,7 +399,7 @@ class MarketDetailView(Widget):
         has_substance = bool(supporting or invalidation or len(why_not) > 80)
         is_fallback = not has_substance and getattr(n, "confidence", "") == "low"
         if is_fallback:
-            yield Static("[yellow]规则估算，按 a 重试[/yellow]", classes="fallback-warn")
+            yield Static("[dim]以下为规则预估，按 a 启动 AI 深度分析[/dim]", classes="panel-row")
 
         # Action + why
         action_label, _ = ACTION_DISPLAY.get(getattr(n, "action", "PASS"), ("[dim]?[/dim]", "dim"))
