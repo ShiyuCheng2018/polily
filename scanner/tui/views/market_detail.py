@@ -118,11 +118,9 @@ class MarketDetailView(Widget):
         margin: 0 1;
         height: auto;
     }
-    MarketDetailView #score-bar {
-        height: 1;
-        background: $primary-background;
-        color: $text;
-        padding: 0 1;
+    MarketDetailView #panel-score {
+        height: auto;
+        margin: 0 1;
     }
     MarketDetailView #footer-hint {
         height: 1;
@@ -216,8 +214,11 @@ class MarketDetailView(Widget):
                 yield Static("")
                 yield Static("[dim]按 a 启动 AI 分析[/dim]", classes="panel-row")
 
-            # === SCORE BAR ===
-            yield from self._compose_score_bar(s)
+            # === SCORE PANEL ===
+            score_panel = DashPanel(id="panel-score")
+            score_panel.border_title = "结构评分"
+            with score_panel:
+                yield from self._compose_score_bar(s)
 
             # === FOOTER ===
             yield Static(
@@ -640,7 +641,8 @@ class MarketDetailView(Widget):
             bar_len = int(val / mx * 10) if mx > 0 else 0
             bar_str = "█" * bar_len + "░" * (10 - bar_len)
             note = explanations.get(name, "")
-            yield Static(f" {name:6s} {bar_str} {val:.1f}/{mx}  [dim]{note}[/dim]", classes="panel-row")
+            yield Static(f" {name:6s}  {bar_str}  {val:.1f}/{mx}   [dim]{note}[/dim]", classes="panel-row")
+        yield Static("")
         yield Static(f" [bold]总分: {s.total:.0f}/100[/bold]", id="score-bar", classes="panel-row")
 
     # ===================== ACTIONS =====================
