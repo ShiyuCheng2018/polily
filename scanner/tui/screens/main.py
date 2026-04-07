@@ -16,7 +16,7 @@ from scanner.tui.views.market_detail import (
 )
 from scanner.tui.views.market_list import MarketListView, ViewDetailRequested
 from scanner.tui.views.notification_list import NotificationListView
-from scanner.tui.views.paper_status import PaperStatusView
+from scanner.tui.views.paper_status import PaperStatusView, ViewTradeDetail
 from scanner.tui.views.scan_log import (
     BackToScanLog,
     OpenMarketFromLog,
@@ -293,7 +293,16 @@ class MainScreen(Screen):
         self.notify("未找到该市场（可能需要重新扫描）", severity="warning")
 
     def on_view_monitor_detail(self, message: ViewMonitorDetail) -> None:
-        """Navigate to market detail from watch list."""
+        """Navigate to market detail from monitor list."""
+        candidates = self.service.get_all_candidates()
+        for c in candidates:
+            if c.market.market_id == message.market_id:
+                self._switch_view(MarketDetailView(c, self.service))
+                return
+        self.notify("未找到该市场（可能需要重新扫描）", severity="warning")
+
+    def on_view_trade_detail(self, message: ViewTradeDetail) -> None:
+        """Navigate to market detail from portfolio."""
         candidates = self.service.get_all_candidates()
         for c in candidates:
             if c.market.market_id == message.market_id:

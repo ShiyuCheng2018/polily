@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 import httpx
 from textual.app import ComposeResult
+from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
 
@@ -15,6 +16,13 @@ from scanner.pnl import calc_unrealized_pnl
 from scanner.tui.service import ScanService
 
 logger = logging.getLogger(__name__)
+
+
+class ViewTradeDetail(Message):
+    """Request to view a trade's market detail."""
+    def __init__(self, market_id: str):
+        super().__init__()
+        self.market_id = market_id
 
 
 class PaperStatusView(Widget):
@@ -238,3 +246,13 @@ class PaperStatusView(Widget):
             return f"{dt.strftime('%m-%d')} ({days:.0f}天)"
         except (ValueError, TypeError):
             return "?"
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if not event.row_key or not event.row_key.value:
+            return
+        # row_key is trade.id, find the market_id
+        trade_id = event.row_key.value
+        for t in self._trades:
+            if t.id == trade_id:
+                self.post_message(ViewTradeDetail(t.market_id))
+                return
