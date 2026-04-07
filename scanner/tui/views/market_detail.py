@@ -215,11 +215,13 @@ class MarketDetailView(Widget):
                 yield Static("[dim]按 a 启动 AI 分析[/dim]", classes="panel-row")
 
             # === SCORE PANEL ===
+            yield Static("")
             score_panel = DashPanel(id="panel-score")
             score_panel.border_title = "结构评分"
             with score_panel:
                 yield from self._compose_score_bar(s)
 
+            yield Static("")
             # === FOOTER ===
             yield Static(
                 "[dim]Esc 返回 | a 分析 | < > 版本 | p PASS | m 监控 | y YES | n NO | o 链接[/dim]",
