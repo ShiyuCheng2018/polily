@@ -765,6 +765,9 @@ class MarketDetailView(Widget):
         self.notify(f"自动监控 [{label}]: {m.title[:30]}")
         self.screen.refresh_sidebar_counts()
 
+        # Rebuild page to show updated monitor status
+        self.post_message(SwitchVersionRequested(self.candidate, self._version_idx))
+
         if new_value:
             try:
                 from scanner.watch_scheduler import ensure_daemon_running
