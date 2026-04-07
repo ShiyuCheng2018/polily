@@ -688,15 +688,10 @@ class MarketDetailView(Widget):
             from datetime import datetime
 
             from scanner.market_state import MarketState, get_market_state, set_market_state
-            from scanner.paper_trading import mark_paper_trade
-
-            trade_id = mark_paper_trade(
-                db=self.service.db, market_id=m.market_id, title=m.title,
-                side=side, entry_price=price, market_type=m.market_type,
-                structure_score=self.candidate.score.total if self.candidate.score else None,
-                mispricing_signal=self.candidate.mispricing.signal,
-                scan_id=self.service.last_scan_id,
-                position_size_usd=self.service.config.paper_trading.default_position_size_usd,
+            trade_id = self.service.mark_paper_trade(
+                market_id=m.market_id, title=m.title,
+                side=side, price=price, market_type=m.market_type,
+                score=self.candidate.score.total if self.candidate.score else None,
             )
             state = get_market_state(m.market_id, self.service.db)
             if state is None:
