@@ -249,6 +249,17 @@ class MovementConfig(BaseModel):
         "sports": 15,           # 15s
         "default": 30,          # 30s
     }
+    # Drift detection — rolling window thresholds per market type
+    # {market_type: {window_minutes: absolute_change_threshold}}
+    drift_windows: dict[str, dict[int, float]] = {
+        "crypto": {5: 0.05, 30: 0.08, 60: 0.12, 240: 0.18},
+        "political": {5: 0.03, 30: 0.05, 60: 0.08, 240: 0.12},
+        "default": {5: 0.03, 30: 0.05, 60: 0.08, 240: 0.12},
+    }
+    cusum_drift: float = 0.003          # noise filter per tick
+    cusum_threshold: float = 0.06       # cumulative trigger level
+    drift_cooldown_seconds: int = 3600  # 60 min cooldown for drift-triggered analysis
+
     # Note: open_interest_delta and correlated_asset_move removed —
     # Polymarket CLOB API does not expose per-poll OI or correlated assets.
     # Weights redistributed to computable signals (all groups sum to 1.0).
