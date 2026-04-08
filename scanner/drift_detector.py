@@ -48,3 +48,59 @@ def check_rolling_windows(
             })
 
     return alerts
+
+
+class CusumAccumulator:
+    """CUSUM (Cumulative Sum) drift detector for a single market.
+
+    Accumulates small directional price changes. Triggers when cumulative
+    deviation exceeds threshold, filtering out noise via drift parameter.
+    """
+
+    def __init__(self, drift: float = 0.003, threshold: float = 0.06):
+        self.drift = drift
+        self.threshold = threshold
+        self.s_pos = 0.0  # upward accumulator
+        self.s_neg = 0.0  # downward accumulator
+
+    def update(self, price_change: float) -> list[dict]:
+        """Feed a tick-to-tick price change. Returns alerts if triggered."""
+        self.s_pos = max(0, self.s_pos + price_change - self.drift)
+        self.s_neg = max(0, self.s_neg - price_change - self.drift)
+
+        alerts = []
+        if self.s_pos > self.threshold:
+            alerts.append({"type": "cusum", "direction": "UP", "cumulative": round(self.s_pos, 4)})
+            self.s_pos = 0
+        if self.s_neg > self.threshold:
+            alerts.append({"type": "cusum", "direction": "DOWN", "cumulative": round(self.s_neg, 4)})
+            self.s_neg = 0
+        return alerts
+
+    def warm_up(self, price_deltas: list[float]) -> None:
+        """Replay historical tick deltas to restore state after restart."""
+        for delta in price_deltas:
+            self.update(delta)
+
+
+def build_price_history(market_id: str, db, hours: int = 4) -> list[tuple[int, float]]:
+    """Build (seconds_ago, price) pairs from movement_log.
+
+    Returns list sorted by recency (smallest seconds_ago first).
+    """
+    from datetime import UTC, datetime
+
+    from scanner.movement_store import get_recent_movements
+
+    entries = get_recent_movements(market_id, db, hours=hours)
+    now = datetime.now(UTC)
+    result = []
+    for e in entries:
+        if e.get("yes_price") is None:
+            continue
+        ts = datetime.fromisoformat(e["created_at"])
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        sec_ago = int((now - ts).total_seconds())
+        result.append((sec_ago, e["yes_price"]))
+    return result

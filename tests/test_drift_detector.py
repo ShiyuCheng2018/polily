@@ -1,6 +1,6 @@
 """Tests for drift detection — rolling windows + CUSUM."""
 
-from scanner.drift_detector import check_rolling_windows
+from scanner.drift_detector import CusumAccumulator, check_rolling_windows
 
 
 class TestRollingWindows:
@@ -56,3 +56,70 @@ class TestRollingWindows:
         alerts = check_rolling_windows(0.56, prices, {5: 0.03})
         # change = 0.56 - 0.52 = 0.04 > 0.03 → trigger
         assert len(alerts) == 1
+
+
+class TestCusum:
+    def test_accumulates_small_upward_moves(self):
+        """Consecutive small moves trigger after ~30 ticks."""
+        cusum = CusumAccumulator(drift=0.003, threshold=0.06)
+        triggered = False
+        # Each tick: 0.005 - 0.003 = 0.002 net. Need 0.06/0.002 = 30 ticks
+        for i in range(35):
+            alerts = cusum.update(0.005)
+            if alerts:
+                triggered = True
+                assert alerts[0]["direction"] == "UP"
+                break
+        assert triggered
+
+    def test_oscillation_no_trigger(self):
+        cusum = CusumAccumulator(drift=0.003, threshold=0.06)
+        for _ in range(100):
+            cusum.update(0.004)
+            cusum.update(-0.004)
+        assert cusum.s_pos < 0.06
+        assert cusum.s_neg < 0.06
+
+    def test_resets_after_trigger(self):
+        cusum = CusumAccumulator(drift=0.003, threshold=0.06)
+        triggered_at = None
+        for i in range(35):
+            alerts = cusum.update(0.005)
+            if alerts and triggered_at is None:
+                triggered_at = i
+                # Immediately after trigger, accumulator resets to 0
+                assert cusum.s_pos == 0
+                break
+        assert triggered_at is not None
+
+    def test_downward_drift(self):
+        cusum = CusumAccumulator(drift=0.003, threshold=0.06)
+        triggered_down = False
+        for _ in range(35):
+            alerts = cusum.update(-0.005)
+            if any(a["direction"] == "DOWN" for a in alerts):
+                triggered_down = True
+                break
+        assert triggered_down
+
+    def test_large_gap_triggers_immediately(self):
+        """Single large jump triggers immediately."""
+        cusum = CusumAccumulator(drift=0.003, threshold=0.06)
+        alerts = cusum.update(0.10)
+        assert len(alerts) == 1
+
+    def test_warm_up_from_history(self):
+        """warm_up should restore accumulator state."""
+        cusum = CusumAccumulator(drift=0.003, threshold=0.06)
+        # Feed 15 ticks of 0.005 via warm_up (not enough to trigger)
+        cusum.warm_up([0.005] * 15)
+        # s_pos should be 15 * 0.002 = 0.03
+        assert 0.02 < cusum.s_pos < 0.04
+        # A few more should trigger
+        triggered = False
+        for _ in range(20):
+            alerts = cusum.update(0.005)
+            if alerts:
+                triggered = True
+                break
+        assert triggered
