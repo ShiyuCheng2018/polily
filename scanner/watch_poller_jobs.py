@@ -38,6 +38,10 @@ def init_poller(scheduler, config, db, service):
     _ctx = PollerContext(scheduler=scheduler, config=config, db=db, service=service)
 
 
+# Per-market CUSUM accumulators (in-memory, lost on restart — warm_up restores)
+_cusum_states: dict = {}
+
+
 def get_poll_interval(market_type: str, movement_config: MovementConfig) -> int:
     """Get poll interval in seconds for a market type."""
     return movement_config.poll_intervals.get(
@@ -245,9 +249,86 @@ def _execute_poll(
 
             logger.info("Movement triggered AI for %s: M=%.0f Q=%.0f [%s]",
                         market_id, result.magnitude, result.quality, result.label)
-        else:
-            logger.debug("Poll %s: M=%.0f Q=%.0f [%s] — no trigger",
-                         market_id, result.magnitude, result.quality, result.label)
+        # --- Drift detection (catches what M/Q misses) ---
+        elif not at_daily_limit:
+            from scanner.drift_detector import (
+                CusumAccumulator,
+                build_price_history,
+                check_rolling_windows,
+            )
+            from scanner.movement_store import get_latest_movement
+
+            # Rolling windows
+            history = build_price_history(market_id, db)
+            drift_windows = mc.drift_windows.get(market_type, mc.drift_windows.get("default", {}))
+            current_price = result.signals.price_z_score  # not the actual price
+            # Get actual current price from latest movement_log
+            latest = get_latest_movement(market_id, db)
+            current_price = latest["yes_price"] if latest and latest.get("yes_price") else 0
+
+            window_alerts = check_rolling_windows(current_price, history, drift_windows)
+
+            # CUSUM (tick-to-tick delta)
+            if market_id not in _cusum_states:
+                _cusum_states[market_id] = CusumAccumulator(
+                    drift=mc.cusum_drift, threshold=mc.cusum_threshold)
+                # Warm up from recent history on first encounter
+                if len(history) >= 2:
+                    sorted_hist = sorted(history, key=lambda x: x[0], reverse=True)
+                    deltas = [sorted_hist[i][1] - sorted_hist[i + 1][1]
+                              for i in range(len(sorted_hist) - 1)]
+                    _cusum_states[market_id].warm_up(deltas)
+
+            cusum_alerts = []
+            if latest and latest.get("yes_price") is not None:
+                ts = datetime.fromisoformat(latest["created_at"])
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=UTC)
+                gap_seconds = (datetime.now(UTC) - ts).total_seconds()
+                # Skip CUSUM for large gaps (sleep/wake) — rolling windows handle those
+                if gap_seconds < 300 and prev_price is not None:
+                    price_change = current_price - latest["yes_price"]
+                    cusum_alerts = _cusum_states[market_id].update(price_change)
+
+            drift_alerts = window_alerts + cusum_alerts
+            if drift_alerts:
+                # Drift-specific cooldown (longer than M/Q)
+                drift_in_cooldown = False
+                for e in get_recent_movements(market_id, db, hours=1):
+                    if e.get("triggered_analysis"):
+                        triggered_at = datetime.fromisoformat(e["created_at"])
+                        if triggered_at.tzinfo is None:
+                            triggered_at = triggered_at.replace(tzinfo=UTC)
+                        if (datetime.now(UTC) - triggered_at).total_seconds() < mc.drift_cooldown_seconds:
+                            drift_in_cooldown = True
+                            break
+
+                if not drift_in_cooldown:
+                    # Mark + trigger
+                    db.conn.execute(
+                        """UPDATE movement_log SET triggered_analysis = 1
+                        WHERE market_id = ? AND id = (
+                            SELECT id FROM movement_log WHERE market_id = ?
+                            ORDER BY id DESC LIMIT 1
+                        )""", (market_id, market_id))
+                    db.conn.commit()
+
+                    from scanner.notifications import add_notification, send_desktop_notification
+                    from scanner.watch_recheck import recheck_market
+                    recheck_market(market_id, db=db, service=ctx.service, trigger_source="movement")
+                    alert_info = drift_alerts[0]
+                    title = f"漂移检测 [{alert_info['type']}]"
+                    body = f"{market_title[:40]}: {alert_info.get('direction', '')} {alert_info.get('change', alert_info.get('cumulative', ''))}"
+                    add_notification(db, title=title, body=body,
+                                   market_id=market_id, trigger_source="movement",
+                                   action_result=alert_info["type"])
+                    send_desktop_notification(title, body)
+                    logger.info("Drift triggered AI for %s: %s", market_id, alert_info)
+                else:
+                    logger.debug("Drift detected for %s but in cooldown", market_id)
+            else:
+                logger.debug("Poll %s: M=%.0f Q=%.0f [%s] — no trigger",
+                             market_id, result.magnitude, result.quality, result.label)
 
     except Exception:
         logger.exception("Poll failed for %s — will retry next interval", market_id)

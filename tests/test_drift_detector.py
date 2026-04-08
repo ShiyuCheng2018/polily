@@ -1,6 +1,7 @@
 """Tests for drift detection — rolling windows + CUSUM."""
 
-from scanner.drift_detector import CusumAccumulator, check_rolling_windows
+
+from scanner.drift_detector import CusumAccumulator, build_price_history, check_rolling_windows
 
 
 class TestRollingWindows:
@@ -64,7 +65,7 @@ class TestCusum:
         cusum = CusumAccumulator(drift=0.003, threshold=0.06)
         triggered = False
         # Each tick: 0.005 - 0.003 = 0.002 net. Need 0.06/0.002 = 30 ticks
-        for i in range(35):
+        for _i in range(35):
             alerts = cusum.update(0.005)
             if alerts:
                 triggered = True
@@ -123,3 +124,51 @@ class TestCusum:
                 triggered = True
                 break
         assert triggered
+
+
+class TestBuildPriceHistory:
+    def test_builds_from_movement_log(self, tmp_path):
+        from scanner.db import PolilyDB
+        from scanner.movement import MovementResult
+        from scanner.movement_store import append_movement
+
+        db = PolilyDB(tmp_path / "test.db")
+        for price in [0.50, 0.51, 0.52]:
+            append_movement("m1", MovementResult(magnitude=10, quality=10),
+                           yes_price=price, prev_yes_price=price - 0.01, db=db)
+
+        history = build_price_history("m1", db)
+        assert len(history) == 3
+        assert history[0][0] <= history[-1][0]
+        db.close()
+
+    def test_empty_market(self, tmp_path):
+        from scanner.db import PolilyDB
+
+        db = PolilyDB(tmp_path / "test.db")
+        history = build_price_history("nonexistent", db)
+        assert history == []
+        db.close()
+
+    def test_end_to_end_drift(self, tmp_path):
+        """Gradual 12% drift over 4 hours triggers rolling window."""
+        from datetime import UTC, datetime, timedelta
+
+        from scanner.db import PolilyDB
+
+        db = PolilyDB(tmp_path / "test.db")
+        now = datetime.now(UTC)
+        base = 0.50
+        for i in range(24):
+            price = base + i * 0.006  # +0.6% per entry = ~14% total
+            ts = (now - timedelta(minutes=240 - i * 10)).isoformat()
+            db.conn.execute(
+                "INSERT INTO movement_log (market_id, created_at, yes_price, magnitude, quality, label, snapshot) VALUES (?, ?, ?, 10, 10, 'noise', '{}')",
+                ("m1", ts, price))
+        db.conn.commit()
+
+        history = build_price_history("m1", db)
+        current = base + 23 * 0.006  # 0.638
+        alerts = check_rolling_windows(current, history, {240: 0.12})
+        assert len(alerts) > 0
+        db.close()
