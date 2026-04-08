@@ -10,8 +10,7 @@ check_job is handled by watch_scheduler.py (from watch-lifecycle-plan).
 
 import asyncio
 import logging
-import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from scanner.config import MovementConfig, ScannerConfig
@@ -20,43 +19,23 @@ from scanner.db import PolilyDB
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class PollerContext:
-    """Mutable context with persistent event loop and HTTP clients."""
+    """Immutable context — swapped atomically to avoid thread-safety races."""
     scheduler: Any
     config: ScannerConfig
     db: PolilyDB
     service: Any
-    loop: asyncio.AbstractEventLoop | None = field(default=None, repr=False)
-    _poller: Any = field(default=None, repr=False)  # PricePoller, lazy init
-
-    def get_poller(self):
-        """Lazily create a persistent PricePoller (reuses httpx client)."""
-        if self._poller is None:
-            from scanner.price_poller import PricePoller
-            self._poller = PricePoller(config=self.config, db=self.db)
-        return self._poller
 
 
 # Single reference (set once on daemon startup via init_poller)
 _ctx: PollerContext | None = None
 
 
-def _start_event_loop(loop: asyncio.AbstractEventLoop) -> None:
-    """Run event loop forever in a background thread."""
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
-
-
 def init_poller(scheduler, config, db, service):
-    """Initialize module-level context with persistent event loop."""
+    """Initialize module-level context."""
     global _ctx
-    loop = asyncio.new_event_loop()
-    _ctx = PollerContext(scheduler=scheduler, config=config, db=db, service=service, loop=loop)
-    # Start persistent event loop in daemon thread
-    t = threading.Thread(target=_start_event_loop, args=(loop,), daemon=True, name="poller-loop")
-    t.start()
-    logger.info("Persistent poller event loop started")
+    _ctx = PollerContext(scheduler=scheduler, config=config, db=db, service=service)
 
 
 def get_poll_interval(market_type: str, movement_config: MovementConfig) -> int:
@@ -160,8 +139,10 @@ def _execute_poll(
 ):
     """APScheduler callback: run a single poll cycle.
 
-    Phase 1: submit async poll to persistent event loop (reuses httpx client)
-    Phase 2: sync recheck_market if triggered (uses its own asyncio.run for AI)
+    Each poll creates a fresh PricePoller + httpx client via asyncio.run().
+    This avoids stale connections after macOS sleep/wake cycles.
+    Phase 2 (AI recheck) uses its own asyncio.run() — safe because Phase 1
+    completes and closes its loop before Phase 2 begins.
     """
     ctx = _ctx
     if ctx is None:
@@ -196,27 +177,47 @@ def _execute_poll(
                 pass
 
         prev_price = state.price_at_watch
-        poller = ctx.get_poller()
 
-        # Submit to persistent event loop — no new loop creation per poll
-        future = asyncio.run_coroutine_threadsafe(
-            poller.poll_single(
-                market_id,
-                market_type=market_type,
-                token_id=token_id,
-                condition_id=condition_id,
-                prev_price=prev_price,
-                market_title=market_title,
-            ),
-            ctx.loop,
-        )
-        result = future.result(timeout=30)
+        # Fresh poller + client per poll — resilient to sleep/wake
+        from scanner.price_poller import PricePoller
+
+        async def _poll_and_close():
+            poller = PricePoller(config=config, db=db)
+            try:
+                return await poller.poll_single(
+                    market_id,
+                    market_type=market_type,
+                    token_id=token_id,
+                    condition_id=condition_id,
+                    prev_price=prev_price,
+                    market_title=market_title,
+                )
+            finally:
+                await poller.close()
+
+        result = asyncio.run(_poll_and_close())
 
         # Check if should trigger AI
+        from scanner.movement_store import get_recent_movements, get_today_analysis_count
         mc = config.movement
+
+        # Cooldown check
+        in_cooldown = False
+        from datetime import UTC, datetime
+        for e in get_recent_movements(market_id, db, hours=1):
+            if e.get("triggered_analysis"):
+                triggered_at = datetime.fromisoformat(e["created_at"])
+                if triggered_at.tzinfo is None:
+                    triggered_at = triggered_at.replace(tzinfo=UTC)
+                if (datetime.now(UTC) - triggered_at).total_seconds() < result.cooldown_seconds:
+                    in_cooldown = True
+                    break
+
+        at_daily_limit = get_today_analysis_count(market_id, db) >= mc.daily_analysis_limit
+
         if (result.should_trigger(mc.magnitude_threshold, mc.quality_threshold)
-                and not poller.check_cooldown(market_id, result.cooldown_seconds)
-                and not poller.check_daily_limit(market_id)):
+                and not in_cooldown
+                and not at_daily_limit):
 
             # Mark the already-written movement_log entry as triggered
             db.conn.execute(

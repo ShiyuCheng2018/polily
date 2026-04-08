@@ -116,12 +116,17 @@ def test_execute_poll_cooldown_prevents_trigger(tmp_path):
 
     high_result = MovementResult(magnitude=85.0, quality=75.0)
 
+    # Seed a recent triggered analysis to put market in cooldown
+    from scanner.movement_store import append_movement
+    append_movement("m1", MovementResult(magnitude=80.0, quality=70.0),
+                    yes_price=0.55, prev_yes_price=0.50,
+                    triggered_analysis=True, db=db)
+
     with patch("scanner.price_poller.PricePoller") as MockPoller, \
          patch("scanner.watch_recheck.recheck_market") as mock_recheck:
 
         mock_poller_instance = MagicMock()
         mock_poller_instance.poll_single = AsyncMock(return_value=high_result)
-        mock_poller_instance.check_cooldown.return_value = True  # in cooldown
         mock_poller_instance.close = AsyncMock()
         MockPoller.return_value = mock_poller_instance
 
