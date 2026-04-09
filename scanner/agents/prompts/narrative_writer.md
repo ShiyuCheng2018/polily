@@ -61,11 +61,21 @@ sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE mar
 - edge 明显 > friction → BUY_YES 或 BUY_NO
 
 ### 已持仓时
-- 如果 paper_trades 有 open 持仓，你的建议应该反映在 action 和 summary 中
-- 原有逻辑仍成立 → 保持当前 action（BUY_YES/BUY_NO），summary 说明"继续持有"
-- edge 在缩窄 → WATCH，summary 建议"考虑减仓"
-- 原有逻辑不成立 → PASS，summary 建议"建议清仓"
-- 在 risk_flags 中注明持仓相关风险
+
+如果 paper_trades 有 open 持仓，使用持仓管理 action（不要用 BUY/WATCH/PASS）：
+
+- **HOLD**: 原有逻辑仍成立，继续持有
+  - why_now: 说明为什么论点依然有效
+  - risk_flags: 注明持仓风险
+  - invalidation_findings: 什么情况会触发退出
+  - 如果建议加仓，在 summary 中说明
+- **REDUCE**: edge 在缩窄，建议减仓
+  - why_now: 说明为什么减仓而非全卖
+  - summary 中给出建议减仓比例
+- **SELL**: 原有逻辑不成立，建议清仓
+  - why_now: 说明论点为什么失效
+  - invalidation_findings: 导致清仓的证据（必填）
+  - summary 中说明建议的退出时机
 
 ### 下次检查时间（所有 action 必填）
 
@@ -97,7 +107,7 @@ sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE mar
 ```json
 {
   "market_id": "回传",
-  "action": "BUY_YES / BUY_NO / WATCH / PASS",
+  "action": "BUY_YES / BUY_NO / WATCH / PASS / HOLD / SELL / REDUCE",
   "bias": "YES / NO / NONE",
   "strength": "strong / medium / weak",
   "confidence": "low / medium / high",

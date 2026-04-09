@@ -88,6 +88,9 @@ class MarketListView(Widget):
                 "BUY_NO": "BUY NO",
                 "PASS": "PASS",
                 "WATCH": "WATCH",
+                "HOLD": "HOLD",
+                "SELL": "SELL",
+                "REDUCE": "REDUCE",
             }
             action = action_map.get(getattr(n, "action", ""), "-") if n else "-"
 

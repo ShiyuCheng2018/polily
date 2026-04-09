@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-ActionLevel = Literal["BUY_YES", "BUY_NO", "WATCH", "PASS"]
+ActionLevel = Literal["BUY_YES", "BUY_NO", "WATCH", "PASS", "HOLD", "SELL", "REDUCE"]
 OpportunityType = Literal["instant_mispricing", "short_window", "slow_structure", "watch_only", "no_trade"]
 FrictionEdge = Literal["edge_exceeds", "roughly_equals", "friction_exceeds"]
 BiasDirection = Literal["YES", "NO", "NONE"]
@@ -110,7 +110,12 @@ class NarrativeWriterOutput(BaseModel):
                 errors.append("action=BUY requires substantive why_now")
             if not self.supporting_findings:
                 errors.append("action=BUY requires at least 1 supporting_finding")
-        if self.action in ("WATCH", "PASS"):
+        elif self.action in ("HOLD", "SELL", "REDUCE"):
+            if not self.why_now or len((self.why_now or "").strip()) < 10:
+                errors.append("action=HOLD/SELL/REDUCE requires substantive why_now")
+            if self.action == "SELL" and not self.invalidation_findings:
+                errors.append("action=SELL requires invalidation_findings (why thesis broke)")
+        elif self.action in ("WATCH", "PASS"):
             if not self.why_not_now or len((self.why_not_now or "").strip()) < 10:
                 errors.append("action=WATCH/PASS requires substantive why_not_now")
         if not self.next_check_at:
