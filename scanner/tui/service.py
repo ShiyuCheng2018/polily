@@ -581,10 +581,13 @@ class ScanService:
         elif action == "SELL":
             advice = "exit"
         elif action in ("BUY_YES", "BUY_NO"):
+            logger.warning("Agent returned %s for market with open position — mapping to hold", action)
             advice = "hold"
         elif action == "WATCH":
+            logger.warning("Agent returned WATCH for market with open position — mapping to reduce", action)
             advice = "reduce"
         else:
+            logger.warning("Agent returned %s for market with open position — mapping to exit", action)
             advice = "exit"
 
         return PositionAdvice(

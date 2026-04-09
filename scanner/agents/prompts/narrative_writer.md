@@ -62,7 +62,7 @@ sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE mar
 
 ### 已持仓时
 
-如果 paper_trades 有 open 持仓，使用持仓管理 action（不要用 BUY/WATCH/PASS）：
+如果 paper_trades 有 open 持仓，**必须且只能使用持仓管理 action（HOLD/SELL/REDUCE），禁止使用 BUY/WATCH/PASS**：
 
 - **HOLD**: 原有逻辑仍成立，继续持有
   - why_now: 说明为什么论点依然有效

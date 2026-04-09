@@ -178,8 +178,7 @@ class TestSemanticValidation:
 class TestPositionActions:
     def test_hold_action_valid(self):
         out = _valid_output(action="HOLD", why_now="Thesis intact, BTC above threshold", why_not_now="")
-        errors = out.semantic_errors()
-        assert not any("why_now" in e for e in errors)
+        assert out.semantic_errors() == []
 
     def test_sell_action_valid(self):
         out = _valid_output(action="SELL", why_now="Thesis broken, recommend exit", why_not_now="",
@@ -188,8 +187,7 @@ class TestPositionActions:
 
     def test_reduce_action_valid(self):
         out = _valid_output(action="REDUCE", why_now="Edge narrowing, take partial profit", why_not_now="")
-        errors = out.semantic_errors()
-        assert not any("why_now" in e for e in errors)
+        assert out.semantic_errors() == []
 
     def test_hold_requires_why_now(self):
         out = _valid_output(action="HOLD", why_now="", why_not_now="")
