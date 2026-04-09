@@ -793,6 +793,9 @@ class MarketDetailView(Widget):
                 from scanner.watch_scheduler import ensure_daemon_running
                 if ensure_daemon_running():
                     self.notify("后台监控已自动启动")
+                # Notify running daemon to load new poll job
+                from scanner.daemon_notify import notify_daemon
+                notify_daemon()
             except Exception:
                 pass
 
