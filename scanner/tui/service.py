@@ -574,17 +574,26 @@ class ScanService:
         summary = n.get("summary", "")
 
         # Map NarrativeWriter action to position advice
-        if action in ("BUY_YES", "BUY_NO"):
+        if action == "HOLD":
+            advice = "hold"
+        elif action == "REDUCE":
+            advice = "reduce"
+        elif action == "SELL":
+            advice = "exit"
+        elif action in ("BUY_YES", "BUY_NO"):
+            logger.warning("Agent returned %s for market with open position — mapping to hold", action)
             advice = "hold"
         elif action == "WATCH":
+            logger.warning("Agent returned WATCH for market with open position — mapping to reduce", action)
             advice = "reduce"
         else:
+            logger.warning("Agent returned %s for market with open position — mapping to exit", action)
             advice = "exit"
 
         return PositionAdvice(
             advice=advice,
             reasoning=summary,
-            thesis_intact=action in ("BUY_YES", "BUY_NO", "WATCH"),
+            thesis_intact=action in ("BUY_YES", "BUY_NO", "HOLD"),
             thesis_note=n.get("why_now") or n.get("why_not_now") or "",
             risk_note=n.get("risk_flags", [{}])[0].get("text", "") if n.get("risk_flags") else "",
             research_findings=[

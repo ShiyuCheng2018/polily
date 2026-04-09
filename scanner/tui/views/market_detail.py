@@ -42,6 +42,9 @@ ACTION_DISPLAY = {
     "WATCH": ("[yellow]WATCH[/yellow]", "yellow"),
     "BUY_YES": ("[green]BUY YES[/green]", "green"),
     "BUY_NO": ("[green]BUY NO[/green]", "green"),
+    "HOLD": ("[cyan]HOLD[/cyan]", "cyan"),
+    "SELL": ("[red]SELL[/red]", "red"),
+    "REDUCE": ("[yellow]REDUCE[/yellow]", "yellow"),
     "avoid": ("[red]PASS[/red]", "red"),
     "watch_only": ("[yellow]WATCH[/yellow]", "yellow"),
     "worth_research": ("[cyan]RESEARCH[/cyan]", "cyan"),
@@ -790,6 +793,9 @@ class MarketDetailView(Widget):
                 from scanner.watch_scheduler import ensure_daemon_running
                 if ensure_daemon_running():
                     self.notify("后台监控已自动启动")
+                # Notify running daemon to load new poll job
+                from scanner.daemon_notify import notify_daemon
+                notify_daemon()
             except Exception:
                 pass
 
