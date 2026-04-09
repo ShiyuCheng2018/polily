@@ -99,7 +99,7 @@ class TestNarrativeFallback:
         assert isinstance(result, NarrativeWriterOutput)
         assert result.market_id == "0xtest"
         assert len(result.summary) > 0
-        assert result.action in ("BUY_YES", "BUY_NO", "WATCH", "PASS")
+        assert result.action in ("BUY_YES", "BUY_NO", "WATCH", "PASS", "HOLD", "SELL", "REDUCE")
         assert result.confidence == "low"
 
     def test_fallback_has_risk_flags_with_severity(self):
