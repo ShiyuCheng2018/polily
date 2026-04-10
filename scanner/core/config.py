@@ -4,7 +4,7 @@ import copy
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -170,8 +170,9 @@ class CounterpartyConfig(BaseModel):
 
 
 class PaperTradingConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     enabled: bool = True
-    data_file: str = "./data/paper_trades.db"
     default_position_size_usd: float = 20
     assumed_round_trip_friction_pct: float = 0.04
     auto_resolve: bool = False
@@ -189,6 +190,8 @@ class DisciplineConfig(BaseModel):
 
 
 class ReportingConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     write_json: bool = True
     write_csv: bool = True
     write_terminal_summary: bool = True
@@ -277,6 +280,8 @@ class ScannerConfig(BaseModel):
         config = ScannerConfig(discipline=DisciplineConfig(account_size_usd=100))
         config = ScannerConfig.from_dict({"discipline": {"account_size_usd": 100}})
     """
+
+    model_config = ConfigDict(extra="ignore")
 
     @classmethod
     def from_dict(cls, data: dict) -> "ScannerConfig":

@@ -181,10 +181,10 @@ class ScanLogView(Widget):
 # --- Detail View ---
 
 class OpenMarketFromLog(Message):
-    """Request to open market detail from a log entry."""
-    def __init__(self, market_id: str):
+    """Request to open event detail from a log entry."""
+    def __init__(self, event_id: str):
         super().__init__()
-        self.market_id = market_id
+        self.event_id = event_id
 
 
 class ScanLogDetailView(Widget):

@@ -60,11 +60,10 @@ class PaperStatusView(Widget):
 
     def _get_market_price(self, market_id: str) -> float | None:
         """Get current YES price from DB markets table."""
-        row = self.service.db.conn.execute(
-            "SELECT yes_price FROM markets WHERE market_id = ?",
-            (market_id,),
-        ).fetchone()
-        return row["yes_price"] if row else None
+        from scanner.core.event_store import get_market
+
+        m = get_market(market_id, self.service.db)
+        return m.yes_price if m else None
 
     def _fill_table(self, table: DataTable) -> None:
         """Fill portfolio table from DB data."""

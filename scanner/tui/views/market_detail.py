@@ -15,6 +15,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
 
+from scanner.pnl import calc_unrealized_pnl
 from scanner.tui.widgets.cards import DashPanel, MetricCard
 
 if TYPE_CHECKING:
@@ -132,35 +133,26 @@ class MarketDetailView(Widget):
         self._analyzing = analyzing
         self._requested_version_idx = version_idx
 
-        # Populated in on_mount
-        self._detail: dict | None = None
+        # Load data synchronously so compose() has it
+        self._detail = self.service.get_event_detail(self.event_id)
         self._version_idx: int = -1
+
+        if self._detail is not None:
+            analyses = self._detail.get("analyses", [])
+            if analyses:
+                if (
+                    self._requested_version_idx is not None
+                    and 0 <= self._requested_version_idx < len(analyses)
+                ):
+                    self._version_idx = self._requested_version_idx
+                else:
+                    self._version_idx = len(analyses) - 1
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     def on_mount(self) -> None:
-        self._load_data()
-
-    def _load_data(self) -> None:
-        """Load event detail from service and populate the view."""
-        self._detail = self.service.get_event_detail(self.event_id)
-        if self._detail is None:
-            return
-
-        analyses = self._detail.get("analyses", [])
-        if analyses:
-            if (
-                self._requested_version_idx is not None
-                and 0 <= self._requested_version_idx < len(analyses)
-            ):
-                self._version_idx = self._requested_version_idx
-            else:
-                self._version_idx = len(analyses) - 1
-        else:
-            self._version_idx = -1
-
         self._populate()
 
     def _populate(self) -> None:
@@ -443,20 +435,16 @@ class MarketDetailView(Widget):
                 current_mr = next(
                     (m for m in markets if m.market_id == mid), None,
                 )
-                if current_mr and entry > 0:
-                    current = (
-                        current_mr.yes_price
-                        if side == "YES"
-                        else current_mr.no_price
+                if current_mr and current_mr.yes_price is not None and entry > 0:
+                    pnl_data = calc_unrealized_pnl(
+                        side.lower(), entry, current_mr.yes_price, size,
                     )
-                    if current is not None:
-                        shares = size / entry
-                        unrealized = shares * current - size
-                        color = "green" if unrealized >= 0 else "red"
-                        yield Static(
-                            f"  [{color}]P&L: {unrealized:+.2f}[/{color}]",
-                            classes="row",
-                        )
+                    unrealized = pnl_data["pnl"]
+                    color = "green" if unrealized >= 0 else "red"
+                    yield Static(
+                        f"  [{color}]P&L: {unrealized:+.2f}[/{color}]",
+                        classes="row",
+                    )
 
             # Movement log summary
             movements = d.get("movements", [])

@@ -287,9 +287,9 @@ class MainScreen(Screen):
         self._cancel_analysis()
 
     def on_open_market_from_log(self, message: OpenMarketFromLog) -> None:
-        """Navigate to event detail from a log entry (market_id used as event_id)."""
+        """Navigate to event detail from a log entry."""
         self._switch_view(
-            MarketDetailView(event_id=message.market_id, service=self.service)
+            MarketDetailView(event_id=message.event_id, service=self.service)
         )
 
     def on_view_monitor_detail(self, message: ViewMonitorDetail) -> None:

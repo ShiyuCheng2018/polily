@@ -55,13 +55,21 @@ def update_next_check_at(
     reason: str | None,
     db: PolilyDB,
 ) -> None:
-    """Update the next AI check time for an event."""
+    """Update the next AI check time for an event.
+
+    Uses UPSERT: if no event_monitors row exists, creates one with
+    auto_monitor=0 (stores schedule without enabling monitoring).
+    """
     now = datetime.now(UTC).isoformat()
     db.conn.execute(
         """
-        UPDATE event_monitors SET next_check_at=?, next_check_reason=?, updated_at=?
-        WHERE event_id=?
+        INSERT INTO event_monitors (event_id, auto_monitor, next_check_at, next_check_reason, updated_at)
+        VALUES (?, 0, ?, ?, ?)
+        ON CONFLICT(event_id) DO UPDATE SET
+            next_check_at=excluded.next_check_at,
+            next_check_reason=excluded.next_check_reason,
+            updated_at=excluded.updated_at
         """,
-        (next_check_at, reason, now, event_id),
+        (event_id, next_check_at, reason, now),
     )
     db.conn.commit()

@@ -143,7 +143,16 @@ class ScanService:
         # Build a ScoredCandidate from DB data (use first market as representative)
         market_row = markets[0] if markets else None
         # Build a minimal Market-like object for the agent
+        import contextlib
+
         from scanner.core.models import Market
+
+        res_time = None
+        end_date_str = (market_row.end_date if market_row else None) or event.end_date
+        if end_date_str:
+            with contextlib.suppress(ValueError, AttributeError):
+                res_time = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+
         m = Market(
             market_id=market_row.market_id if market_row else event_id,
             title=event.title,
@@ -151,6 +160,11 @@ class ScanService:
             event_id=event_id,
             yes_price=market_row.yes_price if market_row else None,
             no_price=market_row.no_price if market_row else None,
+            best_bid_yes=market_row.best_bid if market_row else None,
+            best_ask_yes=market_row.best_ask if market_row else None,
+            spread_yes=market_row.spread if market_row else None,
+            volume=market_row.volume if market_row else None,
+            resolution_time=res_time,
             outcomes=["Yes", "No"],
             data_fetched_at=datetime.now(UTC),
         )
@@ -241,11 +255,12 @@ class ScanService:
         return self._query_events("WHERE e.closed = 0")
 
     def _query_events(self, where_clause: str) -> list[dict]:
-        """Query events with summary fields (market_count, monitor, position, leader)."""
+        """Query events with summary fields (market_count, monitor, position, leader, next_check_at)."""
         sql = f"""
             SELECT e.*,
                    COUNT(DISTINCT mk.market_id) AS market_count,
                    COALESCE(em.auto_monitor, 0) AS is_monitored,
+                   em.next_check_at AS next_check_at,
                    COUNT(DISTINCT pt.id) AS position_count,
                    leader.group_item_title AS leader_title,
                    leader.yes_price AS leader_price
@@ -281,6 +296,7 @@ class ScanService:
                 "has_position": d["position_count"] > 0,
                 "leader_title": d.get("leader_title"),
                 "leader_price": d.get("leader_price"),
+                "next_check_at": d.get("next_check_at"),
             })
         return results
 

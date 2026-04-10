@@ -120,8 +120,9 @@ class NarrativeWriterOutput(BaseModel):
                 errors.append("action=WATCH/PASS requires substantive why_not_now")
         if not self.next_check_at:
             errors.append("next_check_at is required for all actions")
-        if not self.invalidation_findings:
-            errors.append("invalidation_findings must have at least 1 entry")
+        if self.action in ("BUY_YES", "BUY_NO", "SELL", "HOLD", "REDUCE"):
+            if not self.invalidation_findings:
+                errors.append("invalidation_findings must have at least 1 entry")
         if not self.summary or len(self.summary.strip()) < 5:
             errors.append("summary required")
         if not self.one_line_verdict or len(self.one_line_verdict.strip()) < 5:

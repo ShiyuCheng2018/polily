@@ -51,15 +51,8 @@ class MonitorListView(Widget):
         for e in self._monitored:
             ev = e["event"]
             mc = e["market_count"]
-            # Get next_check_at from monitor
-            from scanner.core.monitor_store import get_event_monitor
-
-            monitor = get_event_monitor(ev.event_id, self.service.db)
-            next_check = (
-                monitor["next_check_at"][:16]
-                if monitor and monitor.get("next_check_at")
-                else "-"
-            )
+            nc = e.get("next_check_at")
+            next_check = nc[:16] if nc else "-"
 
             table.add_row(
                 ev.title[:45],

@@ -215,7 +215,6 @@ counterparty:
 # Paper trading
 paper_trading:
   enabled: true
-  data_file: "./data/paper_trades.db"
   default_position_size_usd: 20     # assumed notional for PnL calculations
   # Friction assumption for adjusted PnL
   assumed_round_trip_friction_pct: 0.04
