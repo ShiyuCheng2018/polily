@@ -166,6 +166,16 @@ def run_scan_pipeline(
 
     # Persist scores to DB (if provided)
     if db is not None:
+        # Mark eligible events (passed filter) so poll only fetches these
+        eligible_eids = {getattr(m, "event_id", None) for m in passed if getattr(m, "event_id", None)}
+        if eligible_eids:
+            placeholders = ",".join("?" for _ in eligible_eids)
+            # Reset all to 0 first, then set eligible ones to 1
+            db.conn.execute("UPDATE events SET scan_eligible = 0")
+            db.conn.execute(
+                f"UPDATE events SET scan_eligible = 1 WHERE event_id IN ({placeholders})",
+                tuple(eligible_eids),
+            )
         _update_event_scores(candidates, tiers, db)
 
     logger.info(

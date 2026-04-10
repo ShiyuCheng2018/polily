@@ -38,6 +38,7 @@ class EventRow(BaseModel):
     structure_score: float | None = None
     tier: str | None = None
     user_status: str | None = None
+    scan_eligible: int = 0
     active: int = 1
     closed: int = 0
     created_at: str | None = None
@@ -96,7 +97,8 @@ _EVENT_INSERT_COLS = (
     "event_id", "title", "slug", "description", "resolution_source",
     "neg_risk", "neg_risk_market_id", "neg_risk_augmented", "market_count",
     "start_date", "end_date", "image", "volume", "liquidity", "open_interest",
-    "competitive", "tags", "market_type", "event_metadata", "active", "closed",
+    "competitive", "tags", "market_type", "event_metadata",
+    "scan_eligible", "active", "closed",
     "created_at", "updated_at",
 )
 
@@ -124,7 +126,7 @@ _EVENT_ALL_COLS = (
     "neg_risk", "neg_risk_market_id", "neg_risk_augmented", "market_count",
     "start_date", "end_date", "image", "volume", "liquidity", "open_interest",
     "competitive", "tags", "market_type", "event_metadata",
-    "structure_score", "tier", "user_status",
+    "structure_score", "tier", "user_status", "scan_eligible",
     "active", "closed", "created_at", "updated_at",
 )
 
@@ -218,9 +220,16 @@ def get_event_markets(event_id: str, db: PolilyDB) -> list[MarketRow]:
 
 
 def get_active_markets(db: PolilyDB) -> list[MarketRow]:
-    """Fetch all active, non-closed markets."""
+    """Fetch active markets from scan-eligible events only.
+
+    Only events that passed the scan filter (scan_eligible=1) are included.
+    This prevents polling 8000+ unfiltered markets.
+    """
     cur = db.conn.execute(
-        "SELECT * FROM markets WHERE active = 1 AND closed = 0 ORDER BY market_id",
+        """SELECT m.* FROM markets m
+        JOIN events e ON m.event_id = e.event_id
+        WHERE m.active = 1 AND m.closed = 0 AND e.scan_eligible = 1
+        ORDER BY m.market_id""",
     )
     return [_row_to_market(row) for row in cur.fetchall()]
 

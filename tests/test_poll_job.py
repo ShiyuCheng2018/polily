@@ -26,6 +26,9 @@ def db(tmp_path):
 
 def _seed(db, event_id="ev1", market_id="m1", token="tok1", **market_kw):
     upsert_event(EventRow(event_id=event_id, title="E", updated_at="now"), db)
+    # Mark scan-eligible so get_active_markets includes it
+    db.conn.execute("UPDATE events SET scan_eligible=1 WHERE event_id=?", (event_id,))
+    db.conn.commit()
     defaults = dict(
         market_id=market_id,
         event_id=event_id,
@@ -89,6 +92,8 @@ class TestGlobalPollPriceLayer:
     def test_closes_event_when_all_sub_markets_closed(self, db):
         """When all sub-markets 404, event should close."""
         upsert_event(EventRow(event_id="ev1", title="E", updated_at="now"), db)
+        db.conn.execute("UPDATE events SET scan_eligible=1 WHERE event_id='ev1'")
+        db.conn.commit()
         upsert_market(
             MarketRow(
                 market_id="m1",
@@ -157,6 +162,8 @@ class TestGlobalPollPriceLayer:
     def test_partial_event_close_doesnt_close_event(self, db):
         """If only some sub-markets 404, event should NOT close."""
         upsert_event(EventRow(event_id="ev1", title="E", updated_at="now"), db)
+        db.conn.execute("UPDATE events SET scan_eligible=1 WHERE event_id='ev1'")
+        db.conn.commit()
         upsert_market(
             MarketRow(
                 market_id="m1",
@@ -214,6 +221,8 @@ class TestGlobalPollPriceLayer:
     def test_multiple_markets_all_updated(self, db):
         """All active markets should be fetched and updated in one poll cycle."""
         upsert_event(EventRow(event_id="ev1", title="E", updated_at="now"), db)
+        db.conn.execute("UPDATE events SET scan_eligible=1 WHERE event_id='ev1'")
+        db.conn.commit()
         upsert_market(
             MarketRow(
                 market_id="m1",

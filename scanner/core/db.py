@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS events (
     structure_score     REAL,
     tier                TEXT,
     user_status         TEXT,
+    scan_eligible       INTEGER NOT NULL DEFAULT 0,
     active              INTEGER NOT NULL DEFAULT 1,
     closed              INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT,
