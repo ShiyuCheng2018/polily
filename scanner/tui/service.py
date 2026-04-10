@@ -1,18 +1,35 @@
-"""ScanService: bridge between TUI and existing pipeline/paper_trading modules."""
+"""ScanService v0.5.0: DB-first, event-level bridge between TUI and backend."""
 
-import dataclasses
+from __future__ import annotations
+
 import logging
+import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from scanner.agents.narrative_writer import NarrativeWriterAgent
+from scanner.analysis_store import AnalysisVersion, append_analysis, get_event_analyses
 from scanner.api import PolymarketClient, parse_gamma_event
 from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from scanner.core.event_store import (
+    EventRow,
+    MarketRow,
+    get_event,
+    get_event_markets,
+    upsert_event,
+    upsert_market,
+)
+from scanner.core.monitor_store import get_event_monitor, update_next_check_at
+from scanner.core.paper_store import create_paper_trade as _create_paper_trade
+from scanner.core.paper_store import get_open_trades as _get_open_trades
+from scanner.core.paper_store import get_resolved_trades as _get_resolved_trades
+from scanner.core.paper_store import get_trade_stats as _get_trade_stats
+from scanner.daemon.auto_monitor import toggle_auto_monitor
+from scanner.monitor.store import get_event_movements
 from scanner.scan.pipeline import run_scan_pipeline
-from scanner.scan.reporting import ScoredCandidate, TierResult
 from scanner.scan_log import (
     ScanLogEntry,
     ScanStepRecord,
@@ -30,21 +47,26 @@ logger = logging.getLogger(__name__)
 
 
 class ScanService:
-    """Provides data to TUI without coupling to Rich console or CLI."""
+    """DB-first bridge between TUI views, scan pipeline, AI agent, and DB."""
 
-    def __init__(self, config: ScannerConfig | None = None):
+    def __init__(
+        self,
+        config: ScannerConfig | None = None,
+        db: PolilyDB | None = None,
+    ):
         self.config = config or self._load_default_config()
-        self.db = PolilyDB(self.config.archiving.db_file)
-        self.tiers: TierResult | None = None
-        self.total_scanned: int = 0
+        self.db = db or PolilyDB(self.config.archiving.db_file)
+
+        # Progress tracking for TUI
         self.on_progress: Callable[[list[StepInfo]], None] | None = None
+        self.total_scanned: int = 0
         self.last_scan_id: str | None = None
         self._steps: list[StepInfo] = []
         self._current_log: ScanLogEntry | None = None
-        self._load_from_archive()
-        self._restore_narratives()
+        self._current_narrator: NarrativeWriterAgent | None = None
 
-    def _load_default_config(self) -> ScannerConfig:
+    @staticmethod
+    def _load_default_config() -> ScannerConfig:
         minimal = Path("config.minimal.yaml")
         example = Path("config.example.yaml")
         if minimal.exists() and example.exists():
@@ -53,94 +75,35 @@ class ScanService:
             return load_config(example)
         return ScannerConfig()
 
-    # --- Archive restore ---
+    # ------------------------------------------------------------------
+    # Scan
+    # ------------------------------------------------------------------
 
-    def _load_from_archive(self):
-        """Load last scan results from archive on startup.
-
-        TODO: v0.5.0 — rewrite to load from event_store / DB instead of JSON archives.
-        """
-        # Stubbed: scanner.archive was deleted. Will be rewritten in Task 1.10.
-        pass
-
-    # --- Scan log ---
-
-    def get_scan_logs(self) -> list[ScanLogEntry]:
-        return load_scan_logs(self.db)
-
-    def _persist_log(self, entry: ScanLogEntry):
-        save_scan_log(entry, self.db)
-
-    # --- Step tracking ---
-
-    def _step_start(self, name: str):
-        self._steps.append(StepInfo(name=name, status="running", start_time=time.time()))
-        self._emit_progress()
-
-    def _step_done(self, detail: str = ""):
-        for s in reversed(self._steps):
-            if s.status == "running":
-                s.status = "done"
-                s.detail = detail
-                s.elapsed = time.time() - s.start_time
-                break
-        self._emit_progress()
-
-    def _on_pipeline_progress(self, name: str, status: str, detail: str = ""):
-        """Callback for pipeline step progress."""
-        if status == "start":
-            self._step_start(name)
-        elif status in ("done", "skip", "fail"):
-            for s in reversed(self._steps):
-                if s.status == "running":
-                    s.status = status
-                    s.detail = detail
-                    s.elapsed = time.time() - s.start_time
-                    break
-            self._emit_progress()
-
-    def _emit_progress(self):
-        if self.on_progress:
-            snapshot = [
-                StepInfo(s.name, s.status, s.detail, s.start_time, s.elapsed)
-                for s in self._steps
-            ]
-            self.on_progress(snapshot)
-
-    def _steps_to_records(self) -> list[ScanStepRecord]:
-        return [
-            ScanStepRecord(name=s.name, status=s.status, detail=s.detail, elapsed=s.elapsed)
-            for s in self._steps if s.status != "running"
-        ]
-
-    # --- Scan ---
-
-    async def fetch_and_scan(self) -> TierResult:
-        """Run full pipeline: fetch -> filter -> score -> tier."""
+    async def fetch_and_scan(self) -> None:
+        """Run full pipeline: fetch events -> persist to DB -> score -> tier."""
         self._steps = []
         self._current_log = create_log_entry()
         self._persist_log(self._current_log)
 
         self._step_start("获取市场数据")
-        event_rows, markets = await self._fetch_markets_v2()
+        event_rows, markets = await self._fetch_events()
         self._step_done(f"{len(markets)} 个")
 
         self.total_scanned = len(markets)
         if not markets:
-            self.tiers = TierResult()
             self._finish_log("completed")
-            return self.tiers
+            return
 
         # Persist events + markets to DB before pipeline
         self._step_start("持久化到数据库")
         self._persist_scan_data(event_rows, markets)
         self._step_done(f"{len(event_rows)} 事件")
 
-        import os
         os.environ["POLILY_TUI"] = "1"
         try:
-            self.tiers = run_scan_pipeline(
-                markets, self.config,
+            run_scan_pipeline(
+                markets,
+                self.config,
                 db=self.db,
                 progress_cb=self._on_pipeline_progress,
             )
@@ -153,285 +116,271 @@ class ScanService:
         if self.config.archiving.enabled and self._current_log:
             self.last_scan_id = self._current_log.scan_id
 
-        # Restore previous AI narratives from analyses.json
-        self._restore_narratives()
-
         self._finish_log("completed")
-        return self.tiers
 
-    def _restore_narratives(self):
-        """Restore previous AI narratives from analyses DB to scan candidates.
+    # ------------------------------------------------------------------
+    # Analysis
+    # ------------------------------------------------------------------
 
-        TODO: v0.5.0 Task 4.1 will rewrite this to use event_id-based analyses.
-        For now, stubbed — fresh DB has no analyses to restore.
-        """
-        pass
+    async def analyze_event(
+        self,
+        event_id: str,
+        trigger_source: str = "manual",
+        on_heartbeat=None,
+    ) -> AnalysisVersion:
+        """Run AI analysis on an event. Reads all data from DB."""
+        from scanner.scan.mispricing import MispricingResult
+        from scanner.scan.reporting import ScoredCandidate
+        from scanner.scan.scoring import ScoreBreakdown
 
-    def _save_scan_narratives(self):
-        """Save scan-generated narratives to analyses DB.
+        event = get_event(event_id, self.db)
+        if event is None:
+            raise ValueError(f"Event {event_id} not found in DB")
+        markets = get_event_markets(event_id, self.db)
 
-        TODO: v0.5.0 Task 4.1 will rewrite this to use event_id-based analyses.
-        For now, stubbed — scan doesn't generate AI narratives (on-demand only).
-        """
-        pass
+        start_time = time.time()
 
-    def _finish_log(self, status: str, error: str | None = None):
-        if not self._current_log:
-            return
-        research = len(self.tiers.tier_a) if self.tiers else 0
-        watchlist = len(self.tiers.tier_b) if self.tiers else 0
-        filtered = len(self.tiers.tier_c) if self.tiers else 0
-        finish_log_entry(
-            self._current_log, status, self._steps_to_records(),
-            total_markets=self.total_scanned,
-            research_count=research,
-            watchlist_count=watchlist,
-            filtered_count=filtered,
-            error=error,
+        # Build a ScoredCandidate from DB data (use first market as representative)
+        market_row = markets[0] if markets else None
+        # Build a minimal Market-like object for the agent
+        from scanner.core.models import Market
+        m = Market(
+            market_id=market_row.market_id if market_row else event_id,
+            title=event.title,
+            description=event.description,
+            event_id=event_id,
+            yes_price=market_row.yes_price if market_row else None,
+            no_price=market_row.no_price if market_row else None,
+            outcomes=["Yes", "No"],
+            data_fetched_at=datetime.now(UTC),
         )
-        self._persist_log(self._current_log)
-        self._current_log = None
 
-    # --- Single market analysis ---
+        total = event.structure_score or 0
+        score = ScoreBreakdown(
+            liquidity_structure=0, objective_verifiability=0,
+            probability_space=0, time_structure=0, trading_friction=0,
+            total=total,
+        )
+        mispricing = MispricingResult(signal="none")
+        candidate = ScoredCandidate(market=m, score=score, mispricing=mispricing)
 
-    def cancel_analysis(self):
+        # Get existing analyses for version numbering
+        existing = get_event_analyses(event_id, self.db)
+        new_version_num = (existing[-1].version if existing else 0) + 1
+
+        # Run NarrativeWriter
+        narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
+        self._current_narrator = narrator
+        try:
+            include_bias = self.config.execution_hints.show_conditional_advice
+            narrative_output = await narrator.generate(
+                candidate,
+                include_bias=include_bias,
+                on_heartbeat=on_heartbeat,
+            )
+        finally:
+            self._current_narrator = None
+
+        # Build price snapshot
+        prices_snapshot = {}
+        for mr in markets:
+            prices_snapshot[mr.market_id] = {
+                "yes": mr.yes_price,
+                "no": mr.no_price,
+            }
+
+        version = AnalysisVersion(
+            version=new_version_num,
+            created_at=datetime.now(UTC).isoformat(),
+            prices_snapshot=prices_snapshot,
+            narrative_output=narrative_output.model_dump(),
+            trigger_source=trigger_source,
+            structure_score=event.structure_score,
+            mispricing_signal="none",
+            elapsed_seconds=time.time() - start_time,
+        )
+
+        append_analysis(event_id, version, self.db)
+
+        # Update next_check_at if AI provided one
+        if narrative_output.next_check_at:
+            update_next_check_at(
+                event_id,
+                narrative_output.next_check_at,
+                narrative_output.next_check_reason,
+                self.db,
+            )
+            # Notify daemon to register check_job
+            try:
+                from scanner.daemon.notify import notify_daemon
+                notify_daemon()
+            except Exception:
+                pass
+
+        return version
+
+    def cancel_analysis(self) -> None:
         """Cancel the currently running AI analysis."""
-        narrator = getattr(self, "_current_narrator", None)
+        narrator = self._current_narrator
         if narrator:
             narrator.cancel()
             logger.info("Analysis cancelled by user")
 
-    async def analyze_market(self, market_id: str, *,
-                             candidate: ScoredCandidate | None = None,
-                             trigger_source: str = "manual",
-                             on_heartbeat=None):
-        """Run full AI analysis on a single market.
+    # ------------------------------------------------------------------
+    # Event reads
+    # ------------------------------------------------------------------
 
-        Args:
-            market_id: The market to analyze.
-            candidate: If provided, use this candidate. Otherwise build one from API.
-            trigger_source: 'manual' / 'scan' / 'scheduled'
-            on_heartbeat: callback(elapsed, status) during AI call.
-        """
-        from datetime import datetime
-
-        from scanner.agents.narrative_writer import NarrativeWriterAgent
-        from scanner.analysis_store import (
-            AnalysisVersion,
-            append_analysis,
-            get_event_analyses,
+    def get_research_events(self) -> list[dict]:
+        """Return events with tier in (research, watchlist), sorted by score desc."""
+        return self._query_events(
+            "WHERE e.tier IN ('research', 'watchlist') AND e.closed = 0"
         )
 
-        # Build candidate if not provided
-        if candidate is None:
-            candidate = await self._build_candidate(market_id)
+    def get_all_events(self) -> list[dict]:
+        """Return all non-closed events, sorted by score desc."""
+        return self._query_events("WHERE e.closed = 0")
 
-        market = candidate.market
-        # Use event_id if available, fall back to market_id for now
-        event_id = getattr(market, "event_id", None) or market.market_id
-        start_time = time.time()
-
-        # Log entry
-        log = create_log_entry()
-        log.type = "analyze"
-        log.event_id = event_id
-        log.market_title = market.title
-        self._steps = []
-        self._current_log = log
-        self._persist_log(log)
-
-        try:
-            # Step 1: Fetch real-time market data
-            self._step_start("拉取实时数据")
-            try:
-                try:
-                    prices = await self.fetch_current_prices([market.market_id])
-                    new_price = prices.get(market.market_id)
-                    if new_price is not None:
-                        market.yes_price = new_price
-                        market.no_price = round(1 - new_price, 4) if new_price else market.no_price
-                except Exception as e:
-                    logger.warning("Price fetch failed for %s: %s", market.market_id, e)
-
-                try:
-                    client = PolymarketClient(self.config.api)
-                    try:
-                        if market.clob_token_id_yes:
-                            from scanner.orderbook import is_stale_book
-                            bids, asks = await client.fetch_book(market.clob_token_id_yes)
-                            if not is_stale_book(bids, asks):
-                                market.book_depth_bids = bids
-                                market.book_depth_asks = asks
-                    finally:
-                        await client.close()
-                except Exception as e:
-                    logger.warning("Orderbook fetch failed for %s: %s", market.market_id, e)
-
-                from scanner.scan.scoring import compute_structure_score
-                candidate.score = compute_structure_score(market, self.config.scoring.weights)
-
-                from scanner.market_types.registry import find_matching_module
-                enrichment_mod = find_matching_module(market)
-                if enrichment_mod:
-                    params = await enrichment_mod.fetch_price_params(market, self.config)
-                    if params:
-                        mp_result = enrichment_mod.detect_mispricing(market, params, self.config)
-                        if mp_result:
-                            candidate.mispricing = mp_result
-
-                self._step_done(f"YES {market.yes_price:.2f}")
-            except Exception as e:
-                self._step_done(f"部分失败: {e}")
-
-            # Step 2: AI decision analysis
-            self._step_start("AI 决策分析")
-            existing = get_event_analyses(event_id, self.db)
-            narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
-            self._current_narrator = narrator
-
-            include_bias = self.config.execution_hints.show_conditional_advice
-            narrative_output = await narrator.generate(
-                candidate, include_bias=include_bias,
-                on_heartbeat=on_heartbeat,
-            )
-            self._current_narrator = None
-            self._step_done("完成")
-
-            new_version_num = (existing[-1].version if existing else 0) + 1
-            version = AnalysisVersion(
-                version=new_version_num,
-                created_at=datetime.now(UTC).isoformat(),
-                prices_snapshot={market.market_id: {"yes": market.yes_price, "no": market.no_price}},
-                mispricing_signal=candidate.mispricing.signal,
-                mispricing_details=candidate.mispricing.details,
-                narrative_output=narrative_output.model_dump(),
-                trigger_source=trigger_source,
-                structure_score=candidate.score.total if candidate.score else None,
-                score_breakdown=dataclasses.asdict(candidate.score) if candidate.score else None,
-                elapsed_seconds=time.time() - start_time,
-            )
-
-            append_analysis(event_id, version, self.db)
-            candidate.narrative = narrative_output
-
-            finish_log_entry(log, "completed", self._steps_to_records(), total_markets=1)
-            self._persist_log(log)
-            self._current_log = None
-            return version
-
-        except Exception as e:
-            finish_log_entry(log, "failed", self._steps_to_records(), error=str(e))
-            self._persist_log(log)
-            self._current_log = None
-            raise
-
-    async def _build_candidate(self, market_id: str) -> ScoredCandidate:
-        """Build a ScoredCandidate from market_id by fetching fresh data."""
-        from scanner.scan.mispricing import detect_mispricing
-        from scanner.scan.scoring import compute_structure_score
-
-        # Fetch single market from Polymarket API
-        client = PolymarketClient(self.config.api)
-        try:
-            market = await client.fetch_single_market(market_id)
-            if market is None:
-                raise ValueError(f"Market {market_id} not found on Polymarket")
-        finally:
-            await client.close()
-
-        # Score + mispricing
-        score = compute_structure_score(market, self.config.scoring.weights)
-        mispricing = detect_mispricing(market, self.config.mispricing)
-        return ScoredCandidate(market=market, score=score, mispricing=mispricing)
-
-    def _sync_market_metadata(self, market):
-        """Sync market metadata (type, token IDs) to state without changing status.
-
-        TODO: v0.5.0 — rewrite to update markets table via event_store.
+    def _query_events(self, where_clause: str) -> list[dict]:
+        """Query events with summary fields (market_count, monitor, position)."""
+        sql = f"""
+            SELECT e.*,
+                   COUNT(DISTINCT mk.market_id) AS market_count,
+                   COALESCE(em.auto_monitor, 0) AS is_monitored,
+                   COUNT(DISTINCT pt.id) AS position_count
+            FROM events e
+            LEFT JOIN markets mk ON mk.event_id = e.event_id
+            LEFT JOIN event_monitors em ON em.event_id = e.event_id
+            LEFT JOIN paper_trades pt ON pt.event_id = e.event_id AND pt.status = 'open'
+            {where_clause}
+            GROUP BY e.event_id
+            ORDER BY COALESCE(e.structure_score, 0) DESC
         """
-        # Stubbed: market_states table was removed in v2 schema
-        pass
+        rows = self.db.conn.execute(sql).fetchall()
+        results = []
+        for row in rows:
+            d = dict(row)
+            event = EventRow(**{
+                k: d[k] for k in EventRow.model_fields if k in d
+            })
+            results.append({
+                "event": event,
+                "market_count": d["market_count"],
+                "is_monitored": bool(d["is_monitored"]),
+                "has_position": d["position_count"] > 0,
+            })
+        return results
 
-    # --- Position analysis ---
+    def get_event_detail(self, event_id: str) -> dict | None:
+        """Return full detail for an event: event, markets, analyses, trades, monitor, movements."""
+        event = get_event(event_id, self.db)
+        if event is None:
+            return None
+        markets = get_event_markets(event_id, self.db)
+        analyses = get_event_analyses(event_id, self.db)
+        from scanner.core.paper_store import get_event_open_trades
+        trades = get_event_open_trades(event_id, self.db)
+        monitor = get_event_monitor(event_id, self.db)
+        movements = get_event_movements(event_id, self.db, hours=24)
+        return {
+            "event": event,
+            "markets": markets,
+            "analyses": analyses,
+            "trades": trades,
+            "monitor": monitor,
+            "movements": movements,
+        }
 
-    async def analyze_position(self, candidate: ScoredCandidate, entry_price: float,
-                                side: str, days_held: float):
-        """Run position analysis — delegates to analyze_market.
+    # ------------------------------------------------------------------
+    # Monitor
+    # ------------------------------------------------------------------
 
-        NarrativeWriter agent reads paper_trades from DB and naturally
-        adapts its analysis to include hold/reduce/exit advice.
-        Returns PositionAdvice extracted from the NarrativeWriterOutput.
-        """
-        from scanner.agents.schemas import PositionAdvice
+    def get_monitor_count(self) -> int:
+        """Count events with auto_monitor enabled."""
+        row = self.db.conn.execute(
+            "SELECT COUNT(*) FROM event_monitors WHERE auto_monitor = 1",
+        ).fetchone()
+        return row[0] if row else 0
 
-        version = await self.analyze_market(
-            candidate.market.market_id,
-            candidate=candidate,
-            trigger_source="manual",
+    # ------------------------------------------------------------------
+    # Paper trades
+    # ------------------------------------------------------------------
+
+    def create_paper_trade(
+        self,
+        *,
+        event_id: str,
+        market_id: str,
+        title: str,
+        side: str,
+        entry_price: float,
+        position_size_usd: float,
+    ) -> str:
+        """Create a paper trade. Returns trade ID."""
+        return _create_paper_trade(
+            event_id=event_id,
+            market_id=market_id,
+            title=title,
+            side=side,
+            entry_price=entry_price,
+            position_size_usd=position_size_usd,
+            db=self.db,
         )
 
-        # Extract position advice from narrative output
-        n = version.narrative_output if isinstance(version.narrative_output, dict) else {}
-        action = n.get("action", "PASS")
-        summary = n.get("summary", "")
+    def get_open_trades(self) -> list[dict]:
+        return _get_open_trades(self.db)
 
-        # Map NarrativeWriter action to position advice
-        if action == "HOLD":
-            advice = "hold"
-        elif action == "REDUCE":
-            advice = "reduce"
-        elif action == "SELL":
-            advice = "exit"
-        elif action in ("BUY_YES", "BUY_NO"):
-            logger.warning("Agent returned %s for market with open position — mapping to hold", action)
-            advice = "hold"
-        elif action == "WATCH":
-            logger.warning("Agent returned WATCH for market with open position — mapping to reduce", action)
-            advice = "reduce"
-        else:
-            logger.warning("Agent returned %s for market with open position — mapping to exit", action)
-            advice = "exit"
+    def get_resolved_trades(self) -> list[dict]:
+        return _get_resolved_trades(self.db)
 
-        return PositionAdvice(
-            advice=advice,
-            reasoning=summary,
-            thesis_intact=action in ("BUY_YES", "BUY_NO", "HOLD"),
-            thesis_note=n.get("why_now") or n.get("why_not_now") or "",
-            risk_note=n.get("risk_flags", [{}])[0].get("text", "") if n.get("risk_flags") else "",
-            research_findings=[
-                {"finding": f.get("finding", ""), "source": f.get("source", ""), "impact": f.get("impact", "")}
-                for f in n.get("supporting_findings", [])[:3]
-            ],
+    def get_trade_stats(self) -> dict:
+        return _get_trade_stats(self.db)
+
+    # ------------------------------------------------------------------
+    # User actions
+    # ------------------------------------------------------------------
+
+    def pass_event(self, event_id: str) -> None:
+        """Mark an event as passed by the user."""
+        self.db.conn.execute(
+            "UPDATE events SET user_status = 'pass' WHERE event_id = ?",
+            (event_id,),
         )
+        self.db.conn.commit()
 
-    # --- Real-time price fetch ---
+    def toggle_monitor(self, event_id: str, enable: bool) -> None:
+        """Enable or disable monitoring for an event."""
+        toggle_auto_monitor(event_id, enable=enable, db=self.db)
 
-    async def fetch_current_prices(self, market_ids: list[str]) -> dict[str, float]:
-        """Fetch current YES prices from Polymarket API for given market IDs."""
-        client = PolymarketClient(self.config.api)
-        http = await client._get_client()
-        prices = {}
-        try:
-            for mid in market_ids:
-                try:
-                    resp = await http.get(
-                        f"https://gamma-api.polymarket.com/markets/{mid}",
-                        timeout=10,
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        prices_raw = data.get("outcomePrices", "[]")
-                        import json as _json
-                        parsed = _json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw
-                        if parsed:
-                            prices[mid] = float(parsed[0])
-                except Exception:
-                    pass
-        finally:
-            await client.close()
-        return prices
+    # ------------------------------------------------------------------
+    # Notifications
+    # ------------------------------------------------------------------
 
-    async def _fetch_markets_v2(self) -> tuple[list[EventRow], list]:
+    def get_unread_notification_count(self) -> int:
+        """Count unread notifications."""
+        row = self.db.conn.execute(
+            "SELECT COUNT(*) FROM notifications WHERE is_read = 0",
+        ).fetchone()
+        return row[0] if row else 0
+
+    # ------------------------------------------------------------------
+    # Scan log
+    # ------------------------------------------------------------------
+
+    def get_scan_logs(self) -> list[ScanLogEntry]:
+        return load_scan_logs(self.db)
+
+    # ------------------------------------------------------------------
+    # History
+    # ------------------------------------------------------------------
+
+    def get_history_count(self) -> int:
+        return len(self.get_resolved_trades())
+
+    # ------------------------------------------------------------------
+    # Internal: fetch + persist
+    # ------------------------------------------------------------------
+
+    async def _fetch_events(self) -> tuple[list[EventRow], list]:
         """Fetch events from Gamma API, returning (EventRow list, Market list)."""
         client = PolymarketClient(self.config.api)
         try:
@@ -487,72 +436,76 @@ class ScanService:
             )
             upsert_market(mr, self.db)
 
-    def get_all_market_states(self) -> dict:
-        """Get all market states as {market_id: state_dict}.
+    def _persist_log(self, entry: ScanLogEntry) -> None:
+        save_scan_log(entry, self.db)
 
-        TODO: v0.5.0 — rewrite to use event_monitors + events tables.
-        """
-        # Stubbed: market_states table was removed in v2 schema
-        return {}
+    # ------------------------------------------------------------------
+    # Step tracking (for TUI progress display)
+    # ------------------------------------------------------------------
 
-    def get_monitor_count(self) -> int:
-        """Get count of events with auto_monitor enabled."""
-        row = self.db.conn.execute(
-            "SELECT COUNT(*) FROM event_monitors WHERE auto_monitor = 1",
-        ).fetchone()
-        return row[0] if row else 0
+    def _step_start(self, name: str) -> None:
+        self._steps.append(StepInfo(name=name, status="running", start_time=time.time()))
+        self._emit_progress()
 
-    def get_unread_notification_count(self) -> int:
-        """Get count of unread notifications."""
-        row = self.db.conn.execute(
-            "SELECT COUNT(*) FROM notifications WHERE is_read = 0",
-        ).fetchone()
-        return row[0] if row else 0
+    def _step_done(self, detail: str = "") -> None:
+        for s in reversed(self._steps):
+            if s.status == "running":
+                s.status = "done"
+                s.detail = detail
+                s.elapsed = time.time() - s.start_time
+                break
+        self._emit_progress()
 
-    def get_all_candidates(self) -> list[ScoredCandidate]:
-        if not self.tiers:
-            return []
-        all_c = self.tiers.tier_a + self.tiers.tier_b + self.tiers.tier_c
-        return sorted(all_c, key=lambda c: c.score.total, reverse=True)
+    def _on_pipeline_progress(self, name: str, status: str, detail: str = "") -> None:
+        """Callback for pipeline step progress."""
+        if status == "start":
+            self._step_start(name)
+        elif status in ("done", "skip", "fail"):
+            for s in reversed(self._steps):
+                if s.status == "running":
+                    s.status = status
+                    s.detail = detail
+                    s.elapsed = time.time() - s.start_time
+                    break
+            self._emit_progress()
 
-    def get_research(self) -> list[ScoredCandidate]:
-        return self.tiers.tier_a if self.tiers else []
+    def _emit_progress(self) -> None:
+        if self.on_progress:
+            snapshot = [
+                StepInfo(s.name, s.status, s.detail, s.start_time, s.elapsed)
+                for s in self._steps
+            ]
+            self.on_progress(snapshot)
 
-    def get_watchlist(self) -> list[ScoredCandidate]:
-        return self.tiers.tier_b if self.tiers else []
+    def _steps_to_records(self) -> list[ScanStepRecord]:
+        return [
+            ScanStepRecord(name=s.name, status=s.status, detail=s.detail, elapsed=s.elapsed)
+            for s in self._steps
+            if s.status != "running"
+        ]
 
-    def mark_paper_trade(self, market_id: str, title: str, side: str,
-                         price: float, market_type: str | None = None,
-                         score: float | None = None) -> str:
-        """Mark a paper trade.
-
-        TODO: v0.5.0 — rewrite to use paper_store.
-        """
-        raise NotImplementedError("v0.5.0 TODO: paper trades via paper_store")
-
-    def get_paper_trades(self) -> list:
-        """TODO: v0.5.0 — rewrite to use paper_store."""
-        return []
-
-    def get_resolved_trades(self) -> list:
-        """TODO: v0.5.0 — rewrite to use paper_store."""
-        return []
-
-    def get_history_count(self) -> int:
-        return len(self.get_resolved_trades())
-
-    def get_resolved_stats(self) -> dict:
-        return {
-            "total": 0, "wins": 0,
-            "win_rate": 0,
-            "total_pnl": 0,
-            "total_friction_pnl": 0,
-        }
-
-    def get_paper_stats(self) -> dict:
-        """TODO: v0.5.0 — rewrite to use paper_store."""
-        return {
-            "total_trades": 0, "open": 0, "resolved": 0,
-            "wins": 0, "losses": 0, "win_rate": 0.0,
-            "total_paper_pnl": 0.0, "total_friction_adjusted_pnl": 0.0,
-        }
+    def _finish_log(self, status: str, error: str | None = None) -> None:
+        if not self._current_log:
+            return
+        # Count from DB after pipeline updated tiers
+        research = self.db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE tier = 'research' AND closed = 0",
+        ).fetchone()[0]
+        watchlist = self.db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE tier = 'watchlist' AND closed = 0",
+        ).fetchone()[0]
+        filtered = self.db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE tier = 'filtered' AND closed = 0",
+        ).fetchone()[0]
+        finish_log_entry(
+            self._current_log,
+            status,
+            self._steps_to_records(),
+            total_markets=self.total_scanned,
+            research_count=research,
+            watchlist_count=watchlist,
+            filtered_count=filtered,
+            error=error,
+        )
+        self._persist_log(self._current_log)
+        self._current_log = None
