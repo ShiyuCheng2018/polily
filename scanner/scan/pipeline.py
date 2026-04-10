@@ -10,7 +10,9 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-from scanner.api import PolymarketClient
+import httpx
+
+from scanner.api import CLOB_BASE, parse_clob_book
 from scanner.core.config import ScannerConfig
 from scanner.core.models import Market
 from scanner.orderbook import is_stale_book
@@ -306,19 +308,29 @@ async def enrich_with_orderbook(
     markets: list[Market],
     config: ScannerConfig,
 ) -> list[Market]:
-    """Fetch order books for all passed markets from CLOB API.
+    """Fetch order books for all markets concurrently from CLOB API.
 
+    Uses asyncio.gather with Semaphore(100) for concurrent CLOB requests.
     Markets with fetch failures keep their existing depth (usually None).
     Stale books (bid≈0, ask≈1) are flagged by clearing depth to None.
     """
-    client = PolymarketClient(config.api)
-    try:
-        for market in markets:
+    import asyncio
+
+    sem = asyncio.Semaphore(100)
+    timeout = httpx.Timeout(config.api.request_timeout_seconds)
+
+    async def _fetch_one(client: httpx.AsyncClient, market: Market) -> None:
+        token_id = market.clob_token_id_yes
+        if not token_id:
+            return
+        async with sem:
             try:
-                token_id = market.clob_token_id_yes
-                if not token_id:
-                    continue
-                bids, asks = await client.fetch_book(token_id)
+                resp = await client.get(
+                    f"{CLOB_BASE}/book",
+                    params={"token_id": token_id},
+                )
+                resp.raise_for_status()
+                bids, asks = parse_clob_book(resp.json())
 
                 if is_stale_book(bids, asks):
                     logger.warning("Stale book for %s, clearing depth", market.market_id)
@@ -329,8 +341,9 @@ async def enrich_with_orderbook(
                     market.book_depth_asks = asks
             except Exception as e:
                 logger.warning("Failed to fetch book for %s: %s", market.market_id, e)
-    finally:
-        await client.close()
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        await asyncio.gather(*[_fetch_one(client, m) for m in markets])
 
     return markets
 

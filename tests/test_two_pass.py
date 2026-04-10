@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from scanner.api import parse_clob_book
 from scanner.core.config import ScannerConfig
 from scanner.core.models import BookLevel
 from scanner.scan.pipeline import enrich_with_orderbook
@@ -29,6 +28,19 @@ STALE_BOOK = {
 }
 
 
+def _mock_httpx_response(book_data, status=200):
+    resp = MagicMock()
+    resp.status_code = status
+    resp.json.return_value = book_data
+    resp.raise_for_status = MagicMock()
+    if status >= 400:
+        import httpx
+        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "error", request=MagicMock(), response=resp
+        )
+    return resp
+
+
 class TestEnrichWithOrderbook:
     @pytest.mark.asyncio
     async def test_enriches_market_with_depth(self):
@@ -38,17 +50,13 @@ class TestEnrichWithOrderbook:
             book_depth_bids=None,
             book_depth_asks=None,
         )
-        # Need clobTokenIds-like data; we'll mock the token lookup
-        mock_response = MagicMock()
-        mock_response.json.return_value = SAMPLE_BOOK
-        mock_response.raise_for_status = MagicMock()
 
-        with patch("scanner.scan.pipeline.PolymarketClient") as MockClient:
-            client_instance = AsyncMock()
-            client_instance.fetch_book.return_value = parse_clob_book(SAMPLE_BOOK)
-            client_instance.close = AsyncMock()
-            MockClient.return_value = client_instance
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=_mock_httpx_response(SAMPLE_BOOK))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
 
+        with patch("scanner.scan.pipeline.httpx.AsyncClient", return_value=mock_client):
             config = ScannerConfig()
             enriched = await enrich_with_orderbook([market], config)
 
@@ -61,33 +69,32 @@ class TestEnrichWithOrderbook:
 
     @pytest.mark.asyncio
     async def test_stale_book_clears_depth(self):
-        """If book is stale (bid=0.01, ask=0.99), depth should be set to None."""
-        market = make_market(market_id="m-stale", clob_token_id_yes="tok-stale", book_depth_bids=None, book_depth_asks=None)
+        market = make_market(market_id="m-stale", clob_token_id_yes="tok-stale",
+                            book_depth_bids=None, book_depth_asks=None)
 
-        with patch("scanner.scan.pipeline.PolymarketClient") as MockClient:
-            client_instance = AsyncMock()
-            client_instance.fetch_book.return_value = parse_clob_book(STALE_BOOK)
-            client_instance.close = AsyncMock()
-            MockClient.return_value = client_instance
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=_mock_httpx_response(STALE_BOOK))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
 
+        with patch("scanner.scan.pipeline.httpx.AsyncClient", return_value=mock_client):
             config = ScannerConfig()
             enriched = await enrich_with_orderbook([market], config)
 
             m = enriched[0]
-            # Stale book should result in None depth (flagged)
             assert m.book_depth_bids is None or len(m.book_depth_bids) == 0
 
     @pytest.mark.asyncio
     async def test_fetch_failure_keeps_market(self):
-        """If book fetch fails, market should still be returned with None depth."""
-        market = make_market(market_id="m-fail", clob_token_id_yes="tok-fail", book_depth_bids=None, book_depth_asks=None)
+        market = make_market(market_id="m-fail", clob_token_id_yes="tok-fail",
+                            book_depth_bids=None, book_depth_asks=None)
 
-        with patch("scanner.scan.pipeline.PolymarketClient") as MockClient:
-            client_instance = AsyncMock()
-            client_instance.fetch_book.side_effect = Exception("API error")
-            client_instance.close = AsyncMock()
-            MockClient.return_value = client_instance
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=Exception("API error"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
 
+        with patch("scanner.scan.pipeline.httpx.AsyncClient", return_value=mock_client):
             config = ScannerConfig()
             enriched = await enrich_with_orderbook([market], config)
 
@@ -95,37 +102,36 @@ class TestEnrichWithOrderbook:
             assert enriched[0].book_depth_bids is None
 
     @pytest.mark.asyncio
-    async def test_fetches_all_markets(self):
-        """Fetch books for all passed markets."""
+    async def test_fetches_all_markets_concurrently(self):
         markets = [
-            make_market(market_id=f"m{i}", clob_token_id_yes=f"tok-{i}", book_depth_bids=None, book_depth_asks=None)
+            make_market(market_id=f"m{i}", clob_token_id_yes=f"tok-{i}",
+                       book_depth_bids=None, book_depth_asks=None)
             for i in range(10)
         ]
 
-        fetch_count = 0
+        call_count = 0
 
-        async def mock_fetch_book(token_id):
-            nonlocal fetch_count
-            fetch_count += 1
-            return parse_clob_book(SAMPLE_BOOK)
+        async def mock_get(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return _mock_httpx_response(SAMPLE_BOOK)
 
-        with patch("scanner.scan.pipeline.PolymarketClient") as MockClient:
-            client_instance = AsyncMock()
-            client_instance.fetch_book = mock_fetch_book
-            client_instance.close = AsyncMock()
-            MockClient.return_value = client_instance
+        mock_client = AsyncMock()
+        mock_client.get = mock_get
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
 
+        with patch("scanner.scan.pipeline.httpx.AsyncClient", return_value=mock_client):
             config = ScannerConfig()
             enriched = await enrich_with_orderbook(markets, config)
 
-            assert fetch_count == 10  # all markets fetched
+            assert call_count == 10
             assert enriched[0].book_depth_bids is not None
             assert enriched[9].book_depth_bids is not None
 
 
 class TestOrderBookIntegrationWithScoring:
     def test_market_with_depth_scores_higher_liquidity(self):
-        """Market with real depth data should score higher on liquidity than one without."""
         from scanner.core.config import ScoringWeights
         from scanner.scan.scoring import compute_structure_score
 
@@ -145,12 +151,11 @@ class TestOrderBookIntegrationWithScoring:
         assert s1.liquidity_structure > s2.liquidity_structure
 
     def test_depth_filter_rejects_shallow_book(self):
-        """Market with very thin depth should be rejected by depth filter."""
         from scanner.core.config import FiltersConfig, HeuristicsConfig
         from scanner.scan.filters import apply_hard_filters
 
         m = make_market(
-            book_depth_bids=[BookLevel(price=0.54, size=30)],  # $30 total, below $100 min
+            book_depth_bids=[BookLevel(price=0.54, size=30)],
             book_depth_asks=[BookLevel(price=0.56, size=30)],
         )
         result = apply_hard_filters(
