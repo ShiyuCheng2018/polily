@@ -82,9 +82,9 @@ class ScanService:
         self._current_log = create_log_entry()
         self._persist_log(self._current_log)
 
-        self._step_start("获取市场数据")
+        self._step_start("获取事件")
         event_rows, markets = await self._fetch_events()
-        self._step_done(f"{len(event_rows)} 事件 / {len(markets)} 市场")
+        self._step_done(f"{len(event_rows)} 事件")
 
         self.total_scanned = len(markets)
         if not markets:

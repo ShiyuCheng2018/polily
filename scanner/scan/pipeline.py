@@ -89,7 +89,9 @@ def run_scan_pipeline(
     with _timed_status(_console, "Filtering markets"):
         filter_result = apply_hard_filters(markets, config.filters, config.heuristics)
     passed_eids = {getattr(m, "event_id", None) for m in filter_result.passed if getattr(m, "event_id", None)}
-    _report("筛选", "done", f"{len(passed_eids)} 事件通过")
+    # Count total markets in eligible events (siblings included)
+    eligible_market_count = sum(1 for m in markets if getattr(m, "event_id", None) in passed_eids)
+    _report("筛选", "done", f"{len(passed_eids)} 事件 / {eligible_market_count} 市场")
     logger.info(
         "Filters: %d passed, %d rejected out of %d",
         len(filter_result.passed), len(filter_result.rejected), len(markets),
