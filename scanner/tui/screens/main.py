@@ -301,7 +301,7 @@ class MainScreen(Screen):
     def on_view_trade_detail(self, message: ViewTradeDetail) -> None:
         """Navigate to event detail from portfolio."""
         self._switch_view(
-            MarketDetailView(event_id=message.market_id, service=self.service)
+            MarketDetailView(event_id=message.event_id, service=self.service)
         )
 
     def on_back_to_scan_log(self, message: BackToScanLog) -> None:
