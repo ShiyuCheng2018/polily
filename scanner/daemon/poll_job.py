@@ -1,296 +1,199 @@
-"""APScheduler job registration for price polling.
+"""Global poll job -- fetches prices for ALL active markets every 10s.
 
-Each auto_monitor=True WATCH market gets:
-  1. poll_job (IntervalTrigger) — lightweight movement detection
-  2. check_job (DateTrigger) — AI analysis at next_check_at
+Architecture:
+  - ONE global poll function, registered as IntervalTrigger in daemon
+  - Step 1 (price layer): asyncio.gather all CLOB book+trades -> update markets table
+  - Step 2 (intelligence layer): for monitored events -> compute signals (Task 3.2)
 
-This module handles poll_job lifecycle.
-check_job is handled by watch_scheduler.py (from watch-lifecycle-plan).
+Module-level _ctx pattern (PollerContext) for db/config/scheduler access.
 """
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
-from scanner.core.config import MovementConfig, ScannerConfig
+import httpx
+
 from scanner.core.db import PolilyDB
+from scanner.core.event_store import (
+    get_active_markets,
+    get_event_markets,
+    mark_market_closed,
+    update_market_prices,
+)
 
 logger = logging.getLogger(__name__)
+
+_SEMAPHORE_LIMIT = 100
 
 
 @dataclass(frozen=True)
 class PollerContext:
-    """Immutable context — swapped atomically to avoid thread-safety races."""
-    scheduler: Any
-    config: ScannerConfig
+    """Immutable context -- swapped atomically to avoid thread-safety races."""
+
     db: PolilyDB
-    service: Any
+    config: Any = None
+    scheduler: Any = None
 
 
 # Single reference (set once on daemon startup via init_poller)
 _ctx: PollerContext | None = None
 
 
-def init_poller(scheduler, config, db, service):
+def init_poller(db: PolilyDB, config: Any = None, scheduler: Any = None) -> None:
     """Initialize module-level context."""
     global _ctx
-    _ctx = PollerContext(scheduler=scheduler, config=config, db=db, service=service)
+    _ctx = PollerContext(db=db, config=config, scheduler=scheduler)
 
 
-# Per-market CUSUM accumulators (in-memory, lost on restart — warm_up restores)
-_cusum_states: dict = {}
+def global_poll(db: PolilyDB | None = None) -> None:
+    """One poll cycle: fetch all active markets, update prices.
 
-
-def get_poll_interval(market_type: str, movement_config: MovementConfig) -> int:
-    """Get poll interval in seconds for a market type."""
-    return movement_config.poll_intervals.get(
-        market_type,
-        movement_config.poll_intervals.get("default", 30),
-    )
-
-
-def register_poll_job(
-    *,
-    market_id: str,
-    market_type: str,
-    token_id: str,
-    config: ScannerConfig,
-    db: PolilyDB,
-    market_title: str = "",
-    condition_id: str = "",
-) -> dict:
-    """Register a poll job for a WATCH market. Returns job metadata dict."""
-    interval = get_poll_interval(market_type, config.movement)
-    job_id = f"poll_{market_id}"
-
-    if _ctx is not None and _ctx.scheduler is not None:
-        _ctx.scheduler.add_job(
-            "scanner.daemon.poll_job:_execute_poll",
-            "interval",
-            seconds=interval,
-            id=job_id,
-            replace_existing=True,
-            kwargs={
-                "market_id": market_id,
-                "market_type": market_type,
-                "token_id": token_id,
-                "market_title": market_title,
-                "condition_id": condition_id,
-            },
-            max_instances=1,
-        )
-        logger.info("Registered poll job %s (every %ds)", job_id, interval)
-
-    return {
-        "market_id": market_id,
-        "job_id": job_id,
-        "interval_seconds": interval,
-        "market_type": market_type,
-    }
-
-
-def restore_poll_jobs_from_db(config: ScannerConfig, db: PolilyDB) -> int:
-    """Restore poll jobs for all auto_monitor=True WATCH markets.
-
-    Called once on daemon startup after init_poller().
-    Also prunes stale movement_log entries.
-    Returns number of jobs restored.
+    If *db* is passed directly (for testing), uses it.
+    Otherwise reads from module-level _ctx.
     """
-    from scanner.monitor.store import prune_old_movements
-    pruned = prune_old_movements(db, days=7)
-    if pruned > 0:
-        logger.info("Pruned %d stale movement_log entries", pruned)
+    if db is None:
+        if _ctx is None:
+            logger.error("global_poll called before init_poller")
+            return
+        db = _ctx.db
 
-    # TODO: v0.5.0 — rewrite to use event_monitors + markets tables
-    from scanner.core.monitor_store import get_active_monitors
+    markets = get_active_markets(db)
+    # Filter to markets with CLOB tokens (cannot fetch without one)
+    fetchable = [m for m in markets if m.clob_token_id_yes]
 
-    event_ids = get_active_monitors(db)
-    count = 0
-    # Stubbed: cannot get market-level details from event_monitors alone.
-    # Full implementation in Phase 3 will join events + markets tables.
-    logger.info("Restored %d poll jobs from DB (stubbed)", len(event_ids))
-    return count
-
-
-def remove_poll_job(market_id: str) -> bool:
-    """Remove the poll job for a market."""
-    job_id = f"poll_{market_id}"
-    if _ctx is not None and _ctx.scheduler is not None:
-        try:
-            _ctx.scheduler.remove_job(job_id)
-            logger.info("Removed poll job %s", job_id)
-            return True
-        except Exception:
-            return False
-    # Cleanup CUSUM state
-    _cusum_states.pop(market_id, None)
-    return True  # no scheduler = nothing to remove
-
-
-def _is_in_cooldown(market_id: str, db, cooldown_seconds: int) -> bool:
-    """Check if market is in cooldown period."""
-    from datetime import UTC, datetime
-
-    from scanner.monitor.store import get_recent_movements
-    for e in get_recent_movements(market_id, db, hours=1):
-        if e.get("triggered_analysis"):
-            triggered_at = datetime.fromisoformat(e["created_at"])
-            if triggered_at.tzinfo is None:
-                triggered_at = triggered_at.replace(tzinfo=UTC)
-            if (datetime.now(UTC) - triggered_at).total_seconds() < cooldown_seconds:
-                return True
-    return False
-
-
-def _mark_triggered(market_id: str, db) -> None:
-    """Mark the latest movement_log entry as triggered."""
-    db.conn.execute(
-        """UPDATE movement_log SET triggered_analysis = 1
-        WHERE market_id = ? AND id = (
-            SELECT id FROM movement_log WHERE market_id = ?
-            ORDER BY id DESC LIMIT 1
-        )""", (market_id, market_id))
-    db.conn.commit()
-
-
-def _trigger_recheck(market_id: str, db, ctx, market_title: str, alerts: list) -> None:
-    """Trigger AI analysis and send notification."""
-    from scanner.daemon.recheck import recheck_market
-    from scanner.notifications import add_notification, send_desktop_notification
-
-    recheck_market(market_id, db=db, service=ctx.service, trigger_source="movement")
-    alert_info = alerts[0]
-    alert_type = alert_info.get("type", "movement")
-    title = f"异动检测 [{alert_type}]"
-    body = f"{market_title[:40]}: {alert_info.get('direction', '')} {alert_info.get('change', alert_info.get('cumulative', ''))}"
-    add_notification(db, title=title, body=body,
-                   market_id=market_id, trigger_source="movement",
-                   action_result=alert_type)
-    send_desktop_notification(title, body)
-    logger.info("Triggered AI for %s: %s", market_id, alert_info)
-
-
-def _execute_poll(
-    market_id: str,
-    market_type: str,
-    token_id: str,
-    market_title: str = "",
-    condition_id: str = "",
-):
-    """APScheduler callback: run a single poll cycle.
-
-    Each poll creates a fresh PricePoller + httpx client via asyncio.run().
-    This avoids stale connections after macOS sleep/wake cycles.
-    Phase 2 (AI recheck) uses its own asyncio.run() — safe because Phase 1
-    completes and closes its loop before Phase 2 begins.
-    """
-    ctx = _ctx
-    if ctx is None:
-        logger.error("Poll job called before init_poller() — skipping")
+    if not fetchable:
         return
 
-    config = ctx.config
-    db = ctx.db
+    # Fetch all concurrently via asyncio.gather + Semaphore
+    results = asyncio.run(_fetch_all(fetchable))
 
-    try:
-        # TODO: v0.5.0 — rewrite to use event_monitors + markets tables
-        # For now, skip market state validation since market_states was removed
-        prev_price = None
+    # Process results ---------------------------------------------------------
+    closed_by_event: dict[str, list[str]] = {}  # event_id -> [closed market_ids]
 
-        # Fresh poller + client per poll — resilient to sleep/wake
-        from scanner.monitor.poll import PricePoller
-
-        async def _poll_and_close():
-            poller = PricePoller(config=config, db=db)
-            try:
-                return await poller.poll_single(
-                    market_id,
-                    market_type=market_type,
-                    token_id=token_id,
-                    condition_id=condition_id,
-                    prev_price=prev_price,
-                    market_title=market_title,
+    for market, result in zip(fetchable, results, strict=True):
+        if isinstance(result, httpx.HTTPStatusError):
+            if result.response.status_code == 404:
+                mark_market_closed(market.market_id, db)
+                closed_by_event.setdefault(market.event_id, []).append(
+                    market.market_id,
                 )
-            finally:
-                await poller.close()
-
-        result = asyncio.run(_poll_and_close())
-
-        # Check if should trigger AI
-        from scanner.monitor.store import get_recent_movements, get_today_analysis_count
-        mc = config.movement
-        from datetime import UTC, datetime
-
-        in_cooldown = _is_in_cooldown(market_id, db, result.cooldown_seconds)
-        at_daily_limit = get_today_analysis_count(market_id, db) >= mc.daily_analysis_limit
-
-        if (result.should_trigger(mc.magnitude_threshold, mc.quality_threshold)
-                and not in_cooldown
-                and not at_daily_limit):
-
-            _mark_triggered(market_id, db)
-            _trigger_recheck(market_id, db, ctx, market_title,
-                           [{"type": result.label, "direction": "", "change": result.magnitude}])
-        # --- Drift detection (catches what M/Q misses) ---
-        elif not at_daily_limit:
-            from scanner.monitor.drift import (
-                CusumAccumulator,
-                build_price_history,
-                check_rolling_windows,
-            )
-            # Get current price + previous price from movement_log
-            recent = get_recent_movements(market_id, db, hours=1)
-            if len(recent) < 2:
-                # Not enough data for drift detection yet
-                logger.debug("Poll %s: M=%.0f Q=%.0f [%s] — no trigger",
-                             market_id, result.magnitude, result.quality, result.label)
+                logger.info("Market %s 404 -- marked closed", market.market_id)
             else:
-                current_entry = recent[0]  # most recent (just written by poll_single)
-                prev_entry = recent[1]     # previous poll
-                current_price = current_entry.get("yes_price", 0)
-                prev_poll_price = prev_entry.get("yes_price", 0)
+                logger.warning(
+                    "Poll error %s for %s",
+                    result.response.status_code,
+                    market.market_id,
+                )
+            continue
+        if isinstance(result, Exception):
+            logger.warning("Poll failed for %s: %s", market.market_id, result)
+            continue
 
-                if current_price <= 0:
-                    logger.debug("Poll %s: no valid price for drift detection", market_id)
-                else:
-                    # Rolling windows
-                    history = build_price_history(market_id, db)
-                    drift_windows = mc.drift_windows.get(market_type, mc.drift_windows.get("default", {}))
-                    window_alerts = check_rolling_windows(current_price, history, drift_windows)
+        # Update prices in markets table
+        update_market_prices(market.market_id, db=db, **result)
 
-                    # CUSUM (tick-to-tick delta)
-                    if market_id not in _cusum_states:
-                        _cusum_states[market_id] = CusumAccumulator(
-                            drift=mc.cusum_drift, threshold=mc.cusum_threshold)
-                        # Warm up: replay deltas in chronological order (oldest→newest)
-                        if len(history) >= 2:
-                            chrono = sorted(history, key=lambda x: x[0], reverse=True)  # oldest first
-                            deltas = [chrono[i + 1][1] - chrono[i][1] for i in range(len(chrono) - 1)]
-                            _cusum_states[market_id].warm_up(deltas)
+    # Check if any events need closing (all sub-markets closed) ---------------
+    for event_id in closed_by_event:
+        all_markets = get_event_markets(event_id, db)
+        if all(m.closed for m in all_markets):
+            db.conn.execute(
+                "UPDATE events SET closed=1, updated_at=? WHERE event_id=?",
+                (datetime.now(UTC).isoformat(), event_id),
+            )
+            db.conn.commit()
+            logger.info("Event %s closed -- all sub-markets closed", event_id)
 
-                    cusum_alerts = []
-                    # Gap detection: time between previous and current poll
-                    prev_ts = datetime.fromisoformat(prev_entry["created_at"])
-                    if prev_ts.tzinfo is None:
-                        prev_ts = prev_ts.replace(tzinfo=UTC)
-                    gap_seconds = (datetime.now(UTC) - prev_ts).total_seconds()
-                    if gap_seconds < 300 and prev_poll_price > 0:
-                        # Normal tick — feed delta to CUSUM
-                        price_change = current_price - prev_poll_price
-                        cusum_alerts = _cusum_states[market_id].update(price_change)
-                    # If gap > 5min (sleep/wake), rolling windows handle it, CUSUM skips
+    # Step 2: Intelligence layer (Task 3.2 -- stub for now)
+    # _run_intelligence_layer(db)
 
-                    drift_alerts = window_alerts + cusum_alerts
-                    if drift_alerts:
-                        if not _is_in_cooldown(market_id, db, mc.drift_cooldown_seconds):
-                            _mark_triggered(market_id, db)
-                            _trigger_recheck(market_id, db, ctx, market_title, drift_alerts)
-                        else:
-                            logger.debug("Drift detected for %s but in cooldown", market_id)
-                    else:
-                        logger.debug("Poll %s: M=%.0f Q=%.0f [%s] — no drift",
-                                     market_id, result.magnitude, result.quality, result.label)
 
-    except Exception:
-        logger.exception("Poll failed for %s — will retry next interval", market_id)
+# ---------------------------------------------------------------------------
+# Async fetch helpers
+# ---------------------------------------------------------------------------
+
+
+async def _fetch_all(markets: list) -> list:
+    """Fetch book + trades for all markets concurrently."""
+    sem = asyncio.Semaphore(_SEMAPHORE_LIMIT)
+
+    async def _bounded_fetch(client: httpx.AsyncClient, market):
+        async with sem:
+            return await _fetch_single_market(client, market)
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        tasks = [_bounded_fetch(client, m) for m in markets]
+        return await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def _fetch_single_market(client: httpx.AsyncClient, market) -> dict:
+    """Fetch book + trades for one market. Returns price summary dict.
+
+    Raises httpx.HTTPStatusError on 404 etc. so caller can handle it.
+    """
+    token_id = market.clob_token_id_yes
+
+    # --- Fetch order book ---
+    book_resp = await client.get(
+        "https://clob.polymarket.com/book",
+        params={"token_id": token_id},
+    )
+    book_resp.raise_for_status()
+    book = book_resp.json()
+
+    bids = book.get("bids", [])
+    asks = book.get("asks", [])
+
+    best_bid = float(bids[0]["price"]) if bids else None
+    best_ask = float(asks[0]["price"]) if asks else None
+    yes_price = (best_bid + best_ask) / 2 if best_bid and best_ask else None
+    no_price = round(1 - yes_price, 4) if yes_price else None
+    spread = round(best_ask - best_bid, 4) if best_bid and best_ask else None
+    bid_depth = sum(float(b["size"]) for b in bids)
+    ask_depth = sum(float(a["size"]) for a in asks)
+    last_trade = book.get("last_trade_price")
+
+    # --- Fetch recent trades (optional, don't fail the poll) ---
+    trades_data: list[dict] = []
+    if market.condition_id:
+        try:
+            trades_resp = await client.get(
+                "https://data-api.polymarket.com/trades",
+                params={"market": market.condition_id, "limit": 50},
+            )
+            if trades_resp.status_code == 200:
+                raw = trades_resp.json()
+                trades_data = raw if isinstance(raw, list) else raw.get("data", [])
+        except Exception:
+            pass  # trades are optional
+
+    return {
+        "yes_price": yes_price,
+        "no_price": no_price,
+        "best_bid": best_bid,
+        "best_ask": best_ask,
+        "spread": spread,
+        "last_trade_price": float(last_trade) if last_trade else None,
+        "bid_depth": bid_depth,
+        "ask_depth": ask_depth,
+        "book_bids": json.dumps(
+            [{"price": float(b["price"]), "size": float(b["size"])} for b in bids],
+        ),
+        "book_asks": json.dumps(
+            [{"price": float(a["price"]), "size": float(a["size"])} for a in asks],
+        ),
+        "recent_trades": json.dumps(
+            [
+                {
+                    "price": float(t.get("price", 0)),
+                    "size": float(t.get("size", 0)),
+                    "side": t.get("side", ""),
+                    "timestamp": str(t.get("timestamp", "")),
+                }
+                for t in trades_data[:50]
+            ],
+        ),
+    }

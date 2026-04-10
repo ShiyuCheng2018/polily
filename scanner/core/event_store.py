@@ -237,13 +237,20 @@ def update_market_prices(
     last_trade_price: float | None = None,
     bid_depth: float | None = None,
     ask_depth: float | None = None,
+    book_bids: str | None = None,
+    book_asks: str | None = None,
+    recent_trades: str | None = None,
 ) -> None:
-    """Update price-related columns for a market."""
+    """Update price-related columns for a market.
+
+    Accepts both numeric fields and JSON-string fields (book_bids,
+    book_asks, recent_trades) written by the global poll job.
+    """
     from datetime import UTC, datetime
 
     updates: list[str] = []
     values: list[object] = []
-    price_fields = {
+    fields = {
         "yes_price": yes_price,
         "no_price": no_price,
         "best_bid": best_bid,
@@ -252,8 +259,11 @@ def update_market_prices(
         "last_trade_price": last_trade_price,
         "bid_depth": bid_depth,
         "ask_depth": ask_depth,
+        "book_bids": book_bids,
+        "book_asks": book_asks,
+        "recent_trades": recent_trades,
     }
-    for col, val in price_fields.items():
+    for col, val in fields.items():
         if val is not None:
             updates.append(f"{col} = ?")
             values.append(val)
