@@ -22,7 +22,7 @@ class TestMarket:
 
     def test_optional_fields_default_none(self):
         m = make_market()
-        assert m.event_id is None
+        assert m.event_id == "ev_test"
         assert m.description is None
         assert m.rules is None
         assert m.category is None

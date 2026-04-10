@@ -64,6 +64,15 @@ class Market(BaseModel):
     clob_token_id_no: str | None = None
     condition_id: str | None = None
 
+    # Multi-outcome support (new in v0.5.0)
+    group_item_title: str | None = None      # display label in multi-outcome ("No Prison Time", ">86k")
+    group_item_threshold: str | None = None   # display order index ("0","1","2"...)
+    question_id: str | None = None            # hex hash, different from condition_id
+    neg_risk: bool = False                     # part of neg_risk event
+    neg_risk_request_id: str | None = None    # unique per market within neg_risk group
+    neg_risk_other: bool = False               # catch-all "Other" outcome
+    accepting_orders: bool = True              # whether orderbook is active
+
     # Order book depth
     book_depth_bids: list[BookLevel] | None = None
     book_depth_asks: list[BookLevel] | None = None

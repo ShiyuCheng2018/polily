@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 
 from scanner.core.db import PolilyDB
+from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
 from scanner.core.models import BookLevel, Market
 
 
@@ -27,6 +28,7 @@ def make_market(**overrides) -> Market:
     """Factory for creating Market instances with sensible defaults."""
     defaults = dict(
         market_id="0xtest",
+        event_id="ev_test",
         title="Will BTC be above $88,000 on March 30?",
         outcomes=["Yes", "No"],
         yes_price=0.55,
@@ -60,6 +62,35 @@ def make_cli_response(structured_output: dict) -> bytes:
             "session_id": "test-session",
         },
     ]).encode()
+
+
+def make_event(**overrides) -> EventRow:
+    """Factory for creating EventRow instances with sensible defaults."""
+    defaults = dict(
+        event_id="ev_test",
+        title="Test Event",
+        slug="test-event",
+        neg_risk=False,
+        market_count=1,
+        active=1,
+        closed=0,
+        updated_at="2026-04-10T00:00:00",
+    )
+    defaults.update(overrides)
+    return EventRow(**defaults)
+
+
+def setup_event_and_market(db, event_id="ev1", market_id="m1", **market_overrides):
+    """Create an event + market in DB for testing."""
+    upsert_event(make_event(event_id=event_id), db)
+    defaults = dict(
+        market_id=market_id,
+        event_id=event_id,
+        question="Test market question",
+        updated_at="2026-04-10T00:00:00",
+    )
+    defaults.update(market_overrides)
+    upsert_market(MarketRow(**defaults), db)
 
 
 def make_cli_response_structured(structured_output: dict) -> bytes:
