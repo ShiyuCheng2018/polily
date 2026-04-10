@@ -28,7 +28,7 @@ def upsert_event_monitor(
             notes=COALESCE(excluded.notes, event_monitors.notes),
             updated_at=excluded.updated_at
         """,
-        (event_id, 1 if auto_monitor else 0, price_snapshot, notes or "", now),
+        (event_id, 1 if auto_monitor else 0, price_snapshot, notes, now),
     )
     db.conn.commit()
 

@@ -98,7 +98,7 @@ def resolve_trade(trade_id: str, *, result: str, db: PolilyDB) -> None:
     position_size = row["position_size_usd"]
 
     pnl = _compute_pnl(side, entry_price, position_size, result)
-    friction_pnl = pnl * (1 - _FRICTION_RATE)
+    friction_pnl = pnl - (position_size * _FRICTION_RATE)
     resolved_at = datetime.now(UTC).isoformat()
 
     db.conn.execute(

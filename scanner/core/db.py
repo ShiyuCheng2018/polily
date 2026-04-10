@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS event_monitors (
     next_check_at       TEXT,
     next_check_reason   TEXT,
     price_snapshot      TEXT,
-    notes               TEXT NOT NULL DEFAULT '',
+    notes               TEXT DEFAULT '',
     updated_at          TEXT NOT NULL
 );
 

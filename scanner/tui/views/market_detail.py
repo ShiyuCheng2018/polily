@@ -147,8 +147,8 @@ class MarketDetailView(Widget):
             self._version_idx = version_idx
 
     def _load_versions(self):
-        from scanner.analysis_store import get_market_analyses
-        self._versions = get_market_analyses(
+        from scanner.analysis_store import get_event_analyses
+        self._versions = get_event_analyses(
             self.candidate.market.market_id, self.service.db)
         if self._versions:
             self._version_idx = len(self._versions) - 1
@@ -274,7 +274,9 @@ class MarketDetailView(Widget):
         base_price = None
         if self._versions:
             v = self._versions[self._version_idx]
-            base_price = v.yes_price_at_analysis
+            if v.prices_snapshot:
+                first_mkt = next(iter(v.prices_snapshot.values()), {})
+                base_price = first_mkt.get("yes") if isinstance(first_mkt, dict) else None
         # TODO: v0.5.0 — price_at_watch was in market_states (removed)
         if base_price is None:
             base_price = self.candidate.market.yes_price
@@ -455,8 +457,12 @@ class MarketDetailView(Widget):
             total = len(self._versions)
             idx = self._version_idx + 1
             ts = v.created_at[5:16].replace("T", " ")
-            yes_p = f"YES {v.yes_price_at_analysis:.2f}" if v.yes_price_at_analysis else ""
-            no_p = f"NO {1 - v.yes_price_at_analysis:.2f}" if v.yes_price_at_analysis else ""
+            _snap_yes = None
+            if v.prices_snapshot:
+                _first = next(iter(v.prices_snapshot.values()), {})
+                _snap_yes = _first.get("yes") if isinstance(_first, dict) else None
+            yes_p = f"YES {_snap_yes:.2f}" if _snap_yes else ""
+            no_p = f"NO {1 - _snap_yes:.2f}" if _snap_yes else ""
             price_note = f"{yes_p} / {no_p}" if yes_p else ""
             trigger_map = {"manual": "手动", "scheduled": "定时", "movement": "异动", "scan": "扫描"}
             trigger_label = trigger_map.get(v.trigger_source, v.trigger_source)
@@ -686,8 +692,8 @@ class MarketDetailView(Widget):
         m = self.candidate.market
 
         # Use realtime price from movement_log, fallback to market snapshot
-        from scanner.monitor.store import get_latest_movement
-        latest = get_latest_movement(m.market_id, self.service.db)
+        from scanner.monitor.store import get_event_latest
+        latest = get_event_latest(m.market_id, self.service.db)
         if latest and latest.get("yes_price"):
             yes_price = latest["yes_price"]
         elif m.yes_price:

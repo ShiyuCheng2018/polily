@@ -59,9 +59,9 @@ class MarketRow(BaseModel):
     question_id: str | None = None
     clob_token_id_yes: str | None = None
     clob_token_id_no: str | None = None
-    neg_risk: int = 0
+    neg_risk: bool = False
     neg_risk_request_id: str | None = None
-    neg_risk_other: int = 0
+    neg_risk_other: bool = False
     resolution_source: str | None = None
     end_date: str | None = None
     volume: float | None = None
@@ -239,6 +239,8 @@ def update_market_prices(
     ask_depth: float | None = None,
 ) -> None:
     """Update price-related columns for a market."""
+    from datetime import UTC, datetime
+
     updates: list[str] = []
     values: list[object] = []
     price_fields = {
@@ -257,6 +259,8 @@ def update_market_prices(
             values.append(val)
     if not updates:
         return
+    updates.append("updated_at = ?")
+    values.append(datetime.now(UTC).isoformat())
     values.append(market_id)
     sql = f"UPDATE markets SET {', '.join(updates)} WHERE market_id = ?"
     db.conn.execute(sql, tuple(values))
