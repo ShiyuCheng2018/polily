@@ -22,7 +22,7 @@ def _to_local(iso_str: str | None) -> str:
     try:
         dt = datetime.fromisoformat(iso_str)
         local_dt = dt.astimezone()
-        return local_dt.strftime("%Y-%m-%d %H:%M")
+        return local_dt.strftime("%Y-%m-%d %H:%M:%S")
     except (ValueError, TypeError):
         return iso_str[:16].replace("T", " ")
 
