@@ -227,13 +227,8 @@ class PaperStatusView(Widget):
         return None
 
     def _get_countdown(self, market_id: str) -> str:
-        """Get settlement countdown from market_states."""
-        from scanner.market_state import get_market_state
-        from scanner.tui.utils import format_countdown
-
-        state = get_market_state(market_id, self.service.db)
-        if state and state.resolution_time:
-            return format_countdown(state.resolution_time)
+        """Get settlement countdown."""
+        # TODO: v0.5.0 — get end_date from markets table
         return "?"
 
     def _format_entry_time(self, marked_at: str) -> str:

@@ -58,15 +58,13 @@ class TestTUIStartup:
     @pytest.mark.asyncio
     async def test_app_starts_without_crash(self):
         """App mounts and renders without crashing."""
-        app = PolilyApp()
-        app.service = _mock_service()
+        app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)):
             assert app.is_running
 
     @pytest.mark.asyncio
     async def test_app_shows_sidebar(self):
-        app = PolilyApp()
-        app.service = _mock_service()
+        app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             from scanner.tui.widgets.sidebar import Sidebar
@@ -78,8 +76,7 @@ class TestTUINavigation:
     @pytest.mark.asyncio
     async def test_switch_to_research(self):
         """Press 1 to switch to research view."""
-        app = PolilyApp()
-        app.service = _mock_service()
+        app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)) as pilot:
             screen = app.screen
             screen.service = app.service
@@ -93,8 +90,7 @@ class TestTUINavigation:
     @pytest.mark.asyncio
     async def test_switch_to_watchlist(self):
         """Press 2 to switch to watchlist view."""
-        app = PolilyApp()
-        app.service = _mock_service()
+        app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)) as pilot:
             screen = app.screen
             screen.service = app.service
@@ -108,8 +104,7 @@ class TestTUINavigation:
     @pytest.mark.asyncio
     async def test_switch_to_paper(self):
         """Press 3 to switch to paper status view."""
-        app = PolilyApp()
-        app.service = _mock_service()
+        app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)) as pilot:
             screen = app.screen
             screen.service = app.service
@@ -123,8 +118,7 @@ class TestTUINavigation:
     @pytest.mark.asyncio
     async def test_switch_to_tasks(self):
         """Press 0 to switch to task log view."""
-        app = PolilyApp()
-        app.service = _mock_service()
+        app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)) as pilot:
             screen = app.screen
             screen.service = app.service
@@ -143,8 +137,7 @@ class TestTUIDetailView:
     @pytest.mark.asyncio
     async def test_enter_detail_and_escape_back(self):
         """Enter opens detail, Esc returns to list."""
-        app = PolilyApp()
-        app.service = _mock_service()
+        app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)) as pilot:
             screen = app.screen
             screen.service = app.service
@@ -166,8 +159,7 @@ class TestTUIRefreshAndScan:
     @pytest.mark.asyncio
     async def test_refresh_does_not_trigger_scan(self):
         """Press r should re-render current view, not start a new scan."""
-        app = PolilyApp()
-        app.service = _mock_service()
+        app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)) as pilot:
             screen = app.screen
             screen.service = app.service
@@ -182,8 +174,7 @@ class TestTUIRefreshAndScan:
     @pytest.mark.asyncio
     async def test_scan_debounce_while_loading(self):
         """_start_scan returns immediately when _loading is True."""
-        app = PolilyApp()
-        app.service = _mock_service()
+        app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)):
             screen = app.screen
             screen._loading = True
@@ -194,8 +185,7 @@ class TestTUIRefreshAndScan:
     @pytest.mark.asyncio
     async def test_scan_complete_does_not_auto_navigate(self):
         """Scan complete should NOT auto-navigate to research."""
-        app = PolilyApp()
-        app.service = _mock_service()
+        app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)) as pilot:
             screen = app.screen
             screen.service = app.service
@@ -212,7 +202,6 @@ class TestTUIQuit:
     @pytest.mark.asyncio
     async def test_quit(self):
         """Press q to quit."""
-        app = PolilyApp()
-        app.service = _mock_service()
+        app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.press("q")

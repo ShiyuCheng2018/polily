@@ -1,12 +1,13 @@
-"""Toggle auto_monitor: register/remove poll + check jobs atomically."""
+"""Toggle auto_monitor: register/remove poll + check jobs atomically.
+
+TODO: v0.5.0 Task 3.6 — rewrite against event_monitors table.
+Currently stubbed: market_states table was removed.
+"""
 
 import logging
-from datetime import UTC, datetime
 
 from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
-from scanner.daemon.poll_job import register_poll_job, remove_poll_job
-from scanner.market_state import get_market_state, set_market_state
 
 logger = logging.getLogger(__name__)
 
@@ -20,38 +21,13 @@ def toggle_auto_monitor(
 ) -> None:
     """Enable or disable auto monitoring for a market.
 
-    Works on any active status (watch/buy_yes/buy_no). Rejected for pass/closed.
+    TODO: v0.5.0 — rewrite to use event_monitors instead of market_states.
     """
-    state = get_market_state(market_id, db)
-    if not state:
-        logger.warning("Cannot toggle auto_monitor: market %s not found", market_id)
-        return
-
-    if enable and state.status in ("closed", "pass"):
-        logger.warning("Cannot enable auto_monitor: market %s is %s", market_id, state.status)
-        return
-
-    # Update state
-    state.auto_monitor = enable
-    state.updated_at = datetime.now(UTC).isoformat()
-    set_market_state(market_id, state, db)
-
-    if enable:
-        register_poll_job(
-            market_id=market_id,
-            market_type=state.market_type or "other",
-            token_id=state.clob_token_id_yes or "",
-            config=config,
-            db=db,
-            market_title=state.title,
-            condition_id=state.condition_id or "",
-        )
-        logger.info("Enabled auto_monitor for %s", market_id)
-    else:
-        remove_poll_job(market_id)
-        logger.info("Disabled auto_monitor for %s", market_id)
+    # No-op stub — will be rewritten in Task 3.6
+    logger.warning("toggle_auto_monitor is stubbed (v0.5.0 restructure)")
 
 
 def cleanup_closed_market(market_id: str) -> None:
     """Remove all jobs when a market is closed."""
+    from scanner.daemon.poll_job import remove_poll_job
     remove_poll_job(market_id)

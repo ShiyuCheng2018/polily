@@ -1,4 +1,7 @@
-"""Integration test: full poll cycle without real API calls."""
+"""Integration test: full poll cycle without real API calls.
+
+Tests the PricePoller independently of market_states (removed in v2 schema).
+"""
 
 from unittest.mock import AsyncMock, patch
 
@@ -6,7 +9,6 @@ import pytest
 
 from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
-from scanner.market_state import MarketState, set_market_state
 from scanner.monitor.models import MovementResult
 from scanner.monitor.poll import PricePoller
 from scanner.monitor.store import append_movement, get_recent_movements
@@ -42,13 +44,6 @@ async def test_full_poll_cycle_no_trigger(db, config):
     """Small price change should not trigger analysis."""
     _seed_price_history(db, "m1", [0.50, 0.51, 0.50, 0.51, 0.50] * 4)
 
-    state = MarketState(
-        status="watch", updated_at="2026-04-01T00:00:00",
-        title="Test Market", auto_monitor=True,
-        price_at_watch=0.50,
-    )
-    set_market_state("m1", state, db)
-
     poller = PricePoller(config=config, db=db)
 
     with patch.object(poller, "_fetch_market_data", new_callable=AsyncMock) as mock:
@@ -72,13 +67,6 @@ async def test_full_poll_cycle_no_trigger(db, config):
 async def test_full_poll_cycle_with_trigger(db, config):
     """Large price change with volume should trigger analysis."""
     _seed_price_history(db, "m2", [0.40, 0.41, 0.40, 0.41, 0.40] * 4)
-
-    state = MarketState(
-        status="watch", updated_at="2026-04-01T00:00:00",
-        title="Volatile Market", auto_monitor=True,
-        price_at_watch=0.40,
-    )
-    set_market_state("m2", state, db)
 
     poller = PricePoller(config=config, db=db)
 

@@ -54,13 +54,13 @@ def test_save_and_load(polily_db):
 def test_save_analyze_type(polily_db):
     entry = create_log_entry()
     entry.type = "analyze"
-    entry.market_id = "0xabc"
+    entry.event_id = "0xabc"
     entry.market_title = "BTC 68000"
     finish_log_entry(entry, "completed", [])
     save_scan_log(entry, polily_db)
     loaded = load_scan_logs(polily_db)
     assert loaded[0].type == "analyze"
-    assert loaded[0].market_id == "0xabc"
+    assert loaded[0].event_id == "0xabc"
     assert loaded[0].market_title == "BTC 68000"
 
 

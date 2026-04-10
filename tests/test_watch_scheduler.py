@@ -2,8 +2,8 @@
 
 from datetime import UTC, datetime, timedelta
 
+from scanner.core.monitor_store import upsert_event_monitor
 from scanner.daemon.scheduler import WatchScheduler
-from scanner.market_state import MarketState, set_market_state
 
 
 def test_schedule_and_list(polily_db):
@@ -47,19 +47,28 @@ def test_replace_existing(polily_db):
     scheduler.shutdown()
 
 
+def _seed_event(db, event_id: str):
+    """Insert a dummy event row for FK constraints."""
+    now = datetime.now(UTC).isoformat()
+    db.conn.execute(
+        "INSERT OR IGNORE INTO events (event_id, title, updated_at) VALUES (?, ?, ?)",
+        (event_id, f"Event {event_id}", now),
+    )
+    db.conn.commit()
+
+
 def test_restore_from_db(polily_db):
+    from scanner.core.monitor_store import update_next_check_at
+
     future = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
-    set_market_state("0x1", MarketState(
-        status="watch", updated_at="2026-04-01T10:00:00",
-        auto_monitor=True, next_check_at=future,
-    ), polily_db)
-    set_market_state("0x2", MarketState(
-        status="watch", updated_at="2026-04-01T10:00:00",
-        auto_monitor=False,
-    ), polily_db)
-    set_market_state("0x3", MarketState(
-        status="pass", updated_at="2026-04-01T10:00:00",
-    ), polily_db)
+    # Event with auto_monitor + next_check_at
+    _seed_event(polily_db, "0x1")
+    upsert_event_monitor("0x1", auto_monitor=True, db=polily_db)
+    update_next_check_at("0x1", future, "test", polily_db)
+
+    # Event without auto_monitor
+    _seed_event(polily_db, "0x2")
+    upsert_event_monitor("0x2", auto_monitor=False, db=polily_db)
 
     scheduler = WatchScheduler(polily_db)
     scheduler.start()
@@ -71,11 +80,12 @@ def test_restore_from_db(polily_db):
 
 
 def test_restore_overdue_schedules_immediately(polily_db):
+    from scanner.core.monitor_store import update_next_check_at
+
     past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
-    set_market_state("0x1", MarketState(
-        status="watch", updated_at="2026-04-01T10:00:00",
-        auto_monitor=True, next_check_at=past,
-    ), polily_db)
+    _seed_event(polily_db, "0x1")
+    upsert_event_monitor("0x1", auto_monitor=True, db=polily_db)
+    update_next_check_at("0x1", past, "test", polily_db)
 
     scheduler = WatchScheduler(polily_db)
     scheduler.start()

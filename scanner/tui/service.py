@@ -1,6 +1,5 @@
 """ScanService: bridge between TUI and existing pipeline/paper_trading modules."""
 
-import contextlib
 import dataclasses
 import logging
 import time
@@ -9,10 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from scanner.api import PolymarketClient, parse_gamma_event
-from scanner.archive import save_scan_unified
 from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
-from scanner.paper_trading import PaperTradingDB
 from scanner.scan.pipeline import run_scan_pipeline
 from scanner.scan.reporting import ScoredCandidate, TierResult
 from scanner.scan_log import (
@@ -58,111 +55,12 @@ class ScanService:
     # --- Archive restore ---
 
     def _load_from_archive(self):
-        """Load last scan results from archive on startup."""
-        from datetime import datetime
+        """Load last scan results from archive on startup.
 
-        from scanner.archive import get_latest_scan_id, load_latest_archive
-        from scanner.core.models import Market
-        from scanner.scan.mispricing import MispricingResult
-        from scanner.scan.scoring import ScoreBreakdown
-
-        data = load_latest_archive(self.config.archiving.archive_dir)
-        if not data:
-            return
-
-        self.last_scan_id = get_latest_scan_id(self.config.archiving.archive_dir)
-        tier_a, tier_b, tier_c = [], [], []
-        now = datetime.now(UTC)
-
-        for entry in data:
-            try:
-                # Parse resolution_time if available
-                res_time = None
-                if entry.get("resolution_time"):
-                    with contextlib.suppress(ValueError, TypeError):
-                        res_time = datetime.fromisoformat(entry["resolution_time"])
-
-                # Reconstruct book depth from archived totals
-                from scanner.core.models import BookLevel
-                bid_total = entry.get("total_bid_depth_usd")
-                ask_total = entry.get("total_ask_depth_usd")
-                book_bids = [BookLevel(price=1.0, size=bid_total)] if bid_total else None
-                book_asks = [BookLevel(price=1.0, size=ask_total)] if ask_total else None
-
-                market = Market(
-                    market_id=entry.get("market_id", ""),
-                    title=entry.get("title", ""),
-                    description=entry.get("description"),
-                    rules=entry.get("rules"),
-                    outcomes=["Yes", "No"],
-                    yes_price=entry.get("yes_price"),
-                    no_price=entry.get("no_price"),
-                    best_bid_yes=entry.get("best_bid_yes"),
-                    best_ask_yes=entry.get("best_ask_yes"),
-                    spread_yes=entry.get("spread_yes"),
-                    volume=entry.get("volume"),
-                    open_interest=entry.get("open_interest"),
-                    market_type=entry.get("market_type"),
-                    category=entry.get("category"),
-                    tags=entry.get("tags", []),
-                    resolution_source=entry.get("resolution_source"),
-                    resolution_time=res_time,
-                    data_fetched_at=now,
-                    event_slug=entry.get("event_slug"),
-                    market_slug=entry.get("market_slug"),
-                    clob_token_id_yes=entry.get("clob_token_id_yes"),
-                    condition_id=entry.get("condition_id"),
-                    book_depth_bids=book_bids,
-                    book_depth_asks=book_asks,
-                )
-                bd = entry.get("structure_score_breakdown", {})
-                score = ScoreBreakdown(
-                    liquidity_structure=bd.get("liquidity_structure", 0),
-                    objective_verifiability=bd.get("objective_verifiability", 0),
-                    probability_space=bd.get("probability_space", 0),
-                    time_structure=bd.get("time_structure", 0),
-                    trading_friction=bd.get("trading_friction", 0),
-                    total=entry.get("structure_score", 0),
-                )
-                mispricing = MispricingResult(
-                    signal=entry.get("mispricing_signal", "none"),
-                    direction=entry.get("mispricing_direction"),
-                    theoretical_fair_value=entry.get("theoretical_fair_value"),
-                    deviation_pct=entry.get("mispricing_deviation_pct"),
-                    details=entry.get("mispricing_details"),
-                )
-                # Restore narrative if available
-                narrative = None
-                n_data = entry.get("narrative")
-                if n_data and isinstance(n_data, dict):
-                    from scanner.agents.schemas import NarrativeWriterOutput
-                    try:
-                        # Ensure market_id is present
-                        n_data.setdefault("market_id", entry.get("market_id", ""))
-                        # Pre-process old risk_flags format (list[str] → list[dict])
-                        if n_data.get("risk_flags") and isinstance(n_data["risk_flags"][0], str):
-                            n_data["risk_flags"] = [
-                                {"text": rf, "severity": "warning"} for rf in n_data["risk_flags"]
-                            ]
-                        narrative = NarrativeWriterOutput.model_validate(n_data)
-                    except Exception:
-                        pass
-
-                candidate = ScoredCandidate(market=market, score=score, mispricing=mispricing, narrative=narrative)
-
-                tier = entry.get("tier", "filtered")
-                if tier == "research":
-                    tier_a.append(candidate)
-                elif tier == "watchlist":
-                    tier_b.append(candidate)
-                else:
-                    tier_c.append(candidate)
-            except Exception as e:
-                logger.debug("Skip archive entry: %s", e)
-                continue
-
-        self.tiers = TierResult(tier_a=tier_a, tier_b=tier_b, tier_c=tier_c)
-        self.total_scanned = len(data)
+        TODO: v0.5.0 — rewrite to load from event_store / DB instead of JSON archives.
+        """
+        # Stubbed: scanner.archive was deleted. Will be rewritten in Task 1.10.
+        pass
 
     # --- Scan log ---
 
@@ -245,12 +143,9 @@ class ScanService:
         finally:
             os.environ.pop("POLILY_TUI", None)
 
-        # Save unified archive (use scan log's start-time ID for consistency)
-        if self.config.archiving.enabled:
-            self.last_scan_id = save_scan_unified(
-                self.tiers, self.config.archiving.archive_dir,
-                scan_id=self._current_log.scan_id if self._current_log else None,
-            )
+        # TODO: v0.5.0 — archive saving removed; will be rewritten against event_store
+        if self.config.archiving.enabled and self._current_log:
+            self.last_scan_id = self._current_log.scan_id
 
         # Restore previous AI narratives from analyses.json
         self._restore_narratives()
@@ -372,7 +267,7 @@ class ScanService:
         # Log entry — persist immediately so it shows as "running"
         log = create_log_entry()
         log.type = "analyze"
-        log.market_id = market.market_id
+        log.event_id = market.market_id  # TODO: v0.5.0 — use real event_id
         log.market_title = market.title
         self._steps = []
         self._current_log = log
@@ -491,15 +386,9 @@ class ScanService:
             # but do NOT transition status — that's the user's decision.
             self._sync_market_metadata(market)
 
-            # Persist next_check_at to market_states if market already tracked
-            if narrative_output.next_check_at:
-                from scanner.market_state import get_market_state, set_market_state
-                state = get_market_state(market.market_id, self.db)
-                if state:
-                    state.next_check_at = narrative_output.next_check_at
-                    set_market_state(market.market_id, state, self.db)
-                    from scanner.daemon.notify import notify_daemon
-                    notify_daemon()
+            # TODO: v0.5.0 — persist next_check_at to event_monitors
+            # market_states table was replaced by event_monitors in v2 schema
+            pass
 
             # Log
             finish_log_entry(
@@ -536,19 +425,12 @@ class ScanService:
         return ScoredCandidate(market=market, score=score, mispricing=mispricing)
 
     def _sync_market_metadata(self, market):
-        """Sync market metadata (type, token IDs) to state without changing status."""
-        from scanner.market_state import get_market_state, set_market_state
+        """Sync market metadata (type, token IDs) to state without changing status.
 
-        mid = market.market_id
-        state = get_market_state(mid, self.db)
-        if state is None:
-            return
-
-        state.resolution_time = market.resolution_time.isoformat() if market.resolution_time else None
-        state.market_type = getattr(market, "market_type", None)
-        state.clob_token_id_yes = getattr(market, "clob_token_id_yes", None)
-        state.condition_id = getattr(market, "condition_id", None)
-        set_market_state(mid, state, self.db)
+        TODO: v0.5.0 — rewrite to update markets table via event_store.
+        """
+        # Stubbed: market_states table was removed in v2 schema
+        pass
 
     # --- Position analysis ---
 
@@ -643,15 +525,17 @@ class ScanService:
             await client.close()
 
     def get_all_market_states(self) -> dict:
-        """Get all market states as {market_id: MarketState}."""
-        rows = self.db.conn.execute("SELECT * FROM market_states").fetchall()
-        from scanner.market_state import _row_to_state
-        return {r["market_id"]: _row_to_state(r) for r in rows}
+        """Get all market states as {market_id: state_dict}.
+
+        TODO: v0.5.0 — rewrite to use event_monitors + events tables.
+        """
+        # Stubbed: market_states table was removed in v2 schema
+        return {}
 
     def get_monitor_count(self) -> int:
-        """Get count of markets with auto_monitor enabled."""
+        """Get count of events with auto_monitor enabled."""
         row = self.db.conn.execute(
-            "SELECT COUNT(*) FROM market_states WHERE auto_monitor = 1",
+            "SELECT COUNT(*) FROM event_monitors WHERE auto_monitor = 1",
         ).fetchone()
         return row[0] if row else 0
 
@@ -674,45 +558,38 @@ class ScanService:
     def get_watchlist(self) -> list[ScoredCandidate]:
         return self.tiers.tier_b if self.tiers else []
 
-    def _paper_db(self) -> PaperTradingDB:
-        return PaperTradingDB(
-            self.db,
-            position_size_usd=self.config.paper_trading.default_position_size_usd,
-            friction_pct=self.config.paper_trading.assumed_round_trip_friction_pct,
-        )
-
     def mark_paper_trade(self, market_id: str, title: str, side: str,
                          price: float, market_type: str | None = None,
                          score: float | None = None) -> str:
-        ptdb = self._paper_db()
-        trade = ptdb.mark(
-            market_id=market_id, title=title, side=side,
-            entry_price=price, market_type=market_type,
-            structure_score=score,
-            scan_id=getattr(self, "last_scan_id", None),
-        )
-        return trade.id
+        """Mark a paper trade.
+
+        TODO: v0.5.0 — rewrite to use paper_store.
+        """
+        raise NotImplementedError("v0.5.0 TODO: paper trades via paper_store")
 
     def get_paper_trades(self) -> list:
-        return self._paper_db().list_open()
+        """TODO: v0.5.0 — rewrite to use paper_store."""
+        return []
 
     def get_resolved_trades(self) -> list:
-        return self._paper_db().list_resolved()
+        """TODO: v0.5.0 — rewrite to use paper_store."""
+        return []
 
     def get_history_count(self) -> int:
         return len(self.get_resolved_trades())
 
     def get_resolved_stats(self) -> dict:
-        trades = self.get_resolved_trades()
-        wins = sum(1 for t in trades if t.paper_pnl and t.paper_pnl > 0)
-        total_pnl = sum(t.paper_pnl or 0 for t in trades)
-        total_friction_pnl = sum(t.friction_adjusted_pnl or 0 for t in trades)
         return {
-            "total": len(trades), "wins": wins,
-            "win_rate": wins / len(trades) if trades else 0,
-            "total_pnl": total_pnl,
-            "total_friction_pnl": total_friction_pnl,
+            "total": 0, "wins": 0,
+            "win_rate": 0,
+            "total_pnl": 0,
+            "total_friction_pnl": 0,
         }
 
     def get_paper_stats(self) -> dict:
-        return self._paper_db().stats()
+        """TODO: v0.5.0 — rewrite to use paper_store."""
+        return {
+            "total_trades": 0, "open": 0, "resolved": 0,
+            "wins": 0, "losses": 0, "win_rate": 0.0,
+            "total_paper_pnl": 0.0, "total_friction_adjusted_pnl": 0.0,
+        }

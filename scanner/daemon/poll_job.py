@@ -102,22 +102,14 @@ def restore_poll_jobs_from_db(config: ScannerConfig, db: PolilyDB) -> int:
     if pruned > 0:
         logger.info("Pruned %d stale movement_log entries", pruned)
 
-    from scanner.market_state import get_active_monitors
+    # TODO: v0.5.0 — rewrite to use event_monitors + markets tables
+    from scanner.core.monitor_store import get_active_monitors
 
-    watches = get_active_monitors(db)
+    event_ids = get_active_monitors(db)
     count = 0
-    for market_id, state in watches.items():
-        register_poll_job(
-            market_id=market_id,
-            market_type=state.market_type or "other",
-            token_id=state.clob_token_id_yes or "",
-            config=config,
-            db=db,
-            market_title=state.title,
-            condition_id=state.condition_id or "",
-        )
-        count += 1
-    logger.info("Restored %d poll jobs from DB", count)
+    # Stubbed: cannot get market-level details from event_monitors alone.
+    # Full implementation in Phase 3 will join events + markets tables.
+    logger.info("Restored %d poll jobs from DB (stubbed)", len(event_ids))
     return count
 
 
@@ -202,30 +194,9 @@ def _execute_poll(
     db = ctx.db
 
     try:
-        from scanner.market_state import get_market_state
-
-        state = get_market_state(market_id, db)
-        if not state or state.status in ("closed", "pass"):
-            logger.info("Market %s is %s — removing poll job", market_id, state.status if state else "gone")
-            remove_poll_job(market_id)
-            return
-
-        # Check if market has expired
-        if state.resolution_time:
-            from datetime import UTC, datetime
-            try:
-                res_time = datetime.fromisoformat(state.resolution_time)
-                if res_time < datetime.now(UTC):
-                    from scanner.daemon.recheck import _close_market
-                    _close_market(market_id, state, db)
-                    from scanner.daemon.auto_monitor import cleanup_closed_market
-                    cleanup_closed_market(market_id)
-                    logger.info("Market %s expired — closed and removed poll job", market_id)
-                    return
-            except ValueError:
-                pass
-
-        prev_price = state.price_at_watch
+        # TODO: v0.5.0 — rewrite to use event_monitors + markets tables
+        # For now, skip market state validation since market_states was removed
+        prev_price = None
 
         # Fresh poller + client per poll — resilient to sleep/wake
         from scanner.monitor.poll import PricePoller

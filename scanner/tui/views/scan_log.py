@@ -217,7 +217,7 @@ class ScanLogDetailView(Widget):
             if is_analyze:
                 yield Static(f" [bold]分析任务 {log.scan_id}[/bold]", classes="section-title")
                 yield Static(f"  市场: {log.market_title or '?'}", classes="detail-row")
-                if log.market_id:
+                if log.event_id:
                     yield Static("  [dim]按 Enter 打开市场详情[/dim]", classes="detail-row")
             else:
                 yield Static(f" [bold]扫描任务 {log.scan_id}[/bold]", classes="section-title")
@@ -236,7 +236,7 @@ class ScanLogDetailView(Widget):
             if is_analyze:
                 yield Static(" 分析目标", classes="section-title")
                 yield Static(f"  市场: {log.market_title or '?'}", classes="detail-row")
-                yield Static(f"  ID:   {log.market_id or '?'}", classes="detail-row")
+                yield Static(f"  ID:   {log.event_id or '?'}", classes="detail-row")
             else:
                 yield Static(" 扫描结果", classes="section-title")
                 yield Static(f"  市场总数: {log.total_markets}", classes="detail-row")
@@ -258,7 +258,7 @@ class ScanLogDetailView(Widget):
                     yield Static(f"  {status_label}  {step.name}{detail}     {elapsed_str}", classes="step-row")
 
             yield Static("")
-            if is_analyze and log.market_id:
+            if is_analyze and log.event_id:
                 yield Static("  [dim]Enter 打开市场 | Esc 返回列表[/dim]")
             else:
                 yield Static("  [dim]Esc 返回列表[/dim]")

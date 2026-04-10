@@ -23,7 +23,6 @@ from scanner.monitor.signals import (
 from scanner.monitor.store import (
     append_movement,
     get_recent_movements,
-    get_today_analysis_count,
 )
 
 logger = logging.getLogger(__name__)
@@ -154,13 +153,17 @@ class PricePoller:
         result = compute_movement_score(signals, market_type, self.config.movement)
 
         append_movement(
-            market_id, result,
+            event_id=market_id,  # TODO: v0.5.0 — pass real event_id
+            market_id=market_id,
             yes_price=current_price,
             prev_yes_price=prev_price,
             trade_volume=recent_volume,
             bid_depth=bid_depth,
             ask_depth=ask_depth,
             spread=spread,
+            magnitude=result.magnitude,
+            quality=result.quality,
+            label=result.label,
             db=self.db,
         )
 
@@ -243,5 +246,6 @@ class PricePoller:
 
         Returns True if limit exceeded (should NOT trigger analysis).
         """
+        from scanner.monitor.store import get_today_analysis_count
         count = get_today_analysis_count(market_id, self.db)
         return count >= self.config.movement.daily_analysis_limit

@@ -1,11 +1,12 @@
-"""Export: paper trades and scan data to CSV."""
+"""Export: paper trades and scan data to CSV.
+
+TODO: v0.5.0 — rewrite to use scanner.core.paper_store / event_store.
+"""
 
 import csv
 import json
 import logging
 from pathlib import Path
-
-from scanner.paper_trading import PaperTradingDB
 
 logger = logging.getLogger(__name__)
 
@@ -24,17 +25,12 @@ SCAN_COLUMNS = [
 ]
 
 
-def export_trades_csv(db: PaperTradingDB, output_path: str):
-    """Export all paper trades to CSV."""
-    trades = db.list_all()
-    with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=TRADE_COLUMNS)
-        writer.writeheader()
-        for t in trades:
-            row = {}
-            for col in TRADE_COLUMNS:
-                row[col] = getattr(t, col, None)
-            writer.writerow(row)
+def export_trades_csv(db, output_path: str):
+    """Export all paper trades to CSV.
+
+    TODO: v0.5.0 — rewrite to use paper_store
+    """
+    pass
 
 
 def export_scans_csv(scans_dir: str, output_path: str):

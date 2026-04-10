@@ -12,7 +12,7 @@ from pathlib import Path
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from scanner.market_state import get_active_monitors
+from scanner.core.monitor_store import get_active_monitors
 
 logger = logging.getLogger(__name__)
 
@@ -61,26 +61,28 @@ class WatchScheduler:
         return [{"market_id": j.id, "next_run": j.next_run_time} for j in jobs]
 
     def restore_from_db(self) -> int:
-        """On startup, restore jobs from market_states table.
+        """On startup, restore jobs from event_monitors table.
 
         Returns the number of jobs restored.
         """
-        watches = get_active_monitors(self.db)
+        event_ids = get_active_monitors(self.db)
         now = datetime.now(UTC)
         count = 0
-        for mid, state in watches.items():
-            if not state.next_check_at:
+        for eid in event_ids:
+            from scanner.core.monitor_store import get_event_monitor
+            mon = get_event_monitor(eid, self.db)
+            if not mon or not mon.get("next_check_at"):
                 continue
             try:
-                check_at = datetime.fromisoformat(state.next_check_at)
+                check_at = datetime.fromisoformat(mon["next_check_at"])
             except ValueError:
-                logger.warning("Invalid next_check_at for %s: %s", mid, state.next_check_at)
+                logger.warning("Invalid next_check_at for %s: %s", eid, mon["next_check_at"])
                 continue
             if check_at <= now:
                 # Overdue — schedule 5 seconds from now to avoid immediate execution during startup
-                self.schedule(mid, now + timedelta(seconds=5))
+                self.schedule(eid, now + timedelta(seconds=5))
             else:
-                self.schedule(mid, check_at)
+                self.schedule(eid, check_at)
             count += 1
         logger.info("Restored %d watch jobs from DB", count)
         return count

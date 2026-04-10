@@ -60,9 +60,9 @@ class MarketListView(Widget):
         table.cursor_type = "row"
         from scanner.scan.scoring import compute_three_scores
         table.add_columns("市场", "质量", "价值", "动作", "YES", "NO", "结算", "类型")
-        # Load monitored market IDs for green dot indicator
-        from scanner.market_state import get_auto_monitor_watches
-        monitored_ids = set(get_auto_monitor_watches(self.service.db).keys())
+        # TODO: v0.5.0 — load monitored event IDs from event_monitors
+        from scanner.core.monitor_store import get_active_monitors
+        monitored_ids = set(get_active_monitors(self.service.db))
         seen_ids: set[str] = set()
         for idx, c in enumerate(self.candidates):
             m = c.market
@@ -166,18 +166,8 @@ class MarketListView(Widget):
         c = self._get_selected()
         if not c:
             return
-        from datetime import UTC, datetime
-
-        from scanner.market_state import MarketState, get_market_state, set_market_state
+        # TODO: v0.5.0 — rewrite to update events.user_status via event_store
         mid = c.market.market_id
-        state = get_market_state(mid, self.service.db)
-        if state is None:
-            state = MarketState(status="pass", title=c.market.title)
-        state.status = "pass"
-        state.updated_at = datetime.now(UTC).isoformat()
-        state.auto_monitor = False
-        state.next_check_at = None
-        set_market_state(mid, state, self.service.db)
         from scanner.daemon.auto_monitor import cleanup_closed_market
         cleanup_closed_market(mid)
         self.notify(f"PASS: {c.market.title[:30]}")

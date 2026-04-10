@@ -3,6 +3,7 @@
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.message import Message as _Message
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
@@ -25,8 +26,17 @@ from scanner.tui.views.scan_log import (
     StepInfo,
     ViewScanLogDetail,
 )
-from scanner.tui.views.watch_list import MonitorListView, ViewMonitorDetail
 from scanner.tui.widgets.sidebar import MenuSelected, Sidebar
+
+# TODO: v0.5.0 Task 5.3 — MonitorListView will be recreated for event-first schema
+MonitorListView = None
+
+
+class ViewMonitorDetail(_Message):
+    """Stub: request to view monitor detail (will be implemented in Task 5.3)."""
+    def __init__(self, market_id: str = ""):
+        super().__init__()
+        self.market_id = market_id
 
 
 class MainScreen(Screen):
@@ -327,9 +337,12 @@ class MainScreen(Screen):
                        if not (c.market.market_id in states and states[c.market.market_id].status == "pass")]
             self._switch_view(MarketListView(research, self.service, "研究队列"), "research")
         elif menu_id == "monitor":
-            from scanner.market_state import get_auto_monitor_watches
-            monitored = get_auto_monitor_watches(self.service.db)
-            self._switch_view(MonitorListView(monitored), "monitor")
+            # TODO: v0.5.0 — MonitorListView not yet rebuilt for event-first schema
+            if MonitorListView is not None:
+                self._switch_view(MonitorListView({}), "monitor")
+            else:
+                from textual.widgets import Static
+                self._switch_view(Static(" [dim]Monitor view will be available in a future update.[/dim]"), "monitor")
         elif menu_id == "paper":
             self._switch_view(PaperStatusView(self.service), "paper")
         elif menu_id == "history":

@@ -8,7 +8,6 @@ __version__ = "0.1.0"
 from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
 from scanner.core.models import BookLevel, Market
-from scanner.paper_trading import PaperTradingDB
 from scanner.scan.filters import FilterResult, apply_hard_filters
 from scanner.scan.mispricing import MispricingResult, detect_mispricing
 from scanner.scan.pipeline import run_scan_pipeline
@@ -29,6 +28,4 @@ __all__ = [
     "apply_hard_filters", "FilterResult",
     # Classification
     "classify_from_tags",
-    # Paper trading
-    "PaperTradingDB",
 ]

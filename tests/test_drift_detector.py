@@ -163,8 +163,8 @@ class TestBuildPriceHistory:
             price = base + i * 0.006  # +0.6% per entry = ~14% total
             ts = (now - timedelta(minutes=240 - i * 10)).isoformat()
             db.conn.execute(
-                "INSERT INTO movement_log (market_id, created_at, yes_price, magnitude, quality, label, snapshot) VALUES (?, ?, ?, 10, 10, 'noise', '{}')",
-                ("m1", ts, price))
+                "INSERT INTO movement_log (event_id, market_id, created_at, yes_price, magnitude, quality, label, snapshot) VALUES (?, ?, ?, ?, 10, 10, 'noise', '{}')",
+                ("m1", "m1", ts, price))
         db.conn.commit()
 
         history = build_price_history("m1", db)

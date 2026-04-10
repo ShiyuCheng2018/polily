@@ -29,7 +29,7 @@ class ScanLogEntry(BaseModel):
     error: str | None = None
 
     type: str = "scan"  # "scan" or "analyze"
-    market_id: str | None = None  # for analyze type
+    event_id: str | None = None  # for analyze type
     market_title: str | None = None  # for analyze type
 
     total_markets: int = 0
@@ -47,12 +47,12 @@ def save_scan_log(entry: ScanLogEntry, db) -> None:
     ) if entry.steps else None
     db.conn.execute(
         """INSERT OR REPLACE INTO scan_logs
-        (scan_id, type, market_id, market_title, started_at, finished_at,
+        (scan_id, type, event_id, market_title, started_at, finished_at,
          total_elapsed, status, error, total_markets,
          research_count, watchlist_count, filtered_count, steps)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            entry.scan_id, entry.type, entry.market_id, entry.market_title,
+            entry.scan_id, entry.type, entry.event_id, entry.market_title,
             entry.started_at, entry.finished_at,
             entry.total_elapsed, entry.status, entry.error,
             entry.total_markets, entry.research_count,
@@ -75,7 +75,7 @@ def load_scan_logs(db, limit: int = 100) -> list[ScanLogEntry]:
             result.append(ScanLogEntry(
                 scan_id=row["scan_id"],
                 type=row["type"],
-                market_id=row["market_id"],
+                event_id=row["event_id"],
                 market_title=row["market_title"],
                 started_at=row["started_at"],
                 finished_at=row["finished_at"],

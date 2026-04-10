@@ -1,6 +1,5 @@
 """MarketDetailView: dashboard-style market analysis with AI insights."""
 
-from datetime import UTC
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -234,10 +233,7 @@ class MarketDetailView(Widget):
     # ===================== KPI CARDS =====================
 
     def _get_monitor_str(self, market_id: str) -> str:
-        from scanner.market_state import get_market_state
-        state = get_market_state(market_id, self.service.db)
-        if state and state.auto_monitor:
-            return "[green]● 自动监控 ON[/green]"
+        # TODO: v0.5.0 — check event_monitors for auto_monitor status
         return "[dim]自动监控 OFF[/dim]"
 
     def _fill_kpi_cards(self) -> None:
@@ -270,19 +266,16 @@ class MarketDetailView(Widget):
 
     def _update_kpi(self) -> None:
         """Timer callback: refresh KPI cards from movement_log."""
-        from scanner.market_state import get_market_state
         from scanner.monitor.store import get_price_status
 
         mid = self.candidate.market.market_id
 
-        # Base price: last analysis price → fallback to watch price → fallback to scan price
+        # Base price: last analysis price -> fallback to scan price
         base_price = None
         if self._versions:
             v = self._versions[self._version_idx]
             base_price = v.yes_price_at_analysis
-        if base_price is None:
-            state = get_market_state(mid, self.service.db)
-            base_price = state.price_at_watch if state else None
+        # TODO: v0.5.0 — price_at_watch was in market_states (removed)
         if base_price is None:
             base_price = self.candidate.market.yes_price
 
@@ -707,23 +700,10 @@ class MarketDetailView(Widget):
             price = yes_price
         else:
             price = round(1 - yes_price, 4)
-        status = "buy_yes" if side == "yes" else "buy_no"
-
         if self._pending_trade and self._pending_trade == (m.market_id, side):
-            from datetime import datetime
 
-            from scanner.market_state import MarketState, get_market_state, set_market_state
-            trade_id = self.service.mark_paper_trade(
-                market_id=m.market_id, title=m.title,
-                side=side, price=price, market_type=m.market_type,
-                score=self.candidate.score.total if self.candidate.score else None,
-            )
-            state = get_market_state(m.market_id, self.service.db)
-            if state is None:
-                state = MarketState(status=status, title=m.title)
-            state.status = status
-            state.updated_at = datetime.now(UTC).isoformat()
-            set_market_state(m.market_id, state, self.service.db)
+            # TODO: v0.5.0 — rewrite paper trade marking with paper_store
+            trade_id = "stubbed"
             self.notify(f"Paper trade: {side.upper()} @ {price:.2f} -> {trade_id}")
             self._pending_trade = None
             self.screen.refresh_sidebar_counts()
@@ -732,72 +712,23 @@ class MarketDetailView(Widget):
             self.notify(f"再按一次 {side[0]} 确认: {side.upper()} {m.title[:30]} @ {price:.2f}")
 
     def action_mark_pass(self) -> None:
-        from datetime import datetime
-
-        from scanner.market_state import MarketState, get_market_state, set_market_state
-
+        # TODO: v0.5.0 — rewrite to update events.user_status via event_store
         mid = self.candidate.market.market_id
-        state = get_market_state(mid, self.service.db)
-        if state is None:
-            state = MarketState(status="pass", title=self.candidate.market.title)
-        state.status = "pass"
-        state.updated_at = datetime.now(UTC).isoformat()
-        state.auto_monitor = False
-        state.next_check_at = None
-        state.watch_reason = None
-        set_market_state(mid, state, self.service.db)
         from scanner.daemon.auto_monitor import cleanup_closed_market
         cleanup_closed_market(mid)
         self.notify(f"PASS: {self.candidate.market.title[:30]}")
         self.screen.refresh_sidebar_counts()
 
     def action_toggle_auto_monitor(self) -> None:
-        from datetime import datetime
-
+        # TODO: v0.5.0 — rewrite to use event_monitors via monitor_store
         from scanner.daemon.auto_monitor import toggle_auto_monitor
-        from scanner.market_state import MarketState, get_market_state, set_market_state
 
         mid = self.candidate.market.market_id
         m = self.candidate.market
-        state = get_market_state(mid, self.service.db)
-
-        if state is not None and state.status in ("closed", "pass"):
-            self.notify("已关闭或已放弃的市场无法开启监控", severity="warning")
-            return
-
-        if state is None:
-            n = self._current_narrative()
-            state = MarketState(
-                status="watch", title=m.title,
-                updated_at=datetime.now(UTC).isoformat(),
-                price_at_watch=m.yes_price,
-                market_type=getattr(m, "market_type", None),
-                clob_token_id_yes=getattr(m, "clob_token_id_yes", None),
-                condition_id=getattr(m, "condition_id", None),
-                resolution_time=m.resolution_time.isoformat() if m.resolution_time else None,
-                next_check_at=getattr(n, "next_check_at", None) if n else None,
-            )
-            set_market_state(mid, state, self.service.db)
-
-        new_value = not state.auto_monitor
-        toggle_auto_monitor(mid, enable=new_value, db=self.service.db, config=self.service.config)
-        label = "ON" if new_value else "OFF"
-        self.notify(f"自动监控 [{label}]: {m.title[:30]}")
+        toggle_auto_monitor(mid, enable=True, db=self.service.db, config=self.service.config)
+        self.notify(f"自动监控 (stubbed): {m.title[:30]}")
         self.screen.refresh_sidebar_counts()
-
-        # Rebuild page to show updated monitor status
         self.post_message(SwitchVersionRequested(self.candidate, self._version_idx))
-
-        if new_value:
-            try:
-                from scanner.daemon.scheduler import ensure_daemon_running
-                if ensure_daemon_running():
-                    self.notify("后台监控已自动启动")
-                # Notify running daemon to load new poll job
-                from scanner.daemon.notify import notify_daemon
-                notify_daemon()
-            except Exception:
-                pass
 
     def action_open_link(self) -> None:
         import webbrowser
