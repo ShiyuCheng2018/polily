@@ -88,9 +88,8 @@ def run_scan_pipeline(
     _report("筛选", "start")
     with _timed_status(_console, "Filtering markets"):
         filter_result = apply_hard_filters(markets, config.filters, config.heuristics)
-    passed_n = len(filter_result.passed)
     passed_eids = {getattr(m, "event_id", None) for m in filter_result.passed if getattr(m, "event_id", None)}
-    _report("筛选", "done", f"{len(passed_eids)} 事件 / {passed_n} 市场通过")
+    _report("筛选", "done", f"{len(passed_eids)} 事件通过")
     logger.info(
         "Filters: %d passed, %d rejected out of %d",
         len(filter_result.passed), len(filter_result.rejected), len(markets),
@@ -107,7 +106,7 @@ def run_scan_pipeline(
         try:
             with _timed_status(_console, f"Fetching order books ({len(siblings)} markets)"):
                 siblings = _run_async(enrich_with_orderbook(siblings, config))
-            _report("获取盘口", "done", f"{len(passed_eids)} 事件 / {len(siblings)} 市场")
+            _report("获取盘口", "done", f"{len(passed_eids)} 事件")
             logger.info("Order books fetched for %d markets (%d events)", len(siblings), len(eligible_eids))
             # Update passed list with enriched versions (they're mutated in place, but be safe)
             sibling_map = {m.market_id: m for m in siblings}
