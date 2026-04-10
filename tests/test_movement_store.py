@@ -1,140 +1,145 @@
-
+"""Tests for movement store — event-level."""
 import pytest
 
 from scanner.core.db import PolilyDB
-from scanner.monitor.models import MovementResult
 from scanner.monitor.store import (
     append_movement,
-    get_latest_movement,
+    get_event_latest,
+    get_event_movements,
     get_movement_summary,
-    get_price_status,
-    get_recent_movements,
+    get_today_analysis_count,
     prune_old_movements,
 )
 
 
 @pytest.fixture
 def db(tmp_path):
-    _db = PolilyDB(tmp_path / "test.db")
-    yield _db
-    _db.close()
+    db = PolilyDB(tmp_path / "test.db")
+    yield db
+    db.close()
 
 
-def test_append_and_retrieve(db):
-    result = MovementResult(magnitude=75.0, quality=65.0)
-    append_movement("market_1", result, yes_price=0.55, prev_yes_price=0.50, db=db)
+class TestAppendMovement:
+    def test_append_sub_market_movement(self, db):
+        append_movement(
+            event_id="ev1", market_id="m1",
+            yes_price=0.55, prev_yes_price=0.53,
+            trade_volume=100.0, bid_depth=500.0, ask_depth=300.0, spread=0.02,
+            magnitude=45.0, quality=30.0, label="noise",
+            db=db,
+        )
+        entries = get_event_movements("ev1", db, hours=1)
+        assert len(entries) == 1
+        assert entries[0]["market_id"] == "m1"
+        assert entries[0]["yes_price"] == 0.55
 
-    recent = get_recent_movements("market_1", db, hours=1)
-    assert len(recent) == 1
-    assert recent[0]["magnitude"] == 75.0
-    assert recent[0]["quality"] == 65.0
-    assert recent[0]["label"] == "consensus"
-    assert recent[0]["yes_price"] == 0.55
+    def test_append_event_level_movement(self, db):
+        """market_id=None means event-level aggregate record."""
+        append_movement(
+            event_id="ev1", market_id=None,
+            magnitude=0.0, quality=0.0, label="noise",
+            snapshot='{"entropy": 0.82, "overround": 0.03}',
+            db=db,
+        )
+        entries = get_event_movements("ev1", db, hours=1)
+        assert len(entries) == 1
+        assert entries[0]["market_id"] is None
+        assert "entropy" in entries[0]["snapshot"]
 
-
-def test_get_recent_respects_time_window(db):
-    append_movement("market_1", MovementResult(magnitude=50.0, quality=50.0),
-                    yes_price=0.50, prev_yes_price=0.48, db=db)
-    append_movement("market_1", MovementResult(magnitude=60.0, quality=60.0),
-                    yes_price=0.52, prev_yes_price=0.50, db=db)
-
-    recent = get_recent_movements("market_1", db, hours=1)
-    assert len(recent) == 2
-
-
-def test_movement_summary_for_ai(db):
-    append_movement("m1", MovementResult(magnitude=50.0, quality=40.0),
-                    yes_price=0.50, prev_yes_price=0.48, db=db)
-    append_movement("m1", MovementResult(magnitude=80.0, quality=70.0),
-                    yes_price=0.55, prev_yes_price=0.50, db=db)
-
-    summary = get_movement_summary("m1", db, hours=6)
-    assert isinstance(summary, str)
-    assert "0.50" in summary or "0.55" in summary
-
-
-def test_movement_summary_none_when_empty(db):
-    summary = get_movement_summary("nonexistent", db, hours=6)
-    assert summary is None
-
-
-def test_triggered_analysis_in_summary(db):
-    append_movement("m1", MovementResult(magnitude=82.0, quality=71.0),
-                    yes_price=0.55, prev_yes_price=0.50, triggered_analysis=True, db=db)
-
-    summary = get_movement_summary("m1", db, hours=6)
-    assert "TRIGGERED AI" in summary
+    def test_append_with_no_price(self, db):
+        append_movement(
+            event_id="ev1", market_id="m1",
+            yes_price=0.55, no_price=0.45,
+            magnitude=50.0, quality=40.0, label="consensus",
+            db=db,
+        )
+        entries = get_event_movements("ev1", db, hours=1)
+        assert entries[0]["no_price"] == 0.45
 
 
-def test_prune_old_movements(db):
-    """Entries older than cutoff should be deleted."""
-    from datetime import UTC, datetime, timedelta
+class TestGetEventMovements:
+    def test_returns_all_sub_market_and_event_level(self, db):
+        append_movement(event_id="ev1", market_id="m1", magnitude=10, quality=5, label="noise", db=db)
+        append_movement(event_id="ev1", market_id="m2", magnitude=20, quality=15, label="noise", db=db)
+        append_movement(event_id="ev1", market_id=None, magnitude=0, quality=0, label="noise", db=db)
+        entries = get_event_movements("ev1", db, hours=1)
+        assert len(entries) == 3
 
-    # Insert an old entry directly with a timestamp 10 days ago
-    old_ts = (datetime.now(UTC) - timedelta(days=10)).isoformat()
-    db.conn.execute(
-        """INSERT INTO movement_log
-        (market_id, created_at, magnitude, quality, label, snapshot)
-        VALUES (?, ?, ?, ?, ?, ?)""",
-        ("m1", old_ts, 50.0, 40.0, "noise", "{}"),
-    )
-    db.conn.commit()
+    def test_does_not_return_other_events(self, db):
+        append_movement(event_id="ev1", market_id="m1", magnitude=10, quality=5, label="noise", db=db)
+        append_movement(event_id="ev2", market_id="m2", magnitude=20, quality=15, label="noise", db=db)
+        entries = get_event_movements("ev1", db, hours=1)
+        assert len(entries) == 1
 
-    # Insert a recent entry via normal path
-    append_movement("m1", MovementResult(magnitude=60.0, quality=60.0),
-                    yes_price=0.55, prev_yes_price=0.50, db=db)
-
-    deleted = prune_old_movements(db, days=7)
-    assert deleted == 1  # only the old one
-
-    remaining = get_recent_movements("m1", db, hours=24 * 30)
-    assert len(remaining) == 1
-    assert remaining[0]["magnitude"] == 60.0
-
-
-def test_get_latest_movement(db):
-    """Should return the most recent movement entry for a market."""
-    append_movement("m1", MovementResult(magnitude=30.0, quality=20.0),
-                    yes_price=0.50, prev_yes_price=0.48, db=db)
-    append_movement("m1", MovementResult(magnitude=45.0, quality=35.0),
-                    yes_price=0.55, prev_yes_price=0.50, db=db)
-
-    latest = get_latest_movement("m1", db)
-    assert latest is not None
-    assert latest["yes_price"] == 0.55
-    assert latest["magnitude"] == 45.0
+    def test_ordered_by_created_at_desc(self, db):
+        from datetime import UTC, datetime, timedelta
+        now = datetime.now(UTC)
+        # Manually insert with controlled timestamps
+        for i in range(3):
+            ts = (now - timedelta(minutes=i)).isoformat()
+            db.conn.execute(
+                "INSERT INTO movement_log (event_id, market_id, created_at, magnitude, quality, label) VALUES (?,?,?,?,?,?)",
+                ("ev1", "m1", ts, float(i * 10), 0.0, "noise"),
+            )
+        db.conn.commit()
+        entries = get_event_movements("ev1", db, hours=1)
+        assert entries[0]["magnitude"] == 0.0  # most recent first
 
 
-def test_get_latest_movement_none_when_empty(db):
-    latest = get_latest_movement("nonexistent", db)
-    assert latest is None
+class TestGetEventLatest:
+    def test_returns_latest_entry(self, db):
+        append_movement(event_id="ev1", market_id="m1", yes_price=0.50, magnitude=10, quality=5, label="noise", db=db)
+        append_movement(event_id="ev1", market_id="m1", yes_price=0.55, magnitude=20, quality=10, label="noise", db=db)
+        latest = get_event_latest("ev1", db)
+        assert latest is not None
+        assert latest["yes_price"] == 0.55
+
+    def test_returns_none_when_empty(self, db):
+        assert get_event_latest("nonexistent", db) is None
 
 
-def test_get_price_status(db):
-    """Should return structured status with price, change, and movement info."""
-    append_movement("m1", MovementResult(magnitude=40.0, quality=25.0),
-                    yes_price=0.60, prev_yes_price=0.50, trade_volume=5000.0, db=db)
+class TestGetTodayAnalysisCount:
+    def test_counts_triggered_analyses(self, db):
+        append_movement(event_id="ev1", market_id="m1", magnitude=80, quality=60,
+                       label="consensus", triggered_analysis=True, db=db)
+        append_movement(event_id="ev1", market_id="m2", magnitude=70, quality=50,
+                       label="whale_move", triggered_analysis=True, db=db)
+        append_movement(event_id="ev1", market_id="m1", magnitude=30, quality=20,
+                       label="noise", triggered_analysis=False, db=db)
+        count = get_today_analysis_count("ev1", db)
+        assert count == 2
 
-    status = get_price_status("m1", db, watch_price=0.50)
-    assert status is not None
-    assert status["current_price"] == 0.60
-    assert status["watch_price"] == 0.50
-    assert abs(status["change_pct"] - 20.0) < 0.1  # +20%
-    assert status["magnitude"] == 40.0
-    assert status["quality"] == 25.0
-    assert status["label"] == "noise"
-    assert status["significant_change"] is True  # >5% change
-
-
-def test_get_price_status_no_data(db):
-    status = get_price_status("nonexistent", db, watch_price=0.50)
-    assert status is None
+    def test_scoped_to_event(self, db):
+        append_movement(event_id="ev1", market_id="m1", magnitude=80, quality=60,
+                       label="consensus", triggered_analysis=True, db=db)
+        append_movement(event_id="ev2", market_id="m2", magnitude=80, quality=60,
+                       label="consensus", triggered_analysis=True, db=db)
+        assert get_today_analysis_count("ev1", db) == 1
 
 
-def test_get_price_status_small_change(db):
-    """Small change should not be flagged as significant."""
-    append_movement("m1", MovementResult(magnitude=10.0, quality=5.0),
-                    yes_price=0.51, prev_yes_price=0.50, db=db)
+class TestGetMovementSummary:
+    def test_returns_summary_string(self, db):
+        append_movement(event_id="ev1", market_id="m1", yes_price=0.55,
+                       magnitude=45, quality=30, label="noise", db=db)
+        summary = get_movement_summary("ev1", db)
+        assert summary is not None
+        assert "0.55" in summary
 
-    status = get_price_status("m1", db, watch_price=0.50)
-    assert status["significant_change"] is False  # only 2% change
+    def test_returns_none_when_empty(self, db):
+        assert get_movement_summary("nonexistent", db) is None
+
+
+class TestPrune:
+    def test_prune_old_movements(self, db):
+        from datetime import UTC, datetime, timedelta
+        old_ts = (datetime.now(UTC) - timedelta(days=10)).isoformat()
+        db.conn.execute(
+            "INSERT INTO movement_log (event_id, created_at, magnitude, quality, label) VALUES (?,?,?,?,?)",
+            ("ev1", old_ts, 0, 0, "noise"),
+        )
+        db.conn.commit()
+        append_movement(event_id="ev1", market_id="m1", magnitude=10, quality=5, label="noise", db=db)
+        pruned = prune_old_movements(db, days=7)
+        assert pruned == 1
+        remaining = get_event_movements("ev1", db, hours=24 * 30)
+        assert len(remaining) == 1

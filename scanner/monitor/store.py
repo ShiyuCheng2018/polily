@@ -1,50 +1,65 @@
-"""Persist and query movement detection results."""
+"""Persist and query movement detection results (event-level)."""
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
-
-from scanner.monitor.models import MovementResult
 
 if TYPE_CHECKING:
     from scanner.core.db import PolilyDB
 
 
 def append_movement(
-    market_id: str,
-    result: MovementResult,
     *,
+    event_id: str,
+    market_id: str | None = None,
     yes_price: float | None = None,
+    no_price: float | None = None,
     prev_yes_price: float | None = None,
     trade_volume: float = 0.0,
     bid_depth: float = 0.0,
     ask_depth: float = 0.0,
     spread: float | None = None,
+    magnitude: float = 0.0,
+    quality: float = 0.0,
+    label: str = "noise",
     triggered_analysis: bool = False,
+    snapshot: str = "{}",
     db: PolilyDB,
 ) -> None:
-    """Append a movement log entry."""
-    snapshot = json.dumps(result.signals.model_dump(), ensure_ascii=False)
+    """Append a movement log entry.
+
+    Args:
+        event_id: The event this movement belongs to (required).
+        market_id: Sub-market ID, or None for event-level aggregate records.
+        yes_price / no_price / prev_yes_price: Price data (optional).
+        trade_volume / bid_depth / ask_depth / spread: Order book data.
+        magnitude / quality: Movement scores.
+        label: Classification — one of 'consensus', 'whale_move', 'slow_build', 'noise'.
+        triggered_analysis: Whether this movement triggered an AI analysis.
+        snapshot: JSON string with extra signal data.
+        db: Database handle.
+    """
     db.conn.execute(
         """INSERT INTO movement_log
-        (market_id, created_at, yes_price, prev_yes_price, trade_volume,
-         bid_depth, ask_depth, spread,
+        (event_id, market_id, created_at, yes_price, no_price, prev_yes_price,
+         trade_volume, bid_depth, ask_depth, spread,
          magnitude, quality, label, triggered_analysis, snapshot)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
+            event_id,
             market_id,
             datetime.now(UTC).isoformat(),
             yes_price,
+            no_price,
             prev_yes_price,
             trade_volume,
             bid_depth,
             ask_depth,
             spread,
-            result.magnitude,
-            result.quality,
-            result.label,
+            magnitude,
+            quality,
+            label,
             1 if triggered_analysis else 0,
             snapshot,
         ),
@@ -52,30 +67,59 @@ def append_movement(
     db.conn.commit()
 
 
-def get_recent_movements(market_id: str, db: PolilyDB, hours: int = 6) -> list[dict]:
-    """Get movement log entries within the last N hours."""
+def get_event_movements(event_id: str, db: PolilyDB, hours: int = 6) -> list[dict]:
+    """Get all movement log entries for an event within the last N hours.
+
+    Returns both sub-market entries and event-level aggregate entries,
+    ordered by created_at DESC (most recent first).
+    """
     cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
     rows = db.conn.execute(
         """SELECT * FROM movement_log
-        WHERE market_id = ? AND created_at >= ?
+        WHERE event_id = ? AND created_at >= ?
         ORDER BY created_at DESC""",
-        (market_id, cutoff),
+        (event_id, cutoff),
     ).fetchall()
     return [dict(r) for r in rows]
 
 
-def get_movement_summary(market_id: str, db: PolilyDB, hours: int = 6) -> str | None:
+def get_event_latest(event_id: str, db: PolilyDB) -> dict | None:
+    """Get the most recent movement_log entry for an event."""
+    row = db.conn.execute(
+        """SELECT * FROM movement_log
+        WHERE event_id = ?
+        ORDER BY id DESC LIMIT 1""",
+        (event_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_today_analysis_count(event_id: str, db: PolilyDB) -> int:
+    """Count how many times an event triggered AI analysis today."""
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    row = db.conn.execute(
+        """SELECT COUNT(*) FROM movement_log
+        WHERE event_id = ? AND triggered_analysis = 1
+        AND created_at >= ?""",
+        (event_id, today),
+    ).fetchone()
+    return row[0] if row else 0
+
+
+def get_movement_summary(event_id: str, db: PolilyDB, hours: int = 6) -> str | None:
     """Build a human-readable movement summary for AI context.
 
+    Includes all sub-market entries and event-level aggregates.
     Returns None if no movements in the window.
     """
-    entries = get_recent_movements(market_id, db, hours=hours)
+    entries = get_event_movements(event_id, db, hours=hours)
     if not entries:
         return None
 
     parts = [f"--- Movement Log (last {hours}h, {len(entries)} entries) ---"]
     for e in reversed(entries):  # chronological order
         ts = e["created_at"][:16]  # trim to minute
+        market = e.get("market_id") or "event"
         price = e.get("yes_price", "?")
         prev = e.get("prev_yes_price", "?")
         mag = e["magnitude"]
@@ -83,22 +127,10 @@ def get_movement_summary(market_id: str, db: PolilyDB, hours: int = 6) -> str | 
         label = e["label"]
         triggered = " [TRIGGERED AI]" if e.get("triggered_analysis") else ""
         parts.append(
-            f"  {ts}: {prev} → {price} | M={mag:.0f} Q={qual:.0f} [{label}]{triggered}"
+            f"  {ts} [{market}]: {prev} → {price} | M={mag:.0f} Q={qual:.0f} [{label}]{triggered}"
         )
 
     return "\n".join(parts)
-
-
-def get_today_analysis_count(market_id: str, db: PolilyDB) -> int:
-    """Count how many times a market triggered AI analysis today."""
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
-    row = db.conn.execute(
-        """SELECT COUNT(*) FROM movement_log
-        WHERE market_id = ? AND triggered_analysis = 1
-        AND created_at >= ?""",
-        (market_id, today),
-    ).fetchone()
-    return row[0] if row else 0
 
 
 def prune_old_movements(db: PolilyDB, days: int = 7) -> int:
@@ -116,49 +148,3 @@ def prune_old_movements(db: PolilyDB, days: int = 7) -> int:
     if deleted > 0:
         db.conn.execute("PRAGMA optimize")
     return deleted
-
-
-def get_latest_movement(market_id: str, db: PolilyDB) -> dict | None:
-    """Get the most recent movement_log entry for a market."""
-    row = db.conn.execute(
-        """SELECT * FROM movement_log
-        WHERE market_id = ?
-        ORDER BY id DESC LIMIT 1""",
-        (market_id,),
-    ).fetchone()
-    return dict(row) if row else None
-
-
-def get_price_status(
-    market_id: str, db: PolilyDB, *, watch_price: float | None = None,
-    significant_threshold: float = 5.0,
-) -> dict | None:
-    """Get structured price status for TUI display.
-
-    Returns dict with current_price, watch_price, change_pct,
-    magnitude, quality, label, significant_change.
-    Returns None if no movement data exists.
-    """
-    latest = get_latest_movement(market_id, db)
-    if latest is None:
-        return None
-
-    current_price = latest.get("yes_price") or 0.0
-    change_pct = 0.0
-    if watch_price and watch_price > 0:
-        change_pct = (current_price - watch_price) / watch_price * 100
-
-    return {
-        "current_price": current_price,
-        "watch_price": watch_price,
-        "change_pct": change_pct,
-        "magnitude": latest["magnitude"],
-        "quality": latest["quality"],
-        "label": latest["label"],
-        "trade_volume": latest.get("trade_volume", 0.0),
-        "bid_depth": latest.get("bid_depth", 0.0),
-        "ask_depth": latest.get("ask_depth", 0.0),
-        "spread": latest.get("spread"),
-        "updated_at": latest["created_at"],
-        "significant_change": abs(change_pct) >= significant_threshold,
-    }
