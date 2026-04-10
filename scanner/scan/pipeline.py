@@ -208,19 +208,45 @@ def _persist_filtered(
     if not eligible_eids:
         return 0, 0
 
-    # Persist eligible events
+    # Compute max end_date per event from sub-markets (API event.endDate can be wrong)
+    event_max_end: dict[str, str] = {}
+    for m in all_markets:
+        eid = getattr(m, "event_id", None)
+        if eid not in eligible_eids or not m.resolution_time:
+            continue
+        end_iso = m.resolution_time.isoformat()
+        if eid not in event_max_end or end_iso > event_max_end[eid]:
+            event_max_end[eid] = end_iso
+
+    # Persist eligible events (with corrected end_date)
     n_events = 0
     for er in event_rows:
         if er.event_id in eligible_eids:
+            if er.event_id in event_max_end:
+                er.end_date = event_max_end[er.event_id]
             upsert_event(er, db)
             n_events += 1
 
     # Persist ALL markets belonging to eligible events (siblings included)
+    # Expired sub-markets (end_date < now) are written but marked closed=1
+    from datetime import UTC, datetime
+    now = datetime.now(UTC)
+    now_iso = now.isoformat()
+
     n_markets = 0
     for m in all_markets:
         eid = getattr(m, "event_id", None)
         if eid not in eligible_eids:
             continue
+
+        # Check if this sub-market is expired
+        is_expired = False
+        if m.resolution_time and m.resolution_time < now:
+            is_expired = True
+        accepting = getattr(m, "accepting_orders", True)
+        if not accepting:
+            is_expired = True
+
         mr = MarketRow(
             market_id=m.market_id,
             event_id=eid,
@@ -248,10 +274,9 @@ def _persist_filtered(
             ask_depth=m.total_ask_depth_usd,
             book_bids=json.dumps([{"price": b.price, "size": b.size} for b in m.book_depth_bids]) if m.book_depth_bids else None,
             book_asks=json.dumps([{"price": a.price, "size": a.size} for a in m.book_depth_asks]) if m.book_depth_asks else None,
-            accepting_orders=getattr(m, "accepting_orders", True),
-            updated_at=__import__("datetime").datetime.now(
-                __import__("datetime").UTC
-            ).isoformat(),
+            accepting_orders=0 if is_expired else (1 if accepting else 0),
+            closed=1 if is_expired else 0,
+            updated_at=now_iso,
         )
         upsert_market(mr, db)
         n_markets += 1

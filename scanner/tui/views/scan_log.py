@@ -241,13 +241,35 @@ class ScanLogDetailView(Widget):
             score_min = r[0] or 0
             score_max = r[1] or 0
 
-            # End date range
+            # End date range with relative time
+            from datetime import UTC, datetime
             r = conn.execute(
                 "SELECT MIN(end_date), MAX(end_date) FROM events "
                 "WHERE end_date IS NOT NULL AND closed=0 AND tier IN ('research','watchlist')"
             ).fetchone()
-            earliest = r[0][:10] if r and r[0] else "-"
-            latest = r[1][:10] if r and r[1] else "-"
+            now = datetime.now(UTC)
+
+            def _fmt_end(iso_str):
+                if not iso_str:
+                    return "-"
+                try:
+                    dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+                    delta = dt - now
+                    days = delta.days
+                    hours = delta.seconds // 3600
+                    if days < 0:
+                        return f"{iso_str[:10]} ({abs(days)}天前)"
+                    elif days == 0:
+                        return f"{iso_str[:10]} ({hours}小时后)"
+                    elif days == 1:
+                        return f"{iso_str[:10]} (明天)"
+                    else:
+                        return f"{iso_str[:10]} ({days}天后)"
+                except (ValueError, TypeError):
+                    return iso_str[:10] if iso_str else "-"
+
+            earliest = _fmt_end(r[0]) if r else "-"
+            latest = _fmt_end(r[1]) if r else "-"
 
             return {
                 "research_events": research_events,
