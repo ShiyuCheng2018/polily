@@ -1,4 +1,4 @@
-"""MarketListView: event-first research list with probability distribution."""
+"""MarketListView: event-first research list with fold/expand + probability bars."""
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -15,6 +15,17 @@ class ViewDetailRequested(Message):
     def __init__(self, event_id: str):
         super().__init__()
         self.event_id = event_id
+
+
+def _fmt_volume(vol: float | None) -> str:
+    """Format volume: $1.5M, $340K, $2.1K."""
+    if not vol or vol <= 0:
+        return "-"
+    if vol >= 1_000_000:
+        return f"${vol / 1_000_000:.1f}M"
+    if vol >= 1_000:
+        return f"${vol / 1_000:.0f}K"
+    return f"${vol:.0f}"
 
 
 class MarketListView(Widget):
@@ -39,8 +50,8 @@ class MarketListView(Widget):
         self.events = events
         self.service = service
         self._title = title
-        self._expanded: set[str] = set()  # event_ids currently expanded
-        self._row_map: list[dict] = []  # maps row index to event/sub-market data
+        self._expanded: set[str] = set()
+        self._row_map: list[dict] = []
 
     def compose(self) -> ComposeResult:
         yield Static(f" {self._title} ({len(self.events)})", id="list-title")
@@ -54,7 +65,7 @@ class MarketListView(Widget):
             return
         table = self.query_one("#market-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("", "事件", "评分", "价格", "结算", "类型", "状态")
+        table.add_columns("事件", "类型", "概况", "交易量", "结算", "评分", "状态")
         self._rebuild_table()
 
     def _rebuild_table(self) -> None:
@@ -86,35 +97,41 @@ class MarketListView(Widget):
                 labels.append("[持仓]")
             status = " ".join(labels) or ""
 
-            # Price info
+            # Title with expand indicator
+            if is_multi:
+                prefix = "▼" if is_expanded else "▶"
+                title = f"{prefix} {ev.title[:36]}" + ("..." if len(ev.title) > 36 else "")
+            else:
+                title = f"  {ev.title[:38]}" + ("..." if len(ev.title) > 38 else "")
+
+            # Summary (概况)
             if is_multi:
                 leader = e.get("leader_title", "")
                 price = e.get("leader_price")
-                price_str = f"{leader[:12]} @{price:.0%}" if leader and price else "-"
+                if leader and price:
+                    summary = f"{mc}档 {leader[:10]}@{price:.0%}"
+                else:
+                    summary = f"{mc}档"
             else:
                 price = e.get("leader_price")
-                price_str = f"YES {price:.2f}" if price else "-"
+                if price:
+                    summary = f"YES {price:.0%} / NO {1 - price:.0%}"
+                else:
+                    summary = "-"
+
+            # Volume
+            vol = _fmt_volume(ev.volume)
 
             # Resolution
             days = format_countdown(ev.end_date)
 
-            # Expand indicator
-            if is_multi:
-                prefix = "▼" if is_expanded else "▶"
-                prefix += f" ({mc})"
-            else:
-                prefix = "  "
-
-            title = ev.title[:38] + ("..." if len(ev.title) > 38 else "")
-
             table.add_row(
-                prefix, title, score, price_str, days,
-                ev.market_type or "other", status,
+                title, ev.market_type or "other", summary, vol, days, score, status,
                 key=f"ev_{ev.event_id}",
             )
             self._row_map.append({"type": "event", "event": e})
 
-            # If expanded, show sub-markets with probability bars
+            # Expanded sub-markets
             if is_expanded and is_multi:
                 self._add_sub_market_rows(table, ev.event_id)
 
@@ -123,30 +140,30 @@ class MarketListView(Widget):
         from scanner.core.event_store import get_event_markets
 
         markets = get_event_markets(event_id, self.service.db)
-        # Sort by YES price descending, exclude closed
         active = [m for m in markets if not m.closed]
         active.sort(key=lambda m: m.yes_price or 0, reverse=True)
 
-        for i, m in enumerate(active[:10]):  # Show top 10
+        for i, m in enumerate(active[:10]):
             label = m.group_item_title or m.question[:20]
             price = m.yes_price or 0
 
-            # Probability bar using block chars
             bar_len = int(price * 20)
             bar = "█" * bar_len + "░" * (20 - bar_len)
 
             is_last = i == min(len(active), 10) - 1
             connector = "└" if is_last else "├"
 
+            vol = _fmt_volume(m.volume)
+
             table.add_row(
-                f"  {connector}", f"  {label[:28]}", "", f"{bar} {price:.0%}", "", "", "",
+                f"  {connector} {label[:28]}", "", f"{bar} {price:.0%}", vol, "", "", "",
                 key=f"sub_{m.market_id}",
             )
             self._row_map.append({"type": "sub_market", "market": m, "event_id": event_id})
 
         if len(active) > 10:
             table.add_row(
-                "  └", f"  ... 还有 {len(active) - 10} 个", "", "", "", "", "",
+                f"  └ ... 还有 {len(active) - 10} 个", "", "", "", "", "", "",
                 key=f"more_{event_id}",
             )
             self._row_map.append({"type": "more", "event_id": event_id})
@@ -162,14 +179,12 @@ class MarketListView(Widget):
         return self._row_map[row]
 
     def _get_selected_event(self) -> dict | None:
-        """Get the event dict for the selected row (works for both event and sub-market rows)."""
         item = self._get_selected()
         if not item:
             return None
         if item["type"] == "event":
             return item["event"]
         if item["type"] in ("sub_market", "more"):
-            # Find parent event
             eid = item.get("event_id")
             for e in self.events:
                 if e["event"].event_id == eid:
@@ -177,22 +192,19 @@ class MarketListView(Widget):
         return None
 
     def action_toggle_expand(self) -> None:
-        """Toggle expand/collapse for multi-outcome event."""
         item = self._get_selected()
-        if not item:
+        if not item or item["type"] != "event":
             return
-        if item["type"] == "event":
-            ev = item["event"]["event"]
-            if item["event"]["market_count"] <= 1:
-                return  # binary, nothing to expand
-            if ev.event_id in self._expanded:
-                self._expanded.discard(ev.event_id)
-            else:
-                self._expanded.add(ev.event_id)
-            self._rebuild_table()
+        ev = item["event"]["event"]
+        if item["event"]["market_count"] <= 1:
+            return
+        if ev.event_id in self._expanded:
+            self._expanded.discard(ev.event_id)
+        else:
+            self._expanded.add(ev.event_id)
+        self._rebuild_table()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Enter on row — detail for events, toggle for multi-outcome."""
         e = self._get_selected_event()
         if e:
             self.post_message(ViewDetailRequested(e["event"].event_id))
