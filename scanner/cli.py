@@ -5,7 +5,6 @@ v0.5.0: minimal CLI — TUI launch + scheduler subcommand group.
 
 import os
 import signal
-import sys
 from pathlib import Path
 
 import typer

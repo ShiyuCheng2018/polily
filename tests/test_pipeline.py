@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, get_event, get_market, upsert_event, upsert_market
+from scanner.core.event_store import MarketRow, get_event, get_market, upsert_event, upsert_market
 from scanner.core.models import Market
 from scanner.scan.pipeline import run_scan_pipeline
 from tests.conftest import make_event, make_market
@@ -164,7 +164,7 @@ class TestPipelineDBPersistence:
         config = load_config(__import__("pathlib").Path("config.example.yaml"))
         config.ai.enabled = False
 
-        tiers = run_scan_pipeline([market], config, db=db)
+        run_scan_pipeline([market], config, db=db)
 
         # Event should have structure_score and tier set
         event = get_event("ev1", db)
