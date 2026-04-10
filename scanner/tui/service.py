@@ -10,11 +10,11 @@ from typing import TYPE_CHECKING
 
 from scanner.api import PolymarketClient, parse_gamma_event
 from scanner.archive import save_scan_unified
-from scanner.config import ScannerConfig, load_config
-from scanner.db import PolilyDB
+from scanner.core.config import ScannerConfig, load_config
+from scanner.core.db import PolilyDB
 from scanner.paper_trading import PaperTradingDB
-from scanner.pipeline import run_scan_pipeline
-from scanner.reporting import ScoredCandidate, TierResult
+from scanner.scan.pipeline import run_scan_pipeline
+from scanner.scan.reporting import ScoredCandidate, TierResult
 from scanner.scan_log import (
     ScanLogEntry,
     ScanStepRecord,
@@ -62,9 +62,9 @@ class ScanService:
         from datetime import datetime
 
         from scanner.archive import get_latest_scan_id, load_latest_archive
-        from scanner.mispricing import MispricingResult
-        from scanner.models import Market
-        from scanner.scoring import ScoreBreakdown
+        from scanner.core.models import Market
+        from scanner.scan.mispricing import MispricingResult
+        from scanner.scan.scoring import ScoreBreakdown
 
         data = load_latest_archive(self.config.archiving.archive_dir)
         if not data:
@@ -83,7 +83,7 @@ class ScanService:
                         res_time = datetime.fromisoformat(entry["resolution_time"])
 
                 # Reconstruct book depth from archived totals
-                from scanner.models import BookLevel
+                from scanner.core.models import BookLevel
                 bid_total = entry.get("total_bid_depth_usd")
                 ask_total = entry.get("total_ask_depth_usd")
                 book_bids = [BookLevel(price=1.0, size=bid_total)] if bid_total else None
@@ -420,7 +420,7 @@ class ScanService:
                     logger.warning("Orderbook fetch failed for %s: %s", market.market_id, e)
 
                 # Recalculate score with fresh data
-                from scanner.scoring import compute_structure_score
+                from scanner.scan.scoring import compute_structure_score
                 candidate.score = compute_structure_score(
                     market, self.config.scoring.weights,
                 )
@@ -455,7 +455,7 @@ class ScanService:
             self._current_narrator = narrator
 
             include_bias = self.config.execution_hints.show_conditional_advice
-            from scanner.movement_store import get_movement_summary
+            from scanner.monitor.store import get_movement_summary
             movement_context = get_movement_summary(market.market_id, self.db)
             narrative_output = await narrator.generate(
                 candidate, include_bias=include_bias,
@@ -498,7 +498,7 @@ class ScanService:
                 if state:
                     state.next_check_at = narrative_output.next_check_at
                     set_market_state(market.market_id, state, self.db)
-                    from scanner.daemon_notify import notify_daemon
+                    from scanner.daemon.notify import notify_daemon
                     notify_daemon()
 
             # Log
@@ -518,8 +518,8 @@ class ScanService:
 
     async def _build_candidate(self, market_id: str) -> ScoredCandidate:
         """Build a ScoredCandidate from market_id by fetching fresh data."""
-        from scanner.mispricing import detect_mispricing
-        from scanner.scoring import compute_structure_score
+        from scanner.scan.mispricing import detect_mispricing
+        from scanner.scan.scoring import compute_structure_score
 
         # Fetch single market from Polymarket API
         client = PolymarketClient(self.config.api)

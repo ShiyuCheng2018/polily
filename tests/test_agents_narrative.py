@@ -6,10 +6,10 @@ import pytest
 
 from scanner.agents.narrative_writer import NarrativeWriterAgent, narrative_fallback
 from scanner.agents.schemas import NarrativeWriterOutput
-from scanner.config import AgentConfig
-from scanner.mispricing import MispricingResult
-from scanner.reporting import ScoredCandidate
-from scanner.scoring import ScoreBreakdown
+from scanner.core.config import AgentConfig
+from scanner.scan.mispricing import MispricingResult
+from scanner.scan.reporting import ScoredCandidate
+from scanner.scan.scoring import ScoreBreakdown
 from tests.conftest import make_cli_response_structured, make_market
 
 SAMPLE_NARRATIVE_OUTPUT = {

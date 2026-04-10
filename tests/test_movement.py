@@ -1,4 +1,4 @@
-from scanner.movement import MovementResult, MovementSignals
+from scanner.monitor.models import MovementResult, MovementSignals
 
 
 def test_movement_signals_defaults():

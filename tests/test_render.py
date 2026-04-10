@@ -1,10 +1,10 @@
 """Tests for terminal rendering functions."""
 
 from scanner.daily_briefing import MarketDelta
-from scanner.mispricing import MispricingResult
 from scanner.render import _delta_context, render_candidate_simple
-from scanner.reporting import ScoredCandidate
-from scanner.scoring import ScoreBreakdown
+from scanner.scan.mispricing import MispricingResult
+from scanner.scan.reporting import ScoredCandidate
+from scanner.scan.scoring import ScoreBreakdown
 from tests.conftest import make_market
 
 

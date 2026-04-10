@@ -8,13 +8,13 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
 from scanner.api import PolymarketClient
-from scanner.config import ScannerConfig
-from scanner.filters import apply_hard_filters
-from scanner.mispricing import MispricingResult, detect_mispricing
-from scanner.models import Market
+from scanner.core.config import ScannerConfig
+from scanner.core.models import Market
 from scanner.orderbook import is_stale_book
-from scanner.reporting import ScoredCandidate, TierResult, classify_tiers
-from scanner.scoring import compute_structure_score
+from scanner.scan.filters import apply_hard_filters
+from scanner.scan.mispricing import MispricingResult, detect_mispricing
+from scanner.scan.reporting import ScoredCandidate, TierResult, classify_tiers
+from scanner.scan.scoring import compute_structure_score
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ def run_scan_pipeline(
             logger.warning("Order book fetch failed, continuing without depth data: %s", e)
 
     # Market type classification from Polymarket tags
-    from scanner.tag_classifier import classify_from_tags
+    from scanner.scan.tag_classifier import classify_from_tags
     for market in passed:
         market.market_type = classify_from_tags(market.tags)
 

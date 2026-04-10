@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from scanner.models import BookLevel
+from scanner.core.models import BookLevel
 
 
 @dataclass

@@ -2,9 +2,9 @@
 
 from datetime import UTC, datetime
 
-from scanner.config import ScoringWeights
-from scanner.models import BookLevel
-from scanner.scoring import compute_structure_score
+from scanner.core.config import ScoringWeights
+from scanner.core.models import BookLevel
+from scanner.scan.scoring import compute_structure_score
 from tests.conftest import make_market
 
 

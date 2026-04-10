@@ -2,8 +2,8 @@
 
 from datetime import UTC, datetime
 
-from scanner.config import CryptoMispricingConfig, MispricingConfig, MultiOutcomeConfig
-from scanner.mispricing import (
+from scanner.core.config import CryptoMispricingConfig, MispricingConfig, MultiOutcomeConfig
+from scanner.scan.mispricing import (
     compute_crypto_fair_value,
     detect_mispricing,
     normal_cdf,

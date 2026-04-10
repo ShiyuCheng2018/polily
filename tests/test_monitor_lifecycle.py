@@ -3,9 +3,9 @@
 import os
 from unittest.mock import patch
 
-from scanner.auto_monitor import toggle_auto_monitor
-from scanner.config import ScannerConfig
-from scanner.db import PolilyDB
+from scanner.core.config import ScannerConfig
+from scanner.core.db import PolilyDB
+from scanner.daemon.auto_monitor import toggle_auto_monitor
 from scanner.market_state import (
     MarketState,
     get_active_monitors,
@@ -26,7 +26,7 @@ def test_monitor_independent_of_status(tmp_path):
             title=f"Test {status}",
         ), db)
 
-        with patch("scanner.auto_monitor.register_poll_job") as mock_reg:
+        with patch("scanner.daemon.auto_monitor.register_poll_job") as mock_reg:
             mock_reg.return_value = {"job_id": f"poll_m_{status}", "interval_seconds": 30,
                                      "market_id": f"m_{status}", "market_type": "other"}
             toggle_auto_monitor(f"m_{status}", enable=True, db=db, config=config)
@@ -46,7 +46,7 @@ def test_pass_disables_monitor(tmp_path):
         title="Test", auto_monitor=True,
     ), db)
 
-    with patch("scanner.auto_monitor.remove_poll_job"):
+    with patch("scanner.daemon.auto_monitor.remove_poll_job"):
         toggle_auto_monitor("m1", enable=False, db=db, config=config)
 
     state = get_market_state("m1", db)
@@ -76,12 +76,12 @@ def test_notify_daemon_sends_sigusr1(tmp_path):
     """notify_daemon should send SIGUSR1 to PID in file."""
     import signal
 
-    from scanner.daemon_notify import notify_daemon
+    from scanner.daemon.notify import notify_daemon
 
     pid_path = tmp_path / "scheduler.pid"
     pid_path.write_text(str(os.getpid()))
 
-    with patch("scanner.daemon_notify.PID_PATH", pid_path), \
+    with patch("scanner.daemon.notify.PID_PATH", pid_path), \
          patch("os.kill") as mock_kill:
         result = notify_daemon()
         assert result is True
@@ -91,21 +91,21 @@ def test_notify_daemon_sends_sigusr1(tmp_path):
 def test_notify_daemon_no_pid_file():
     from pathlib import Path
 
-    from scanner.daemon_notify import notify_daemon
+    from scanner.daemon.notify import notify_daemon
 
-    with patch("scanner.daemon_notify.PID_PATH", Path("/nonexistent/path")):
+    with patch("scanner.daemon.notify.PID_PATH", Path("/nonexistent/path")):
         result = notify_daemon()
         assert result is False
 
 
 def test_notify_daemon_stale_pid(tmp_path):
     """Stale PID (process doesn't exist) should return False gracefully."""
-    from scanner.daemon_notify import notify_daemon
+    from scanner.daemon.notify import notify_daemon
 
     pid_path = tmp_path / "scheduler.pid"
     pid_path.write_text("999999999")  # unlikely to exist
 
-    with patch("scanner.daemon_notify.PID_PATH", pid_path):
+    with patch("scanner.daemon.notify.PID_PATH", pid_path):
         result = notify_daemon()
         assert result is False
 

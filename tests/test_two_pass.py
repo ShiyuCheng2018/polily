@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from scanner.api import parse_clob_book
-from scanner.config import ScannerConfig
-from scanner.models import BookLevel
-from scanner.pipeline import enrich_with_orderbook
+from scanner.core.config import ScannerConfig
+from scanner.core.models import BookLevel
+from scanner.scan.pipeline import enrich_with_orderbook
 from tests.conftest import make_market
 
 SAMPLE_BOOK = {
@@ -43,7 +43,7 @@ class TestEnrichWithOrderbook:
         mock_response.json.return_value = SAMPLE_BOOK
         mock_response.raise_for_status = MagicMock()
 
-        with patch("scanner.pipeline.PolymarketClient") as MockClient:
+        with patch("scanner.scan.pipeline.PolymarketClient") as MockClient:
             client_instance = AsyncMock()
             client_instance.fetch_book.return_value = parse_clob_book(SAMPLE_BOOK)
             client_instance.close = AsyncMock()
@@ -64,7 +64,7 @@ class TestEnrichWithOrderbook:
         """If book is stale (bid=0.01, ask=0.99), depth should be set to None."""
         market = make_market(market_id="m-stale", clob_token_id_yes="tok-stale", book_depth_bids=None, book_depth_asks=None)
 
-        with patch("scanner.pipeline.PolymarketClient") as MockClient:
+        with patch("scanner.scan.pipeline.PolymarketClient") as MockClient:
             client_instance = AsyncMock()
             client_instance.fetch_book.return_value = parse_clob_book(STALE_BOOK)
             client_instance.close = AsyncMock()
@@ -82,7 +82,7 @@ class TestEnrichWithOrderbook:
         """If book fetch fails, market should still be returned with None depth."""
         market = make_market(market_id="m-fail", clob_token_id_yes="tok-fail", book_depth_bids=None, book_depth_asks=None)
 
-        with patch("scanner.pipeline.PolymarketClient") as MockClient:
+        with patch("scanner.scan.pipeline.PolymarketClient") as MockClient:
             client_instance = AsyncMock()
             client_instance.fetch_book.side_effect = Exception("API error")
             client_instance.close = AsyncMock()
@@ -109,7 +109,7 @@ class TestEnrichWithOrderbook:
             fetch_count += 1
             return parse_clob_book(SAMPLE_BOOK)
 
-        with patch("scanner.pipeline.PolymarketClient") as MockClient:
+        with patch("scanner.scan.pipeline.PolymarketClient") as MockClient:
             client_instance = AsyncMock()
             client_instance.fetch_book = mock_fetch_book
             client_instance.close = AsyncMock()
@@ -126,8 +126,8 @@ class TestEnrichWithOrderbook:
 class TestOrderBookIntegrationWithScoring:
     def test_market_with_depth_scores_higher_liquidity(self):
         """Market with real depth data should score higher on liquidity than one without."""
-        from scanner.config import ScoringWeights
-        from scanner.scoring import compute_structure_score
+        from scanner.core.config import ScoringWeights
+        from scanner.scan.scoring import compute_structure_score
 
         m_with_depth = make_market(
             best_bid_yes=0.54, best_ask_yes=0.56,
@@ -146,8 +146,8 @@ class TestOrderBookIntegrationWithScoring:
 
     def test_depth_filter_rejects_shallow_book(self):
         """Market with very thin depth should be rejected by depth filter."""
-        from scanner.config import FiltersConfig, HeuristicsConfig
-        from scanner.filters import apply_hard_filters
+        from scanner.core.config import FiltersConfig, HeuristicsConfig
+        from scanner.scan.filters import apply_hard_filters
 
         m = make_market(
             book_depth_bids=[BookLevel(price=0.54, size=30)],  # $30 total, below $100 min

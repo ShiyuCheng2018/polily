@@ -2,9 +2,9 @@
 
 from datetime import UTC, datetime
 
-from scanner.config import ScannerConfig, load_config
-from scanner.models import Market
-from scanner.pipeline import run_scan_pipeline
+from scanner.core.config import ScannerConfig, load_config
+from scanner.core.models import Market
+from scanner.scan.pipeline import run_scan_pipeline
 from tests.conftest import make_market
 
 

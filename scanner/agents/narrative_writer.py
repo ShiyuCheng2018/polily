@@ -6,8 +6,8 @@ from pathlib import Path
 
 from scanner.agents.base import BaseAgent
 from scanner.agents.schemas import NarrativeWriterOutput, RiskFlag, TimeWindow
-from scanner.config import AgentConfig
-from scanner.reporting import ScoredCandidate
+from scanner.core.config import AgentConfig
+from scanner.scan.reporting import ScoredCandidate
 
 logger = logging.getLogger(__name__)
 

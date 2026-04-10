@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass, field
 
-from scanner.config import FiltersConfig, HeuristicsConfig
-from scanner.models import Market
+from scanner.core.config import FiltersConfig, HeuristicsConfig
+from scanner.core.models import Market
 from scanner.utils import matches_any
 
 

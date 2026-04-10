@@ -9,7 +9,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static
 
-from scanner.reporting import ScoredCandidate
+from scanner.scan.reporting import ScoredCandidate
 from scanner.tui.service import ScanService
 from scanner.tui.widgets.cards import DashPanel, MetricCard
 
@@ -257,7 +257,7 @@ class MarketDetailView(Widget):
         res_time = m.resolution_time.isoformat() if m.resolution_time else None
         self._set_card("kpi-time", format_countdown(res_time))
 
-        from scanner.scoring import compute_three_scores
+        from scanner.scan.scoring import compute_three_scores
         three = compute_three_scores(s, self.candidate.mispricing, m)
         q = three.get("quality")
         v = three.get("value")
@@ -271,7 +271,7 @@ class MarketDetailView(Widget):
     def _update_kpi(self) -> None:
         """Timer callback: refresh KPI cards from movement_log."""
         from scanner.market_state import get_market_state
-        from scanner.movement_store import get_price_status
+        from scanner.monitor.store import get_price_status
 
         mid = self.candidate.market.market_id
 
@@ -332,8 +332,8 @@ class MarketDetailView(Widget):
         """Recalculate structure score + three scores from live data."""
 
 
-        from scanner.models import BookLevel
-        from scanner.scoring import compute_structure_score, compute_three_scores
+        from scanner.core.models import BookLevel
+        from scanner.scan.scoring import compute_structure_score, compute_three_scores
 
         m = self.candidate.market
         yes = status["current_price"]
@@ -693,7 +693,7 @@ class MarketDetailView(Widget):
         m = self.candidate.market
 
         # Use realtime price from movement_log, fallback to market snapshot
-        from scanner.movement_store import get_latest_movement
+        from scanner.monitor.store import get_latest_movement
         latest = get_latest_movement(m.market_id, self.service.db)
         if latest and latest.get("yes_price"):
             yes_price = latest["yes_price"]
@@ -746,7 +746,7 @@ class MarketDetailView(Widget):
         state.next_check_at = None
         state.watch_reason = None
         set_market_state(mid, state, self.service.db)
-        from scanner.auto_monitor import cleanup_closed_market
+        from scanner.daemon.auto_monitor import cleanup_closed_market
         cleanup_closed_market(mid)
         self.notify(f"PASS: {self.candidate.market.title[:30]}")
         self.screen.refresh_sidebar_counts()
@@ -754,7 +754,7 @@ class MarketDetailView(Widget):
     def action_toggle_auto_monitor(self) -> None:
         from datetime import datetime
 
-        from scanner.auto_monitor import toggle_auto_monitor
+        from scanner.daemon.auto_monitor import toggle_auto_monitor
         from scanner.market_state import MarketState, get_market_state, set_market_state
 
         mid = self.candidate.market.market_id
@@ -790,11 +790,11 @@ class MarketDetailView(Widget):
 
         if new_value:
             try:
-                from scanner.watch_scheduler import ensure_daemon_running
+                from scanner.daemon.scheduler import ensure_daemon_running
                 if ensure_daemon_running():
                     self.notify("后台监控已自动启动")
                 # Notify running daemon to load new poll job
-                from scanner.daemon_notify import notify_daemon
+                from scanner.daemon.notify import notify_daemon
                 notify_daemon()
             except Exception:
                 pass

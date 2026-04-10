@@ -90,7 +90,7 @@ def build_price_history(market_id: str, db, hours: int = 4) -> list[tuple[int, f
     """
     from datetime import UTC, datetime
 
-    from scanner.movement_store import get_recent_movements
+    from scanner.monitor.store import get_recent_movements
 
     entries = get_recent_movements(market_id, db, hours=hours)
     now = datetime.now(UTC)

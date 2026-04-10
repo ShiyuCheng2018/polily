@@ -1,11 +1,11 @@
-from scanner.movement_store import get_movement_summary
+from scanner.monitor.store import get_movement_summary
 
 
 def test_movement_summary_format(tmp_path):
     """Verify movement summary produces parseable context for AI."""
-    from scanner.db import PolilyDB
-    from scanner.movement import MovementResult
-    from scanner.movement_store import append_movement
+    from scanner.core.db import PolilyDB
+    from scanner.monitor.models import MovementResult
+    from scanner.monitor.store import append_movement
 
     db = PolilyDB(tmp_path / "test.db")
     append_movement("m1", MovementResult(magnitude=50.0, quality=40.0),
@@ -23,7 +23,7 @@ def test_movement_summary_format(tmp_path):
 
 def test_get_monitor_count(tmp_path):
     """Verify auto_monitor count query returns correct number."""
-    from scanner.db import PolilyDB
+    from scanner.core.db import PolilyDB
     from scanner.market_state import MarketState, set_market_state
 
     db = PolilyDB(tmp_path / "test.db")

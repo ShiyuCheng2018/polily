@@ -88,7 +88,7 @@ class WatchScheduler:
 
 def _execute_recheck(market_id: str, db, config=None, watch_scheduler=None) -> None:
     """Job function called by APScheduler. Runs recheck and re-schedules if continuing watch."""
-    from scanner.watch_recheck import recheck_market
+    from scanner.daemon.recheck import recheck_market
 
     logger.info("Executing scheduled recheck for %s", market_id)
     try:
@@ -183,8 +183,8 @@ def run_daemon(db, config=None) -> None:
     # Initialize movement polling (poll_job alongside check_job)
     service_db = db
     if config is not None and config.movement.enabled:
+        from scanner.daemon.poll_job import init_poller, restore_poll_jobs_from_db
         from scanner.tui.service import ScanService
-        from scanner.watch_poller_jobs import init_poller, restore_poll_jobs_from_db
 
         service = ScanService(config)
         service_db = service.db
@@ -224,7 +224,7 @@ def run_daemon(db, config=None) -> None:
                 logger.info("Reloading jobs from DB (SIGUSR1)")
                 scheduler.restore_from_db()
                 if config is not None and config.movement.enabled:
-                    from scanner.watch_poller_jobs import restore_poll_jobs_from_db
+                    from scanner.daemon.poll_job import restore_poll_jobs_from_db
                     restore_poll_jobs_from_db(config, service_db)
     except AttributeError:
         # Windows doesn't have signal.pause

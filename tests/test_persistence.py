@@ -5,12 +5,12 @@ import tempfile
 from pathlib import Path
 
 from scanner.archive import find_entry_by_rank, load_latest_archive, save_scan_unified
-from scanner.db import PolilyDB
+from scanner.core.db import PolilyDB
 from scanner.export import export_scans_csv, export_trades_csv
-from scanner.mispricing import MispricingResult
 from scanner.paper_trading import PaperTradingDB
-from scanner.reporting import ScoredCandidate, TierResult
-from scanner.scoring import ScoreBreakdown
+from scanner.scan.mispricing import MispricingResult
+from scanner.scan.reporting import ScoredCandidate, TierResult
+from scanner.scan.scoring import ScoreBreakdown
 from tests.conftest import make_market
 
 # --- Unified scan archive ---

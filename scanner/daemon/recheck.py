@@ -91,7 +91,7 @@ def _close_market(market_id: str, state: MarketState, db) -> RecheckResult:
     state.next_check_at = None
     set_market_state(market_id, state, db)
 
-    from scanner.auto_monitor import cleanup_closed_market
+    from scanner.daemon.auto_monitor import cleanup_closed_market
     cleanup_closed_market(market_id)
 
     _notify(db, market_id, state.title, "closed", state.price_at_watch, None, "system")

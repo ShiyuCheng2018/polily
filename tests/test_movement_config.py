@@ -1,4 +1,4 @@
-from scanner.config import MovementConfig, ScannerConfig
+from scanner.core.config import MovementConfig, ScannerConfig
 
 
 def test_movement_config_defaults():

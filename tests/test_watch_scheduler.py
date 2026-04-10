@@ -2,8 +2,8 @@
 
 from datetime import UTC, datetime, timedelta
 
+from scanner.daemon.scheduler import WatchScheduler
 from scanner.market_state import MarketState, set_market_state
-from scanner.watch_scheduler import WatchScheduler
 
 
 def test_schedule_and_list(polily_db):

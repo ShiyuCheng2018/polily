@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING
 from scanner.price_feeds import BinancePriceFeed, extract_crypto_asset, extract_threshold_price
 
 if TYPE_CHECKING:
-    from scanner.config import ScannerConfig
-    from scanner.mispricing import MispricingResult
-    from scanner.models import Market
+    from scanner.core.config import ScannerConfig
+    from scanner.core.models import Market
+    from scanner.scan.mispricing import MispricingResult
 
 
 class CryptoThreshold:
@@ -44,7 +44,7 @@ class CryptoThreshold:
         self, market: Market, price_params: dict, config: ScannerConfig,
     ) -> MispricingResult | None:
         """Detect mispricing using log-normal vol model."""
-        from scanner.mispricing import detect_mispricing
+        from scanner.scan.mispricing import detect_mispricing
         return detect_mispricing(market, config.mispricing, **price_params)
 
 

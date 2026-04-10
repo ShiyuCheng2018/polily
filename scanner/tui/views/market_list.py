@@ -6,7 +6,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
 
-from scanner.reporting import ScoredCandidate
+from scanner.scan.reporting import ScoredCandidate
 from scanner.tui.service import ScanService
 
 
@@ -37,7 +37,7 @@ class MarketListView(Widget):
     def __init__(self, candidates: list[ScoredCandidate], service: ScanService, title: str = "市场"):
         super().__init__()
         # Sort by value score descending
-        from scanner.scoring import compute_three_scores
+        from scanner.scan.scoring import compute_three_scores
         self.candidates = sorted(
             candidates,
             key=lambda c: compute_three_scores(c.score, c.mispricing, c.market).get("value", 0),
@@ -58,7 +58,7 @@ class MarketListView(Widget):
             return
         table = self.query_one("#market-table", DataTable)
         table.cursor_type = "row"
-        from scanner.scoring import compute_three_scores
+        from scanner.scan.scoring import compute_three_scores
         table.add_columns("市场", "质量", "价值", "动作", "YES", "NO", "结算", "类型")
         # Load monitored market IDs for green dot indicator
         from scanner.market_state import get_auto_monitor_watches
@@ -178,7 +178,7 @@ class MarketListView(Widget):
         state.auto_monitor = False
         state.next_check_at = None
         set_market_state(mid, state, self.service.db)
-        from scanner.auto_monitor import cleanup_closed_market
+        from scanner.daemon.auto_monitor import cleanup_closed_market
         cleanup_closed_market(mid)
         self.notify(f"PASS: {c.market.title[:30]}")
         self.screen.refresh_sidebar_counts()

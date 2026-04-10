@@ -7,8 +7,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from scanner.config import ScannerConfig
-from scanner.reporting import ScoredCandidate, TierResult
+from scanner.core.config import ScannerConfig
+from scanner.scan.reporting import ScoredCandidate, TierResult
 
 console = Console()
 

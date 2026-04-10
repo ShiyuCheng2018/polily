@@ -2,7 +2,7 @@
 
 import pytest
 
-from scanner.models import BookLevel
+from scanner.core.models import BookLevel
 from scanner.orderbook import (
     OrderBookAnalysis,
     analyze_book,

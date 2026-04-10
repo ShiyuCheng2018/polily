@@ -1,8 +1,8 @@
 from unittest.mock import patch
 
-from scanner.auto_monitor import toggle_auto_monitor
-from scanner.config import ScannerConfig
-from scanner.db import PolilyDB
+from scanner.core.config import ScannerConfig
+from scanner.core.db import PolilyDB
+from scanner.daemon.auto_monitor import toggle_auto_monitor
 from scanner.market_state import MarketState, get_market_state, set_market_state
 
 
@@ -21,8 +21,8 @@ def test_enable_registers_poll_job(tmp_path):
     )
     set_market_state("m1", state, db)
 
-    with patch("scanner.auto_monitor.register_poll_job") as mock_register, \
-         patch("scanner.auto_monitor.remove_poll_job") as mock_remove:
+    with patch("scanner.daemon.auto_monitor.register_poll_job") as mock_register, \
+         patch("scanner.daemon.auto_monitor.remove_poll_job") as mock_remove:
         mock_register.return_value = {"job_id": "poll_m1", "interval_seconds": 10,
                                        "market_id": "m1", "market_type": "crypto"}
         toggle_auto_monitor("m1", enable=True, db=db, config=config)
@@ -50,8 +50,8 @@ def test_disable_removes_poll_job(tmp_path):
     )
     set_market_state("m1", state, db)
 
-    with patch("scanner.auto_monitor.register_poll_job") as mock_register, \
-         patch("scanner.auto_monitor.remove_poll_job") as mock_remove:
+    with patch("scanner.daemon.auto_monitor.register_poll_job") as mock_register, \
+         patch("scanner.daemon.auto_monitor.remove_poll_job") as mock_remove:
         mock_remove.return_value = True
         toggle_auto_monitor("m1", enable=False, db=db, config=config)
 
@@ -78,7 +78,7 @@ def test_enable_on_buy_yes_works(tmp_path):
     )
     set_market_state("m1", state, db)
 
-    with patch("scanner.auto_monitor.register_poll_job") as mock_register:
+    with patch("scanner.daemon.auto_monitor.register_poll_job") as mock_register:
         mock_register.return_value = {"job_id": "poll_m1", "interval_seconds": 10,
                                        "market_id": "m1", "market_type": "crypto"}
         toggle_auto_monitor("m1", enable=True, db=db, config=config)
@@ -101,7 +101,7 @@ def test_enable_on_pass_rejected(tmp_path):
     )
     set_market_state("m1", state, db)
 
-    with patch("scanner.auto_monitor.register_poll_job") as mock_register:
+    with patch("scanner.daemon.auto_monitor.register_poll_job") as mock_register:
         toggle_auto_monitor("m1", enable=True, db=db, config=config)
         mock_register.assert_not_called()
     db.close()
@@ -118,7 +118,7 @@ def test_enable_on_closed_rejected(tmp_path):
     )
     set_market_state("m1", state, db)
 
-    with patch("scanner.auto_monitor.register_poll_job") as mock_register:
+    with patch("scanner.daemon.auto_monitor.register_poll_job") as mock_register:
         toggle_auto_monitor("m1", enable=True, db=db, config=config)
         mock_register.assert_not_called()
     db.close()

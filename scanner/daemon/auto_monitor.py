@@ -3,10 +3,10 @@
 import logging
 from datetime import UTC, datetime
 
-from scanner.config import ScannerConfig
-from scanner.db import PolilyDB
+from scanner.core.config import ScannerConfig
+from scanner.core.db import PolilyDB
+from scanner.daemon.poll_job import register_poll_job, remove_poll_job
 from scanner.market_state import get_market_state, set_market_state
-from scanner.watch_poller_jobs import register_poll_job, remove_poll_job
 
 logger = logging.getLogger(__name__)
 

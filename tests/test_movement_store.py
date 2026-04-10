@@ -1,9 +1,9 @@
 
 import pytest
 
-from scanner.db import PolilyDB
-from scanner.movement import MovementResult
-from scanner.movement_store import (
+from scanner.core.db import PolilyDB
+from scanner.monitor.models import MovementResult
+from scanner.monitor.store import (
     append_movement,
     get_latest_movement,
     get_movement_summary,

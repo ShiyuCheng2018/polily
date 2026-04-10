@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from scanner.db import PolilyDB
-from scanner.models import BookLevel, Market
+from scanner.core.db import PolilyDB
+from scanner.core.models import BookLevel, Market
 
 
 @pytest.fixture(autouse=True)

@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from scanner.db import PolilyDB
+from scanner.core.db import PolilyDB
 
 
 def test_db_creates_all_tables():

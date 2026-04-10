@@ -1,7 +1,7 @@
 """Compute dual-dimension movement score from raw signals."""
 
-from scanner.config import MovementConfig
-from scanner.movement import MovementResult, MovementSignals
+from scanner.core.config import MovementConfig
+from scanner.monitor.models import MovementResult, MovementSignals
 
 
 def _normalize(value: float, max_val: float = 1.0) -> float:

@@ -13,8 +13,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from scanner.config import MovementConfig, ScannerConfig
-from scanner.db import PolilyDB
+from scanner.core.config import MovementConfig, ScannerConfig
+from scanner.core.db import PolilyDB
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ def register_poll_job(
 
     if _ctx is not None and _ctx.scheduler is not None:
         _ctx.scheduler.add_job(
-            "scanner.watch_poller_jobs:_execute_poll",
+            "scanner.daemon.poll_job:_execute_poll",
             "interval",
             seconds=interval,
             id=job_id,
@@ -97,7 +97,7 @@ def restore_poll_jobs_from_db(config: ScannerConfig, db: PolilyDB) -> int:
     Also prunes stale movement_log entries.
     Returns number of jobs restored.
     """
-    from scanner.movement_store import prune_old_movements
+    from scanner.monitor.store import prune_old_movements
     pruned = prune_old_movements(db, days=7)
     if pruned > 0:
         logger.info("Pruned %d stale movement_log entries", pruned)
@@ -140,7 +140,7 @@ def _is_in_cooldown(market_id: str, db, cooldown_seconds: int) -> bool:
     """Check if market is in cooldown period."""
     from datetime import UTC, datetime
 
-    from scanner.movement_store import get_recent_movements
+    from scanner.monitor.store import get_recent_movements
     for e in get_recent_movements(market_id, db, hours=1):
         if e.get("triggered_analysis"):
             triggered_at = datetime.fromisoformat(e["created_at"])
@@ -164,8 +164,8 @@ def _mark_triggered(market_id: str, db) -> None:
 
 def _trigger_recheck(market_id: str, db, ctx, market_title: str, alerts: list) -> None:
     """Trigger AI analysis and send notification."""
+    from scanner.daemon.recheck import recheck_market
     from scanner.notifications import add_notification, send_desktop_notification
-    from scanner.watch_recheck import recheck_market
 
     recheck_market(market_id, db=db, service=ctx.service, trigger_source="movement")
     alert_info = alerts[0]
@@ -216,9 +216,9 @@ def _execute_poll(
             try:
                 res_time = datetime.fromisoformat(state.resolution_time)
                 if res_time < datetime.now(UTC):
-                    from scanner.watch_recheck import _close_market
+                    from scanner.daemon.recheck import _close_market
                     _close_market(market_id, state, db)
-                    from scanner.auto_monitor import cleanup_closed_market
+                    from scanner.daemon.auto_monitor import cleanup_closed_market
                     cleanup_closed_market(market_id)
                     logger.info("Market %s expired — closed and removed poll job", market_id)
                     return
@@ -228,7 +228,7 @@ def _execute_poll(
         prev_price = state.price_at_watch
 
         # Fresh poller + client per poll — resilient to sleep/wake
-        from scanner.price_poller import PricePoller
+        from scanner.monitor.poll import PricePoller
 
         async def _poll_and_close():
             poller = PricePoller(config=config, db=db)
@@ -247,7 +247,7 @@ def _execute_poll(
         result = asyncio.run(_poll_and_close())
 
         # Check if should trigger AI
-        from scanner.movement_store import get_recent_movements, get_today_analysis_count
+        from scanner.monitor.store import get_recent_movements, get_today_analysis_count
         mc = config.movement
         from datetime import UTC, datetime
 
@@ -263,7 +263,7 @@ def _execute_poll(
                            [{"type": result.label, "direction": "", "change": result.magnitude}])
         # --- Drift detection (catches what M/Q misses) ---
         elif not at_daily_limit:
-            from scanner.drift_detector import (
+            from scanner.monitor.drift import (
                 CusumAccumulator,
                 build_price_history,
                 check_rolling_windows,

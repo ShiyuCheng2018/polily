@@ -2,11 +2,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scanner.config import ScannerConfig
-from scanner.db import PolilyDB
-from scanner.movement import MovementResult
-from scanner.movement_store import append_movement
-from scanner.price_poller import PricePoller
+from scanner.core.config import ScannerConfig
+from scanner.core.db import PolilyDB
+from scanner.monitor.models import MovementResult
+from scanner.monitor.poll import PricePoller
+from scanner.monitor.store import append_movement
 
 
 @pytest.fixture
@@ -27,7 +27,7 @@ async def test_poll_single_market_returns_result(db):
     config = ScannerConfig()
     poller = PricePoller(config=config, db=db)
 
-    from scanner.models import BookLevel, Trade
+    from scanner.core.models import BookLevel, Trade
 
     with patch.object(poller, "_fetch_market_data", new_callable=AsyncMock) as mock_fetch:
         mock_fetch.return_value = {

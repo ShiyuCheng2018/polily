@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from scanner.config import ApiConfig
-from scanner.models import BookLevel, Market, Trade
+from scanner.core.config import ApiConfig
+from scanner.core.models import BookLevel, Market, Trade
 
 logger = logging.getLogger(__name__)
 

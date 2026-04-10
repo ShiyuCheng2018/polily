@@ -15,8 +15,7 @@ from scanner.archive import (
     find_entry_in_archive,
     save_scan_unified,
 )
-from scanner.config import ScannerConfig, load_config
-from scanner.pipeline import run_scan_pipeline
+from scanner.core.config import ScannerConfig, load_config
 from scanner.render import (
     console,
     render_backtest_tables,
@@ -24,6 +23,7 @@ from scanner.render import (
     render_dashboard,
     render_tier_a,
 )
+from scanner.scan.pipeline import run_scan_pipeline
 
 app = typer.Typer(help="Polily — Polymarket Decision Copilot", invoke_without_command=True)
 
@@ -38,7 +38,7 @@ def main(ctx: typer.Context):
 
 def _open_db(config: ScannerConfig):
     """Open the unified PolilyDB."""
-    from scanner.db import PolilyDB
+    from scanner.core.db import PolilyDB
     return PolilyDB(config.archiving.db_file)
 
 
@@ -560,8 +560,8 @@ def check_market(
 ):
     """Recheck a single WATCH market — fetch latest data + AI re-evaluation."""
     config = _resolve_config(config_path)
+    from scanner.daemon.recheck import recheck_market
     from scanner.tui.service import ScanService
-    from scanner.watch_recheck import recheck_market
     service = ScanService(config)
     try:
         result = recheck_market(market_id, db=service.db, service=service, trigger_source="manual")
@@ -592,7 +592,7 @@ app.add_typer(scheduler_app, name="scheduler")
 @scheduler_app.command()
 def start(config_path: str = typer.Option(None, "--config", "-c")):
     """Start the scheduler daemon via launchd."""
-    from scanner.watch_scheduler import PLIST_PATH, ensure_daemon_running
+    from scanner.daemon.scheduler import PLIST_PATH, ensure_daemon_running
     _resolve_config(config_path)  # validate config
     started = ensure_daemon_running()
     if started:
@@ -608,7 +608,7 @@ def stop():
     """Stop the scheduler daemon."""
     import subprocess
 
-    from scanner.watch_scheduler import PLIST_PATH
+    from scanner.daemon.scheduler import PLIST_PATH
     if not PLIST_PATH.exists():
         console.print("[dim]Scheduler not installed.[/dim]")
         return
@@ -620,7 +620,7 @@ def stop():
 @scheduler_app.command()
 def status(config_path: str = typer.Option(None, "--config", "-c")):
     """Show scheduler daemon status and pending jobs."""
-    from scanner.watch_scheduler import is_daemon_running
+    from scanner.daemon.scheduler import is_daemon_running
     running = is_daemon_running()
     if running:
         console.print("[green]Daemon: RUNNING[/green]")
@@ -661,7 +661,7 @@ def run_scheduler_daemon(config_path: str = typer.Option(None, "--config", "-c")
         handlers=[logging.FileHandler(str(log_path)), logging.StreamHandler()],
     )
     db = _open_db(config)
-    from scanner.watch_scheduler import run_daemon
+    from scanner.daemon.scheduler import run_daemon
     run_daemon(db, config=config)
 
 

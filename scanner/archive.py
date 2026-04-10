@@ -5,7 +5,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-from scanner.reporting import TierResult, render_candidate_json
+from scanner.scan.reporting import TierResult, render_candidate_json
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ def get_latest_scan_id(archive_dir: str | Path) -> str | None:
 
 def load_demo_data(demo_path: str = "data/fixtures/demo_markets.json") -> list:
     """Load demo fixture data for --demo mode."""
-    from scanner.models import Market
+    from scanner.core.models import Market
 
     p = Path(demo_path)
     if not p.exists():

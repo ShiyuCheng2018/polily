@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from scanner.db import PolilyDB
+    from scanner.core.db import PolilyDB
 
 logger = logging.getLogger(__name__)
 

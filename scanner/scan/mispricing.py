@@ -7,8 +7,8 @@ For all markets: check multi-outcome price sum consistency.
 import math
 from dataclasses import dataclass
 
-from scanner.config import MispricingConfig
-from scanner.models import Market
+from scanner.core.config import MispricingConfig
+from scanner.core.models import Market
 
 
 @dataclass

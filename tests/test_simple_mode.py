@@ -1,9 +1,9 @@
 """Tests for --simple newbie-friendly output mode."""
 
-from scanner.mispricing import MispricingResult
 from scanner.render import render_candidate_simple
-from scanner.reporting import ScoredCandidate
-from scanner.scoring import ScoreBreakdown
+from scanner.scan.mispricing import MispricingResult
+from scanner.scan.reporting import ScoredCandidate
+from scanner.scan.scoring import ScoreBreakdown
 from tests.conftest import make_market
 
 

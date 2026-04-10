@@ -7,7 +7,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from scanner.cli import app
-from scanner.db import PolilyDB
+from scanner.core.db import PolilyDB
 from scanner.market_state import MarketState, get_market_state, set_market_state
 
 runner = CliRunner()

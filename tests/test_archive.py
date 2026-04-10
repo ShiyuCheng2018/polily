@@ -11,9 +11,9 @@ from scanner.archive import (
     load_latest_archive,
     save_scan_unified,
 )
-from scanner.mispricing import MispricingResult
-from scanner.reporting import ScoredCandidate, TierResult
-from scanner.scoring import ScoreBreakdown
+from scanner.scan.mispricing import MispricingResult
+from scanner.scan.reporting import ScoredCandidate, TierResult
+from scanner.scan.scoring import ScoreBreakdown
 from tests.conftest import make_market
 
 

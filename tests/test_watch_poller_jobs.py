@@ -1,10 +1,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from scanner.config import ScannerConfig
-from scanner.db import PolilyDB
-from scanner.market_state import MarketState, set_market_state
-from scanner.movement import MovementResult
-from scanner.watch_poller_jobs import (
+from scanner.core.config import ScannerConfig
+from scanner.core.db import PolilyDB
+from scanner.daemon.poll_job import (
     _execute_poll,
     get_poll_interval,
     init_poller,
@@ -12,6 +10,8 @@ from scanner.watch_poller_jobs import (
     remove_poll_job,
     restore_poll_jobs_from_db,
 )
+from scanner.market_state import MarketState, set_market_state
+from scanner.monitor.models import MovementResult
 
 
 def test_get_poll_interval():
@@ -80,8 +80,8 @@ def test_execute_poll_triggers_recheck(tmp_path):
     # Mock poll_single to return high-trigger result
     high_result = MovementResult(magnitude=85.0, quality=75.0)
 
-    with patch("scanner.price_poller.PricePoller") as MockPoller, \
-         patch("scanner.watch_recheck.recheck_market") as mock_recheck, \
+    with patch("scanner.monitor.poll.PricePoller") as MockPoller, \
+         patch("scanner.daemon.recheck.recheck_market") as mock_recheck, \
          patch("scanner.notifications.add_notification"), \
          patch("scanner.notifications.send_desktop_notification"):
 
@@ -117,13 +117,13 @@ def test_execute_poll_cooldown_prevents_trigger(tmp_path):
     high_result = MovementResult(magnitude=85.0, quality=75.0)
 
     # Seed a recent triggered analysis to put market in cooldown
-    from scanner.movement_store import append_movement
+    from scanner.monitor.store import append_movement
     append_movement("m1", MovementResult(magnitude=80.0, quality=70.0),
                     yes_price=0.55, prev_yes_price=0.50,
                     triggered_analysis=True, db=db)
 
-    with patch("scanner.price_poller.PricePoller") as MockPoller, \
-         patch("scanner.watch_recheck.recheck_market") as mock_recheck:
+    with patch("scanner.monitor.poll.PricePoller") as MockPoller, \
+         patch("scanner.daemon.recheck.recheck_market") as mock_recheck:
 
         mock_poller_instance = MagicMock()
         mock_poller_instance.poll_single = AsyncMock(return_value=high_result)
@@ -156,7 +156,7 @@ def test_execute_poll_closes_expired_market(tmp_path):
     mock_service = MagicMock()
     init_poller(scheduler=None, config=config, db=db, service=mock_service)
 
-    with patch("scanner.price_poller.PricePoller") as MockPoller:
+    with patch("scanner.monitor.poll.PricePoller") as MockPoller:
         _execute_poll("m1", "other", "tok_1", "Expired Market")
         MockPoller.assert_not_called()  # should exit before creating poller
 
@@ -183,7 +183,7 @@ def test_execute_poll_removes_job_if_not_watch(tmp_path):
     mock_service = MagicMock()
     init_poller(scheduler=None, config=config, db=db, service=mock_service)
 
-    with patch("scanner.price_poller.PricePoller") as MockPoller:
+    with patch("scanner.monitor.poll.PricePoller") as MockPoller:
         _execute_poll("m1", "crypto", "tok_1", "Passed Market")
         MockPoller.assert_not_called()  # should exit before creating poller
 

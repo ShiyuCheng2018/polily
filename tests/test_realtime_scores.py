@@ -2,9 +2,9 @@
 
 import pytest
 
-from scanner.db import PolilyDB
-from scanner.movement import MovementResult
-from scanner.movement_store import append_movement, get_price_status
+from scanner.core.db import PolilyDB
+from scanner.monitor.models import MovementResult
+from scanner.monitor.store import append_movement, get_price_status
 
 
 @pytest.fixture
@@ -57,9 +57,9 @@ def test_realtime_score_recalculation(db):
     """Structure score should change when computed with different price/depth."""
     from datetime import UTC, datetime, timedelta
 
-    from scanner.config import ScannerConfig
-    from scanner.models import BookLevel, Market
-    from scanner.scoring import compute_structure_score
+    from scanner.core.config import ScannerConfig
+    from scanner.core.models import BookLevel, Market
+    from scanner.scan.scoring import compute_structure_score
 
     config = ScannerConfig()
     resolution = (datetime.now(UTC) + timedelta(days=2)).isoformat()

@@ -3,7 +3,7 @@
 import plistlib
 import sys
 
-from scanner.watch_scheduler import generate_launchd_plist
+from scanner.daemon.scheduler import generate_launchd_plist
 
 
 def test_generate_plist_structure():

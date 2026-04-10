@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from scanner.models import Market
+from scanner.core.models import Market
 from scanner.utils import matches_any
 
 logger = logging.getLogger(__name__)

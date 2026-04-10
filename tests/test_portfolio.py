@@ -2,7 +2,7 @@
 
 import pytest
 
-from scanner.db import PolilyDB
+from scanner.core.db import PolilyDB
 from scanner.paper_trading import PaperTradingDB
 
 

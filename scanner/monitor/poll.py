@@ -7,11 +7,11 @@ import logging
 from datetime import UTC, datetime
 
 from scanner.api import PolymarketClient
-from scanner.config import ScannerConfig
-from scanner.db import PolilyDB
-from scanner.movement import MovementResult, MovementSignals
-from scanner.movement_scorer import compute_movement_score
-from scanner.movement_signals import (
+from scanner.core.config import ScannerConfig
+from scanner.core.db import PolilyDB
+from scanner.monitor.models import MovementResult, MovementSignals
+from scanner.monitor.scorer import compute_movement_score
+from scanner.monitor.signals import (
     compute_book_imbalance,
     compute_price_z_score,
     compute_sustained_drift,
@@ -20,7 +20,7 @@ from scanner.movement_signals import (
     compute_volume_price_confirmation,
     compute_volume_ratio,
 )
-from scanner.movement_store import (
+from scanner.monitor.store import (
     append_movement,
     get_recent_movements,
     get_today_analysis_count,
@@ -170,8 +170,8 @@ class PricePoller:
                                      prev_odds: float | None,
                                      days_to_resolution: float = 7.0) -> dict:
         """Fetch crypto-specific signals from Binance via CCXT."""
-        from scanner.mispricing import compute_crypto_fair_value
         from scanner.price_feeds import BinancePriceFeed, extract_crypto_asset
+        from scanner.scan.mispricing import compute_crypto_fair_value
 
         feed = BinancePriceFeed()
         try:
@@ -189,7 +189,7 @@ class PricePoller:
 
             prices_1h = await feed.get_short_term_prices(symbol, "1h", limit=24)
 
-            from scanner.movement_signals import (
+            from scanner.monitor.signals import (
                 compute_cross_divergence,
                 compute_fair_value_divergence,
                 compute_underlying_z_score,

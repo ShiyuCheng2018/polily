@@ -6,10 +6,10 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from scanner.movement import MovementResult
+from scanner.monitor.models import MovementResult
 
 if TYPE_CHECKING:
-    from scanner.db import PolilyDB
+    from scanner.core.db import PolilyDB
 
 
 def append_movement(

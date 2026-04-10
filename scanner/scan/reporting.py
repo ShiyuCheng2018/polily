@@ -3,10 +3,10 @@
 import json
 from dataclasses import dataclass, field
 
-from scanner.config import ScoringThresholds
-from scanner.mispricing import MispricingResult
-from scanner.models import Market
-from scanner.scoring import ScoreBreakdown
+from scanner.core.config import ScoringThresholds
+from scanner.core.models import Market
+from scanner.scan.mispricing import MispricingResult
+from scanner.scan.scoring import ScoreBreakdown
 
 
 @dataclass

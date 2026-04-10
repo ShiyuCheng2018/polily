@@ -33,7 +33,7 @@ class PolilyApp(App):
         if not watches:
             return
         try:
-            from scanner.watch_scheduler import ensure_daemon_running
+            from scanner.daemon.scheduler import ensure_daemon_running
             if ensure_daemon_running():
                 self.notify("后台监控已自动启动")
         except Exception:

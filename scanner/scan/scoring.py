@@ -15,11 +15,11 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from scanner.config import ScoringWeights
-from scanner.models import Market
+from scanner.core.config import ScoringWeights
+from scanner.core.models import Market
 
 if TYPE_CHECKING:
-    from scanner.mispricing import MispricingResult
+    from scanner.scan.mispricing import MispricingResult
 
 
 @dataclass

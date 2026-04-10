@@ -4,12 +4,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scanner.config import ScannerConfig
-from scanner.db import PolilyDB
+from scanner.core.config import ScannerConfig
+from scanner.core.db import PolilyDB
 from scanner.market_state import MarketState, set_market_state
-from scanner.movement import MovementResult
-from scanner.movement_store import append_movement, get_recent_movements
-from scanner.price_poller import PricePoller
+from scanner.monitor.models import MovementResult
+from scanner.monitor.poll import PricePoller
+from scanner.monitor.store import append_movement, get_recent_movements
 
 
 @pytest.fixture
@@ -82,7 +82,7 @@ async def test_full_poll_cycle_with_trigger(db, config):
 
     poller = PricePoller(config=config, db=db)
 
-    from scanner.models import Trade
+    from scanner.core.models import Trade
     mock_trades = [Trade(price=0.60, size=200, side="BUY") for _ in range(20)]
 
     with patch.object(poller, "_fetch_market_data", new_callable=AsyncMock) as mock:
