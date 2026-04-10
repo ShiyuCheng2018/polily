@@ -154,61 +154,20 @@ class ScanService:
         return self.tiers
 
     def _restore_narratives(self):
-        """Restore previous AI narratives from analyses DB to scan candidates."""
-        from scanner.agents.schemas import NarrativeWriterOutput
-        from scanner.analysis_store import get_market_analyses
+        """Restore previous AI narratives from analyses DB to scan candidates.
 
-        if not self.tiers:
-            return
-
-        for c in self.tiers.tier_a + self.tiers.tier_b + self.tiers.tier_c:
-            versions = get_market_analyses(c.market.market_id, self.db)
-            if not versions:
-                continue
-            latest = versions[-1]
-            n_data = latest.narrative_output
-            if not n_data or not isinstance(n_data, dict):
-                continue
-            try:
-                n_data.setdefault("market_id", c.market.market_id)
-                if n_data.get("risk_flags") and isinstance(n_data["risk_flags"][0], str):
-                    n_data["risk_flags"] = [
-                        {"text": rf, "severity": "warning"} for rf in n_data["risk_flags"]
-                    ]
-                c.narrative = NarrativeWriterOutput.model_validate(n_data)
-            except Exception:
-                pass
+        TODO: v0.5.0 Task 4.1 will rewrite this to use event_id-based analyses.
+        For now, stubbed — fresh DB has no analyses to restore.
+        """
+        pass
 
     def _save_scan_narratives(self):
-        """Save scan-generated narratives to analyses DB as incremental versions."""
-        from datetime import datetime
+        """Save scan-generated narratives to analyses DB.
 
-        from scanner.analysis_store import (
-            AnalysisVersion,
-            append_analysis,
-            get_market_analyses,
-        )
-        if not self.tiers:
-            return
-        now_iso = datetime.now(UTC).isoformat()
-
-        for c in self.tiers.tier_a + self.tiers.tier_b:
-            if not c.narrative:
-                continue
-            mid = c.market.market_id
-            existing = get_market_analyses(mid, self.db)
-            last_version = existing[-1].version if existing else 0
-            version = AnalysisVersion(
-                version=last_version + 1,
-                created_at=now_iso,
-                market_title=c.market.title,
-                yes_price_at_analysis=c.market.yes_price,
-                analyst_output={},
-                narrative_output=c.narrative.model_dump(),
-                trigger_source="scan",
-                elapsed_seconds=0,
-            )
-            append_analysis(mid, version, self.db)
+        TODO: v0.5.0 Task 4.1 will rewrite this to use event_id-based analyses.
+        For now, stubbed — scan doesn't generate AI narratives (on-demand only).
+        """
+        pass
 
     def _finish_log(self, status: str, error: str | None = None):
         if not self._current_log:
@@ -254,7 +213,7 @@ class ScanService:
         from scanner.analysis_store import (
             AnalysisVersion,
             append_analysis,
-            get_market_analyses,
+            get_event_analyses,
         )
 
         # Build candidate if not provided
@@ -262,44 +221,32 @@ class ScanService:
             candidate = await self._build_candidate(market_id)
 
         market = candidate.market
+        # Use event_id if available, fall back to market_id for now
+        event_id = getattr(market, "event_id", None) or market.market_id
         start_time = time.time()
 
-        # Log entry — persist immediately so it shows as "running"
+        # Log entry
         log = create_log_entry()
         log.type = "analyze"
-        log.event_id = market.market_id  # TODO: v0.5.0 — use real event_id
+        log.event_id = event_id
         log.market_title = market.title
         self._steps = []
         self._current_log = log
         self._persist_log(log)
 
-        price_change = ""
-
         try:
-            # Step 1: Fetch real-time market data (price + orderbook)
+            # Step 1: Fetch real-time market data
             self._step_start("拉取实时数据")
-            _ = {  # scan snapshot for debugging
-                "yes_price": market.yes_price,
-                "no_price": market.no_price,
-                "spread_pct_yes": market.spread_pct_yes,
-                "total_bid_depth_usd": market.total_bid_depth_usd,
-                "total_ask_depth_usd": market.total_ask_depth_usd,
-                "data_time": market.data_fetched_at.isoformat() if market.data_fetched_at else "?",
-            }
             try:
-                # Fetch latest price from Polymarket API
                 try:
                     prices = await self.fetch_current_prices([market.market_id])
                     new_price = prices.get(market.market_id)
                     if new_price is not None:
-                        old_price = market.yes_price
                         market.yes_price = new_price
                         market.no_price = round(1 - new_price, 4) if new_price else market.no_price
-                        market.data_fetched_at = datetime.now(UTC)
                 except Exception as e:
                     logger.warning("Price fetch failed for %s: %s", market.market_id, e)
 
-                # Fetch latest orderbook (independent of price fetch)
                 try:
                     client = PolymarketClient(self.config.api)
                     try:
@@ -314,13 +261,9 @@ class ScanService:
                 except Exception as e:
                     logger.warning("Orderbook fetch failed for %s: %s", market.market_id, e)
 
-                # Recalculate score with fresh data
                 from scanner.scan.scoring import compute_structure_score
-                candidate.score = compute_structure_score(
-                    market, self.config.scoring.weights,
-                )
+                candidate.score = compute_structure_score(market, self.config.scoring.weights)
 
-                # Recalculate mispricing if crypto
                 from scanner.market_types.registry import find_matching_module
                 enrichment_mod = find_matching_module(market)
                 if enrichment_mod:
@@ -330,45 +273,29 @@ class ScanService:
                         if mp_result:
                             candidate.mispricing = mp_result
 
-                # Build change context
-                price_change = ""
-                if new_price is not None and old_price is not None and old_price > 0:
-                    change_pct = (new_price - old_price) / old_price * 100
-                    price_change = f"YES 价格: 扫描时 {old_price:.2f} → 现在 {new_price:.2f} ({change_pct:+.1f}%)"
-
-                detail = f"YES {market.yes_price:.2f}"
-                if price_change:
-                    detail += f" | {price_change}"
-                self._step_done(detail)
+                self._step_done(f"YES {market.yes_price:.2f}")
             except Exception as e:
                 self._step_done(f"部分失败: {e}")
 
-            # Step 2: AI decision analysis — agent reads DB + searches web on its own
+            # Step 2: AI decision analysis
             self._step_start("AI 决策分析")
-            existing = get_market_analyses(market.market_id, self.db)
+            existing = get_event_analyses(event_id, self.db)
             narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
             self._current_narrator = narrator
 
             include_bias = self.config.execution_hints.show_conditional_advice
-            from scanner.monitor.store import get_movement_summary
-            movement_context = get_movement_summary(market.market_id, self.db)
             narrative_output = await narrator.generate(
                 candidate, include_bias=include_bias,
                 on_heartbeat=on_heartbeat,
-                extra_context=movement_context,
             )
             self._current_narrator = None
             self._step_done("完成")
 
-            # Build version with score snapshot
             new_version_num = (existing[-1].version if existing else 0) + 1
-
             version = AnalysisVersion(
                 version=new_version_num,
                 created_at=datetime.now(UTC).isoformat(),
-                market_title=market.title,
-                yes_price_at_analysis=market.yes_price,
-                analyst_output={},
+                prices_snapshot={market.market_id: {"yes": market.yes_price, "no": market.no_price}},
                 mispricing_signal=candidate.mispricing.signal,
                 mispricing_details=candidate.mispricing.details,
                 narrative_output=narrative_output.model_dump(),
@@ -378,23 +305,10 @@ class ScanService:
                 elapsed_seconds=time.time() - start_time,
             )
 
-            # Persist analysis
-            append_analysis(market.market_id, version, self.db)
+            append_analysis(event_id, version, self.db)
             candidate.narrative = narrative_output
 
-            # Sync market metadata (market_type, condition_id, etc.) to state
-            # but do NOT transition status — that's the user's decision.
-            self._sync_market_metadata(market)
-
-            # TODO: v0.5.0 — persist next_check_at to event_monitors
-            # market_states table was replaced by event_monitors in v2 schema
-            pass
-
-            # Log
-            finish_log_entry(
-                log, "completed", self._steps_to_records(),
-                total_markets=1,
-            )
+            finish_log_entry(log, "completed", self._steps_to_records(), total_markets=1)
             self._persist_log(log)
             self._current_log = None
             return version
@@ -519,7 +433,13 @@ class ScanService:
             )
             markets = []
             for event in events:
-                markets.extend(parse_gamma_event(event))
+                result = parse_gamma_event(event)
+                # Handle both old (list[Market]) and new (tuple[EventRow, list[Market]]) return
+                if isinstance(result, tuple):
+                    _event_row, market_list = result
+                    markets.extend(market_list)
+                else:
+                    markets.extend(result)
             return markets
         finally:
             await client.close()
