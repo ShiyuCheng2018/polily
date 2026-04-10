@@ -66,7 +66,8 @@ class NarrativeWriterAgent:
                     f"上次输出: {json.dumps(last_output.model_dump(), ensure_ascii=False, default=str)[:2000]}\n"
                     f"请重新生成完整 JSON。"
                 )
-                logger.info("Semantic retry for %s: %s", candidate.market.market_id, errors)
+                logger.info("Semantic retry for %s: %s",
+                            candidate.market.event_id or candidate.market.market_id, errors)
 
             raw = await self._agent.invoke(actual_prompt, on_heartbeat=on_heartbeat)
             try:
@@ -96,7 +97,7 @@ class NarrativeWriterAgent:
         friction_ratio = (friction / edge * 100) if edge > 0 else None
 
         data = {
-            "market_id": m.market_id,
+            "event_id": m.event_id or m.market_id,
             "title": m.title,
             "description": m.description,
             "market_type": m.market_type,
@@ -120,7 +121,8 @@ class NarrativeWriterAgent:
             "model_confidence": mp.model_confidence,
         }
 
-        prompt = f"""请分析市场 {m.market_id}。
+        event_id = m.event_id or m.market_id
+        prompt = f"""请分析事件 {event_id}。
 
 指令文件: scanner/agents/prompts/narrative_writer.md
 数据库: data/polily.db
@@ -138,10 +140,10 @@ class NarrativeWriterAgent:
         return prompt
 
     def _fallback_from_prompt(self, prompt: str) -> dict:
-        from scanner.utils import extract_market_id_from_prompt
-        market_id = extract_market_id_from_prompt(prompt)
+        from scanner.utils import extract_event_id_from_prompt
+        event_id = extract_event_id_from_prompt(prompt)
         return NarrativeWriterOutput(
-            market_id=market_id,
+            event_id=event_id,
             action="PASS",
             confidence="low",
             summary="AI 分析不可用，请手动查看。",
@@ -215,7 +217,7 @@ def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
     next_check = default_check.isoformat()
 
     return NarrativeWriterOutput(
-        market_id=m.market_id,
+        event_id=m.event_id or m.market_id,
         action=action,
         bias="NONE",
         strength="weak",

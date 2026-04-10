@@ -60,7 +60,7 @@ class PositionAdvice(BaseModel):
 class NarrativeWriterOutput(BaseModel):
     """Output from unified AI analysis — decision assistant mode."""
 
-    market_id: str
+    event_id: str
 
     # Decision
     action: ActionLevel = "PASS"

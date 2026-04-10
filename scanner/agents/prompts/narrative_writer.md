@@ -10,10 +10,10 @@
 
 ## 不要忘记
 
-- 查 `analyses` 表看分析历史
-- 查 `market_states` 表看当前状态（watch/buy_yes/buy_no/pass/closed）
-- 查 `paper_trades` 表看有没有 open 持仓
-- 查 `movement_log` 表看最近的异动记录
+- 查 `analyses` 表看分析历史（用 event_id）
+- 查 `event_monitors` 表看监控状态
+- 查 `paper_trades` 表看有没有 open 持仓（用 event_id）
+- 查 `movement_log` 表看最近的异动记录（用 event_id）
 - 联网搜索不超过 3 次，聚焦最关键的信息
 - 用 StructuredOutput 输出结果
 
@@ -22,23 +22,26 @@
 市场数据保存在 SQLite 数据库中：
 
 ```bash
+# 事件信息
+sqlite3 data/polily.db "SELECT * FROM events WHERE event_id='{event_id}'"
+
+# 所有子市场（含最新价格）
+sqlite3 data/polily.db "SELECT market_id, question, group_item_title, yes_price, no_price, best_bid, best_ask, accepting_orders FROM markets WHERE event_id='{event_id}'"
+
+# 监控状态
+sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'"
+
+# 用户决策（持仓）
+sqlite3 data/polily.db "SELECT pt.*, m.group_item_title FROM paper_trades pt JOIN markets m ON pt.market_id=m.market_id WHERE pt.event_id='{event_id}' AND pt.status='open'"
+
 # 分析历史
-sqlite3 data/polily.db "SELECT version, created_at, yes_price_at_analysis, trigger_source, watch_sequence FROM analyses WHERE market_id='{market_id}' ORDER BY version"
+sqlite3 data/polily.db "SELECT version, created_at, trigger_source, prices_snapshot, structure_score FROM analyses WHERE event_id='{event_id}' ORDER BY version"
 
-# 当前状态
-sqlite3 data/polily.db "SELECT status, auto_monitor, next_check_at, price_at_watch FROM market_states WHERE market_id='{market_id}'"
-
-# 持仓记录
-sqlite3 data/polily.db "SELECT side, entry_price, status, marked_at, position_size_usd FROM paper_trades WHERE market_id='{market_id}' AND status='open'"
-
-# 最近异动（最新 10 条，含价格、深度、异动分数）
-sqlite3 data/polily.db "SELECT * FROM movement_log WHERE market_id='{market_id}' ORDER BY id DESC LIMIT 10"
-
-# 完整叙事历史（如果需要更多上下文）
-sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE market_id='{market_id}' ORDER BY version"
+# 异动记录（子市场级 + 事件级）
+sqlite3 data/polily.db "SELECT * FROM movement_log WHERE event_id='{event_id}' ORDER BY id DESC LIMIT 20"
 ```
 
-将 `{market_id}` 替换为上方提供的实际 market_id。
+将 `{event_id}` 替换为上方提供的实际 event_id。
 
 ## Action 规则
 
@@ -106,7 +109,7 @@ sqlite3 data/polily.db "SELECT version, narrative_output FROM analyses WHERE mar
 
 ```json
 {
-  "market_id": "回传",
+  "event_id": "回传",
   "action": "BUY_YES / BUY_NO / WATCH / PASS / HOLD / SELL / REDUCE",
   "bias": "YES / NO / NONE",
   "strength": "strong / medium / weak",

@@ -25,6 +25,22 @@ def extract_market_id_from_prompt(prompt: str) -> str:
     return "unknown"
 
 
+def extract_event_id_from_prompt(prompt: str) -> str:
+    """Extract event_id from a JSON prompt string. Falls back to market_id. Returns 'unknown' if not found."""
+    import re
+    try:
+        match = re.search(r'"event_id":\s*"([^"]+)"', prompt)
+        if match:
+            return match.group(1)
+        # Fallback: try market_id for backward compat
+        match = re.search(r'"market_id":\s*"([^"]+)"', prompt)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return "unknown"
+
+
 def fmt(val: float | None, format_spec: str, default: str = "?") -> str:
     """Format a value if not None, else return default."""
     if val is None:

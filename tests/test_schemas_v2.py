@@ -12,7 +12,7 @@ from scanner.agents.schemas import (
 # Helper: minimal valid output for a given action
 def _valid_output(**overrides) -> NarrativeWriterOutput:
     defaults = {
-        "market_id": "test",
+        "event_id": "test",
         "action": "PASS",
         "why_not_now": "No edge visible, friction dominates.",
         "summary": "Market efficiently priced, no action.",
@@ -92,7 +92,7 @@ class TestNarrativeWriterOutputV3:
 
     def test_backward_compat_defaults(self):
         """Old data with minimal fields should still validate."""
-        out = NarrativeWriterOutput(market_id="test", summary="old format")
+        out = NarrativeWriterOutput(event_id="test", summary="old format")
         assert out.action == "PASS"
         assert out.bias == "NONE"
         assert out.crypto is None
@@ -100,7 +100,7 @@ class TestNarrativeWriterOutputV3:
     def test_old_data_with_deprecated_fields_loads(self):
         """Old stored data with removed fields should load via extra=ignore."""
         old_data = {
-            "market_id": "test",
+            "event_id": "test",
             "summary": "old analysis",
             "suggested_style": "research_candidate",
             "research_checklist": ["check BTC price"],
@@ -108,7 +108,23 @@ class TestNarrativeWriterOutputV3:
             "watch": {"watch_reason": "old watch", "next_check_at": "2026-04-05"},
         }
         out = NarrativeWriterOutput.model_validate(old_data)
-        assert out.market_id == "test"
+        assert out.event_id == "test"
+
+    def test_event_id_field_exists(self):
+        """event_id field replaces market_id."""
+        out = NarrativeWriterOutput(event_id="ev1", summary="test")
+        assert out.event_id == "ev1"
+        assert "market_id" not in NarrativeWriterOutput.model_fields
+
+    def test_old_market_id_data_ignored(self):
+        """Old stored data with market_id should load via extra=ignore (field gone)."""
+        old_data = {
+            "market_id": "old_id",
+            "event_id": "ev1",
+            "summary": "migrated",
+        }
+        out = NarrativeWriterOutput.model_validate(old_data)
+        assert out.event_id == "ev1"
 
     def test_next_check_at_on_output(self):
         out = _valid_output(next_check_at="2026-04-10T12:00:00",
@@ -120,7 +136,7 @@ class TestNarrativeWriterOutputV3:
 class TestSemanticValidation:
     def test_pass_requires_why_not_now(self):
         out = NarrativeWriterOutput(
-            market_id="test", action="PASS",
+            event_id="test", action="PASS",
             summary="ok summary", one_line_verdict="verdict",
             next_check_at="2026-04-10T12:00:00",
         )

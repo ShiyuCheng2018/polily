@@ -13,7 +13,7 @@ from scanner.scan.scoring import ScoreBreakdown
 from tests.conftest import make_cli_response_structured, make_market
 
 SAMPLE_NARRATIVE_OUTPUT = {
-    "market_id": "0xtest",
+    "event_id": "ev_test",
     "action": "WATCH",
     "bias": "YES",
     "strength": "medium",
@@ -43,7 +43,7 @@ SAMPLE_NARRATIVE_OUTPUT = {
 
 def _make_scored_candidate(**overrides) -> ScoredCandidate:
     return ScoredCandidate(
-        market=make_market(**{k: v for k, v in overrides.items() if k in ("market_id", "title", "market_type", "yes_price")}),
+        market=make_market(**{k: v for k, v in overrides.items() if k in ("market_id", "event_id", "title", "market_type", "yes_price")}),
         score=ScoreBreakdown(
             liquidity_structure=20, objective_verifiability=18,
             probability_space=16, time_structure=12,
@@ -72,6 +72,7 @@ class TestNarrativeWriterAgent:
 
             result = await agent.generate(candidate)
             assert isinstance(result, NarrativeWriterOutput)
+            assert result.event_id == "ev_test"
             assert result.action == "WATCH"
             assert len(result.risk_flags) > 0
             assert len(result.supporting_findings) > 0
@@ -97,7 +98,7 @@ class TestNarrativeFallback:
         candidate = _make_scored_candidate()
         result = narrative_fallback(candidate)
         assert isinstance(result, NarrativeWriterOutput)
-        assert result.market_id == "0xtest"
+        assert result.event_id == "ev_test"
         assert len(result.summary) > 0
         assert result.action in ("BUY_YES", "BUY_NO", "WATCH", "PASS", "HOLD", "SELL", "REDUCE")
         assert result.confidence == "low"
