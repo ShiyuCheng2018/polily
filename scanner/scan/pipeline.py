@@ -358,20 +358,65 @@ async def enrich_with_orderbook(
 async def _fetch_price_params_batch(
     markets: list[Market], config: ScannerConfig,
 ) -> dict[str, dict]:
-    """Fetch price params for markets via data enrichment modules."""
-    from scanner.market_types.registry import find_matching_module
+    """Fetch price params for crypto markets, deduped by asset.
 
-    results = {}
-    for market in markets:
-        enrichment = find_matching_module(market)
-        if enrichment is None:
-            continue
+    Groups markets by underlying asset (BTC, ETH, etc.), fetches price + vol
+    once per asset, then builds params for each market using shared data.
+    9 BTC markets → 2 API calls instead of 18.
+    """
+    from scanner.price_feeds import (
+        BinancePriceFeed,
+        compute_realized_vol,
+        extract_crypto_asset,
+        extract_threshold_price,
+    )
+
+    # Group markets by asset symbol
+    asset_markets: dict[str, list[Market]] = {}
+    for m in markets:
+        symbol = extract_crypto_asset(m.title)
+        if symbol and extract_threshold_price(m.title):
+            asset_markets.setdefault(symbol, []).append(m)
+
+    if not asset_markets:
+        return {}
+
+    # Fetch price + history once per unique asset (concurrent across assets)
+    feed = BinancePriceFeed()
+    vol_days = config.mispricing.crypto.volatility_lookback_days
+    asset_data: dict[str, dict] = {}
+
+    async def _fetch_asset(symbol: str) -> None:
         try:
-            params = await enrichment.fetch_price_params(market, config)
-            if params:
-                results[market.market_id] = params
+            price = await feed.get_current_price(symbol)
+            if price is None:
+                return
+            history = await feed.get_historical_prices(symbol, days=vol_days)
+            vol = compute_realized_vol(history) if history else 0.60
+            asset_data[symbol] = {
+                "current_underlying_price": price,
+                "annual_volatility": vol,
+            }
         except Exception as e:
-            logger.warning("Price fetch failed for %s: %s", market.market_id, e)
+            logger.warning("Price fetch failed for %s: %s", symbol, e)
+
+    await asyncio.gather(*[_fetch_asset(s) for s in asset_markets])
+    await feed.close()
+
+    # Build per-market params from shared asset data
+    results: dict[str, dict] = {}
+    for symbol, mkts in asset_markets.items():
+        data = asset_data.get(symbol)
+        if not data:
+            continue
+        for m in mkts:
+            threshold = extract_threshold_price(m.title)
+            if threshold:
+                results[m.market_id] = {
+                    **data,
+                    "threshold_price": threshold,
+                }
+
     return results
 
 
