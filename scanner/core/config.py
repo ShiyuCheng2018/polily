@@ -47,7 +47,6 @@ class CliConfig(BaseModel):
 
 class ScannerSection(BaseModel):
     output_dir: str = "./outputs"
-    scan_archive_dir: str = "./data/scans"
     max_markets_to_fetch: int = 1000
     include_closed_markets: bool = False
     categories_allowlist: list[str] = []
@@ -60,7 +59,6 @@ class ScannerSection(BaseModel):
 
 
 class FiltersConfig(BaseModel):
-    require_binary_market: bool = True
     require_objective_market: bool = True
     require_clear_rules: bool = False
     require_named_resolution_source: bool = False
@@ -171,13 +169,6 @@ class CounterpartyConfig(BaseModel):
     book_imbalance_ratio: float = 3.0
 
 
-class CalendarConfig(BaseModel):
-    enabled: bool = True
-    calendar_file: str = "./data/calendar.yaml"
-    lookahead_days: int = 3
-    cross_domain_linking: bool = True
-
-
 class PaperTradingConfig(BaseModel):
     enabled: bool = True
     data_file: str = "./data/paper_trades.db"
@@ -215,9 +206,7 @@ class ReportingConfig(BaseModel):
 
 class ArchivingConfig(BaseModel):
     enabled: bool = True
-    archive_dir: str = "./data/scans"
     db_file: str = "./data/polily.db"
-    archive_all_passing: bool = True
 
 
 class ExecutionHintsConfig(BaseModel):
@@ -242,13 +231,6 @@ class MovementConfig(BaseModel):
     quality_threshold: float = 60
     daily_analysis_limit: int = 10  # max AI analyses per market per day
     rolling_window_hours: int = 6   # baseline window for volume ratio
-    poll_intervals: dict[str, int] = {
-        "crypto": 10,           # 10s
-        "economic_data": 20,    # 20s
-        "political": 60,        # 60s
-        "sports": 15,           # 15s
-        "default": 30,          # 30s
-    }
     # Drift detection — rolling window thresholds per market type
     # {market_type: {window_minutes: absolute_change_threshold}}
     drift_windows: dict[str, dict[int, float]] = {
@@ -316,7 +298,6 @@ class ScannerConfig(BaseModel):
     ai: AiConfig = AiConfig()
     mispricing: MispricingConfig = MispricingConfig()
     counterparty: CounterpartyConfig = CounterpartyConfig()
-    calendar: CalendarConfig = CalendarConfig()
     paper_trading: PaperTradingConfig = PaperTradingConfig()
     discipline: DisciplineConfig = DisciplineConfig()
     reporting: ReportingConfig = ReportingConfig()

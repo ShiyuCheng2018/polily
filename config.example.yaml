@@ -11,7 +11,6 @@ api:
 
 scanner:
   output_dir: "./outputs"
-  scan_archive_dir: "./data/scans"
   max_markets_to_fetch: 1000
   include_closed_markets: false
   categories_allowlist: []
@@ -38,7 +37,6 @@ cli:
   polymarket_base_url: "https://polymarket.com/event/"
 
 filters:
-  require_binary_market: true
   require_objective_market: true
   require_clear_rules: false
   require_named_resolution_source: false  # if true, reject markets resolved only by UMA vote
@@ -214,14 +212,6 @@ counterparty:
   flag_book_imbalance: true
   book_imbalance_ratio: 3.0          # flag if bid/ask depth ratio exceeds 3:1
 
-# Event calendar
-calendar:
-  enabled: true
-  calendar_file: "./data/calendar.yaml"
-  lookahead_days: 3                  # show events within N days in TODAY'S CONTEXT
-  # Cross-domain linking: auto-generate notes when event type relates to market type
-  cross_domain_linking: true
-
 # Paper trading
 paper_trading:
   enabled: true
@@ -275,24 +265,10 @@ reporting:
   # Every report header must include this disclaimer
   disclaimer: "Scanner output is a research prompt, not a trade recommendation. High scores indicate good market structure, not guaranteed edge."
 
-# Scan archiving for backtesting
+# Database
 archiving:
   enabled: true
-  archive_dir: "./data/scans"
-  archive_all_passing: true           # archive all markets that pass initial filters, not just Tier A
-  # Backtest configuration
-  backtest:
-    enabled: false                    # run with: python main.py backtest
-    min_scans_for_analysis: 10        # need at least N archived scans before backtesting
-
-# Daily briefing
-daily_briefing:
-  enabled: true
-  # Compare with previous scan to show deltas
-  show_yesterday_tracking: true
-  show_paper_trade_updates: true
-  # Show Tier B markets that moved into Tier A range
-  show_tier_b_upgrades: true
+  db_file: "./data/polily.db"
 
 execution_hints:
   small_account_mode: true
@@ -320,9 +296,3 @@ movement:
   quality_threshold: 60
   daily_analysis_limit: 10
   rolling_window_hours: 6
-  poll_intervals:
-    crypto: 10
-    economic_data: 20
-    political: 60
-    sports: 15
-    default: 30

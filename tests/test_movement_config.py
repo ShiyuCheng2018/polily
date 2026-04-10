@@ -9,8 +9,4 @@ def test_movement_config_defaults():
     assert m.magnitude_threshold == 70
     assert m.quality_threshold == 60
     assert m.daily_analysis_limit == 10
-    assert m.poll_intervals["crypto"] == 10
-    assert m.poll_intervals["political"] == 60
-    assert m.poll_intervals["economic_data"] == 20
-    assert m.poll_intervals["default"] == 30
     assert m.rolling_window_hours == 6

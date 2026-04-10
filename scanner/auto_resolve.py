@@ -1,12 +1,14 @@
 """Auto-resolve paper trades by checking Polymarket market resolution status.
 
-TODO: v0.5.0 — rewrite to use scanner.core.paper_store instead of PaperTradingDB.
+Uses PolilyDB and paper_store for trade management.
 """
 
 import json
 import logging
 
 import httpx
+
+from scanner.core.paper_store import get_open_trades, resolve_trade
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +49,30 @@ async def auto_resolve_trades(db) -> int:
     """Check all open paper trades and resolve any that have settled.
 
     Returns count of newly resolved trades.
-
-    TODO: v0.5.0 — rewrite to use paper_store
     """
-    # Stubbed: PaperTradingDB was deleted; will be rewritten against paper_store
-    return 0
+    open_trades = get_open_trades(db)
+    if not open_trades:
+        return 0
+
+    resolved_count = 0
+    for trade in open_trades:
+        market_id = trade["market_id"]
+        try:
+            market_data = await fetch_market_status(market_id)
+            if market_data is None:
+                continue
+
+            result = _determine_result(market_data)
+            if result is None:
+                continue
+
+            resolve_trade(trade["id"], result=result, db=db)
+            logger.info(
+                "Auto-resolved trade %s (market %s) -> %s",
+                trade["id"], market_id, result,
+            )
+            resolved_count += 1
+        except Exception:
+            logger.exception("Failed to resolve trade %s (market %s)", trade["id"], market_id)
+
+    return resolved_count
