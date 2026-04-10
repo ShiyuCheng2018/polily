@@ -77,15 +77,13 @@ class MainScreen(Screen):
     def on_mount(self) -> None:
         sidebar = self.query_one("#sidebar", Sidebar)
         sidebar.set_active_menu("tasks")
-        states = self.service.get_all_market_states()
-        research = len([c for c in self.service.get_research()
-                       if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
+        research = len(self.service.get_research_events())
         monitor = self.service.get_monitor_count()
-        paper = len(self.service.get_paper_trades())
+        paper = len(self.service.get_open_trades())
         notif_count = self.service.get_unread_notification_count()
         history = self.service.get_history_count()
         sidebar.update_counts(research, monitor, paper, notif_count, history)
-        if self.service.tiers:
+        if research or monitor:
             self.query_one("#status-bar", Static).update(
                 f"上次扫描: 研{research} 监{monitor} ({self.service.total_scanned} 市场)"
             )
@@ -128,11 +126,9 @@ class MainScreen(Screen):
         """Main thread: update status, do NOT auto-navigate."""
         self._loading = False
         total = self.service.total_scanned
-        states = self.service.get_all_market_states()
-        research = len([c for c in self.service.get_research()
-                       if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
+        research = len(self.service.get_research_events())
         monitor = self.service.get_monitor_count()
-        paper = len(self.service.get_paper_trades())
+        paper = len(self.service.get_open_trades())
 
         status_parts = [f"扫描完成: 研{research} 监{monitor} ({total} 市场)"]
         self.query_one("#status-bar", Static).update(" | ".join(status_parts))
@@ -180,14 +176,49 @@ class MainScreen(Screen):
                 view.focus()
 
     def refresh_sidebar_counts(self):
-        states = self.service.get_all_market_states()
-        research = len([c for c in self.service.get_research()
-                       if not (c.market.market_id in states and states[c.market.market_id].status == "pass")])
+        research = len(self.service.get_research_events())
         monitor = self.service.get_monitor_count()
-        paper = len(self.service.get_paper_trades())
+        paper = len(self.service.get_open_trades())
         notif_count = self.service.get_unread_notification_count()
         history = self.service.get_history_count()
         self.query_one("#sidebar", Sidebar).update_counts(research, monitor, paper, notif_count, history)
+
+    # --- Adapter: event dicts → ScoredCandidate stubs ---
+
+    @staticmethod
+    def _events_to_candidates(event_dicts: list[dict]):
+        """Convert new event-first dicts to ScoredCandidate stubs for legacy views.
+
+        This is a bridge until Task 5.1 rewrites MarketListView to consume
+        event dicts directly.
+        """
+        from datetime import UTC, datetime
+
+        from scanner.core.models import Market
+        from scanner.scan.mispricing import MispricingResult
+        from scanner.scan.reporting import ScoredCandidate
+        from scanner.scan.scoring import ScoreBreakdown
+
+        candidates = []
+        for ed in event_dicts:
+            ev = ed["event"]
+            m = Market(
+                market_id=ev.event_id,
+                event_id=ev.event_id,
+                title=ev.title,
+                description=ev.description or "",
+                outcomes=["Yes", "No"],
+                data_fetched_at=datetime.now(UTC),
+            )
+            total = ev.structure_score or 0
+            score = ScoreBreakdown(
+                liquidity_structure=0, objective_verifiability=0,
+                probability_space=0, time_structure=0, trading_friction=0,
+                total=total,
+            )
+            mispricing = MispricingResult(signal="none")
+            candidates.append(ScoredCandidate(market=m, score=score, mispricing=mispricing))
+        return candidates
 
     # --- Message handlers ---
 
@@ -240,9 +271,10 @@ class MainScreen(Screen):
             def _heartbeat(elapsed: float, status: str):
                 self.app.call_from_thread(self._update_heartbeat, elapsed, status)
 
-            await self.service.analyze_market(
-                candidate.market.market_id,
-                candidate=candidate,
+            # Use event_id for the new analyze_event API
+            event_id = getattr(candidate.market, "event_id", None) or candidate.market.market_id
+            await self.service.analyze_event(
+                event_id,
                 on_heartbeat=_heartbeat,
             )
             self.app.call_from_thread(self._on_analysis_complete, candidate)
@@ -295,8 +327,8 @@ class MainScreen(Screen):
 
     def on_open_market_from_log(self, message: OpenMarketFromLog) -> None:
         """Navigate to market detail from a log entry."""
-        candidates = self.service.get_all_candidates()
-        for c in candidates:
+        all_candidates = self._events_to_candidates(self.service.get_all_events())
+        for c in all_candidates:
             if c.market.market_id == message.market_id:
                 self._switch_view(MarketDetailView(c, self.service))
                 return
@@ -304,8 +336,8 @@ class MainScreen(Screen):
 
     def on_view_monitor_detail(self, message: ViewMonitorDetail) -> None:
         """Navigate to market detail from monitor list."""
-        candidates = self.service.get_all_candidates()
-        for c in candidates:
+        all_candidates = self._events_to_candidates(self.service.get_all_events())
+        for c in all_candidates:
             if c.market.market_id == message.market_id:
                 self._switch_view(MarketDetailView(c, self.service))
                 return
@@ -313,8 +345,8 @@ class MainScreen(Screen):
 
     def on_view_trade_detail(self, message: ViewTradeDetail) -> None:
         """Navigate to market detail from portfolio."""
-        candidates = self.service.get_all_candidates()
-        for c in candidates:
+        all_candidates = self._events_to_candidates(self.service.get_all_events())
+        for c in all_candidates:
             if c.market.market_id == message.market_id:
                 self._switch_view(MarketDetailView(c, self.service))
                 return
@@ -332,10 +364,12 @@ class MainScreen(Screen):
             current_steps = list(self.service._steps) if self._loading else None
             self._switch_view(ScanLogView(logs, current_steps), "tasks")
         elif menu_id == "research":
-            states = self.service.get_all_market_states()
-            research = [c for c in self.service.get_research()
-                       if not (c.market.market_id in states and states[c.market.market_id].status == "pass")]
-            self._switch_view(MarketListView(research, self.service, "研究队列"), "research")
+            # Build ScoredCandidate stubs from DB events for MarketListView
+            # (MarketListView will be fully rewritten in Task 5.1)
+            research_candidates = self._events_to_candidates(
+                self.service.get_research_events()
+            )
+            self._switch_view(MarketListView(research_candidates, self.service, "研究队列"), "research")
         elif menu_id == "monitor":
             # TODO: v0.5.0 — MonitorListView not yet rebuilt for event-first schema
             if MonitorListView is not None:

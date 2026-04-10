@@ -163,7 +163,7 @@ class TestAnalyzeEvent:
         _seed(db, "ev1", "m1")
         from scanner.agents.schemas import NarrativeWriterOutput
         mock_output = NarrativeWriterOutput(
-            market_id="ev1", summary="test analysis", action="WATCH",
+            event_id="ev1", summary="test analysis", action="WATCH",
             next_check_at="2026-04-15T12:00:00", next_check_reason="test",
         )
         with patch("scanner.tui.service.NarrativeWriterAgent") as MockAgent:

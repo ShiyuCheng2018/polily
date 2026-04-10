@@ -49,7 +49,7 @@ class PaperStatusView(Widget):
         yield DataTable(id="portfolio-table")
 
     def on_mount(self) -> None:
-        self._trades = self.service.get_paper_trades()
+        self._trades = self.service.get_open_trades()
 
         table = self.query_one("#portfolio-table", DataTable)
         table.cursor_type = "row"
