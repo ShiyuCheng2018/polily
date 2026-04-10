@@ -84,7 +84,7 @@ class ScanService:
 
         self._step_start("获取市场数据")
         event_rows, markets = await self._fetch_events()
-        self._step_done(f"{len(markets)} 个")
+        self._step_done(f"{len(event_rows)} 事件 / {len(markets)} 市场")
 
         self.total_scanned = len(markets)
         if not markets:

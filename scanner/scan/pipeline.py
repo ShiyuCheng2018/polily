@@ -82,13 +82,13 @@ def run_scan_pipeline(
         _console = Console(file=__import__("io").StringIO(), stderr=False)
     else:
         _console = Console()
-    _report("过滤市场", "start")
+    _report("过滤", "start")
     with _timed_status(_console, "Filtering markets"):
         filter_result = apply_hard_filters(markets, config.filters, config.heuristics)
-    total = len(markets)
     passed_n = len(filter_result.passed)
-    rejected_n = len(filter_result.rejected)
-    _report("过滤市场", "done", f"{passed_n}/{total} 通过 ({rejected_n} 过滤)")
+    passed_eids = {getattr(m, "event_id", None) for m in filter_result.passed if getattr(m, "event_id", None)}
+    total_eids = {getattr(m, "event_id", None) for m in markets if getattr(m, "event_id", None)}
+    _report("过滤", "done", f"{len(passed_eids)} 事件 / {passed_n} 市场通过 ({len(total_eids) - len(passed_eids)} 事件过滤)")
     logger.info(
         "Filters: %d passed, %d rejected out of %d",
         len(filter_result.passed), len(filter_result.rejected), len(markets),
@@ -102,7 +102,7 @@ def run_scan_pipeline(
         try:
             with _timed_status(_console, f"Fetching order books ({len(passed)} markets)"):
                 passed = _run_async(enrich_with_orderbook(passed, config))
-            _report("获取订单簿", "done", f"{len(passed)} 个市场")
+            _report("获取订单簿", "done", f"{len(passed)} 市场")
             logger.info("Order books fetched for %d markets", len(passed))
         except Exception as e:
             _report("获取订单簿", "fail")
@@ -161,13 +161,16 @@ def run_scan_pipeline(
     tiers = classify_tiers(candidates, config.scoring.thresholds)
     research_n = len(tiers.tier_a)
     watch_n = len(tiers.tier_b)
-    _report("评分 + 定价检测", "done", f"研{research_n} 观{watch_n} (共{len(candidates)})")
+    scored_eids = {getattr(c.market, "event_id", None) for c in candidates if getattr(c.market, "event_id", None)}
+    _report("评分 + 定价检测", "done", f"研{research_n} 观{watch_n} (共{len(scored_eids)}事件/{len(candidates)}市场)")
 
     # AI analysis removed from scan pipeline — triggered on-demand via 'a' key
 
     # Persist to DB: only filtered events + all their sibling markets, then scores
     if db is not None:
-        _persist_filtered(passed, markets, event_rows or [], db)
+        _report("持久化", "start")
+        n_events, n_markets = _persist_filtered(passed, markets, event_rows or [], db)
+        _report("持久化", "done", f"{n_events} 事件 / {n_markets} 市场写入 DB")
         _update_event_scores(candidates, tiers, db)
 
     logger.info(
@@ -182,11 +185,13 @@ def _persist_filtered(
     all_markets: list[Market],
     event_rows: list,
     db: PolilyDB,
-) -> None:
+) -> tuple[int, int]:
     """Persist only events with passing markets + all their sibling markets.
 
     If one sub-market of an event passes, ALL sibling markets of that event
     are persisted (for multi-outcome detail page completeness).
+
+    Returns (n_events, n_markets) persisted.
     """
     from scanner.core.event_store import MarketRow, upsert_event, upsert_market
 
@@ -198,14 +203,17 @@ def _persist_filtered(
     }
 
     if not eligible_eids:
-        return
+        return 0, 0
 
     # Persist eligible events
+    n_events = 0
     for er in event_rows:
         if er.event_id in eligible_eids:
             upsert_event(er, db)
+            n_events += 1
 
     # Persist ALL markets belonging to eligible events (siblings included)
+    n_markets = 0
     for m in all_markets:
         eid = getattr(m, "event_id", None)
         if eid not in eligible_eids:
@@ -239,8 +247,10 @@ def _persist_filtered(
             ).isoformat(),
         )
         upsert_market(mr, db)
+        n_markets += 1
 
     db.conn.commit()
+    return n_events, n_markets
 
 
 def _update_event_scores(
