@@ -62,7 +62,7 @@ class MainScreen(Screen):
         self.service = service
         self._loading = False
         self._current_menu = "tasks"
-        self._analyzing_candidate: object | None = None
+        self._analyzing_event_id: str | None = None
         self._analyzing = False
 
     def compose(self) -> ComposeResult:
@@ -183,78 +183,38 @@ class MainScreen(Screen):
         history = self.service.get_history_count()
         self.query_one("#sidebar", Sidebar).update_counts(research, monitor, paper, notif_count, history)
 
-    # --- Adapter: event dicts → ScoredCandidate stubs ---
-
-    @staticmethod
-    def _events_to_candidates(event_dicts: list[dict]):
-        """Convert event dicts to ScoredCandidate stubs for legacy detail views.
-
-        Bridge for MarketDetailView until Task 5.2 rewrites it to consume
-        event dicts directly.
-        """
-        from datetime import UTC, datetime
-
-        from scanner.core.models import Market
-        from scanner.scan.mispricing import MispricingResult
-        from scanner.scan.reporting import ScoredCandidate
-        from scanner.scan.scoring import ScoreBreakdown
-
-        candidates = []
-        for ed in event_dicts:
-            ev = ed["event"]
-            m = Market(
-                market_id=ev.event_id,
-                event_id=ev.event_id,
-                title=ev.title,
-                description=ev.description or "",
-                outcomes=["Yes", "No"],
-                data_fetched_at=datetime.now(UTC),
-            )
-            total = ev.structure_score or 0
-            score = ScoreBreakdown(
-                liquidity_structure=0, objective_verifiability=0,
-                probability_space=0, time_structure=0, trading_friction=0,
-                total=total,
-            )
-            mispricing = MispricingResult(signal="none")
-            candidates.append(ScoredCandidate(market=m, score=score, mispricing=mispricing))
-        return candidates
-
     # --- Message handlers ---
 
     def on_menu_selected(self, message: MenuSelected) -> None:
         self._navigate_to(message.menu_id)
 
     def on_view_detail_requested(self, message: ViewDetailRequested) -> None:
-        # MarketDetailView still uses ScoredCandidate (will change in Task 5.2)
-        event_id = message.event_id
-        all_events = self.service.get_all_events()
-        candidates = self._events_to_candidates(
-            [e for e in all_events if e["event"].event_id == event_id]
+        self._switch_view(
+            MarketDetailView(event_id=message.event_id, service=self.service)
         )
-        if candidates:
-            self._switch_view(MarketDetailView(candidates[0], self.service))
-        else:
-            self.notify("未找到该事件", severity="warning")
 
     def on_switch_version_requested(self, message: SwitchVersionRequested) -> None:
-        is_analyzing = self._analyzing and self._analyzing_candidate is message.candidate
+        is_analyzing = self._analyzing and self._analyzing_event_id == message.event_id
         self._switch_view(MarketDetailView(
-            message.candidate, self.service,
+            event_id=message.event_id,
+            service=self.service,
             analyzing=is_analyzing,
             version_idx=message.version_idx,
-            show_detail=message.show_detail,
         ))
 
     def on_view_scan_log_detail(self, message: ViewScanLogDetail) -> None:
         self._switch_view(ScanLogDetailView(message.log_entry))
 
     def on_analyze_requested(self, message: AnalyzeRequested) -> None:
-        self._analyzing_candidate = message.candidate
+        self._analyzing_event_id = message.event_id
         self._analyzing = True
-        title_short = message.candidate.market.title[:30]
+        # Get event title for status bar
+        detail = self.service.get_event_detail(message.event_id)
+        title_short = (detail["event"].title[:30] if detail else message.event_id[:30])
         self.query_one("#status-bar", Static).update(f"AI 分析中: {title_short}...")
-        self._switch_view(MarketDetailView(message.candidate, self.service, analyzing=True))
+        self._switch_view(MarketDetailView(
+            event_id=message.event_id, service=self.service, analyzing=True,
+        ))
         self.run_worker(self._do_analyze, name="analyze", thread=True, exclusive=True)
 
     def _cancel_analysis(self):
@@ -264,15 +224,17 @@ class MainScreen(Screen):
         self._analyzing = False
         self.service.cancel_analysis()
         self.query_one("#status-bar", Static).update("分析已取消")
-        if self._analyzing_candidate:
-            self._switch_view(MarketDetailView(self._analyzing_candidate, self.service))
-            self._analyzing_candidate = None
+        if self._analyzing_event_id:
+            self._switch_view(MarketDetailView(
+                event_id=self._analyzing_event_id, service=self.service,
+            ))
+            self._analyzing_event_id = None
 
     async def _do_analyze(self):
         import os
         os.environ["POLILY_TUI"] = "1"
         try:
-            candidate = self._analyzing_candidate
+            event_id = self._analyzing_event_id
             self.service.on_progress = lambda steps: self.app.call_from_thread(
                 self._update_progress, steps
             )
@@ -280,13 +242,11 @@ class MainScreen(Screen):
             def _heartbeat(elapsed: float, status: str):
                 self.app.call_from_thread(self._update_heartbeat, elapsed, status)
 
-            # Use event_id for the new analyze_event API
-            event_id = getattr(candidate.market, "event_id", None) or candidate.market.market_id
             await self.service.analyze_event(
                 event_id,
                 on_heartbeat=_heartbeat,
             )
-            self.app.call_from_thread(self._on_analysis_complete, candidate)
+            self.app.call_from_thread(self._on_analysis_complete, event_id)
         except Exception as e:
             error_msg = str(e)
             if "cancelled" in error_msg.lower():
@@ -298,7 +258,7 @@ class MainScreen(Screen):
 
     def _update_heartbeat(self, elapsed: float, status: str):
         """Update status bar with heartbeat info during AI analysis."""
-        title = self._analyzing_candidate.market.title[:25] if self._analyzing_candidate else ""
+        title = (self._analyzing_event_id or "")[:25]
         mins = int(elapsed) // 60
         secs = int(elapsed) % 60
         time_str = f"{mins}:{secs:02d}" if mins else f"{secs}s"
@@ -320,46 +280,39 @@ class MainScreen(Screen):
                 f"AI 分析中 ({time_str}) {title} [dim]Esc 取消[/dim]"
             )
 
-    def _on_analysis_complete(self, candidate):
+    def _on_analysis_complete(self, event_id: str):
         self.query_one("#status-bar", Static).update("分析完成")
         self.query_one("#sidebar", Sidebar).mark_new_data("tasks")
-        self._switch_view(MarketDetailView(candidate, self.service))
+        self._switch_view(MarketDetailView(event_id=event_id, service=self.service))
 
     def _on_analysis_failed(self, error: str):
         error_short = error[:80] if len(error) > 80 else error
         self.query_one("#status-bar", Static).update(f"分析失败: {error_short}")
-        if self._analyzing_candidate:
-            self._switch_view(MarketDetailView(self._analyzing_candidate, self.service))
+        if self._analyzing_event_id:
+            self._switch_view(MarketDetailView(
+                event_id=self._analyzing_event_id, service=self.service,
+            ))
 
     def on_cancel_analysis_requested(self, message: CancelAnalysisRequested) -> None:
         self._cancel_analysis()
 
     def on_open_market_from_log(self, message: OpenMarketFromLog) -> None:
-        """Navigate to market detail from a log entry."""
-        all_candidates = self._events_to_candidates(self.service.get_all_events())
-        for c in all_candidates:
-            if c.market.market_id == message.market_id:
-                self._switch_view(MarketDetailView(c, self.service))
-                return
-        self.notify("未找到该市场（可能需要重新扫描）", severity="warning")
+        """Navigate to event detail from a log entry (market_id used as event_id)."""
+        self._switch_view(
+            MarketDetailView(event_id=message.market_id, service=self.service)
+        )
 
     def on_view_monitor_detail(self, message: ViewMonitorDetail) -> None:
-        """Navigate to market detail from monitor list."""
-        all_candidates = self._events_to_candidates(self.service.get_all_events())
-        for c in all_candidates:
-            if c.market.market_id == message.market_id:
-                self._switch_view(MarketDetailView(c, self.service))
-                return
-        self.notify("未找到该市场（可能需要重新扫描）", severity="warning")
+        """Navigate to event detail from monitor list."""
+        self._switch_view(
+            MarketDetailView(event_id=message.market_id, service=self.service)
+        )
 
     def on_view_trade_detail(self, message: ViewTradeDetail) -> None:
-        """Navigate to market detail from portfolio."""
-        all_candidates = self._events_to_candidates(self.service.get_all_events())
-        for c in all_candidates:
-            if c.market.market_id == message.market_id:
-                self._switch_view(MarketDetailView(c, self.service))
-                return
-        self.notify("未找到该市场（可能需要重新扫描）", severity="warning")
+        """Navigate to event detail from portfolio."""
+        self._switch_view(
+            MarketDetailView(event_id=message.market_id, service=self.service)
+        )
 
     def on_back_to_scan_log(self, message: BackToScanLog) -> None:
         self._navigate_to("tasks")
@@ -414,7 +367,9 @@ class MainScreen(Screen):
         content = self.query_one("#content-area")
         for child in content.children:
             if isinstance(child, MarketDetailView):
-                self._switch_view(MarketDetailView(child.candidate, self.service))
+                self._switch_view(MarketDetailView(
+                    event_id=child.event_id, service=self.service,
+                ))
                 return
         self._navigate_to(self._current_menu)
 

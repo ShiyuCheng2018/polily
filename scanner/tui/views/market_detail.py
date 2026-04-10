@@ -1,16 +1,29 @@
-"""MarketDetailView: dashboard-style market analysis with AI insights."""
+"""MarketDetailView: event detail page with multi-outcome support (v0.5.0).
 
+Data comes entirely from service.get_event_detail(event_id).
+"""
+
+from __future__ import annotations
+
+import math
+from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, HorizontalGroup, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import Static
+from textual.widgets import DataTable, Static
 
-from scanner.scan.reporting import ScoredCandidate
-from scanner.tui.service import ScanService
 from scanner.tui.widgets.cards import DashPanel, MetricCard
+
+if TYPE_CHECKING:
+    from scanner.tui.service import ScanService
+
+
+# ---------------------------------------------------------------------------
+# Messages (names preserved for MainScreen compatibility)
+# ---------------------------------------------------------------------------
 
 
 class BackToList(Message):
@@ -18,9 +31,9 @@ class BackToList(Message):
 
 
 class AnalyzeRequested(Message):
-    def __init__(self, candidate: ScoredCandidate):
+    def __init__(self, event_id: str):
         super().__init__()
-        self.candidate = candidate
+        self.event_id = event_id
 
 
 class CancelAnalysisRequested(Message):
@@ -28,14 +41,16 @@ class CancelAnalysisRequested(Message):
 
 
 class SwitchVersionRequested(Message):
-    def __init__(self, candidate: ScoredCandidate, version_idx: int, show_detail: bool = False):
+    def __init__(self, event_id: str, version_idx: int):
         super().__init__()
-        self.candidate = candidate
+        self.event_id = event_id
         self.version_idx = version_idx
-        self.show_detail = show_detail
 
 
-# Action level colors and labels
+# ---------------------------------------------------------------------------
+# Display helpers
+# ---------------------------------------------------------------------------
+
 ACTION_DISPLAY = {
     "PASS": ("[red]PASS[/red]", "red"),
     "WATCH": ("[yellow]WATCH[/yellow]", "yellow"),
@@ -44,623 +59,421 @@ ACTION_DISPLAY = {
     "HOLD": ("[cyan]HOLD[/cyan]", "cyan"),
     "SELL": ("[red]SELL[/red]", "red"),
     "REDUCE": ("[yellow]REDUCE[/yellow]", "yellow"),
-    "avoid": ("[red]PASS[/red]", "red"),
-    "watch_only": ("[yellow]WATCH[/yellow]", "yellow"),
-    "worth_research": ("[cyan]RESEARCH[/cyan]", "cyan"),
-    "small_position_ok": ("[green]GO[/green]", "green"),
 }
 
 CONFIDENCE_BAR = {
-    "low": "[dim]██░░░░░░░░[/dim]",
-    "medium": "[yellow]██████░░░░[/yellow]",
-    "high": "[green]████████░░[/green]",
+    "low": "[dim]|||||.....[/dim]",
+    "medium": "[yellow]|||||||...[/yellow]",
+    "high": "[green]|||||||||.[/green]",
 }
 
-URGENCY_LABEL = {
-    "urgent": "[red]紧急[/red]",
-    "normal": "正常",
-    "no_rush": "[dim]不急[/dim]",
-}
+
+# ---------------------------------------------------------------------------
+# MarketDetailView
+# ---------------------------------------------------------------------------
 
 
 class MarketDetailView(Widget):
-    """Dashboard-style market detail view."""
+    """Event detail dashboard.  Constructor takes event_id + service."""
 
     BINDINGS = [
         Binding("escape", "go_back", "返回"),
+        Binding("backspace", "go_back", show=False),
         Binding("a", "analyze", "AI分析"),
-        Binding("left", "prev_version", show=False),
-        Binding("right", "next_version", show=False),
         Binding("p", "mark_pass", "PASS"),
-        Binding("m", "toggle_auto_monitor", "监控"),
-        Binding("y", "trade_yes", "YES"),
-        Binding("n", "trade_no", "NO"),
+        Binding("m", "toggle_monitor", "监控"),
+        Binding("t", "trade", "交易"),
+        Binding("v", "switch_version", "版本"),
         Binding("o", "open_link", "链接"),
     ]
 
     DEFAULT_CSS = """
     MarketDetailView { height: 1fr; }
-    MarketDetailView .header-title { text-style: bold; color: $primary; padding: 1 0 0 1; }
-    MarketDetailView .header-sub { color: $text-muted; padding: 0 0 0 2; }
-    MarketDetailView .panel-row { padding: 0 0 0 1; }
-    MarketDetailView .panel-label { color: $text-muted; padding: 0 0 0 1; }
-    MarketDetailView .panel-value { padding: 0 0 0 1; }
+    MarketDetailView .hdr-title { text-style: bold; color: $primary; padding: 1 0 0 1; }
+    MarketDetailView .hdr-sub { color: $text-muted; padding: 0 0 0 2; }
+    MarketDetailView .section-label { text-style: bold; color: $primary; padding: 1 0 0 1; }
+    MarketDetailView .row { padding: 0 0 0 1; }
+    MarketDetailView .muted { color: $text-muted; padding: 0 0 0 1; }
     MarketDetailView .risk-critical { color: $error; padding: 0 0 0 1; }
     MarketDetailView .risk-warning { color: $warning; padding: 0 0 0 1; }
     MarketDetailView .risk-info { color: $text-muted; padding: 0 0 0 1; }
-    MarketDetailView .finding-row { padding: 0 0 0 1; color: $text; }
-    MarketDetailView .finding-impact { padding: 0 0 0 3; color: $text-muted; }
-    MarketDetailView .section-label { text-style: bold; color: $primary; padding: 1 0 0 1; }
-    MarketDetailView .fallback-warn { color: $warning; padding: 0 0 0 1; }
 
     MarketDetailView #kpi-row {
-        height: auto;
-        min-height: 5;
-        padding: 0;
+        height: auto; min-height: 5; padding: 0;
     }
     MarketDetailView #kpi-row MetricCard {
-        height: 5;
-        margin: 0 1;
+        height: 5; margin: 0 1;
     }
-    MarketDetailView #decision-zone {
-        height: auto;
-        min-height: 10;
+    MarketDetailView #panels {
+        height: auto; min-height: 10;
     }
-    MarketDetailView #decision-zone DashPanel {
-        width: 1fr;
-        margin: 0 1;
-        height: auto;
+    MarketDetailView #panels DashPanel {
+        width: 1fr; margin: 0 1; height: auto;
     }
-    MarketDetailView #evidence-zone {
-        height: auto;
-        min-height: 8;
-    }
-    MarketDetailView #evidence-zone DashPanel {
-        width: 1fr;
-        margin: 0 1;
-        height: auto;
-    }
-    MarketDetailView #panel-score {
-        height: auto;
-        margin: 0 1;
+    MarketDetailView #sub-markets {
+        height: auto; max-height: 14; margin: 0 1;
     }
     MarketDetailView #footer-hint {
-        height: 1;
-        color: $text-muted;
-        padding: 0 1;
+        height: 1; color: $text-muted; padding: 0 1;
     }
     """
 
-    def __init__(self, candidate: ScoredCandidate, service: ScanService,
-                 analyzing: bool = False, version_idx: int | None = None,
-                 show_detail: bool = False):
+    def __init__(
+        self,
+        event_id: str,
+        service: ScanService,
+        *,
+        analyzing: bool = False,
+        version_idx: int | None = None,
+    ):
         super().__init__()
-        self.candidate = candidate
+        self.event_id = event_id
         self.service = service
         self._analyzing = analyzing
-        self._show_detail = show_detail
-        self._versions = []
-        self._version_idx = -1
-        self._pending_trade: tuple | None = None
-        self._load_versions()
-        if version_idx is not None and 0 <= version_idx < len(self._versions):
-            self._version_idx = version_idx
+        self._requested_version_idx = version_idx
 
-    def _load_versions(self):
-        from scanner.analysis_store import get_event_analyses
-        self._versions = get_event_analyses(
-            self.candidate.market.market_id, self.service.db)
-        if self._versions:
-            self._version_idx = len(self._versions) - 1
+        # Populated in on_mount
+        self._detail: dict | None = None
+        self._version_idx: int = -1
 
-    def _current_narrative(self):
-        if self._versions and self._version_idx >= 0:
-            from scanner.agents.schemas import NarrativeWriterOutput
-            v = self._versions[self._version_idx]
-            try:
-                return NarrativeWriterOutput.model_validate(v.narrative_output)
-            except Exception:
-                pass
-        return self.candidate.narrative
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
     def on_mount(self) -> None:
-        self._fill_kpi_cards()
-        self._live_timer = self.set_interval(5, self._update_kpi)
+        self._load_data()
 
-    # ===================== COMPOSE =====================
+    def _load_data(self) -> None:
+        """Load event detail from service and populate the view."""
+        self._detail = self.service.get_event_detail(self.event_id)
+        if self._detail is None:
+            return
+
+        analyses = self._detail.get("analyses", [])
+        if analyses:
+            if (
+                self._requested_version_idx is not None
+                and 0 <= self._requested_version_idx < len(analyses)
+            ):
+                self._version_idx = self._requested_version_idx
+            else:
+                self._version_idx = len(analyses) - 1
+        else:
+            self._version_idx = -1
+
+        self._populate()
+
+    def _populate(self) -> None:
+        """Fill all widgets with data after mount + load."""
+        d = self._detail
+        if d is None:
+            return
+        self._fill_kpi()
+
+        # Fill sub-market table for multi-outcome events
+        markets = d.get("markets", [])
+        if len(markets) > 1:
+            try:
+                table = self.query_one("#sub-market-table", DataTable)
+                table.clear()
+                for mr in markets:
+                    label = mr.group_item_title or mr.question[:40]
+                    yes = f"{mr.yes_price:.2f}" if mr.yes_price is not None else "?"
+                    no = f"{mr.no_price:.2f}" if mr.no_price is not None else "?"
+                    spread = f"{mr.spread:.1%}" if mr.spread else "?"
+                    vol = f"${mr.volume:,.0f}" if mr.volume else "?"
+                    table.add_row(label, yes, no, spread, vol, key=mr.market_id)
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------
+    # Compose
+    # ------------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
-        m = self.candidate.market
-        s = self.candidate.score
-        mp = self.candidate.mispricing
-        n = self._current_narrative()
+        d = self._detail or {}
+        event = d.get("event")
+        markets = d.get("markets", [])
+        analyses = d.get("analyses", [])
+        is_multi = len(markets) > 1
 
         with VerticalScroll():
-            # === HEADER ===
-            from scanner.tui.utils import format_countdown
-            res_time = m.resolution_time.isoformat() if m.resolution_time else None
-            deadline_str = format_countdown(res_time)
-            monitor_str = self._get_monitor_str(m.market_id)
-            yield Static(f"[bold]{m.title}[/bold]", classes="header-title")
-            yield Static(f"{m.market_type or 'other'} | 结算: {deadline_str} | {monitor_str}", classes="header-sub")
+            # --- Header ---
+            title = event.title if event else self.event_id
+            yield Static(f"[bold]{title}[/bold]", classes="hdr-title")
 
-            # === KPI CARD ROW ===
+            monitor = d.get("monitor")
+            monitor_str = (
+                "[green]监控 ON[/green]"
+                if monitor and monitor.get("auto_monitor")
+                else "[dim]监控 OFF[/dim]"
+            )
+            deadline_str = "?"
+            if event and event.end_date:
+                from scanner.tui.utils import format_countdown
+                deadline_str = format_countdown(event.end_date)
+            mtype = (event.market_type or "other") if event else "?"
+            yield Static(
+                f"{mtype} | 结算: {deadline_str} | {monitor_str}",
+                classes="hdr-sub",
+            )
+
+            # --- KPI Row ---
             with HorizontalGroup(id="kpi-row"):
-                yes_card = MetricCard(id="kpi-yes")
-                yes_card.border_title = "YES"
-                yield yes_card
-                no_card = MetricCard(id="kpi-no")
-                no_card.border_title = "NO"
-                yield no_card
-                move_card = MetricCard(id="kpi-movement")
-                move_card.border_title = "异动"
-                yield move_card
-                time_card = MetricCard(id="kpi-time")
-                time_card.border_title = "结算"
-                yield time_card
-                score_card = MetricCard(id="kpi-score")
-                score_card.border_title = "评分"
-                yield score_card
+                if is_multi:
+                    yield self._make_card("kpi-leader", "领先")
+                    yield self._make_card("kpi-entropy", "分散度")
+                    yield self._make_card("kpi-count", "子市场")
+                    yield self._make_card("kpi-score", "评分")
+                else:
+                    yield self._make_card("kpi-yes", "YES")
+                    yield self._make_card("kpi-no", "NO")
+                    yield self._make_card("kpi-spread", "价差")
+                    yield self._make_card("kpi-score", "评分")
 
-            # === ANALYZING STATE ===
+            # --- Sub-market table (multi-outcome only) ---
+            if is_multi:
+                yield Static("")
+                table = DataTable(id="sub-market-table")
+                table.cursor_type = "row"
+                table.add_columns("选项", "YES", "NO", "价差", "成交量")
+                yield table
+
+            # --- Analyzing state ---
             if self._analyzing:
                 yield Static("AI 分析中...", classes="section-label")
-                yield Static("正在联网搜索 + 分析，请稍候...", classes="panel-row")
-            elif n:
-                # === DECISION ZONE (two columns) ===
-                yield from self._compose_decision_zone(n, m, mp)
-
-                # === EVIDENCE ZONE (two columns) ===
-                yield from self._compose_evidence_zone(n, m)
+                yield Static("正在联网搜索 + 分析，请稍候...", classes="row")
+            elif analyses:
+                yield Static("")
+                # --- Two-column panels ---
+                with Horizontal(id="panels"):
+                    yield from self._compose_analysis_panel(analyses)
+                    yield from self._compose_position_panel(d)
             else:
                 yield Static("")
-                yield Static("[dim]按 a 启动 AI 分析[/dim]", classes="panel-row")
+                yield Static("[dim]按 a 启动 AI 分析[/dim]", classes="row")
 
-            # === SCORE PANEL ===
+            # --- Footer ---
             yield Static("")
-            score_panel = DashPanel(id="panel-score")
-            score_panel.border_title = "结构评分"
-            with score_panel:
-                yield from self._compose_score_bar(s)
-
-            yield Static("")
-            # === FOOTER ===
             yield Static(
-                "[dim]Esc 返回 | a 分析 | < > 版本 | p PASS | m 监控 | y YES | n NO | o 链接[/dim]",
+                "[dim]Esc 返回 | a 分析 | p PASS | m 监控 | t 交易 | v 版本 | o 链接[/dim]",
                 id="footer-hint",
             )
 
-    # ===================== KPI CARDS =====================
+    @staticmethod
+    def _make_card(card_id: str, title: str) -> MetricCard:
+        card = MetricCard(id=card_id)
+        card.border_title = title
+        return card
 
-    def _get_monitor_str(self, market_id: str) -> str:
-        # TODO: v0.5.0 — check event_monitors for auto_monitor status
-        return "[dim]自动监控 OFF[/dim]"
+    # ------------------------------------------------------------------
+    # KPI cards
+    # ------------------------------------------------------------------
 
-    def _fill_kpi_cards(self) -> None:
-        """Fill KPI cards with initial data."""
-        m = self.candidate.market
-        s = self.candidate.score
-
-        # YES/NO from analysis snapshot
-        yes_price = m.yes_price or 0
-        no_price = m.no_price or (1 - yes_price if yes_price else 0)
-
-        self._set_card("kpi-yes", f"{yes_price:.3f}")
-        self._set_card("kpi-no", f"{no_price:.3f}")
-        self._set_card("kpi-movement", "[dim]--[/dim]")
-
-        from scanner.tui.utils import format_countdown
-        res_time = m.resolution_time.isoformat() if m.resolution_time else None
-        self._set_card("kpi-time", format_countdown(res_time))
-
-        from scanner.scan.scoring import compute_three_scores
-        three = compute_three_scores(s, self.candidate.mispricing, m)
-        q = three.get("quality")
-        v = three.get("value")
-        q_str = f"{q:.0f}" if q is not None else "?"
-        v_str = f"{v:.0f}" if v is not None else "?"
-        self._set_card("kpi-score", f"结构{q_str}\nedge{v_str}")
-
-        # Try live data
-        self._update_kpi()
-
-    def _update_kpi(self) -> None:
-        """Timer callback: refresh KPI cards from movement_log."""
-        from scanner.monitor.store import get_price_status
-
-        mid = self.candidate.market.market_id
-
-        # Base price: last analysis price -> fallback to scan price
-        base_price = None
-        if self._versions:
-            v = self._versions[self._version_idx]
-            if v.prices_snapshot:
-                first_mkt = next(iter(v.prices_snapshot.values()), {})
-                base_price = first_mkt.get("yes") if isinstance(first_mkt, dict) else None
-        # TODO: v0.5.0 — price_at_watch was in market_states (removed)
-        if base_price is None:
-            base_price = self.candidate.market.yes_price
-
-        status = get_price_status(mid, self.service.db, watch_price=base_price)
-        if status is None:
+    def _fill_kpi(self) -> None:
+        d = self._detail
+        if d is None:
             return
+        event = d["event"]
+        markets = d.get("markets", [])
 
-        yes = status["current_price"]
-        no = round(1 - yes, 3) if yes else 0
-        change = status["change_pct"]
-        no_change = -change
+        if len(markets) > 1:
+            self._fill_kpi_multi(event, markets)
+        else:
+            self._fill_kpi_binary(event, markets)
 
-        def fmt_change(c):
-            if c > 0:
-                return f"[green]+{c:.1f}%[/green]"
-            elif c < 0:
-                return f"[red]{c:.1f}%[/red]"
-            return "0.0%"
+    def _fill_kpi_binary(self, event, markets) -> None:
+        """Fill KPI cards for a single (binary) market."""
+        mr = markets[0] if markets else None
+        yes = mr.yes_price if mr and mr.yes_price is not None else 0
+        no = mr.no_price if mr and mr.no_price is not None else round(1 - yes, 4)
+        spread = mr.spread if mr and mr.spread else None
 
-        self._set_card("kpi-yes", f"{yes:.3f}\n{fmt_change(change)}")
-        self._set_card("kpi-no", f"{no:.3f}\n{fmt_change(no_change)}")
+        self._set_card("kpi-yes", f"{yes:.3f}")
+        self._set_card("kpi-no", f"{no:.3f}")
+        spread_str = f"{spread:.1%}" if spread else "?"
+        self._set_card("kpi-spread", spread_str)
 
-        mag = status["magnitude"]
-        qual = status["quality"]
-        label = status["label"]
-        label_colors = {"consensus": "green", "whale_move": "yellow", "slow_build": "cyan", "noise": "dim"}
-        lc = label_colors.get(label, "dim")
-        self._set_card("kpi-movement", f"M={mag:.0f} Q={qual:.0f}\n[{lc}]{label}[/{lc}]")
+        score = event.structure_score
+        self._set_card("kpi-score", f"{score:.0f}" if score else "?")
 
-        # Divergence warning on YES card
-        analysis_price = self.candidate.market.yes_price
-        if analysis_price and analysis_price > 0:
-            div_pct = (yes - analysis_price) / analysis_price * 100
-            if abs(div_pct) >= 5.0:
-                self._set_card("kpi-yes", f"{yes:.3f} {fmt_change(change)}\n[yellow]⚠ 偏离{abs(div_pct):.0f}%[/yellow]")
+    def _fill_kpi_multi(self, event, markets) -> None:
+        """Fill KPI cards for multi-outcome (negRisk) events."""
+        # Leader: highest yes_price
+        leader = max(markets, key=lambda m: m.yes_price or 0, default=None)
+        if leader and leader.yes_price is not None:
+            name = (leader.group_item_title or leader.question)[:20]
+            self._set_card("kpi-leader", f"{name}\n{leader.yes_price:.2f}")
+        else:
+            self._set_card("kpi-leader", "?")
 
-        # Refresh countdown
-        from scanner.tui.utils import format_countdown
-        m = self.candidate.market
-        res_time = m.resolution_time.isoformat() if m.resolution_time else None
-        self._set_card("kpi-time", format_countdown(res_time))
+        # Entropy (measure of probability dispersion)
+        prices = [m.yes_price for m in markets if m.yes_price and m.yes_price > 0]
+        if prices:
+            total = sum(prices)
+            norm = [p / total for p in prices] if total > 0 else prices
+            entropy = -sum(p * math.log2(p) for p in norm if p > 0)
+            max_entropy = math.log2(len(prices)) if len(prices) > 1 else 1
+            rel_entropy = entropy / max_entropy if max_entropy > 0 else 0
+            self._set_card("kpi-entropy", f"{rel_entropy:.2f}")
+        else:
+            self._set_card("kpi-entropy", "?")
 
-        # Realtime score recalculation using latest market data
-        self._update_realtime_scores(status)
+        self._set_card("kpi-count", str(len(markets)))
 
-    def _update_realtime_scores(self, status: dict) -> None:
-        """Recalculate structure score + three scores from live data."""
-
-
-        from scanner.core.models import BookLevel
-        from scanner.scan.scoring import compute_structure_score, compute_three_scores
-
-        m = self.candidate.market
-        yes = status["current_price"]
-        sp = status.get("spread")
-
-        # Compute best_bid/ask from spread for computed properties
-        best_bid = yes - sp / 2 if sp else m.best_bid_yes
-        best_ask = yes + sp / 2 if sp else m.best_ask_yes
-
-        bid_d = status.get("bid_depth", 0)
-        ask_d = status.get("ask_depth", 0)
-
-        # Build a fresh Market with live data (avoids computed property setter issues)
-        live = m.model_copy(update={
-            "yes_price": yes,
-            "no_price": round(1 - yes, 4) if yes else m.no_price,
-            "best_bid_yes": best_bid,
-            "best_ask_yes": best_ask,
-            "book_depth_bids": [BookLevel(price=1.0, size=bid_d)] if bid_d > 0 else m.book_depth_bids,
-            "book_depth_asks": [BookLevel(price=1.0, size=ask_d)] if ask_d > 0 else m.book_depth_asks,
-        })
-
-        try:
-            score = compute_structure_score(live, self.service.config.scoring.weights)
-            three = compute_three_scores(score, self.candidate.mispricing, live)
-
-            q = three.get("quality")
-            v = three.get("value")
-            q_str = f"{q:.0f}" if q is not None else "?"
-            v_str = f"{v:.0f}" if v is not None else "?"
-            self._set_card("kpi-score", f"结构 {q_str}\nedge {v_str}")
-
-            # Update score bar
-            parts = []
-            for name, val, mx in [
-                ("流动", score.liquidity_structure, 30), ("客观", score.objective_verifiability, 25),
-                ("概率", score.probability_space, 20), ("时间", score.time_structure, 15),
-                ("摩擦", score.trading_friction, 10),
-            ]:
-                pct = int(val / mx * 100) if mx > 0 else 0
-                parts.append(f"{name}:{pct}%")
-            import contextlib
-            with contextlib.suppress(Exception):
-                self.query_one("#score-bar", Static).update(
-                    f" {' | '.join(parts)} | [bold]总分:{score.total:.0f}[/bold]"
-                )
-        except Exception:
-            pass
+        score = event.structure_score
+        self._set_card("kpi-score", f"{score:.0f}" if score else "?")
 
     def _set_card(self, card_id: str, content: str) -> None:
         import contextlib
         with contextlib.suppress(Exception):
             self.query_one(f"#{card_id}", MetricCard).update(content)
 
-    # ===================== DECISION ZONE =====================
+    # ------------------------------------------------------------------
+    # Analysis panel (left)
+    # ------------------------------------------------------------------
 
-    def _compose_decision_zone(self, n, m, mp) -> ComposeResult:
-        with Horizontal(id="decision-zone"):
-            # Left: AI Decision
-            panel_left = DashPanel(id="panel-decision")
-            panel_left.border_title = "AI 决策"
-            with panel_left:
-                yield from self._render_decision(n)
+    def _compose_analysis_panel(self, analyses) -> ComposeResult:
+        panel = DashPanel(id="panel-analysis")
+        panel.border_title = "AI 分析"
+        with panel:
+            n = self._current_narrative(analyses)
+            if n is None:
+                yield Static("[dim]无分析数据[/dim]", classes="row")
+                return
 
-            # Right: Risk & Numbers
-            panel_right = DashPanel(id="panel-risk")
-            panel_right.border_title = "投入与风险"
-            with panel_right:
-                yield from self._render_risk(n, m, mp)
+            # Action + why
+            action = n.get("action", "PASS")
+            action_label, _ = ACTION_DISPLAY.get(action, ("[dim]?[/dim]", "dim"))
+            why = n.get("why_now") or n.get("why_not_now", "")
+            yield Static(f"{action_label}  {why}", classes="row")
 
-    def _render_decision(self, n) -> ComposeResult:
-        # Fallback warning
-        supporting = getattr(n, "supporting_findings", [])
-        invalidation = getattr(n, "invalidation_findings", [])
-        why_not = getattr(n, "why_not_now", "") or ""
-        has_substance = bool(supporting or invalidation or len(why_not) > 80)
-        is_fallback = not has_substance and getattr(n, "confidence", "") == "low"
-        if is_fallback:
-            yield Static("[dim]以下为规则预估，按 a 启动 AI 深度分析[/dim]", classes="panel-row")
+            # Verdict
+            verdict = n.get("one_line_verdict", "")
+            if verdict:
+                yield Static(f"[dim]{verdict}[/dim]", classes="row")
 
-        # Action + why
-        action_label, _ = ACTION_DISPLAY.get(getattr(n, "action", "PASS"), ("[dim]?[/dim]", "dim"))
-        why = getattr(n, "why_now", "") or getattr(n, "why_not_now", "")
-        yield Static(f"{action_label}  {why}", classes="panel-row")
+            # Confidence
+            confidence = n.get("confidence", "low")
+            bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
+            yield Static(f"置信度 {bar} {confidence}", classes="row")
 
-        # Verdict
-        verdict = getattr(n, "one_line_verdict", "")
-        if verdict:
-            yield Static(f"[dim]{verdict}[/dim]", classes="panel-row")
+            # Summary
+            summary = n.get("summary", "")
+            if summary:
+                yield Static("")
+                yield Static(summary, classes="row")
 
-        # Confidence
-        confidence = getattr(n, "confidence", "low")
-        conf_bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
-        yield Static(f"置信度 {conf_bar} {confidence}", classes="panel-row")
-        yield Static("")
+            # Risk flags (critical)
+            for rf in n.get("risk_flags", []):
+                sev = rf.get("severity", "info") if isinstance(rf, dict) else "info"
+                text = rf.get("text", str(rf)) if isinstance(rf, dict) else str(rf)
+                if sev == "critical":
+                    yield Static(f"! {text}", classes="risk-critical")
 
-        # Opportunity + execution risk
-        opp = getattr(n, "opportunity_type", "")
-        risk = getattr(n, "execution_risk", "")
-        if opp and opp != "no_trade":
-            yield Static(f"{opp} | 风险: {risk}", classes="panel-row")
+            # Next check
+            nc = n.get("next_check_at")
+            nr = n.get("next_check_reason", "")
+            if nc:
+                yield Static(f"检查: [cyan]{nc[:16]}[/cyan] {nr}", classes="row")
 
-        # Friction vs edge
-        fve = getattr(n, "friction_vs_edge", "")
-        fve_map = {"edge_exceeds": "edge > 摩擦", "roughly_equals": "edge ≈ 摩擦", "friction_exceeds": "摩擦 > edge"}
-        if fve:
-            yield Static(f"摩擦: {fve_map.get(fve, fve)}", classes="panel-row")
+            # Version selector
+            yield Static("")
+            yield from self._compose_version_selector(analyses)
 
-        # Time window
-        tw = getattr(n, "time_window", None)
-        if tw and hasattr(tw, "urgency"):
-            label = URGENCY_LABEL.get(tw.urgency, tw.urgency)
-            note = tw.note if hasattr(tw, "note") else ""
-            yield Static(f"窗口: {label} | {note}", classes="panel-row")
+    def _compose_version_selector(self, analyses) -> ComposeResult:
+        if not analyses or self._version_idx < 0:
+            return
+        v = analyses[self._version_idx]
+        total = len(analyses)
+        idx = self._version_idx + 1
+        ts = v.created_at[5:16].replace("T", " ")
 
-        yield Static("")
-        # Next check
-        nc = getattr(n, "next_check_at", None)
-        nr = getattr(n, "next_check_reason", "")
-        if nc:
-            yield Static(f"检查: [cyan]{nc[:16]}[/cyan] {nr}", classes="panel-row")
+        # Price from snapshot
+        price_note = ""
+        if v.prices_snapshot:
+            first = next(iter(v.prices_snapshot.values()), {})
+            snap_yes = first.get("yes") if isinstance(first, dict) else None
+            if snap_yes is not None:
+                price_note = f"YES {snap_yes:.2f}"
 
-        # Version selector
-        if self._versions:
-            v = self._versions[self._version_idx]
-            total = len(self._versions)
-            idx = self._version_idx + 1
-            ts = v.created_at[5:16].replace("T", " ")
-            _snap_yes = None
-            if v.prices_snapshot:
-                _first = next(iter(v.prices_snapshot.values()), {})
-                _snap_yes = _first.get("yes") if isinstance(_first, dict) else None
-            yes_p = f"YES {_snap_yes:.2f}" if _snap_yes else ""
-            no_p = f"NO {1 - _snap_yes:.2f}" if _snap_yes else ""
-            price_note = f"{yes_p} / {no_p}" if yes_p else ""
-            trigger_map = {"manual": "手动", "scheduled": "定时", "movement": "异动", "scan": "扫描"}
-            trigger_label = trigger_map.get(v.trigger_source, v.trigger_source)
-            yield Static(f"[dim]v{v.version} ({ts}) {price_note} [{trigger_label}] < > ({idx}/{total})[/dim]", classes="panel-row")
-
-        # Bias
-        bias = getattr(n, "bias", "NONE")
-        strength = getattr(n, "strength", "")
-        if bias and bias not in ("NONE", "neutral", None):
-            bias_cn = {"YES": "偏 YES", "NO": "偏 NO"}.get(str(bias), str(bias))
-            yield Static(f"方向: {bias_cn} ({strength})" if strength else f"方向: {bias_cn}", classes="panel-row")
-
-    def _render_risk(self, n, m, mp) -> ComposeResult:
-        # Risk calculator
-        if m.yes_price and m.yes_price > 0:
-            pos = 20.0
-            friction_pct = m.round_trip_friction_pct or 0.04
-            friction_cost = pos * friction_pct
-            profit = (pos / m.yes_price) * 1.0 - pos
-            net_profit = profit - friction_cost
-            yield Static("$20 投入:", classes="panel-row")
-            yield Static(f"  最坏 -${pos:.0f} | 摩擦 -${friction_cost:.2f} ({friction_pct:.1%})", classes="panel-row")
-            yield Static(f"  判断对 +${net_profit:.2f}", classes="panel-row")
-
-        # Critical risks
-        risk_flags = getattr(n, "risk_flags", [])
-        for rf in risk_flags:
-            if hasattr(rf, "severity") and rf.severity == "critical":
-                yield Static(f"! {rf.text}", classes="risk-critical")
-
-        # Crypto context
-        crypto = getattr(n, "crypto", None)
-        if crypto and hasattr(crypto, "buffer_conclusion"):
-            parts = []
-            if crypto.distance_to_threshold_pct is not None:
-                parts.append(f"距阈值 {crypto.distance_to_threshold_pct:.1f}%")
-            if crypto.buffer_pct is not None:
-                parts.append(f"垫 {crypto.buffer_pct:.1f}%")
-            if crypto.daily_vol_pct is not None:
-                parts.append(f"波动 {crypto.daily_vol_pct:.1f}%")
-            parts.append(crypto.buffer_conclusion)
-            yield Static(f"Crypto: {' | '.join(parts)}", classes="panel-row")
-            if crypto.market_already_knows:
-                yield Static(f"[dim]{crypto.market_already_knows}[/dim]", classes="panel-row")
-
-        # Price info
-        spread = f"{m.spread_pct_yes:.1%}" if m.spread_pct_yes else "?"
-        friction = f"{m.round_trip_friction_pct:.1%}" if m.round_trip_friction_pct else "?"
-        bid = f"${m.total_bid_depth_usd:,.0f}" if m.total_bid_depth_usd else "?"
-        ask = f"${m.total_ask_depth_usd:,.0f}" if m.total_ask_depth_usd else "?"
-        yield Static(f"价差 {spread} | 摩擦 {friction}", classes="panel-row")
-        yield Static(f"深度 买{bid} / 卖{ask}", classes="panel-row")
-
-        # Mispricing
-        if mp.signal != "none":
-            yield Static(f"偏差: {mp.signal.upper()} {mp.details or ''}", classes="panel-row")
-
-    # ===================== EVIDENCE ZONE =====================
-
-    def _compose_evidence_zone(self, n, m) -> ComposeResult:
-        with Horizontal(id="evidence-zone"):
-            # Left: AI analysis + supporting evidence
-            panel_left = DashPanel(id="panel-evidence")
-            panel_left.border_title = "AI 分析 + 依据"
-            with panel_left:
-                yield from self._render_evidence(n, m)
-
-            # Right: Risks + counter-evidence
-            panel_right = DashPanel(id="panel-counter")
-            panel_right.border_title = "风险 + 反驳"
-            with panel_right:
-                yield from self._render_counter(n)
-
-    def _render_evidence(self, n, m) -> ComposeResult:
-        # Summary
-        summary = getattr(n, "summary", "")
-        if summary:
-            yield Static(summary, classes="panel-row")
-
-        # Counterparty
-        cp = getattr(n, "counterparty_note", "")
-        if cp:
-            yield Static(f"[dim]对手方:[/dim] {cp}", classes="panel-row")
-
-        # Supporting findings
-        supporting = getattr(n, "supporting_findings", [])
-        if supporting:
-            yield Static("[bold]依据[/bold]", classes="section-label")
-            for f in supporting:
-                if hasattr(f, "finding"):
-                    src = f"[dim]{f.source}[/dim]" if f.source else ""
-                    yield Static(f"{f.finding} {src}", classes="finding-row")
-                    if f.impact:
-                        yield Static(f"-> {f.impact}", classes="finding-impact")
-                elif isinstance(f, dict):
-                    yield Static(f"{f.get('finding', '')} [dim]{f.get('source', '')}[/dim]", classes="finding-row")
-                    if f.get("impact"):
-                        yield Static(f"-> {f['impact']}", classes="finding-impact")
-
-    def _render_counter(self, n) -> ComposeResult:
-        action = getattr(n, "action", "")
-
-        # Why not now
-        why_not = getattr(n, "why_not_now", "")
-        if why_not and action in ("PASS", "WATCH", "avoid", "watch_only"):
-            yield Static(f"[dim]不做的理由:[/dim] {why_not}", classes="panel-row")
-
-        # Recheck conditions
-        recheck = getattr(n, "recheck_conditions", [])
-        if recheck:
-            yield Static("[dim]回看条件:[/dim]", classes="panel-row")
-            for cond in recheck[:3]:
-                yield Static(f"  - {cond}", classes="panel-row")
-
-        # All risk flags (non-critical)
-        risk_flags = getattr(n, "risk_flags", [])
-        non_critical = [(rf.text, rf.severity) for rf in risk_flags
-                        if hasattr(rf, "severity") and rf.severity != "critical"]
-        if non_critical:
-            yield Static("[bold]其他风险[/bold]", classes="section-label")
-            for text, severity in non_critical:
-                yield Static(f"! {text}", classes=f"risk-{severity}")
-
-        # Invalidation findings
-        invalidation = getattr(n, "invalidation_findings", [])
-        if invalidation:
-            yield Static("[bold]可能判断错[/bold]", classes="section-label")
-            for f in invalidation:
-                if hasattr(f, "finding"):
-                    src = f"[dim]{f.source}[/dim]" if f.source else ""
-                    yield Static(f"{f.finding} {src}", classes="finding-row")
-                    if f.impact:
-                        yield Static(f"-> {f.impact}", classes="finding-impact")
-                elif isinstance(f, dict):
-                    yield Static(f"{f.get('finding', '')} [dim]{f.get('source', '')}[/dim]", classes="finding-row")
-                    if f.get("impact"):
-                        yield Static(f"-> {f['impact']}", classes="finding-impact")
-
-    # ===================== SCORE BAR =====================
-
-    def _compose_score_bar(self, s) -> ComposeResult:
-        yield from self._compose_score_detail(s)
-
-    def _compose_score_detail(self, s) -> ComposeResult:
-        m = self.candidate.market
-        import re as _re
-
-        spread = m.spread_pct_yes
-        bid = m.total_bid_depth_usd
-        liq_parts = []
-        if spread is not None:
-            liq_parts.append(f"价差 {spread:.1%}")
-        if bid is not None:
-            liq_parts.append(f"买深 ${bid:,.0f}")
-        liq_note = "，".join(liq_parts) if liq_parts else ""
-
-        res_src = m.resolution_source
-        if not res_src:
-            rules_text = (m.rules or "") + " " + (m.description or "")
-            match = _re.search(r"resolution source.*?\bis\b\s+(\w+)", rules_text, _re.IGNORECASE)
-            if match:
-                res_src = match.group(1)
-        obj_note = f"来源: {res_src[:30]}" if res_src else ""
-
-        p = m.yes_price or 0
-        prob_note = f"YES {p:.2f}"
-        if 0.30 <= p <= 0.70:
-            prob_note += " 甜蜜区"
-
-        days = m.days_to_resolution
-        time_note = f"{days:.1f}天" if days else ""
-        if days and 1.0 <= days <= 5.0:
-            time_note += " 最佳窗口"
-
-        friction_pct = m.round_trip_friction_pct
-        fric_note = f"来回 {friction_pct:.1%}" if friction_pct else ""
-
-        explanations = {
-            "流动性结构": liq_note, "客观验证": obj_note,
-            "概率空间": prob_note, "时间结构": time_note, "交易摩擦": fric_note,
+        trigger_map = {
+            "manual": "手动", "scheduled": "定时",
+            "movement": "异动", "scan": "扫描",
         }
+        trigger_label = trigger_map.get(v.trigger_source, v.trigger_source)
+        yield Static(
+            f"[dim]v{v.version} ({ts}) {price_note} [{trigger_label}] ({idx}/{total}) 按v切换[/dim]",
+            classes="row",
+        )
 
-        for name, val, mx in [
-            ("流动性结构", s.liquidity_structure, 30),
-            ("客观验证", s.objective_verifiability, 25),
-            ("概率空间", s.probability_space, 20),
-            ("时间结构", s.time_structure, 15),
-            ("交易摩擦", s.trading_friction, 10),
-        ]:
-            bar_len = int(val / mx * 10) if mx > 0 else 0
-            bar_str = "█" * bar_len + "░" * (10 - bar_len)
-            note = explanations.get(name, "")
-            yield Static(f" {name:6s}  {bar_str}  {val:.1f}/{mx}   [dim]{note}[/dim]", classes="panel-row")
-        yield Static("")
-        yield Static(f" [bold]总分: {s.total:.0f}/100[/bold]", id="score-bar", classes="panel-row")
+    def _current_narrative(self, analyses) -> dict | None:
+        """Get the narrative_output dict from the selected version."""
+        if not analyses or self._version_idx < 0:
+            return None
+        v = analyses[self._version_idx]
+        return v.narrative_output if v.narrative_output else None
 
-    # ===================== ACTIONS =====================
+    # ------------------------------------------------------------------
+    # Position panel (right)
+    # ------------------------------------------------------------------
 
+    def _compose_position_panel(self, d: dict) -> ComposeResult:
+        panel = DashPanel(id="panel-position")
+        panel.border_title = "持仓"
+        with panel:
+            trades = d.get("trades", [])
+            if not trades:
+                yield Static("[dim]无持仓[/dim]", classes="row")
+                return
+
+            for t in trades:
+                side = t.get("side", "?").upper()
+                entry = t.get("entry_price", 0)
+                size = t.get("position_size_usd", 0)
+                title = (t.get("title") or "")[:30]
+                yield Static(
+                    f"{side} @ {entry:.2f}  ${size:.0f}  {title}",
+                    classes="row",
+                )
+
+                # Unrealized P&L estimate (if market still has price)
+                markets = d.get("markets", [])
+                mid = t.get("market_id", "")
+                current_mr = next(
+                    (m for m in markets if m.market_id == mid), None,
+                )
+                if current_mr and entry > 0:
+                    current = (
+                        current_mr.yes_price
+                        if side == "YES"
+                        else current_mr.no_price
+                    )
+                    if current is not None:
+                        shares = size / entry
+                        unrealized = shares * current - size
+                        color = "green" if unrealized >= 0 else "red"
+                        yield Static(
+                            f"  [{color}]P&L: {unrealized:+.2f}[/{color}]",
+                            classes="row",
+                        )
+
+            # Movement log summary
+            movements = d.get("movements", [])
+            if movements:
+                yield Static("")
+                latest = movements[0]
+                mag = latest.get("magnitude", 0)
+                qual = latest.get("quality", 0)
+                label = latest.get("label", "")
+                yield Static(
+                    f"[dim]最近异动: M={mag:.0f} Q={qual:.0f} {label}[/dim]",
+                    classes="row",
+                )
+
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
 
     def action_go_back(self) -> None:
         if self._analyzing:
@@ -672,73 +485,53 @@ class MarketDetailView(Widget):
         if self._analyzing:
             return
         self._analyzing = True
-        self.post_message(AnalyzeRequested(self.candidate))
-
-    def action_prev_version(self) -> None:
-        if self._versions and self._version_idx > 0:
-            self.post_message(SwitchVersionRequested(self.candidate, self._version_idx - 1))
-
-    def action_next_version(self) -> None:
-        if self._versions and self._version_idx < len(self._versions) - 1:
-            self.post_message(SwitchVersionRequested(self.candidate, self._version_idx + 1))
-
-    def action_trade_yes(self) -> None:
-        self._do_trade("yes")
-
-    def action_trade_no(self) -> None:
-        self._do_trade("no")
-
-    def _do_trade(self, side: str):
-        m = self.candidate.market
-
-        # Use realtime price from movement_log, fallback to market snapshot
-        from scanner.monitor.store import get_event_latest
-        latest = get_event_latest(m.market_id, self.service.db)
-        if latest and latest.get("yes_price"):
-            yes_price = latest["yes_price"]
-        elif m.yes_price:
-            yes_price = m.yes_price
-        else:
-            self.notify("无价格数据", severity="warning")
-            return
-
-        if side == "yes":
-            price = yes_price
-        else:
-            price = round(1 - yes_price, 4)
-        if self._pending_trade and self._pending_trade == (m.market_id, side):
-
-            # TODO: v0.5.0 — rewrite paper trade marking with paper_store
-            trade_id = "stubbed"
-            self.notify(f"Paper trade: {side.upper()} @ {price:.2f} -> {trade_id}")
-            self._pending_trade = None
-            self.screen.refresh_sidebar_counts()
-        else:
-            self._pending_trade = (m.market_id, side)
-            self.notify(f"再按一次 {side[0]} 确认: {side.upper()} {m.title[:30]} @ {price:.2f}")
+        self.post_message(AnalyzeRequested(self.event_id))
 
     def action_mark_pass(self) -> None:
-        # TODO: v0.5.0 — rewrite to update events.user_status via event_store
-        mid = self.candidate.market.market_id
-        from scanner.daemon.auto_monitor import cleanup_closed_market
-        cleanup_closed_market(mid)
-        self.notify(f"PASS: {self.candidate.market.title[:30]}")
+        self.service.pass_event(self.event_id)
+        event = self._detail["event"] if self._detail else None
+        title = (event.title[:30] if event else self.event_id)
+        self.notify(f"PASS: {title}")
         self.screen.refresh_sidebar_counts()
 
-    def action_toggle_auto_monitor(self) -> None:
-        # TODO: v0.5.0 — rewrite to use event_monitors via monitor_store
-        from scanner.daemon.auto_monitor import toggle_auto_monitor
-
-        mid = self.candidate.market.market_id
-        m = self.candidate.market
-        toggle_auto_monitor(mid, enable=True, db=self.service.db, config=self.service.config)
-        self.notify(f"自动监控 (stubbed): {m.title[:30]}")
+    def action_toggle_monitor(self) -> None:
+        monitor = (
+            self._detail.get("monitor") if self._detail else None
+        )
+        currently_on = bool(monitor and monitor.get("auto_monitor"))
+        self.service.toggle_monitor(self.event_id, enable=not currently_on)
+        state = "OFF" if currently_on else "ON"
+        self.notify(f"监控 {state}")
         self.screen.refresh_sidebar_counts()
-        self.post_message(SwitchVersionRequested(self.candidate, self._version_idx))
+        # Rebuild view to reflect new state
+        self.post_message(
+            SwitchVersionRequested(self.event_id, self._version_idx)
+        )
+
+    def action_trade(self) -> None:
+        self.notify("交易功能开发中")
+
+    def action_switch_version(self) -> None:
+        analyses = (
+            self._detail.get("analyses", []) if self._detail else []
+        )
+        if not analyses:
+            self.notify("无分析版本")
+            return
+        # Cycle to next version (wrap around)
+        next_idx = (self._version_idx + 1) % len(analyses)
+        self.post_message(
+            SwitchVersionRequested(self.event_id, next_idx)
+        )
 
     def action_open_link(self) -> None:
-        import webbrowser
-        try:
-            webbrowser.open(self.candidate.market.polymarket_url)
-        except Exception:
-            self.notify("无法打开浏览器", severity="warning")
+        event = self._detail.get("event") if self._detail else None
+        if event and event.slug:
+            import webbrowser
+            url = f"https://polymarket.com/event/{event.slug}"
+            try:
+                webbrowser.open(url)
+            except Exception:
+                self.notify("无法打开浏览器", severity="warning")
+        else:
+            self.notify("无链接信息", severity="warning")
