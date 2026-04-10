@@ -64,6 +64,7 @@ def parse_gamma_event(event_data: dict) -> tuple[EventRow, list[Market]]:
     event_metadata_raw = event_data.get("eventMetadata")
     event_metadata = json.dumps(event_metadata_raw) if event_metadata_raw else None
 
+    from scanner.scan.tag_classifier import classify_from_tags
     event_row = EventRow(
         event_id=str(event_id or ""),
         title=event_data.get("title", ""),
@@ -81,6 +82,7 @@ def parse_gamma_event(event_data: dict) -> tuple[EventRow, list[Market]]:
         open_interest=event_oi,
         competitive=event_data.get("competitive"),
         tags=tags_json,
+        market_type=classify_from_tags(tags),
         event_metadata=event_metadata,
         updated_at=now.isoformat(),
     )
