@@ -274,13 +274,15 @@ def update_market_prices(
     values.append(market_id)
     sql = f"UPDATE markets SET {', '.join(updates)} WHERE market_id = ?"
     db.conn.execute(sql, tuple(values))
-    db.conn.commit()
 
 
 def mark_market_closed(market_id: str, db: PolilyDB) -> None:
     """Mark a market as closed and no longer accepting orders."""
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
     db.conn.execute(
-        "UPDATE markets SET closed = 1, accepting_orders = 0 WHERE market_id = ?",
-        (market_id,),
+        "UPDATE markets SET closed=1, accepting_orders=0, updated_at=? WHERE market_id=?",
+        (now, market_id),
     )
     db.conn.commit()

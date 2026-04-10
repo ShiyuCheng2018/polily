@@ -93,6 +93,11 @@ def _close_event(
     )
     db.conn.commit()
 
+    # Disable monitoring for closed event
+    from scanner.core.monitor_store import upsert_event_monitor
+
+    upsert_event_monitor(event_id, auto_monitor=False, db=db)
+
     # Send notification
     from scanner.notifications import add_notification
 

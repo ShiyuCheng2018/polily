@@ -129,7 +129,7 @@ def _execute_check(event_id: str, db, config=None, watch_scheduler=None) -> None
     try:
         from scanner.daemon.recheck import recheck_event
 
-        result = recheck_event(event_id, db=db, config=config, trigger_source="scheduled")
+        result = recheck_event(event_id, db=db, trigger_source="scheduled")
         logger.info("Check result for %s: %s", event_id, result)
 
         # Re-schedule if result provides a next_check_at

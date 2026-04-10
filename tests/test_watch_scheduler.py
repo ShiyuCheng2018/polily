@@ -1,7 +1,7 @@
 """Tests for daemon scheduler — dual executor architecture."""
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -146,3 +146,17 @@ class TestScheduleAndCancel:
             # global_poll + 2 check jobs
             assert len(pending) == 3
             ws.shutdown()
+
+
+class TestExecuteCheck:
+    def test_execute_check_calls_recheck(self, db):
+        """_execute_check should call recheck_event with correct args."""
+        from scanner.daemon.scheduler import _execute_check
+
+        upsert_event(EventRow(event_id="ev1", title="E", updated_at="now"), db)
+
+        with patch("scanner.daemon.recheck.recheck_event") as mock_recheck:
+            mock_recheck.return_value = MagicMock(closed=False, next_check_at=None)
+            _execute_check(event_id="ev1", db=db, config=None, watch_scheduler=None)
+
+        mock_recheck.assert_called_once_with("ev1", db=db, trigger_source="scheduled")

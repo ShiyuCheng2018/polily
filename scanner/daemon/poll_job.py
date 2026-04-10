@@ -96,6 +96,8 @@ def global_poll(db: PolilyDB | None = None) -> None:
         # Update prices in markets table
         update_market_prices(market.market_id, db=db, **result)
 
+    db.conn.commit()  # Single batch commit for all price updates
+
     # Check if any events need closing (all sub-markets closed) ---------------
     for event_id in closed_by_event:
         all_markets = get_event_markets(event_id, db)
@@ -104,8 +106,9 @@ def global_poll(db: PolilyDB | None = None) -> None:
                 "UPDATE events SET closed=1, updated_at=? WHERE event_id=?",
                 (datetime.now(UTC).isoformat(), event_id),
             )
-            db.conn.commit()
             logger.info("Event %s closed -- all sub-markets closed", event_id)
+
+    db.conn.commit()  # Batch commit for event close updates
 
     # Step 2: Intelligence layer — compute signals for monitored events
     _run_intelligence_layer(db)
@@ -143,144 +146,148 @@ def _run_intelligence_layer(db: PolilyDB) -> None:
         mc = MovementConfig()
 
     for event_id in monitored_event_ids:
-        event = get_event(event_id, db)
-        if not event or event.closed:
+        try:
+            event = get_event(event_id, db)
+            if not event or event.closed:
+                continue
+
+            markets = get_event_markets(event_id, db)
+            active_markets = [
+                m for m in markets if not m.closed and m.clob_token_id_yes
+            ]
+
+            if not active_markets:
+                continue
+
+            # --- Per-sub-market signal computation ---
+            for m in active_markets:
+                # Build price history from previous movement_log entries
+                recent = get_event_movements(event_id, db, hours=6)
+                market_entries = [
+                    e for e in recent if e.get("market_id") == m.market_id
+                ]
+                price_history = [
+                    e["yes_price"]
+                    for e in reversed(market_entries)
+                    if e.get("yes_price") is not None
+                ]
+
+                # Signals from markets table data
+                bid_depth = m.bid_depth or 0
+                ask_depth = m.ask_depth or 0
+                book_imbalance = compute_book_imbalance(bid_depth, ask_depth)
+                price_z = compute_price_z_score(m.yes_price or 0, price_history)
+
+                # Trade data from recent_trades JSON
+                trade_sizes: list[float] = []
+                if m.recent_trades:
+                    try:
+                        trades = json.loads(m.recent_trades)
+                        trade_sizes = [
+                            float(t.get("size", 0)) for t in trades
+                        ]
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                recent_volume = sum(trade_sizes)
+                baseline_volume = (
+                    sum(e.get("trade_volume", 0) for e in market_entries)
+                    / max(len(market_entries), 1)
+                )
+                vol_ratio = compute_volume_ratio(recent_volume, baseline_volume)
+                trade_conc = compute_trade_concentration(trade_sizes)
+
+                prev_price = (
+                    market_entries[0]["yes_price"] if market_entries else None
+                )
+                price_change_pct = 0.0
+                if prev_price and prev_price > 0 and m.yes_price:
+                    price_change_pct = (m.yes_price - prev_price) / prev_price
+                vol_price_conf = compute_volume_price_confirmation(
+                    price_change_pct, vol_ratio
+                )
+
+                signals = MovementSignals(
+                    price_z_score=price_z,
+                    volume_ratio=vol_ratio,
+                    book_imbalance=book_imbalance,
+                    trade_concentration=trade_conc,
+                    volume_price_confirmation=vol_price_conf,
+                )
+
+                result = compute_movement_score(
+                    signals, event.market_type or "other", mc
+                )
+
+                append_movement(
+                    event_id=event_id,
+                    market_id=m.market_id,
+                    yes_price=m.yes_price,
+                    no_price=m.no_price,
+                    prev_yes_price=prev_price,
+                    trade_volume=recent_volume,
+                    bid_depth=bid_depth,
+                    ask_depth=ask_depth,
+                    spread=m.spread,
+                    magnitude=result.magnitude,
+                    quality=result.quality,
+                    label=result.label,
+                    db=db,
+                )
+
+            # --- Event-level metrics for negRisk events with 2+ sub-markets ---
+            if event.neg_risk and len(active_markets) > 1:
+                prices = {
+                    m.market_id: (m.yes_price or 0) for m in active_markets
+                }
+                asks = {
+                    m.market_id: m.best_ask
+                    for m in active_markets
+                    if m.best_ask
+                }
+
+                # Get previous event-level prices for TV distance / leader change
+                prev_entries = get_event_movements(event_id, db, hours=1)
+                prev_event_level = [
+                    e for e in prev_entries if e["market_id"] is None
+                ]
+                prev_prices: dict[str, float] | None = None
+                if prev_event_level:
+                    try:
+                        prev_snap = json.loads(prev_event_level[0]["snapshot"])
+                        if "prices" in prev_snap:
+                            prev_prices = prev_snap["prices"]
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                metrics = compute_event_metrics(
+                    prices, prev_prices=prev_prices, asks=asks
+                )
+
+                snapshot = {
+                    "overround": metrics.overround,
+                    "entropy": metrics.entropy,
+                    "leader_id": metrics.leader_id,
+                    "leader_margin": metrics.leader_margin,
+                    "leader_changed": metrics.leader_changed,
+                    "tv_distance": metrics.tv_distance,
+                    "hhi": metrics.hhi,
+                    "dutch_book_gap": metrics.dutch_book_gap,
+                    "prices": prices,  # store for next comparison
+                }
+
+                append_movement(
+                    event_id=event_id,
+                    market_id=None,  # event-level
+                    magnitude=0,
+                    quality=0,
+                    label="noise",
+                    snapshot=json.dumps(snapshot),
+                    db=db,
+                )
+        except Exception:
+            logger.exception("Intelligence layer failed for event %s", event_id)
             continue
-
-        markets = get_event_markets(event_id, db)
-        active_markets = [
-            m for m in markets if not m.closed and m.clob_token_id_yes
-        ]
-
-        if not active_markets:
-            continue
-
-        # --- Per-sub-market signal computation ---
-        for m in active_markets:
-            # Build price history from previous movement_log entries
-            recent = get_event_movements(event_id, db, hours=6)
-            market_entries = [
-                e for e in recent if e.get("market_id") == m.market_id
-            ]
-            price_history = [
-                e["yes_price"]
-                for e in reversed(market_entries)
-                if e.get("yes_price") is not None
-            ]
-
-            # Signals from markets table data
-            bid_depth = m.bid_depth or 0
-            ask_depth = m.ask_depth or 0
-            book_imbalance = compute_book_imbalance(bid_depth, ask_depth)
-            price_z = compute_price_z_score(m.yes_price or 0, price_history)
-
-            # Trade data from recent_trades JSON
-            trade_sizes: list[float] = []
-            if m.recent_trades:
-                try:
-                    trades = json.loads(m.recent_trades)
-                    trade_sizes = [
-                        float(t.get("size", 0)) for t in trades
-                    ]
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-            recent_volume = sum(trade_sizes)
-            baseline_volume = (
-                sum(e.get("trade_volume", 0) for e in market_entries)
-                / max(len(market_entries), 1)
-            )
-            vol_ratio = compute_volume_ratio(recent_volume, baseline_volume)
-            trade_conc = compute_trade_concentration(trade_sizes)
-
-            prev_price = (
-                market_entries[0]["yes_price"] if market_entries else None
-            )
-            price_change_pct = 0.0
-            if prev_price and prev_price > 0 and m.yes_price:
-                price_change_pct = (m.yes_price - prev_price) / prev_price
-            vol_price_conf = compute_volume_price_confirmation(
-                price_change_pct, vol_ratio
-            )
-
-            signals = MovementSignals(
-                price_z_score=price_z,
-                volume_ratio=vol_ratio,
-                book_imbalance=book_imbalance,
-                trade_concentration=trade_conc,
-                volume_price_confirmation=vol_price_conf,
-            )
-
-            result = compute_movement_score(
-                signals, event.market_type or "other", mc
-            )
-
-            append_movement(
-                event_id=event_id,
-                market_id=m.market_id,
-                yes_price=m.yes_price,
-                no_price=m.no_price,
-                prev_yes_price=prev_price,
-                trade_volume=recent_volume,
-                bid_depth=bid_depth,
-                ask_depth=ask_depth,
-                spread=m.spread,
-                magnitude=result.magnitude,
-                quality=result.quality,
-                label=result.label,
-                db=db,
-            )
-
-        # --- Event-level metrics for negRisk events with 2+ sub-markets ---
-        if event.neg_risk and len(active_markets) > 1:
-            prices = {
-                m.market_id: (m.yes_price or 0) for m in active_markets
-            }
-            asks = {
-                m.market_id: m.best_ask
-                for m in active_markets
-                if m.best_ask
-            }
-
-            # Get previous event-level prices for TV distance / leader change
-            prev_entries = get_event_movements(event_id, db, hours=1)
-            prev_event_level = [
-                e for e in prev_entries if e["market_id"] is None
-            ]
-            prev_prices: dict[str, float] | None = None
-            if prev_event_level:
-                try:
-                    prev_snap = json.loads(prev_event_level[0]["snapshot"])
-                    if "prices" in prev_snap:
-                        prev_prices = prev_snap["prices"]
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-            metrics = compute_event_metrics(
-                prices, prev_prices=prev_prices, asks=asks
-            )
-
-            snapshot = {
-                "overround": metrics.overround,
-                "entropy": metrics.entropy,
-                "leader_id": metrics.leader_id,
-                "leader_margin": metrics.leader_margin,
-                "leader_changed": metrics.leader_changed,
-                "tv_distance": metrics.tv_distance,
-                "hhi": metrics.hhi,
-                "dutch_book_gap": metrics.dutch_book_gap,
-                "prices": prices,  # store for next comparison
-            }
-
-            append_movement(
-                event_id=event_id,
-                market_id=None,  # event-level
-                magnitude=0,
-                quality=0,
-                label="noise",
-                snapshot=json.dumps(snapshot),
-                db=db,
-            )
 
 
 # ---------------------------------------------------------------------------
