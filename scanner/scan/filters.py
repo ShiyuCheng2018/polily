@@ -42,9 +42,7 @@ def _check_market(
 ) -> str | None:
     """Return rejection reason, or None if market passes all filters."""
 
-    # Binary market check
-    if f.require_binary_market and not m.is_binary:
-        return "Not a binary market"
+    # v0.5.0: binary market filter removed — multi-outcome markets now pass through
 
     # Resolution time required
     if m.resolution_time is None:
