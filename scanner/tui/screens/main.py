@@ -3,7 +3,6 @@
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.message import Message as _Message
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
@@ -26,17 +25,8 @@ from scanner.tui.views.scan_log import (
     StepInfo,
     ViewScanLogDetail,
 )
+from scanner.tui.views.monitor_list import MonitorListView, ViewMonitorDetail
 from scanner.tui.widgets.sidebar import MenuSelected, Sidebar
-
-# TODO: v0.5.0 Task 5.3 — MonitorListView will be recreated for event-first schema
-MonitorListView = None
-
-
-class ViewMonitorDetail(_Message):
-    """Stub: request to view monitor detail (will be implemented in Task 5.3)."""
-    def __init__(self, market_id: str = ""):
-        super().__init__()
-        self.market_id = market_id
 
 
 class MainScreen(Screen):
@@ -305,7 +295,7 @@ class MainScreen(Screen):
     def on_view_monitor_detail(self, message: ViewMonitorDetail) -> None:
         """Navigate to event detail from monitor list."""
         self._switch_view(
-            MarketDetailView(event_id=message.market_id, service=self.service)
+            MarketDetailView(event_id=message.event_id, service=self.service)
         )
 
     def on_view_trade_detail(self, message: ViewTradeDetail) -> None:
@@ -329,12 +319,7 @@ class MainScreen(Screen):
             events = self.service.get_research_events()
             self._switch_view(MarketListView(events=events, service=self.service, title="研究队列"), "research")
         elif menu_id == "monitor":
-            # TODO: v0.5.0 — MonitorListView not yet rebuilt for event-first schema
-            if MonitorListView is not None:
-                self._switch_view(MonitorListView({}), "monitor")
-            else:
-                from textual.widgets import Static
-                self._switch_view(Static(" [dim]Monitor view will be available in a future update.[/dim]"), "monitor")
+            self._switch_view(MonitorListView(service=self.service), "monitor")
         elif menu_id == "paper":
             self._switch_view(PaperStatusView(self.service), "paper")
         elif menu_id == "history":
