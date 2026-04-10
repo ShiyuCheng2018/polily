@@ -55,7 +55,7 @@ def _sample_markets() -> list[Market]:
             yes_price=0.50,
             volume=50000,
         ),
-        # Non-binary: filtered
+        # Non-binary: v0.5.0 now passes through (multi-outcome support)
         make_market(
             market_id="bad-nonbinary",
             title="Who wins?",
@@ -81,11 +81,12 @@ class TestRunPipelineNoAI:
         total_scored = len(tiers.tier_a) + len(tiers.tier_b) + len(tiers.tier_c)
         assert total_scored >= 1  # at least good-econ should pass
 
-        # Extreme, noise, non-binary should all be filtered
+        # Extreme, noise should be filtered; non-binary now passes (v0.5.0)
         all_ids = [c.market.market_id for c in tiers.tier_a + tiers.tier_b + tiers.tier_c]
         assert "bad-extreme" not in all_ids
         assert "bad-noise" not in all_ids
-        assert "bad-nonbinary" not in all_ids
+        # v0.5.0: multi-outcome markets now pass through
+        assert "bad-nonbinary" in all_ids
         assert "bad-volume" not in all_ids
 
     def test_pipeline_assigns_market_type(self):
