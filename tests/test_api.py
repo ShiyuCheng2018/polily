@@ -6,6 +6,7 @@ import pytest
 
 from scanner.api import PolymarketClient, parse_clob_book, parse_gamma_event
 from scanner.core.config import ApiConfig
+from scanner.core.event_store import EventRow
 
 # --- Fixture data mimicking real API responses ---
 
@@ -71,7 +72,7 @@ SAMPLE_CLOB_BOOK = {
 
 class TestParseGammaEvent:
     def test_parse_event_markets(self):
-        markets = parse_gamma_event(SAMPLE_GAMMA_EVENT)
+        _event_row, markets = parse_gamma_event(SAMPLE_GAMMA_EVENT)
         assert len(markets) == 1
         m = markets[0]
         assert m.market_id == "market-abc"
@@ -79,50 +80,60 @@ class TestParseGammaEvent:
         assert m.outcomes == ["Yes", "No"]
 
     def test_parse_prices(self):
-        m = parse_gamma_event(SAMPLE_GAMMA_EVENT)[0]
+        _, markets = parse_gamma_event(SAMPLE_GAMMA_EVENT)
+        m = markets[0]
         assert m.yes_price == 0.55
         assert m.no_price == 0.47
 
     def test_parse_bid_ask(self):
-        m = parse_gamma_event(SAMPLE_GAMMA_EVENT)[0]
+        _, markets = parse_gamma_event(SAMPLE_GAMMA_EVENT)
+        m = markets[0]
         assert m.best_bid_yes == 0.54
         assert m.best_ask_yes == 0.56
         assert m.spread_yes == 0.02
 
     def test_parse_volume(self):
-        m = parse_gamma_event(SAMPLE_GAMMA_EVENT)[0]
+        _, markets = parse_gamma_event(SAMPLE_GAMMA_EVENT)
+        m = markets[0]
         assert m.volume == 50000.50
 
     def test_parse_resolution_time(self):
-        m = parse_gamma_event(SAMPLE_GAMMA_EVENT)[0]
+        _, markets = parse_gamma_event(SAMPLE_GAMMA_EVENT)
+        m = markets[0]
         assert m.resolution_time is not None
         assert m.resolution_time.year == 2026
         assert m.resolution_time.month == 3
         assert m.resolution_time.day == 30
 
     def test_parse_event_id(self):
-        m = parse_gamma_event(SAMPLE_GAMMA_EVENT)[0]
+        _, markets = parse_gamma_event(SAMPLE_GAMMA_EVENT)
+        m = markets[0]
         assert m.event_id == "event-123"
 
     def test_parse_tags(self):
-        m = parse_gamma_event(SAMPLE_GAMMA_EVENT)[0]
+        _, markets = parse_gamma_event(SAMPLE_GAMMA_EVENT)
+        m = markets[0]
         assert "crypto" in [t.lower() for t in m.tags]
 
     def test_parse_resolution_source(self):
-        m = parse_gamma_event(SAMPLE_GAMMA_EVENT)[0]
+        _, markets = parse_gamma_event(SAMPLE_GAMMA_EVENT)
+        m = markets[0]
         assert m.resolution_source == "https://coingecko.com"
 
     def test_parse_description(self):
-        m = parse_gamma_event(SAMPLE_GAMMA_EVENT)[0]
+        _, markets = parse_gamma_event(SAMPLE_GAMMA_EVENT)
+        m = markets[0]
         assert "88000" in m.description
 
     def test_parse_open_interest_from_event(self):
-        m = parse_gamma_event(SAMPLE_GAMMA_EVENT)[0]
+        _, markets = parse_gamma_event(SAMPLE_GAMMA_EVENT)
+        m = markets[0]
         assert m.open_interest == 128000
 
     def test_parse_json_string_fields(self):
         """outcomePrices and outcomes are JSON strings, not arrays."""
-        m = parse_gamma_event(SAMPLE_GAMMA_EVENT)[0]
+        _, markets = parse_gamma_event(SAMPLE_GAMMA_EVENT)
+        m = markets[0]
         # Should be parsed correctly despite being JSON strings
         assert isinstance(m.outcomes, list)
         assert isinstance(m.yes_price, float)
@@ -204,3 +215,149 @@ class TestPolymarketClient:
             bids, asks = await client.fetch_book("tok-yes-123")
             assert len(bids) == 3
             assert len(asks) == 3
+
+
+class TestParseGammaEventV2:
+    def test_returns_tuple(self):
+        event_data = {
+            "id": "16167",
+            "title": "Test Event",
+            "slug": "test-event",
+            "description": "Test description",
+            "negRisk": False,
+            "endDate": "2026-12-31T12:00:00Z",
+            "volume": 50000.0,
+            "liquidity": 10000.0,
+            "openInterest": 30000.0,
+            "competitive": 0.85,
+            "tags": [{"label": "Crypto", "slug": "crypto"}],
+            "markets": [{
+                "id": "m1",
+                "question": "Will X happen?",
+                "slug": "will-x-happen",
+                "description": "Resolution criteria",
+                "outcomes": '["Yes","No"]',
+                "outcomePrices": '["0.55","0.45"]',
+                "clobTokenIds": '["token1","token2"]',
+                "conditionId": "0x123abc",
+                "acceptingOrders": True,
+                "bestBid": 0.54,
+                "bestAsk": 0.56,
+                "spread": 0.02,
+                "volumeNum": 25000.0,
+                "lastTradePrice": 0.55,
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-04-01T00:00:00Z",
+            }],
+        }
+        result = parse_gamma_event(event_data)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        event_row, markets = result
+        assert isinstance(event_row, EventRow)
+        assert isinstance(markets, list)
+
+    def test_event_row_fields(self):
+        event_data = {
+            "id": "16167",
+            "title": "Test Event",
+            "slug": "test-event",
+            "description": "Desc",
+            "negRisk": True,
+            "negRiskMarketID": "0xabc",
+            "negRiskAugmented": False,
+            "endDate": "2026-12-31T12:00:00Z",
+            "startDate": "2026-01-01T00:00:00Z",
+            "volume": 50000.0,
+            "liquidity": 10000.0,
+            "openInterest": 30000.0,
+            "competitive": 0.85,
+            "tags": [{"label": "Crypto", "slug": "crypto"}],
+            "eventMetadata": {"context_description": "AI context"},
+            "markets": [
+                {"id": "m1", "question": "Q1", "outcomes": '["Yes","No"]',
+                 "outcomePrices": '["0.6","0.4"]', "clobTokenIds": '["t1","t2"]',
+                 "conditionId": "0x1", "acceptingOrders": True,
+                 "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-04-01T00:00:00Z"},
+                {"id": "m2", "question": "Q2", "outcomes": '["Yes","No"]',
+                 "outcomePrices": '["0.3","0.7"]', "clobTokenIds": '["t3","t4"]',
+                 "conditionId": "0x2", "acceptingOrders": True,
+                 "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-04-01T00:00:00Z"},
+            ],
+        }
+        event_row, markets = parse_gamma_event(event_data)
+        assert event_row.event_id == "16167"
+        assert event_row.title == "Test Event"
+        assert event_row.neg_risk is True
+        assert event_row.neg_risk_market_id == "0xabc"
+        assert event_row.market_count == 2
+        assert event_row.volume == 50000.0
+        assert event_row.open_interest == 30000.0
+        assert "Crypto" in event_row.tags  # tags stored as JSON string
+
+    def test_market_new_fields(self):
+        event_data = {
+            "id": "ev1",
+            "title": "E",
+            "negRisk": True,
+            "negRiskMarketID": "0xabc",
+            "tags": [],
+            "markets": [{
+                "id": "m1",
+                "question": "Q",
+                "outcomes": '["Yes","No"]',
+                "outcomePrices": '["0.6","0.4"]',
+                "clobTokenIds": '["t1","t2"]',
+                "conditionId": "0x123",
+                "questionID": "0x456",
+                "groupItemTitle": "Option A",
+                "groupItemThreshold": "0",
+                "negRisk": True,
+                "negRiskMarketID": "0xabc",
+                "negRiskRequestID": "0xdef",
+                "negRiskOther": False,
+                "acceptingOrders": True,
+                "orderPriceMinTickSize": 0.001,
+                "lastTradePrice": 0.59,
+                "bestBid": 0.58,
+                "bestAsk": 0.60,
+                "spread": 0.02,
+                "volumeNum": 5000.0,
+                "liquidityNum": 2000.0,
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-04-01T00:00:00Z",
+            }],
+        }
+        event_row, markets = parse_gamma_event(event_data)
+        m = markets[0]
+        assert m.group_item_title == "Option A"
+        assert m.group_item_threshold == "0"
+        assert m.question_id == "0x456"
+        assert m.neg_risk is True
+        assert m.neg_risk_request_id == "0xdef"
+        assert m.neg_risk_other is False
+        assert m.accepting_orders is True
+
+    def test_multi_outcome_prices_sum(self):
+        """Multi-outcome event should compute event_outcome_prices_sum."""
+        event_data = {
+            "id": "ev1", "title": "E", "negRisk": True, "tags": [],
+            "markets": [
+                {"id": "m1", "question": "Q1", "outcomes": '["Yes","No"]',
+                 "outcomePrices": '["0.4","0.6"]', "clobTokenIds": '["t1","t2"]',
+                 "conditionId": "0x1", "acceptingOrders": True,
+                 "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-04-01T00:00:00Z"},
+                {"id": "m2", "question": "Q2", "outcomes": '["Yes","No"]',
+                 "outcomePrices": '["0.3","0.7"]', "clobTokenIds": '["t3","t4"]',
+                 "conditionId": "0x2", "acceptingOrders": True,
+                 "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-04-01T00:00:00Z"},
+                {"id": "m3", "question": "Q3", "outcomes": '["Yes","No"]',
+                 "outcomePrices": '["0.35","0.65"]', "clobTokenIds": '["t5","t6"]',
+                 "conditionId": "0x3", "acceptingOrders": True,
+                 "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-04-01T00:00:00Z"},
+            ],
+        }
+        _, markets = parse_gamma_event(event_data)
+        # Sum of YES prices: 0.4 + 0.3 + 0.35 = 1.05
+        assert markets[0].event_outcome_prices_sum is not None
+        assert abs(markets[0].event_outcome_prices_sum - 1.05) < 0.001

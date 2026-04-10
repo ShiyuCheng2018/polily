@@ -8,6 +8,7 @@ import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from scanner.core.config import ApiConfig
+from scanner.core.event_store import EventRow
 from scanner.core.models import BookLevel, Market, Trade
 
 logger = logging.getLogger(__name__)
@@ -26,9 +27,10 @@ def _parse_iso(s: str | None) -> datetime | None:
         return None
 
 
-def parse_gamma_event(event_data: dict) -> list[Market]:
-    """Parse a Gamma API event response into Market objects.
+def parse_gamma_event(event_data: dict) -> tuple[EventRow, list[Market]]:
+    """Parse a Gamma API event response into an EventRow and Market objects.
 
+    Returns (event_row, markets) tuple.
     Handles JSON-string fields (outcomePrices, outcomes, clobTokenIds).
     """
     event_id = event_data.get("id")
@@ -38,7 +40,7 @@ def parse_gamma_event(event_data: dict) -> list[Market]:
     tags = [t["label"] for t in tags_raw if isinstance(t, dict) and "label" in t]
 
     now = datetime.now(UTC)
-    markets = []
+    markets: list[Market] = []
 
     for md in event_data.get("markets", []):
         try:
@@ -54,7 +56,36 @@ def parse_gamma_event(event_data: dict) -> list[Market]:
         for m in markets:
             m.event_outcome_prices_sum = prices_sum
 
-    return markets
+    # Build EventRow from event-level fields
+    tags_json = json.dumps(
+        [{"label": t["label"], "slug": t.get("slug", "")}
+         for t in tags_raw if isinstance(t, dict) and "label" in t]
+    )
+    event_metadata_raw = event_data.get("eventMetadata")
+    event_metadata = json.dumps(event_metadata_raw) if event_metadata_raw else None
+
+    event_row = EventRow(
+        event_id=str(event_id or ""),
+        title=event_data.get("title", ""),
+        slug=event_slug,
+        description=event_data.get("description"),
+        neg_risk=event_data.get("negRisk", False),
+        neg_risk_market_id=event_data.get("negRiskMarketID"),
+        neg_risk_augmented=event_data.get("negRiskAugmented", False),
+        market_count=len(markets),
+        start_date=event_data.get("startDate"),
+        end_date=event_data.get("endDate"),
+        image=event_data.get("image"),
+        volume=event_data.get("volume"),
+        liquidity=event_data.get("liquidity"),
+        open_interest=event_oi,
+        competitive=event_data.get("competitive"),
+        tags=tags_json,
+        event_metadata=event_metadata,
+        updated_at=now.isoformat(),
+    )
+
+    return event_row, markets
 
 
 def _parse_single_market(
@@ -84,6 +115,9 @@ def _parse_single_market(
     created_at = _parse_iso(md.get("createdAt"))
     updated_at = _parse_iso(md.get("updatedAt"))
 
+    # Parse neg_risk_request_id: API returns "" for non-negRisk, normalize to None
+    neg_risk_request_id = md.get("negRiskRequestID") or None
+
     market = Market(
         market_id=md.get("id", ""),
         event_id=event_id,
@@ -110,6 +144,14 @@ def _parse_single_market(
         created_at=created_at,
         updated_at=updated_at,
         data_fetched_at=now,
+        # Multi-outcome support (v0.5.0)
+        group_item_title=md.get("groupItemTitle"),
+        group_item_threshold=md.get("groupItemThreshold"),
+        question_id=md.get("questionID"),
+        neg_risk=md.get("negRisk", False),
+        neg_risk_request_id=neg_risk_request_id,
+        neg_risk_other=md.get("negRiskOther", False),
+        accepting_orders=md.get("acceptingOrders", True),
     )
     return market
 

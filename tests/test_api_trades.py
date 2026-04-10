@@ -64,7 +64,7 @@ def test_parse_gamma_event_includes_condition_id():
             }
         ],
     }
-    markets = parse_gamma_event(event_data)
+    _event_row, markets = parse_gamma_event(event_data)
     assert len(markets) == 1
     assert markets[0].condition_id == "0xabc123condition"
     assert markets[0].clob_token_id_yes == "tok_yes"
