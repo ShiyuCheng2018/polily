@@ -17,7 +17,7 @@ DEFAULT_MAX_PROMPT_CHARS = 5000
 _active_pids: set[int] = set()
 
 # Debug log directory — resolve relative to project root via config, fallback to CWD/data
-_DEBUG_DIR = os.path.join(os.getcwd(), "data")
+_DEBUG_DIR = os.path.join(os.getcwd(), "data", "logs")
 
 
 def _dump_debug(tag: str, content: str):
