@@ -193,7 +193,7 @@ class MainScreen(Screen):
         ))
 
     def on_view_scan_log_detail(self, message: ViewScanLogDetail) -> None:
-        self._switch_view(ScanLogDetailView(message.log_entry))
+        self._switch_view(ScanLogDetailView(message.log_entry, db=self.service.db))
 
     def on_analyze_requested(self, message: AnalyzeRequested) -> None:
         self._analyzing_event_id = message.event_id

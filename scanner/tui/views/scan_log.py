@@ -160,7 +160,8 @@ class ScanLogView(Widget):
                 result = title_short
             else:
                 type_label = "扫描"
-                result = f"研{log.research_count} 观{log.watchlist_count} 低分{log.filtered_count}"
+                total = log.research_count + log.watchlist_count
+                result = f"{total} 事件"
             table.add_row(type_label, started, elapsed, result, status_text, key=log.scan_id)
 
     def update_live_progress(self, steps: list[StepInfo]):
@@ -202,9 +203,63 @@ class ScanLogDetailView(Widget):
     ScanLogDetailView .step-row { padding: 0 0 0 2; }
     """
 
-    def __init__(self, log_entry: ScanLogEntry):
+    def __init__(self, log_entry: ScanLogEntry, db=None):
         super().__init__()
         self.log_entry = log_entry
+        self._db = db
+
+    def _get_scan_stats(self) -> dict | None:
+        """Query rich scan statistics from DB."""
+        if not self._db:
+            return None
+        try:
+            conn = self._db.conn
+            # Research events + markets
+            r = conn.execute(
+                "SELECT COUNT(*) FROM events WHERE tier IN ('research','watchlist') AND closed=0"
+            ).fetchone()
+            research_events = r[0] if r else 0
+            r = conn.execute(
+                "SELECT COUNT(*) FROM markets m JOIN events e ON m.event_id=e.event_id "
+                "WHERE e.tier IN ('research','watchlist') AND e.closed=0"
+            ).fetchone()
+            research_markets = r[0] if r else 0
+
+            # Type distribution
+            rows = conn.execute(
+                "SELECT COALESCE(market_type,'other'), COUNT(*) FROM events "
+                "WHERE tier IN ('research','watchlist') AND closed=0 "
+                "GROUP BY market_type ORDER BY COUNT(*) DESC"
+            ).fetchall()
+            type_summary = " | ".join(f"{row[0]}: {row[1]}" for row in rows) if rows else "-"
+
+            # Score range
+            r = conn.execute(
+                "SELECT MIN(structure_score), MAX(structure_score) FROM events "
+                "WHERE structure_score IS NOT NULL AND closed=0"
+            ).fetchone()
+            score_min = r[0] or 0
+            score_max = r[1] or 0
+
+            # End date range
+            r = conn.execute(
+                "SELECT MIN(end_date), MAX(end_date) FROM events "
+                "WHERE end_date IS NOT NULL AND closed=0 AND tier IN ('research','watchlist')"
+            ).fetchone()
+            earliest = r[0][:10] if r and r[0] else "-"
+            latest = r[1][:10] if r and r[1] else "-"
+
+            return {
+                "research_events": research_events,
+                "research_markets": research_markets,
+                "type_summary": type_summary,
+                "score_min": score_min,
+                "score_max": score_max,
+                "earliest_end": earliest,
+                "latest_end": latest,
+            }
+        except Exception:
+            return None
 
     def compose(self) -> ComposeResult:
         log = self.log_entry
@@ -239,10 +294,16 @@ class ScanLogDetailView(Widget):
                 yield Static(f"  ID:   {log.event_id or '?'}", classes="detail-row")
             else:
                 yield Static(" 扫描结果", classes="section-title")
-                yield Static(f"  市场总数: {log.total_markets}", classes="detail-row")
-                yield Static(f"  研究队列: {log.research_count}", classes="detail-row")
-                yield Static(f"  观察列表: {log.watchlist_count}", classes="detail-row")
-                yield Static(f"  低分:     {log.filtered_count}", classes="detail-row")
+                # Query rich stats from DB if available
+                stats = self._get_scan_stats()
+                if stats:
+                    yield Static(f"  研究事件: {stats['research_events']} 事件 / {stats['research_markets']} 市场", classes="detail-row")
+                    yield Static(f"  类型分布: {stats['type_summary']}", classes="detail-row")
+                    yield Static(f"  评分区间: {stats['score_min']:.0f} ~ {stats['score_max']:.0f}", classes="detail-row")
+                    yield Static(f"  最近过期: {stats['earliest_end']}", classes="detail-row")
+                    yield Static(f"  最晚过期: {stats['latest_end']}", classes="detail-row")
+                else:
+                    yield Static(f"  事件总数: {log.research_count + log.watchlist_count}", classes="detail-row")
 
             # Steps
             if log.steps:
