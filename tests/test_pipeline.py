@@ -198,32 +198,57 @@ class TestPipelineDBPersistence:
                 yes_price=0.50, volume=80000, open_interest=50000,
                 resolution_source="https://coingecko.com",
                 resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
+                clob_token_id_yes="tok1",
             ),
-            # m2: would fail filter on its own (extreme price)
+            # m2: would fail filter on its own (extreme price), no book data initially
             make_market(
                 market_id="m2", event_id="ev1",
                 title="Will BTC be above $90,000?",
                 yes_price=0.05, volume=80000, open_interest=50000,
                 resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
+                clob_token_id_yes="tok2",
+                book_depth_bids=None, book_depth_asks=None,
             ),
-            # m3: would fail filter on its own (extreme price)
+            # m3: would fail filter on its own (extreme price), no book data initially
             make_market(
                 market_id="m3", event_id="ev1",
                 title="Will BTC be above $95,000?",
                 yes_price=0.02, volume=80000, open_interest=50000,
                 resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
+                clob_token_id_yes="tok3",
+                book_depth_bids=None, book_depth_asks=None,
             ),
         ]
 
         config = load_config(__import__("pathlib").Path("config.example.yaml"))
         config.ai.enabled = False
 
-        run_scan_pipeline(markets, config, db=db, event_rows=event_rows)
+        # Mock enrich_with_orderbook to simulate CLOB book fetch for ALL markets
+        from unittest.mock import patch
+
+        from scanner.core.models import BookLevel
+        async def mock_enrich(mkts, cfg):
+            for m in mkts:
+                if m.clob_token_id_yes:
+                    m.book_depth_bids = [BookLevel(price=0.5, size=1000)]
+                    m.book_depth_asks = [BookLevel(price=0.6, size=800)]
+            return mkts
+
+        with patch("scanner.scan.pipeline.enrich_with_orderbook", mock_enrich):
+            run_scan_pipeline(markets, config, db=db, event_rows=event_rows)
 
         # ALL 3 markets should be in DB (siblings of passing event)
-        assert get_market("m1", db) is not None
-        assert get_market("m2", db) is not None
-        assert get_market("m3", db) is not None
+        m1 = get_market("m1", db)
+        m2 = get_market("m2", db)
+        m3 = get_market("m3", db)
+        assert m1 is not None
+        assert m2 is not None
+        assert m3 is not None
+
+        # ALL siblings should have book depth (from enrichment of full sibling set)
+        assert m1.bid_depth is not None  # passed filter, fetched
+        assert m2.bid_depth is not None  # sibling, must also be fetched
+        assert m3.bid_depth is not None  # sibling, must also be fetched
 
         # Event should be in DB with score
         ev = get_event("ev1", db)

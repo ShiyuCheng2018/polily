@@ -98,16 +98,22 @@ def run_scan_pipeline(
 
     passed = filter_result.passed
 
-    # Fetch order books for all passed markets
+    # Fetch order books for ALL markets in eligible events (siblings included)
+    # So that detail page + poll have complete depth data for every sub-market
     if config.scanner.two_pass_scan and passed:
-        _report("获取订单簿", "start")
+        eligible_eids = {getattr(m, "event_id", None) for m in passed if getattr(m, "event_id", None)}
+        siblings = [m for m in markets if getattr(m, "event_id", None) in eligible_eids]
+        _report("获取盘口", "start")
         try:
-            with _timed_status(_console, f"Fetching order books ({len(passed)} markets)"):
-                passed = _run_async(enrich_with_orderbook(passed, config))
-            _report("获取订单簿", "done", f"{len(passed)} 市场")
-            logger.info("Order books fetched for %d markets", len(passed))
+            with _timed_status(_console, f"Fetching order books ({len(siblings)} markets)"):
+                siblings = _run_async(enrich_with_orderbook(siblings, config))
+            _report("获取盘口", "done", f"{len(passed_eids)} 事件 / {len(siblings)} 市场")
+            logger.info("Order books fetched for %d markets (%d events)", len(siblings), len(eligible_eids))
+            # Update passed list with enriched versions (they're mutated in place, but be safe)
+            sibling_map = {m.market_id: m for m in siblings}
+            passed = [sibling_map.get(m.market_id, m) for m in passed]
         except Exception as e:
-            _report("获取订单簿", "fail")
+            _report("获取盘口", "fail")
             logger.warning("Order book fetch failed, continuing without depth data: %s", e)
 
     # Market type classification from Polymarket tags
@@ -243,6 +249,8 @@ def _persist_filtered(
             best_bid=m.best_bid_yes,
             best_ask=m.best_ask_yes,
             spread=m.spread_yes,
+            bid_depth=m.total_bid_depth_usd,
+            ask_depth=m.total_ask_depth_usd,
             accepting_orders=getattr(m, "accepting_orders", True),
             updated_at=__import__("datetime").datetime.now(
                 __import__("datetime").UTC
