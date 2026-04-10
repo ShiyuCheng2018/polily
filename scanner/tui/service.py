@@ -241,16 +241,28 @@ class ScanService:
         return self._query_events("WHERE e.closed = 0")
 
     def _query_events(self, where_clause: str) -> list[dict]:
-        """Query events with summary fields (market_count, monitor, position)."""
+        """Query events with summary fields (market_count, monitor, position, leader)."""
         sql = f"""
             SELECT e.*,
                    COUNT(DISTINCT mk.market_id) AS market_count,
                    COALESCE(em.auto_monitor, 0) AS is_monitored,
-                   COUNT(DISTINCT pt.id) AS position_count
+                   COUNT(DISTINCT pt.id) AS position_count,
+                   leader.group_item_title AS leader_title,
+                   leader.yes_price AS leader_price
             FROM events e
             LEFT JOIN markets mk ON mk.event_id = e.event_id
             LEFT JOIN event_monitors em ON em.event_id = e.event_id
             LEFT JOIN paper_trades pt ON pt.event_id = e.event_id AND pt.status = 'open'
+            LEFT JOIN (
+                SELECT m1.event_id, m1.group_item_title, m1.yes_price
+                FROM markets m1
+                INNER JOIN (
+                    SELECT event_id, MAX(yes_price) AS max_price
+                    FROM markets
+                    GROUP BY event_id
+                ) m2 ON m1.event_id = m2.event_id AND m1.yes_price = m2.max_price
+                GROUP BY m1.event_id
+            ) leader ON leader.event_id = e.event_id
             {where_clause}
             GROUP BY e.event_id
             ORDER BY COALESCE(e.structure_score, 0) DESC
@@ -267,6 +279,8 @@ class ScanService:
                 "market_count": d["market_count"],
                 "is_monitored": bool(d["is_monitored"]),
                 "has_position": d["position_count"] > 0,
+                "leader_title": d.get("leader_title"),
+                "leader_price": d.get("leader_price"),
             })
         return results
 

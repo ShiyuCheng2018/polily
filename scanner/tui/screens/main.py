@@ -187,9 +187,9 @@ class MainScreen(Screen):
 
     @staticmethod
     def _events_to_candidates(event_dicts: list[dict]):
-        """Convert new event-first dicts to ScoredCandidate stubs for legacy views.
+        """Convert event dicts to ScoredCandidate stubs for legacy detail views.
 
-        This is a bridge until Task 5.1 rewrites MarketListView to consume
+        Bridge for MarketDetailView until Task 5.2 rewrites it to consume
         event dicts directly.
         """
         from datetime import UTC, datetime
@@ -226,7 +226,16 @@ class MainScreen(Screen):
         self._navigate_to(message.menu_id)
 
     def on_view_detail_requested(self, message: ViewDetailRequested) -> None:
-        self._switch_view(MarketDetailView(message.candidate, self.service))
+        # MarketDetailView still uses ScoredCandidate (will change in Task 5.2)
+        event_id = message.event_id
+        all_events = self.service.get_all_events()
+        candidates = self._events_to_candidates(
+            [e for e in all_events if e["event"].event_id == event_id]
+        )
+        if candidates:
+            self._switch_view(MarketDetailView(candidates[0], self.service))
+        else:
+            self.notify("未找到该事件", severity="warning")
 
     def on_switch_version_requested(self, message: SwitchVersionRequested) -> None:
         is_analyzing = self._analyzing and self._analyzing_candidate is message.candidate
@@ -364,12 +373,8 @@ class MainScreen(Screen):
             current_steps = list(self.service._steps) if self._loading else None
             self._switch_view(ScanLogView(logs, current_steps), "tasks")
         elif menu_id == "research":
-            # Build ScoredCandidate stubs from DB events for MarketListView
-            # (MarketListView will be fully rewritten in Task 5.1)
-            research_candidates = self._events_to_candidates(
-                self.service.get_research_events()
-            )
-            self._switch_view(MarketListView(research_candidates, self.service, "研究队列"), "research")
+            events = self.service.get_research_events()
+            self._switch_view(MarketListView(events=events, service=self.service, title="研究队列"), "research")
         elif menu_id == "monitor":
             # TODO: v0.5.0 — MonitorListView not yet rebuilt for event-first schema
             if MonitorListView is not None:
