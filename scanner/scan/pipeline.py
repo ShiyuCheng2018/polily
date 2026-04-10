@@ -108,7 +108,7 @@ def run_scan_pipeline(
         try:
             with _timed_status(_console, f"Fetching order books ({len(siblings)} markets)"):
                 siblings = _run_async(enrich_with_orderbook(siblings, config))
-            _report("获取盘口", "done", f"{len(passed_eids)} 事件")
+            _report("获取盘口", "done", f"{len(siblings)} 市场")
             logger.info("Order books fetched for %d markets (%d events)", len(siblings), len(eligible_eids))
             # Update passed list with enriched versions (they're mutated in place, but be safe)
             sibling_map = {m.market_id: m for m in siblings}
