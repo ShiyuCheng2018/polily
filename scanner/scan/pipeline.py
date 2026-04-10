@@ -143,7 +143,7 @@ def run_scan_pipeline(
             logger.warning("Price data fetch failed: %s", e)
 
     # Score + Mispricing (pure rules, no AI)
-    _report("评分", "start")
+    _report("精选", "start")
     candidates: list[ScoredCandidate] = []
     for market in passed:
         score = compute_structure_score(
@@ -167,10 +167,8 @@ def run_scan_pipeline(
 
     # Tier classification
     tiers = classify_tiers(candidates, config.scoring.thresholds)
-    research_n = len(tiers.tier_a)
-    watch_n = len(tiers.tier_b)
     scored_eids = {getattr(c.market, "event_id", None) for c in candidates if getattr(c.market, "event_id", None)}
-    _report("评分", "done", f"{research_n + watch_n} 事件值得关注 (共{len(scored_eids)}事件)")
+    _report("精选", "done", f"{len(scored_eids)} 事件")
 
     # AI analysis removed from scan pipeline — triggered on-demand via 'a' key
 
