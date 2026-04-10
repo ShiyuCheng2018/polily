@@ -1,10 +1,11 @@
 """CLI entry point for polily scanner.
 
-v0.5.0: stripped to TUI launch + scheduler subcommand group.
-Scan, paper trading, backtest, daily briefing, etc. commands will be
-re-implemented against the event-first schema in Phase 2-3.
+v0.5.0: minimal CLI — TUI launch + scheduler subcommand group.
 """
 
+import os
+import signal
+import sys
 from pathlib import Path
 
 import typer
@@ -20,45 +21,112 @@ def main(ctx: typer.Context):
         run_tui()
 
 
-# --- Scheduler daemon commands (Phase 3 will implement fully) ---
+# --- Scheduler daemon commands ---
 
-scheduler_app = typer.Typer(help="Manage the background watch scheduler daemon")
+scheduler_app = typer.Typer(help="Manage the background scheduler daemon")
 app.add_typer(scheduler_app, name="scheduler")
 
+PID_FILE = Path("data/scheduler.pid")
 
-@scheduler_app.command()
-def start(config_path: str = typer.Option(None, "--config", "-c")):
-    """Start the scheduler daemon via launchd."""
-    # TODO: v0.5.0 Phase 3 — re-implement with event-first schema
-    raise NotImplementedError("v0.5.0 TODO: scheduler start")
+
+def _read_pid() -> int | None:
+    """Read PID from file. Returns None if missing or invalid."""
+    if not PID_FILE.exists():
+        return None
+    try:
+        return int(PID_FILE.read_text().strip())
+    except (ValueError, OSError):
+        return None
+
+
+def _pid_alive(pid: int) -> bool:
+    """Check if a process with the given PID is running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+@scheduler_app.command(name="run")
+def run_scheduler_daemon(config_path: str = typer.Option(None, "--config", "-c")):
+    """Run the scheduler daemon in the foreground (called by launchd, not user)."""
+    from scanner.core.config import ScannerConfig, load_config
+    from scanner.core.db import PolilyDB
+    from scanner.daemon.scheduler import run_daemon
+
+    if config_path:
+        config = load_config(Path(config_path))
+    else:
+        config = ScannerConfig()
+
+    db_file = config.archiving.db_file
+    db = PolilyDB(db_file)
+    try:
+        run_daemon(db, config=config)
+    finally:
+        db.close()
 
 
 @scheduler_app.command()
 def stop():
-    """Stop the scheduler daemon."""
-    # TODO: v0.5.0 Phase 3
-    raise NotImplementedError("v0.5.0 TODO: scheduler stop")
+    """Stop the scheduler daemon by sending SIGTERM."""
+    pid = _read_pid()
+    if pid is None:
+        typer.echo("Scheduler is not running (no PID file).")
+        raise typer.Exit(1)
+
+    if not _pid_alive(pid):
+        typer.echo(f"Scheduler PID {pid} is not running. Cleaning up stale PID file.")
+        PID_FILE.unlink(missing_ok=True)
+        raise typer.Exit(1)
+
+    os.kill(pid, signal.SIGTERM)
+    typer.echo(f"Sent SIGTERM to scheduler (PID {pid}).")
+
+
+@scheduler_app.command()
+def restart(config_path: str = typer.Option(None, "--config", "-c")):
+    """Restart the scheduler daemon (stop + start via launchd)."""
+    pid = _read_pid()
+    if pid is not None and _pid_alive(pid):
+        os.kill(pid, signal.SIGTERM)
+        typer.echo(f"Stopped scheduler (PID {pid}).")
+        # Brief wait for cleanup
+        import time
+        time.sleep(1)
+
+    from scanner.daemon.scheduler import ensure_daemon_running
+
+    started = ensure_daemon_running()
+    if started:
+        typer.echo("Scheduler restarted via launchd.")
+    else:
+        typer.echo("Scheduler is already running.")
 
 
 @scheduler_app.command()
 def status(config_path: str = typer.Option(None, "--config", "-c")):
     """Show scheduler daemon status and pending jobs."""
-    # TODO: v0.5.0 Phase 3
-    raise NotImplementedError("v0.5.0 TODO: scheduler status")
+    pid = _read_pid()
+    if pid is None:
+        typer.echo("Scheduler: NOT RUNNING (no PID file)")
+        raise typer.Exit(0)
 
+    alive = _pid_alive(pid)
+    if not alive:
+        typer.echo(f"Scheduler: NOT RUNNING (stale PID {pid})")
+        PID_FILE.unlink(missing_ok=True)
+        raise typer.Exit(0)
 
-@scheduler_app.command(name="run")
-def run_scheduler_daemon(config_path: str = typer.Option(None, "--config", "-c")):
-    """Run the scheduler daemon (called by launchd, not user)."""
-    # TODO: v0.5.0 Phase 3
-    raise NotImplementedError("v0.5.0 TODO: scheduler run")
+    typer.echo(f"Scheduler: RUNNING (PID {pid})")
 
 
 @app.command()
 def reset(
     confirm: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
 ):
-    """Delete all generated data (DB, scans, logs) for a clean start."""
+    """Delete all generated data (DB, logs) for a clean start."""
     targets = [
         ("data/polily.db", "Database"),
         ("data/polily.db-shm", "WAL shared memory"),
@@ -67,7 +135,6 @@ def reset(
         ("data/scheduler.log", "Daemon log"),
         ("data/agent_debug.log", "Agent debug log"),
     ]
-    scan_dir = Path("data/scans")
 
     if not confirm:
         from rich.console import Console
@@ -76,31 +143,21 @@ def reset(
         for path, label in targets:
             exists = "Y" if Path(path).exists() else "-"
             console.print(f"  {exists} {path} ({label})")
-        scan_count = len(list(scan_dir.glob("*.json"))) if scan_dir.exists() else 0
-        console.print(f"  {'Y' if scan_count else '-'} data/scans/*.json ({scan_count} scan archives)")
         console.print()
         if not typer.confirm("Confirm delete all data?"):
             console.print("[dim]Cancelled[/dim]")
             return
 
     # Stop daemon first
-    import subprocess
-    subprocess.run(
-        ["launchctl", "unload", str(Path.home() / "Library/LaunchAgents/com.polily.scheduler.plist")],
-        capture_output=True, check=False,
-    )
+    pid = _read_pid()
+    if pid is not None and _pid_alive(pid):
+        os.kill(pid, signal.SIGTERM)
 
     deleted = 0
     for path, _label in targets:
         p = Path(path)
         if p.exists():
             p.unlink()
-            deleted += 1
-
-    # Clear scan archives
-    if scan_dir.exists():
-        for f in scan_dir.glob("*.json"):
-            f.unlink()
             deleted += 1
 
     from rich.console import Console
