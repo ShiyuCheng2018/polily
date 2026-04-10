@@ -126,25 +126,25 @@ def run_scan_pipeline(
     from scanner.market_types.registry import find_matching_module
     price_params: dict[str, dict] = {}
     if config.mispricing.enabled:
-        _report("获取实时价格 (Binance)", "start")
+        _report("获取实时价格", "start")
         try:
             with _timed_status(_console, "Fetching price data"):
                 price_params = _run_async(_fetch_price_params_batch(passed, config))
-            # Build detail: show assets and prices
-            price_details = []
-            for _mid, params in list(price_params.items())[:3]:
+            # Show unique asset prices (deduped)
+            asset_prices: dict[str, float] = {}
+            for params in price_params.values():
+                label = params.pop("_asset_label", "?")
                 p = params.get("current_underlying_price")
                 if p:
-                    price_details.append(f"${p:,.0f}")
-            detail = f"{len(price_params)} 个 crypto" + (f" ({', '.join(price_details)})" if price_details else "")
-            _report("获取实时价格 (Binance)", "done", detail)
+                    asset_prices.setdefault(label, p)
+            detail = " | ".join(f"{k}: ${v:,.0f}" for k, v in asset_prices.items())
+            _report("获取实时价格", "done", detail or "无 crypto")
         except Exception as e:
-            _report("获取实时价格 (Binance)", "skip")
+            _report("获取实时价格", "skip")
             _console.print(" [dim]Price data skipped[/dim]")
             logger.warning("Price data fetch failed: %s", e)
 
-    # Score + Mispricing (pure rules, no AI)
-    _report("精选", "start")
+    # Score + Mispricing (pure rules, no AI) — no progress step, instant
     candidates: list[ScoredCandidate] = []
     for market in passed:
         score = compute_structure_score(
@@ -168,8 +168,6 @@ def run_scan_pipeline(
 
     # Tier classification
     tiers = classify_tiers(candidates, config.scoring.thresholds)
-    scored_eids = {getattr(c.market, "event_id", None) for c in candidates if getattr(c.market, "event_id", None)}
-    _report("精选", "done", f"{len(scored_eids)} 事件")
 
     # AI analysis removed from scan pipeline — triggered on-demand via 'a' key
 
@@ -409,12 +407,14 @@ async def _fetch_price_params_batch(
         data = asset_data.get(symbol)
         if not data:
             continue
+        asset_label = symbol.split("/")[0]  # "BTC/USDT" → "BTC"
         for m in mkts:
             threshold = extract_threshold_price(m.title)
             if threshold:
                 results[m.market_id] = {
                     **data,
                     "threshold_price": threshold,
+                    "_asset_label": asset_label,
                 }
 
     return results
