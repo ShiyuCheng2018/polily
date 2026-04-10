@@ -16,11 +16,8 @@ from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import (
     EventRow,
-    MarketRow,
     get_event,
     get_event_markets,
-    upsert_event,
-    upsert_market,
 )
 from scanner.core.monitor_store import get_event_monitor, update_next_check_at
 from scanner.core.paper_store import create_paper_trade as _create_paper_trade
@@ -80,7 +77,7 @@ class ScanService:
     # ------------------------------------------------------------------
 
     async def fetch_and_scan(self) -> None:
-        """Run full pipeline: fetch events -> persist to DB -> score -> tier."""
+        """Run full pipeline: fetch events -> filter -> persist filtered to DB -> score -> tier."""
         self._steps = []
         self._current_log = create_log_entry()
         self._persist_log(self._current_log)
@@ -94,17 +91,14 @@ class ScanService:
             self._finish_log("completed")
             return
 
-        # Persist events + markets to DB before pipeline
-        self._step_start("持久化到数据库")
-        self._persist_scan_data(event_rows, markets)
-        self._step_done(f"{len(event_rows)} 事件")
-
+        # Pipeline now handles: filter → persist only eligible → score → tier
         os.environ["POLILY_TUI"] = "1"
         try:
             run_scan_pipeline(
                 markets,
                 self.config,
                 db=self.db,
+                event_rows=event_rows,
                 progress_cb=self._on_pipeline_progress,
             )
         except Exception as e:
@@ -426,45 +420,6 @@ class ScanService:
             return all_event_rows, all_markets
         finally:
             await client.close()
-
-    def _persist_scan_data(self, event_rows: list[EventRow], markets: list) -> None:
-        """Upsert events + markets to DB before pipeline runs."""
-        from scanner.core.models import Market as MarketModel
-
-        for er in event_rows:
-            upsert_event(er, self.db)
-
-        for m in markets:
-            if not isinstance(m, MarketModel):
-                continue
-            mr = MarketRow(
-                market_id=m.market_id,
-                event_id=m.event_id or "",
-                question=m.title,
-                slug=getattr(m, "market_slug", None),
-                description=m.description,
-                group_item_title=m.group_item_title,
-                group_item_threshold=m.group_item_threshold,
-                condition_id=m.condition_id,
-                question_id=m.question_id,
-                clob_token_id_yes=m.clob_token_id_yes,
-                clob_token_id_no=m.clob_token_id_no,
-                neg_risk=m.neg_risk,
-                neg_risk_request_id=m.neg_risk_request_id,
-                neg_risk_other=m.neg_risk_other,
-                resolution_source=m.resolution_source,
-                end_date=m.resolution_time.isoformat() if m.resolution_time else None,
-                volume=m.volume,
-                liquidity=getattr(m, "liquidity", None),
-                yes_price=m.yes_price,
-                no_price=m.no_price,
-                best_bid=m.best_bid_yes,
-                best_ask=m.best_ask_yes,
-                spread=m.spread_yes,
-                accepting_orders=1 if m.accepting_orders else 0,
-                updated_at=datetime.now(UTC).isoformat(),
-            )
-            upsert_market(mr, self.db)
 
     def _persist_log(self, entry: ScanLogEntry) -> None:
         save_scan_log(entry, self.db)

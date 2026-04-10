@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
-from scanner.core.event_store import MarketRow, get_event, get_market, upsert_event, upsert_market
+from scanner.core.event_store import get_event, get_market
 from scanner.core.models import Market
 from scanner.scan.pipeline import run_scan_pipeline
 from tests.conftest import make_event, make_market
@@ -135,49 +135,125 @@ class TestRunPipelineAIDisabled:
 
 
 class TestPipelineDBPersistence:
-    """Pipeline updates event scores and market scores in DB when db= is passed."""
+    """Pipeline persists ONLY filtered events+markets to DB, then scores them."""
 
-    def test_pipeline_updates_event_scores_in_db(self, tmp_path):
-        """After pipeline runs, events.structure_score and events.tier should be set."""
+    def test_only_filtered_events_in_db(self, tmp_path):
+        """DB should only contain events whose markets passed filter."""
         db = PolilyDB(tmp_path / "test.db")
 
-        # Pre-seed event + market in DB (simulating what service does before pipeline)
-        ev = make_event(event_id="ev1")
-        upsert_event(ev, db)
-        upsert_market(MarketRow(
-            market_id="good-crypto",
-            event_id="ev1",
-            question="Will BTC be above $88,000 on March 30?",
-            updated_at="2026-04-10T00:00:00",
-        ), db)
+        # Two event_rows: ev1 has a good market, ev2 has a bad market
+        event_rows = [
+            make_event(event_id="ev1"),
+            make_event(event_id="ev2"),
+        ]
+        markets = [
+            # ev1: good market (passes filter)
+            make_market(
+                market_id="m1", event_id="ev1",
+                title="Will BTC be above $88,000 on March 30?",
+                yes_price=0.50, volume=80000, open_interest=50000,
+                resolution_source="https://coingecko.com",
+                resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
+            ),
+            # ev2: bad market (extreme price, will be filtered)
+            make_market(
+                market_id="m2", event_id="ev2",
+                title="Bad extreme",
+                yes_price=0.98, volume=500, open_interest=100,
+                resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
+            ),
+        ]
 
-        market = make_market(
-            market_id="good-crypto",
-            event_id="ev1",
-            title="Will BTC be above $88,000 on March 30?",
-            yes_price=0.50,
-            volume=80000,
-            open_interest=50000,
-            resolution_source="https://coingecko.com",
-            resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
-        )
         config = load_config(__import__("pathlib").Path("config.example.yaml"))
         config.ai.enabled = False
 
-        run_scan_pipeline([market], config, db=db)
+        run_scan_pipeline(markets, config, db=db, event_rows=event_rows)
 
-        # Event should have structure_score and tier set
+        # ev1 should be in DB (had passing market)
+        ev1 = get_event("ev1", db)
+        assert ev1 is not None
+        assert ev1.structure_score is not None
+
+        # ev2 should NOT be in DB (no passing market)
+        ev2 = get_event("ev2", db)
+        assert ev2 is None
+
+        # Only m1 should be in DB
+        m1 = get_market("m1", db)
+        assert m1 is not None
+        m2 = get_market("m2", db)
+        assert m2 is None
+        db.close()
+
+    def test_multi_outcome_event_all_siblings_persisted(self, tmp_path):
+        """If one sub-market passes, ALL sibling markets of that event are persisted."""
+        db = PolilyDB(tmp_path / "test.db")
+
+        event_rows = [make_event(event_id="ev1", market_count=3)]
+        markets = [
+            # m1: passes filter (good price, volume)
+            make_market(
+                market_id="m1", event_id="ev1",
+                title="Will BTC be above $88,000?",
+                yes_price=0.50, volume=80000, open_interest=50000,
+                resolution_source="https://coingecko.com",
+                resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
+            ),
+            # m2: would fail filter on its own (extreme price)
+            make_market(
+                market_id="m2", event_id="ev1",
+                title="Will BTC be above $90,000?",
+                yes_price=0.05, volume=80000, open_interest=50000,
+                resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
+            ),
+            # m3: would fail filter on its own (extreme price)
+            make_market(
+                market_id="m3", event_id="ev1",
+                title="Will BTC be above $95,000?",
+                yes_price=0.02, volume=80000, open_interest=50000,
+                resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
+            ),
+        ]
+
+        config = load_config(__import__("pathlib").Path("config.example.yaml"))
+        config.ai.enabled = False
+
+        run_scan_pipeline(markets, config, db=db, event_rows=event_rows)
+
+        # ALL 3 markets should be in DB (siblings of passing event)
+        assert get_market("m1", db) is not None
+        assert get_market("m2", db) is not None
+        assert get_market("m3", db) is not None
+
+        # Event should be in DB with score
+        ev = get_event("ev1", db)
+        assert ev is not None
+        assert ev.structure_score is not None
+        db.close()
+
+    def test_pipeline_updates_event_scores(self, tmp_path):
+        """Events get structure_score and tier after pipeline."""
+        db = PolilyDB(tmp_path / "test.db")
+
+        event_rows = [make_event(event_id="ev1")]
+        markets = [
+            make_market(
+                market_id="m1", event_id="ev1",
+                title="Will BTC be above $88,000 on March 30?",
+                yes_price=0.50, volume=80000, open_interest=50000,
+                resolution_source="https://coingecko.com",
+                resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
+            ),
+        ]
+        config = load_config(__import__("pathlib").Path("config.example.yaml"))
+        config.ai.enabled = False
+
+        run_scan_pipeline(markets, config, db=db, event_rows=event_rows)
+
         event = get_event("ev1", db)
         assert event is not None
-        assert event.structure_score is not None
         assert event.structure_score > 0
         assert event.tier in ("research", "watchlist", "filtered")
-
-        # Market should also have structure_score set
-        mkt = get_market("good-crypto", db)
-        assert mkt is not None
-        assert mkt.structure_score is not None
-        assert mkt.structure_score > 0
         db.close()
 
     def test_pipeline_without_db_still_works(self):
@@ -186,100 +262,6 @@ class TestPipelineDBPersistence:
         config.ai.enabled = False
 
         markets = _sample_markets()
-        # No db argument — should not raise
         tiers = run_scan_pipeline(markets, config)
         total_scored = len(tiers.tier_a) + len(tiers.tier_b) + len(tiers.tier_c)
         assert total_scored >= 1
-
-    def test_pipeline_updates_multiple_events(self, tmp_path):
-        """Multiple events with markets get their scores updated."""
-        db = PolilyDB(tmp_path / "test.db")
-
-        # Seed two events
-        upsert_event(make_event(event_id="ev1"), db)
-        upsert_event(make_event(event_id="ev2"), db)
-        upsert_market(MarketRow(
-            market_id="m1", event_id="ev1",
-            question="Q1", updated_at="now",
-        ), db)
-        upsert_market(MarketRow(
-            market_id="m2", event_id="ev2",
-            question="Q2", updated_at="now",
-        ), db)
-
-        markets = [
-            make_market(
-                market_id="m1", event_id="ev1",
-                title="Will BTC be above $88,000 on March 30?",
-                yes_price=0.50, volume=80000, open_interest=50000,
-                resolution_source="https://coingecko.com",
-                resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
-            ),
-            make_market(
-                market_id="m2", event_id="ev2",
-                title="Will CPI exceed 3.5% in March?",
-                yes_price=0.55, volume=60000, open_interest=40000,
-                resolution_source="https://bls.gov",
-                resolution_time=datetime(2026, 4, 2, tzinfo=UTC),
-            ),
-        ]
-
-        config = load_config(__import__("pathlib").Path("config.example.yaml"))
-        config.ai.enabled = False
-
-        run_scan_pipeline(markets, config, db=db)
-
-        # Both events should have scores
-        ev1 = get_event("ev1", db)
-        ev2 = get_event("ev2", db)
-        assert ev1 is not None and ev1.structure_score is not None
-        assert ev2 is not None and ev2.structure_score is not None
-        assert ev1.tier is not None
-        assert ev2.tier is not None
-        db.close()
-
-    def test_pipeline_event_gets_max_market_score(self, tmp_path):
-        """When event has multiple markets, event.structure_score = max(market scores)."""
-        db = PolilyDB(tmp_path / "test.db")
-
-        # Single event with two markets
-        upsert_event(make_event(event_id="ev1"), db)
-        upsert_market(MarketRow(
-            market_id="m1", event_id="ev1",
-            question="Q1", updated_at="now",
-        ), db)
-        upsert_market(MarketRow(
-            market_id="m2", event_id="ev1",
-            question="Q2", updated_at="now",
-        ), db)
-
-        markets = [
-            make_market(
-                market_id="m1", event_id="ev1",
-                title="Will BTC be above $88,000 on March 30?",
-                yes_price=0.50, volume=80000, open_interest=50000,
-                resolution_source="https://coingecko.com",
-                resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
-            ),
-            make_market(
-                market_id="m2", event_id="ev1",
-                title="Will BTC be above $90,000 on March 30?",
-                yes_price=0.55, volume=60000, open_interest=40000,
-                resolution_source="https://coingecko.com",
-                resolution_time=datetime(2026, 4, 2, tzinfo=UTC),
-            ),
-        ]
-
-        config = load_config(__import__("pathlib").Path("config.example.yaml"))
-        config.ai.enabled = False
-
-        run_scan_pipeline(markets, config, db=db)
-
-        ev = get_event("ev1", db)
-        m1 = get_market("m1", db)
-        m2 = get_market("m2", db)
-
-        # Event score should be max of market scores
-        assert ev is not None and m1 is not None and m2 is not None
-        assert ev.structure_score == max(m1.structure_score, m2.structure_score)
-        db.close()

@@ -84,9 +84,6 @@ class TestMarketCRUD:
 
     def test_get_active_markets(self, db):
         self._setup_event(db)
-        # Mark event as scan-eligible (poll only fetches eligible events)
-        db.conn.execute("UPDATE events SET scan_eligible=1 WHERE event_id='ev1'")
-        db.conn.commit()
         upsert_market(MarketRow(market_id="m1", event_id="ev1", question="Q1", updated_at="now"), db)
         upsert_market(MarketRow(market_id="m2", event_id="ev1", question="Q2", closed=1, updated_at="now"), db)
         active = get_active_markets(db)

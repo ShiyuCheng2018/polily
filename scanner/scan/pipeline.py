@@ -56,6 +56,7 @@ def run_scan_pipeline(
     config: ScannerConfig,
     *,
     db: PolilyDB | None = None,
+    event_rows: list | None = None,
     progress_cb=None,
 ) -> TierResult:
     """Run the full scan pipeline on a list of markets.
@@ -164,18 +165,9 @@ def run_scan_pipeline(
 
     # AI analysis removed from scan pipeline — triggered on-demand via 'a' key
 
-    # Persist scores to DB (if provided)
+    # Persist to DB: only filtered events + all their sibling markets, then scores
     if db is not None:
-        # Mark eligible events (passed filter) so poll only fetches these
-        eligible_eids = {getattr(m, "event_id", None) for m in passed if getattr(m, "event_id", None)}
-        if eligible_eids:
-            placeholders = ",".join("?" for _ in eligible_eids)
-            # Reset all to 0 first, then set eligible ones to 1
-            db.conn.execute("UPDATE events SET scan_eligible = 0")
-            db.conn.execute(
-                f"UPDATE events SET scan_eligible = 1 WHERE event_id IN ({placeholders})",
-                tuple(eligible_eids),
-            )
+        _persist_filtered(passed, markets, event_rows or [], db)
         _update_event_scores(candidates, tiers, db)
 
     logger.info(
@@ -183,6 +175,72 @@ def run_scan_pipeline(
         len(tiers.tier_a), len(tiers.tier_b), len(tiers.tier_c),
     )
     return tiers
+
+
+def _persist_filtered(
+    passed: list[Market],
+    all_markets: list[Market],
+    event_rows: list,
+    db: PolilyDB,
+) -> None:
+    """Persist only events with passing markets + all their sibling markets.
+
+    If one sub-market of an event passes, ALL sibling markets of that event
+    are persisted (for multi-outcome detail page completeness).
+    """
+    from scanner.core.event_store import MarketRow, upsert_event, upsert_market
+
+    # Find event_ids that have at least one passing market
+    eligible_eids = {
+        getattr(m, "event_id", None)
+        for m in passed
+        if getattr(m, "event_id", None)
+    }
+
+    if not eligible_eids:
+        return
+
+    # Persist eligible events
+    for er in event_rows:
+        if er.event_id in eligible_eids:
+            upsert_event(er, db)
+
+    # Persist ALL markets belonging to eligible events (siblings included)
+    for m in all_markets:
+        eid = getattr(m, "event_id", None)
+        if eid not in eligible_eids:
+            continue
+        mr = MarketRow(
+            market_id=m.market_id,
+            event_id=eid,
+            question=m.title,
+            slug=getattr(m, "market_slug", None),
+            description=m.description,
+            group_item_title=getattr(m, "group_item_title", None),
+            group_item_threshold=getattr(m, "group_item_threshold", None),
+            condition_id=m.condition_id,
+            question_id=getattr(m, "question_id", None),
+            clob_token_id_yes=m.clob_token_id_yes,
+            clob_token_id_no=m.clob_token_id_no,
+            neg_risk=getattr(m, "neg_risk", False),
+            neg_risk_request_id=getattr(m, "neg_risk_request_id", None),
+            neg_risk_other=getattr(m, "neg_risk_other", False),
+            resolution_source=m.resolution_source,
+            end_date=m.resolution_time.isoformat() if m.resolution_time else None,
+            volume=m.volume,
+            yes_price=m.yes_price,
+            no_price=m.no_price,
+            best_bid=m.best_bid_yes,
+            best_ask=m.best_ask_yes,
+            spread=m.spread_yes,
+            accepting_orders=getattr(m, "accepting_orders", True),
+            updated_at=__import__("datetime").datetime.now(
+                __import__("datetime").UTC
+            ).isoformat(),
+        )
+        upsert_market(mr, db)
+
+    db.conn.commit()
 
 
 def _update_event_scores(
