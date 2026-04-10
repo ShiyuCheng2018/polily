@@ -1,82 +1,94 @@
-"""Tests for SQLite-backed analysis store."""
+"""Tests for analysis store — event-level."""
+import pytest
 
 from scanner.analysis_store import (
     AnalysisVersion,
     append_analysis,
-    get_market_analyses,
+    get_event_analyses,
 )
+from scanner.core.db import PolilyDB
+from scanner.core.event_store import EventRow, upsert_event
 
 
-def _make_version(version: int = 1, **overrides) -> AnalysisVersion:
-    defaults = dict(
-        version=version,
-        created_at="2026-03-30T00:00:00+00:00",
-        market_title="BTC above $66K?",
-        yes_price_at_analysis=0.64,
-        analyst_output={"objectivity_score": 85, "market_type": "crypto_threshold"},
-        narrative_output={"summary": "test summary", "one_line_verdict": "verdict", "risk_flags": []},
-        trigger_source="manual",
-        elapsed_seconds=5.0,
-    )
-    defaults.update(overrides)
-    return AnalysisVersion(**defaults)
+@pytest.fixture
+def db(tmp_path):
+    db = PolilyDB(tmp_path / "test.db")
+    yield db
+    db.close()
 
 
-def test_append_and_get(polily_db):
-    v = _make_version(structure_score=72.5)
-    append_analysis("0xabc", v, polily_db)
-    versions = get_market_analyses("0xabc", polily_db)
-    assert len(versions) == 1
-    assert versions[0].version == 1
-    assert versions[0].structure_score == 72.5
-    assert versions[0].market_title == "BTC above $66K?"
+def _setup_event(db, event_id="ev1"):
+    upsert_event(EventRow(event_id=event_id, title=f"Event {event_id}", updated_at="now"), db)
 
 
-def test_get_empty(polily_db):
-    assert get_market_analyses("0xnonexistent", polily_db) == []
+class TestAnalysisStore:
+    def test_append_and_get(self, db):
+        _setup_event(db)
+        version = AnalysisVersion(
+            version=1, created_at="2026-04-10T12:00:00",
+            trigger_source="manual",
+            prices_snapshot={"m1": {"yes": 0.55, "no": 0.45}},
+            narrative_output={"action": "WATCH", "summary": "test"},
+        )
+        append_analysis("ev1", version, db)
+        versions = get_event_analyses("ev1", db)
+        assert len(versions) == 1
+        assert versions[0].trigger_source == "manual"
+        assert "m1" in versions[0].prices_snapshot
 
+    def test_multiple_versions(self, db):
+        _setup_event(db)
+        for i in range(1, 4):
+            v = AnalysisVersion(
+                version=i, created_at=f"2026-04-{10+i}T12:00:00",
+                trigger_source="scan" if i == 1 else "scheduled",
+                narrative_output={"action": "WATCH", "summary": f"v{i}"},
+            )
+            append_analysis("ev1", v, db)
+        versions = get_event_analyses("ev1", db)
+        assert len(versions) == 3
+        assert versions[0].version == 1
+        assert versions[2].version == 3
 
-def test_no_version_limit(polily_db):
-    for i in range(20):
-        append_analysis("0xabc", _make_version(i + 1), polily_db)
-    versions = get_market_analyses("0xabc", polily_db)
-    assert len(versions) == 20
-    assert versions[0].version == 1
-    assert versions[-1].version == 20
+    def test_empty_result(self, db):
+        versions = get_event_analyses("nonexistent", db)
+        assert versions == []
 
+    def test_prices_snapshot_roundtrip(self, db):
+        _setup_event(db)
+        snapshot = {"m1": {"yes": 0.6, "bid": 0.59}, "m2": {"yes": 0.3, "bid": 0.29}}
+        v = AnalysisVersion(
+            version=1, created_at="2026-04-10T12:00:00",
+            prices_snapshot=snapshot,
+            narrative_output={"action": "BUY_YES"},
+        )
+        append_analysis("ev1", v, db)
+        loaded = get_event_analyses("ev1", db)
+        assert loaded[0].prices_snapshot == snapshot
 
-def test_multiple_markets(polily_db):
-    append_analysis("0x1", _make_version(1), polily_db)
-    append_analysis("0x2", _make_version(1), polily_db)
-    append_analysis("0x1", _make_version(2), polily_db)
-    assert len(get_market_analyses("0x1", polily_db)) == 2
-    assert len(get_market_analyses("0x2", polily_db)) == 1
+    def test_score_and_mispricing(self, db):
+        _setup_event(db)
+        v = AnalysisVersion(
+            version=1, created_at="2026-04-10T12:00:00",
+            narrative_output={"action": "PASS"},
+            structure_score=82.5,
+            score_breakdown={"liquidity": 25, "verifiability": 20},
+            mispricing_signal="moderate",
+            mispricing_details="Model 0.49 vs market 0.55",
+        )
+        append_analysis("ev1", v, db)
+        loaded = get_event_analyses("ev1", db)
+        assert loaded[0].structure_score == 82.5
+        assert loaded[0].mispricing_signal == "moderate"
+        assert loaded[0].score_breakdown["liquidity"] == 25
 
-
-def test_dict_fields_serialized(polily_db):
-    v = _make_version(
-        analyst_output={"key": "value", "nested": {"a": 1}},
-        narrative_output={"summary": "s", "one_line_verdict": "v", "risk_flags": [{"text": "r", "severity": "info"}]},
-        score_breakdown={"liquidity": 20, "objectivity": 18},
-    )
-    append_analysis("0xabc", v, polily_db)
-    loaded = get_market_analyses("0xabc", polily_db)
-    assert loaded[0].analyst_output["nested"]["a"] == 1
-    assert loaded[0].narrative_output["risk_flags"][0]["text"] == "r"
-    assert loaded[0].score_breakdown["liquidity"] == 20
-
-
-def test_new_fields(polily_db):
-    v = _make_version(
-        trigger_source="scheduled",
-        watch_sequence=3,
-        price_at_watch=0.55,
-        structure_score=72.5,
-    )
-    append_analysis("0xabc", v, polily_db)
-    loaded = get_market_analyses("0xabc", polily_db)[0]
-    assert loaded.trigger_source == "scheduled"
-    assert loaded.watch_sequence == 3
-    assert loaded.price_at_watch == 0.55
-    assert loaded.structure_score == 72.5
-
+    def test_elapsed_seconds(self, db):
+        _setup_event(db)
+        v = AnalysisVersion(
+            version=1, created_at="2026-04-10T12:00:00",
+            narrative_output={"action": "PASS"},
+            elapsed_seconds=45.3,
+        )
+        append_analysis("ev1", v, db)
+        loaded = get_event_analyses("ev1", db)
+        assert loaded[0].elapsed_seconds == 45.3
