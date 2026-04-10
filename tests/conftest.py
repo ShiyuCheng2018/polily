@@ -16,6 +16,12 @@ def _suppress_desktop_notifications(monkeypatch):
     monkeypatch.setattr("scanner.notifications.subprocess.run", lambda *a, **kw: None)
 
 
+@pytest.fixture(autouse=True)
+def _suppress_agent_debug_log(monkeypatch):
+    """Prevent tests from writing agent_debug.log to data/."""
+    monkeypatch.setattr("scanner.agents.base._dump_debug", lambda *a, **kw: None)
+
+
 @pytest.fixture
 def polily_db(tmp_path):
     """Provide a PolilyDB in a temp directory that auto-cleans up."""
