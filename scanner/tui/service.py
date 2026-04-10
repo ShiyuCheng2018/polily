@@ -3,13 +3,14 @@
 import dataclasses
 import logging
 import time
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from scanner.api import PolymarketClient, parse_gamma_event
 from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
+from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
 from scanner.scan.pipeline import run_scan_pipeline
 from scanner.scan.reporting import ScoredCandidate, TierResult
 from scanner.scan_log import (
@@ -121,7 +122,7 @@ class ScanService:
         self._persist_log(self._current_log)
 
         self._step_start("获取市场数据")
-        markets = await self._fetch_markets()
+        event_rows, markets = await self._fetch_markets_v2()
         self._step_done(f"{len(markets)} 个")
 
         self.total_scanned = len(markets)
@@ -130,11 +131,17 @@ class ScanService:
             self._finish_log("completed")
             return self.tiers
 
+        # Persist events + markets to DB before pipeline
+        self._step_start("持久化到数据库")
+        self._persist_scan_data(event_rows, markets)
+        self._step_done(f"{len(event_rows)} 事件")
+
         import os
         os.environ["POLILY_TUI"] = "1"
         try:
             self.tiers = run_scan_pipeline(
                 markets, self.config,
+                db=self.db,
                 progress_cb=self._on_pipeline_progress,
             )
         except Exception as e:
@@ -143,7 +150,6 @@ class ScanService:
         finally:
             os.environ.pop("POLILY_TUI", None)
 
-        # TODO: v0.5.0 — archive saving removed; will be rewritten against event_store
         if self.config.archiving.enabled and self._current_log:
             self.last_scan_id = self._current_log.scan_id
 
@@ -425,24 +431,61 @@ class ScanService:
             await client.close()
         return prices
 
-    async def _fetch_markets(self) -> list:
+    async def _fetch_markets_v2(self) -> tuple[list[EventRow], list]:
+        """Fetch events from Gamma API, returning (EventRow list, Market list)."""
         client = PolymarketClient(self.config.api)
         try:
-            events = await client.fetch_all_events(
+            events_data = await client.fetch_all_events(
                 max_events=self.config.scanner.max_markets_to_fetch // 2,
             )
-            markets = []
-            for event in events:
-                result = parse_gamma_event(event)
-                # Handle both old (list[Market]) and new (tuple[EventRow, list[Market]]) return
-                if isinstance(result, tuple):
-                    _event_row, market_list = result
-                    markets.extend(market_list)
-                else:
-                    markets.extend(result)
-            return markets
+            all_event_rows: list[EventRow] = []
+            all_markets = []
+            for event_data in events_data:
+                event_row, market_list = parse_gamma_event(event_data)
+                all_event_rows.append(event_row)
+                all_markets.extend(market_list)
+            return all_event_rows, all_markets
         finally:
             await client.close()
+
+    def _persist_scan_data(self, event_rows: list[EventRow], markets: list) -> None:
+        """Upsert events + markets to DB before pipeline runs."""
+        from scanner.core.models import Market as MarketModel
+
+        for er in event_rows:
+            upsert_event(er, self.db)
+
+        for m in markets:
+            if not isinstance(m, MarketModel):
+                continue
+            mr = MarketRow(
+                market_id=m.market_id,
+                event_id=m.event_id or "",
+                question=m.title,
+                slug=getattr(m, "market_slug", None),
+                description=m.description,
+                group_item_title=m.group_item_title,
+                group_item_threshold=m.group_item_threshold,
+                condition_id=m.condition_id,
+                question_id=m.question_id,
+                clob_token_id_yes=m.clob_token_id_yes,
+                clob_token_id_no=m.clob_token_id_no,
+                neg_risk=m.neg_risk,
+                neg_risk_request_id=m.neg_risk_request_id,
+                neg_risk_other=m.neg_risk_other,
+                resolution_source=m.resolution_source,
+                end_date=m.resolution_time.isoformat() if m.resolution_time else None,
+                volume=m.volume,
+                liquidity=getattr(m, "liquidity", None),
+                yes_price=m.yes_price,
+                no_price=m.no_price,
+                best_bid=m.best_bid_yes,
+                best_ask=m.best_ask_yes,
+                spread=m.spread_yes,
+                accepting_orders=1 if m.accepting_orders else 0,
+                updated_at=datetime.now(UTC).isoformat(),
+            )
+            upsert_market(mr, self.db)
 
     def get_all_market_states(self) -> dict:
         """Get all market states as {market_id: state_dict}.

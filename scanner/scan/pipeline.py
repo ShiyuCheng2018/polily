@@ -1,11 +1,14 @@
 """Core scan pipeline: fetch → filter → classify → score → mispricing → [AI] → tier."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
 from scanner.api import PolymarketClient
 from scanner.core.config import ScannerConfig
@@ -15,6 +18,9 @@ from scanner.scan.filters import apply_hard_filters
 from scanner.scan.mispricing import MispricingResult, detect_mispricing
 from scanner.scan.reporting import ScoredCandidate, TierResult, classify_tiers
 from scanner.scan.scoring import compute_structure_score
+
+if TYPE_CHECKING:
+    from scanner.core.db import PolilyDB
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +54,8 @@ def _timed_status(console, message: str):
 def run_scan_pipeline(
     markets: list[Market],
     config: ScannerConfig,
+    *,
+    db: PolilyDB | None = None,
     progress_cb=None,
 ) -> TierResult:
     """Run the full scan pipeline on a list of markets.
@@ -156,11 +164,64 @@ def run_scan_pipeline(
 
     # AI analysis removed from scan pipeline — triggered on-demand via 'a' key
 
+    # Persist scores to DB (if provided)
+    if db is not None:
+        _update_event_scores(candidates, tiers, db)
+
     logger.info(
         "Tiers: A=%d, B=%d, C=%d",
         len(tiers.tier_a), len(tiers.tier_b), len(tiers.tier_c),
     )
     return tiers
+
+
+def _update_event_scores(
+    candidates: list[ScoredCandidate],
+    tiers: TierResult,
+    db: PolilyDB,
+) -> None:
+    """Update events.structure_score/tier and markets.structure_score in DB after scoring."""
+    # Build event_id → max score mapping (event gets its best market's score)
+    event_scores: dict[str, float] = {}
+    for c in candidates:
+        eid = getattr(c.market, "event_id", None)
+        if eid:
+            current = event_scores.get(eid, 0.0)
+            event_scores[eid] = max(current, c.score.total)
+
+    # Build event_id → best tier mapping (research > watchlist > filtered)
+    event_tiers: dict[str, str] = {}
+    for c in tiers.tier_a:
+        eid = getattr(c.market, "event_id", None)
+        if eid:
+            event_tiers[eid] = "research"
+    for c in tiers.tier_b:
+        eid = getattr(c.market, "event_id", None)
+        if eid and eid not in event_tiers:
+            event_tiers[eid] = "watchlist"
+    for c in tiers.tier_c:
+        eid = getattr(c.market, "event_id", None)
+        if eid and eid not in event_tiers:
+            event_tiers[eid] = "filtered"
+
+    # Update event rows
+    for eid, score in event_scores.items():
+        tier = event_tiers.get(eid, "filtered")
+        db.conn.execute(
+            "UPDATE events SET structure_score = ?, tier = ? WHERE event_id = ?",
+            (score, tier, eid),
+        )
+
+    # Update per-market scores
+    for c in candidates:
+        eid = getattr(c.market, "event_id", None)
+        if eid:
+            db.conn.execute(
+                "UPDATE markets SET structure_score = ? WHERE market_id = ?",
+                (c.score.total, c.market.market_id),
+            )
+
+    db.conn.commit()
 
 
 async def enrich_with_orderbook(
