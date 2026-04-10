@@ -27,7 +27,7 @@ class HistoryView(Widget):
 
     def on_mount(self) -> None:
         trades = self.service.get_resolved_trades()
-        stats = self.service.get_resolved_stats()
+        stats = self.service.get_trade_stats()
 
         table = self.query_one("#history-table", DataTable)
         table.cursor_type = "row"
@@ -40,16 +40,21 @@ class HistoryView(Widget):
             return
 
         for t in trades:
-            # Settlement price: win → 1.00, lose → 0.00
-            if t.resolved_result:
-                won = (t.side == t.resolved_result)
+            side = t["side"]
+            entry_price = t["entry_price"]
+            position_size_usd = t["position_size_usd"]
+            resolved_result = t.get("resolved_result")
+
+            # Settlement price: win -> 1.00, lose -> 0.00
+            if resolved_result:
+                won = side == resolved_result
                 settle_price = "1.00" if won else "0.00"
             else:
                 settle_price = "?"
 
-            # P&L — each colored independently
-            pnl = t.paper_pnl or 0
-            friction_pnl = t.friction_adjusted_pnl or 0
+            # P&L -- each colored independently
+            pnl = t.get("paper_pnl") or 0
+            friction_pnl = t.get("friction_adjusted_pnl") or 0
 
             if pnl > 0:
                 pnl_str = f"[green]+${pnl:.2f}[/green]"
@@ -66,7 +71,7 @@ class HistoryView(Widget):
                 friction_str = "$0.00"
 
             # P&L %
-            pnl_pct = pnl / t.position_size_usd * 100 if t.position_size_usd > 0 else 0
+            pnl_pct = pnl / position_size_usd * 100 if position_size_usd > 0 else 0
             if pnl_pct > 0:
                 pnl_pct_str = f"[green]+{pnl_pct:.1f}%[/green]"
             elif pnl_pct < 0:
@@ -75,18 +80,19 @@ class HistoryView(Widget):
                 pnl_pct_str = "0.0%"
 
             # Resolved time
-            resolved_at = t.resolved_at[:10] if t.resolved_at else "?"
+            resolved_at = t.get("resolved_at", "?")
+            resolved_at = resolved_at[:10] if resolved_at else "?"
 
             table.add_row(
-                t.title[:30],
-                t.side.upper(),
-                f"{t.entry_price:.2f}",
+                (t.get("title") or "?")[:30],
+                side.upper(),
+                f"{entry_price:.2f}",
                 settle_price,
                 pnl_str,
                 friction_str,
                 pnl_pct_str,
                 resolved_at,
-                key=t.id,
+                key=t["id"],
             )
 
         # Summary
@@ -94,13 +100,10 @@ class HistoryView(Widget):
         total_pnl = stats["total_pnl"]
         total_friction = stats["total_friction_pnl"]
 
-        if total_pnl >= 0:
-            pnl_color = "green"
-        else:
-            pnl_color = "red"
+        pnl_color = "green" if total_pnl >= 0 else "red"
 
         self.query_one("#history-summary", Static).update(
-            f" 已结算: {stats['total']} | "
+            f" 已结算: {stats['resolved']} | "
             f"胜率: {win_pct:.0f}% | "
             f"PnL: [{pnl_color}]{'+' if total_pnl >= 0 else ''}${total_pnl:.2f}[/{pnl_color}] | "
             f"扣摩擦: [{pnl_color}]{'+' if total_friction >= 0 else ''}${total_friction:.2f}[/{pnl_color}]"

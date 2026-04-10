@@ -15,6 +15,7 @@ from scanner.tui.views.market_detail import (
     SwitchVersionRequested,
 )
 from scanner.tui.views.market_list import MarketListView, ViewDetailRequested
+from scanner.tui.views.monitor_list import MonitorListView, ViewMonitorDetail
 from scanner.tui.views.notification_list import NotificationListView
 from scanner.tui.views.paper_status import PaperStatusView, ViewTradeDetail
 from scanner.tui.views.scan_log import (
@@ -25,7 +26,6 @@ from scanner.tui.views.scan_log import (
     StepInfo,
     ViewScanLogDetail,
 )
-from scanner.tui.views.monitor_list import MonitorListView, ViewMonitorDetail
 from scanner.tui.widgets.sidebar import MenuSelected, Sidebar
 
 

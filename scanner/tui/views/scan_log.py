@@ -267,5 +267,5 @@ class ScanLogDetailView(Widget):
         self.post_message(BackToScanLog())
 
     def action_open_market(self) -> None:
-        if self.log_entry.type == "analyze" and self.log_entry.market_id:
-            self.post_message(OpenMarketFromLog(self.log_entry.market_id))
+        if self.log_entry.type == "analyze" and self.log_entry.event_id:
+            self.post_message(OpenMarketFromLog(self.log_entry.event_id))
