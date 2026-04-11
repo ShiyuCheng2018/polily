@@ -37,9 +37,18 @@ Screen {
     padding: 0 1;
 }
 
-/* 市场列表 */
+/* 市场列表 — 列表页占满，详情页自适应 */
 DataTable {
+    height: auto;
+}
+
+#market-table {
     height: 1fr;
+}
+
+#sub-market-table {
+    height: auto;
+    min-height: 5;
 }
 
 DataTable > .datatable--cursor {
@@ -88,6 +97,16 @@ DataTable > .datatable--cursor {
     text-style: bold;
     text-align: center;
     padding: 0 0 1 0;
+}
+
+/* AI 分析面板 */
+#ai-panels {
+    height: auto;
+}
+
+#ai-why, #ai-evidence {
+    width: 1fr;
+    height: auto;
 }
 
 /* 空状态 */

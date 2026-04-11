@@ -63,9 +63,9 @@ ACTION_DISPLAY = {
 }
 
 CONFIDENCE_BAR = {
-    "low": "[dim]|||||.....[/dim]",
-    "medium": "[yellow]|||||||...[/yellow]",
-    "high": "[green]|||||||||.[/green]",
+    "low": "[red]██[/red][dim]██████[/dim]",
+    "medium": "[yellow]█████[/yellow][dim]███[/dim]",
+    "high": "[green]███████[/green][dim]█[/dim]",
 }
 
 
@@ -342,15 +342,16 @@ class MarketDetailView(Widget):
                 yield table
 
             # --- Analyzing state ---
+            # --- Position panel (always on top) ---
+            yield from self._compose_position_panel(d)
+
+            # --- AI Analysis panel (below) ---
             if self._analyzing:
                 yield Static("AI 分析中...", classes="section-label")
                 yield Static("正在联网搜索 + 分析，请稍候...", classes="row")
             elif analyses:
                 yield Static("")
-                # --- Two-column panels ---
-                with Horizontal(id="panels"):
-                    yield from self._compose_analysis_panel(analyses)
-                    yield from self._compose_position_panel(d)
+                yield from self._compose_analysis_panel(analyses)
             else:
                 yield Static("")
                 yield Static("[dim]按 a 启动 AI 分析[/dim]", classes="row")
@@ -525,70 +526,185 @@ class MarketDetailView(Widget):
                 yield Static("[dim]无分析数据[/dim]", classes="row")
                 return
 
-            # Action + why
+            # --- KPI Row ---
             action = n.get("action", "PASS")
             action_label, _ = ACTION_DISPLAY.get(action, ("[dim]?[/dim]", "dim"))
-            why = n.get("why_now") or n.get("why_not_now", "")
-            yield Static(f"{action_label}  {why}", classes="row")
+            bias = n.get("bias")
+            bias_str = f"偏向 {bias}" if bias and bias != "NONE" else ""
 
-            # Verdict
+            confidence = n.get("confidence", "low")
+            conf_bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
+            strength = n.get("strength", "")
+
+            tw = n.get("time_window", {})
+            if isinstance(tw, dict):
+                urgency = tw.get("urgency", "")
+                tw_note = tw.get("note", "")
+            else:
+                urgency = ""
+                tw_note = ""
+            urgency_label = {"urgent": "紧急", "normal": "正常", "no_rush": "不急"}.get(urgency, urgency)
+
+            fve = n.get("friction_vs_edge", "")
+            fve_label = {"edge_exceeds": "edge > 摩擦", "roughly_equals": "edge ≈ 摩擦", "friction_exceeds": "摩擦 > edge"}.get(fve, fve)
+            exec_risk = n.get("execution_risk", "")
+
+            action_content = f"{action_label}\n{bias_str}" if bias_str else action_label
+            conf_content = f"{conf_bar}\n强度 {strength}" if strength else conf_bar
+            time_content = f"{urgency_label}\n{tw_note}" if tw_note else urgency_label
+            fve_content = f"{fve_label}\n执行风险 {exec_risk}" if exec_risk else fve_label
+
+            with HorizontalGroup(id="ai-kpi-row"):
+                for content, card_id, title in [
+                    (action_content, "ai-action", "判定"),
+                    (conf_content, "ai-conf", "置信度"),
+                    (time_content, "ai-time", "时间窗口"),
+                    (fve_content, "ai-fve", "摩擦vs边际"),
+                ]:
+                    card = MetricCard(content, id=card_id)
+                    card.border_title = title
+                    yield card
+
+            # --- Verdict ---
             verdict = n.get("one_line_verdict", "")
             if verdict:
-                yield Static(f"[dim]{verdict}[/dim]", classes="row")
+                yield Static(f"\n[bold]{verdict}[/bold]", classes="row")
 
-            # Confidence
-            confidence = n.get("confidence", "low")
-            bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
-            yield Static(f"置信度 {bar} {confidence}", classes="row")
+            # --- Two sub-panels ---
+            with Horizontal(id="ai-panels"):
+                yield from self._compose_ai_why_panel(n)
+                yield from self._compose_ai_evidence_panel(n)
+
+            # --- Next check + version ---
+            nc = n.get("next_check_at")
+            nr = n.get("next_check_reason", "")
+            nc_str = f"下次检查: [cyan]{nc[:16]}[/cyan] {nr}" if nc else ""
+            yield Static("")
+            yield from self._compose_version_selector(analyses, extra=nc_str)
+
+    def _compose_ai_why_panel(self, n: dict) -> ComposeResult:
+        """Left sub-panel: why/why not + risks + recheck conditions."""
+        panel = DashPanel(id="ai-why")
+        panel.border_title = "决策依据"
+        with panel:
+            # Why now / why not now
+            why = n.get("why_now") or ""
+            why_not = n.get("why_not_now") or ""
+            if why:
+                yield Static(f"[green]为什么做:[/green] {why}", classes="row")
+            if why_not:
+                yield Static(f"[yellow]为什么不做:[/yellow] {why_not}", classes="row")
 
             # Summary
             summary = n.get("summary", "")
             if summary:
-                yield Static("")
-                yield Static(summary, classes="row")
+                yield Static(f"\n{summary}", classes="row")
 
-            # Risk flags (critical)
-            for rf in n.get("risk_flags", []):
-                sev = rf.get("severity", "info") if isinstance(rf, dict) else "info"
-                text = rf.get("text", str(rf)) if isinstance(rf, dict) else str(rf)
-                if sev == "critical":
-                    yield Static(f"! {text}", classes="risk-critical")
+            # Risk flags (all severities)
+            risks = n.get("risk_flags", [])
+            if risks:
+                yield Static("\n[bold]风险[/bold]", classes="row")
+                for rf in risks:
+                    sev = rf.get("severity", "info") if isinstance(rf, dict) else "info"
+                    text = rf.get("text", str(rf)) if isinstance(rf, dict) else str(rf)
+                    icon = {"critical": "[red]![/red]", "warning": "[yellow]⚠[/yellow]", "info": "[dim]ℹ[/dim]"}.get(sev, "·")
+                    yield Static(f"  {icon} {text}", classes="row")
 
-            # Next check
-            nc = n.get("next_check_at")
-            nr = n.get("next_check_reason", "")
-            if nc:
-                yield Static(f"检查: [cyan]{nc[:16]}[/cyan] {nr}", classes="row")
+            # Recheck conditions
+            conditions = n.get("recheck_conditions", [])
+            if conditions:
+                yield Static("\n[bold]重新关注条件[/bold]", classes="row")
+                for c in conditions:
+                    yield Static(f"  · {c}", classes="row")
 
-            # Version selector
-            yield Static("")
-            yield from self._compose_version_selector(analyses)
+    def _compose_ai_evidence_panel(self, n: dict) -> ComposeResult:
+        """Right sub-panel: supporting + invalidation findings + crypto context."""
+        panel = DashPanel(id="ai-evidence")
+        panel.border_title = "AI 调研发现"
+        with panel:
+            # Supporting findings
+            supporting = n.get("supporting_findings", [])
+            if supporting:
+                yield Static("[green]支撑证据[/green]", classes="row")
+                for f in supporting:
+                    if isinstance(f, dict):
+                        finding = f.get("finding", "")
+                        source = f.get("source", "")
+                        impact = f.get("impact", "")
+                        yield Static(f"  ✓ {finding}", classes="row")
+                        if source or impact:
+                            yield Static(f"    [dim]{source} → {impact}[/dim]", classes="row")
+                    else:
+                        yield Static(f"  ✓ {f}", classes="row")
 
-    def _compose_version_selector(self, analyses) -> ComposeResult:
+            # Invalidation findings
+            invalid = n.get("invalidation_findings", [])
+            if invalid:
+                yield Static(f"\n[red]失效条件[/red]", classes="row")
+                for f in invalid:
+                    if isinstance(f, dict):
+                        finding = f.get("finding", "")
+                        source = f.get("source", "")
+                        impact = f.get("impact", "")
+                        yield Static(f"  ✗ {finding}", classes="row")
+                        if source or impact:
+                            yield Static(f"    [dim]{source} → {impact}[/dim]", classes="row")
+                    else:
+                        yield Static(f"  ✗ {f}", classes="row")
+
+            # Crypto context
+            crypto = n.get("crypto")
+            if crypto and isinstance(crypto, dict):
+                yield Static(f"\n[bold]Crypto[/bold]", classes="row")
+                dist = crypto.get("distance_to_threshold_pct")
+                buf = crypto.get("buffer_conclusion", "")
+                vol = crypto.get("daily_vol_pct")
+                parts = []
+                if dist is not None:
+                    parts.append(f"距阈值 {dist:.1f}%")
+                if buf:
+                    parts.append(f"缓冲 {buf}")
+                if vol is not None:
+                    parts.append(f"日波动 {vol:.1f}%")
+                if parts:
+                    yield Static(f"  {' | '.join(parts)}", classes="row")
+                mak = crypto.get("market_already_knows", "")
+                if mak:
+                    yield Static(f"  [dim]{mak}[/dim]", classes="row")
+
+            # Counterparty note
+            cn = n.get("counterparty_note", "")
+            if cn:
+                yield Static(f"\n[dim]{cn}[/dim]", classes="row")
+
+            # If no evidence at all
+            if not supporting and not invalid and not crypto:
+                yield Static("[dim]无调研数据[/dim]", classes="row")
+
+    def _compose_version_selector(self, analyses, extra: str = "") -> ComposeResult:
         if not analyses or self._version_idx < 0:
             return
         v = analyses[self._version_idx]
         total = len(analyses)
         idx = self._version_idx + 1
-        ts = v.created_at[5:16].replace("T", " ")
-
-        # Price from snapshot
-        price_note = ""
-        if v.prices_snapshot:
-            first = next(iter(v.prices_snapshot.values()), {})
-            snap_yes = first.get("yes") if isinstance(first, dict) else None
-            if snap_yes is not None:
-                price_note = f"YES {snap_yes:.2f}"
+        # Convert UTC to local time for display
+        from datetime import datetime, timezone
+        try:
+            utc_dt = datetime.fromisoformat(v.created_at)
+            local_dt = utc_dt.astimezone()
+            ts = local_dt.strftime("%m-%d %H:%M")
+        except (ValueError, TypeError):
+            ts = v.created_at[5:16].replace("T", " ")
 
         trigger_map = {
             "manual": "手动", "scheduled": "定时",
             "movement": "异动", "scan": "扫描",
         }
         trigger_label = trigger_map.get(v.trigger_source, v.trigger_source)
-        yield Static(
-            f"[dim]v{v.version} ({ts}) {price_note} [{trigger_label}] ({idx}/{total}) 按v切换[/dim]",
-            classes="row",
-        )
+        parts = [f"v{v.version} ({ts}) [{trigger_label}] ({idx}/{total}) 按v切换"]
+        if extra:
+            parts.append(extra)
+        yield Static(f"[dim]{' | '.join(parts)}[/dim]", classes="row")
 
     def _current_narrative(self, analyses) -> dict | None:
         """Get the narrative_output dict from the selected version."""
