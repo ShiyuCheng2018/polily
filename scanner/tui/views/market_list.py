@@ -123,8 +123,17 @@ class MarketListView(Widget):
             # Volume
             vol = _fmt_volume(ev.volume)
 
-            # Resolution
-            days = format_countdown(ev.end_date)
+            # Resolution — range for multi-outcome, single for binary
+            if is_multi:
+                from scanner.tui.utils import format_countdown_range
+                r = self.service.db.conn.execute(
+                    "SELECT MIN(end_date), MAX(end_date) FROM markets "
+                    "WHERE event_id=? AND closed=0 AND end_date IS NOT NULL",
+                    (ev.event_id,),
+                ).fetchone()
+                days = format_countdown_range(r[0] if r else None, r[1] if r else None)
+            else:
+                days = format_countdown(ev.end_date)
 
             table.add_row(
                 title, ev.market_type or "other", summary, vol, days, score, status,
@@ -157,8 +166,11 @@ class MarketListView(Widget):
 
             vol = _fmt_volume(m.volume)
 
+            from scanner.tui.utils import format_countdown
+            market_date = format_countdown(m.end_date) if m.end_date else ""
+
             table.add_row(
-                f"  {connector} {label[:28]}", "", f"{bar} {price:.0%}", vol, "", "", "",
+                f"  {connector} {label[:28]}", "", f"{bar} {price:.0%}", vol, market_date, "", "",
                 key=f"sub_{m.market_id}",
             )
             self._row_map.append({"type": "sub_market", "market": m, "event_id": event_id})
