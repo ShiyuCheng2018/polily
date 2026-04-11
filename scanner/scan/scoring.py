@@ -24,45 +24,89 @@ if TYPE_CHECKING:
 
 @dataclass
 class ScoreBreakdown:
-    liquidity_structure: float      # 0-30
-    objective_verifiability: float  # 0-25
-    probability_space: float        # 0-20
-    time_structure: float           # 0-15
-    trading_friction: float         # 0-10
-    total: float                    # 0-100
+    liquidity_structure: float      # 0-W (type-dependent max)
+    objective_verifiability: float  # 0-W
+    probability_space: float        # 0-W
+    time_structure: float           # 0-W
+    trading_friction: float         # 0-W
+    net_edge: float = 0.0           # 0-W (crypto only, 0 for others)
+    total: float = 0.0             # 0-100
+
+
+# Type-specific weight profiles (all sum to 100)
+_TYPE_WEIGHTS = {
+    "crypto": {
+        "liquidity": 20, "verifiability": 15, "probability": 15,
+        "time": 15, "friction": 10, "net_edge": 25,
+    },
+    "sports": {
+        "liquidity": 25, "verifiability": 20, "probability": 20,
+        "time": 20, "friction": 15, "net_edge": 0,
+    },
+    "political": {
+        "liquidity": 25, "verifiability": 20, "probability": 20,
+        "time": 20, "friction": 15, "net_edge": 0,
+    },
+}
+_DEFAULT_WEIGHTS = {
+    "liquidity": 25, "verifiability": 20, "probability": 20,
+    "time": 20, "friction": 15, "net_edge": 0,
+}
 
 
 def compute_structure_score(
     market: Market,
     weights: ScoringWeights,
 ) -> ScoreBreakdown:
-    """Compute a 0-100 structure score with 5-dimension breakdown.
+    """Compute a 0-100 structure score with type-specific weight profiles.
 
-    Each component is scored 0.0-1.0, then multiplied by its weight.
+    Crypto markets get Net Edge dimension (25%), others get 0%.
     """
+    market_type = getattr(market, "market_type", None) or "other"
+    tw = _TYPE_WEIGHTS.get(market_type, _DEFAULT_WEIGHTS)
+
     liq = _score_liquidity_structure(market)
     obj = _score_objective_verifiability(market)
     prob = _score_probability_space(market)
     time = _score_time_structure(market)
     fric = _score_trading_friction(market)
 
+    # Net edge: only for crypto (requires fair value model)
+    ne = 0.0
+    if tw["net_edge"] > 0:
+        ne = _score_net_edge(market)
+
     breakdown = ScoreBreakdown(
-        liquidity_structure=round(liq * weights.liquidity_structure, 2),
-        objective_verifiability=round(obj * weights.objective_verifiability, 2),
-        probability_space=round(prob * weights.probability_space, 2),
-        time_structure=round(time * weights.time_structure, 2),
-        trading_friction=round(fric * weights.trading_friction, 2),
-        total=0,
+        liquidity_structure=round(liq * tw["liquidity"], 2),
+        objective_verifiability=round(obj * tw["verifiability"], 2),
+        probability_space=round(prob * tw["probability"], 2),
+        time_structure=round(time * tw["time"], 2),
+        trading_friction=round(fric * tw["friction"], 2),
+        net_edge=round(ne * tw["net_edge"], 2),
     )
     breakdown.total = round(
         breakdown.liquidity_structure
         + breakdown.objective_verifiability
         + breakdown.probability_space
         + breakdown.time_structure
-        + breakdown.trading_friction,
+        + breakdown.trading_friction
+        + breakdown.net_edge,
         2,
     )
     return breakdown
+
+
+def _score_net_edge(market: Market) -> float:
+    """Score net edge for crypto markets (0-1).
+
+    Requires fair value data (from mispricing module).
+    Without it, returns 0 (no penalty, just no bonus).
+    """
+    # Net edge needs external fair value data which isn't on the Market object.
+    # It's computed in the pipeline via mispricing detection.
+    # For now, return 0 — the pipeline's mispricing result provides the edge signal.
+    # This dimension will be populated when we integrate mispricing into scoring.
+    return 0.0
 
 
 # ---------------------------------------------------------------------------
