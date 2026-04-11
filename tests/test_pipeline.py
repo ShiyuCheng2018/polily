@@ -81,13 +81,14 @@ class TestRunPipelineNoAI:
         total_scored = len(tiers.tier_a) + len(tiers.tier_b) + len(tiers.tier_c)
         assert total_scored >= 1  # at least good-econ should pass
 
-        # Extreme, noise should be filtered; non-binary now passes (v0.5.0)
+        # v0.5.0: event-level filter — all sub-markets of passing events are scored
+        # Individual market extreme prices/low volume are NOT rejected
         all_ids = [c.market.market_id for c in tiers.tier_a + tiers.tier_b + tiers.tier_c]
-        assert "bad-extreme" not in all_ids
-        assert "bad-noise" not in all_ids
-        # v0.5.0: multi-outcome markets now pass through
-        assert "bad-nonbinary" in all_ids
-        assert "bad-volume" not in all_ids
+        assert "good-crypto" in all_ids
+        assert "good-econ" in all_ids
+        assert "bad-nonbinary" in all_ids  # multi-outcome passes
+        assert "bad-extreme" in all_ids    # extreme price is info, not a filter
+        # All are in same event (ev_test), so all pass if event passes
 
     def test_pipeline_assigns_market_type(self):
         config = load_config(__import__("pathlib").Path("config.example.yaml"))
@@ -135,19 +136,17 @@ class TestRunPipelineAIDisabled:
 
 
 class TestPipelineDBPersistence:
-    """Pipeline persists ONLY filtered events+markets to DB, then scores them."""
+    """Pipeline persists ONLY filtered events to DB, scores ALL their sub-markets."""
 
     def test_only_filtered_events_in_db(self, tmp_path):
-        """DB should only contain events whose markets passed filter."""
+        """DB should only contain events that pass event-level filter."""
         db = PolilyDB(tmp_path / "test.db")
 
-        # Two event_rows: ev1 has a good market, ev2 has a bad market
         event_rows = [
-            make_event(event_id="ev1"),
-            make_event(event_id="ev2"),
+            make_event(event_id="ev1", volume=80000),  # good volume
+            make_event(event_id="ev2", volume=100),     # low volume → rejected
         ]
         markets = [
-            # ev1: good market (passes filter)
             make_market(
                 market_id="m1", event_id="ev1",
                 title="Will BTC be above $88,000 on March 30?",
@@ -155,11 +154,10 @@ class TestPipelineDBPersistence:
                 resolution_source="https://coingecko.com",
                 resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
             ),
-            # ev2: bad market (extreme price, will be filtered)
             make_market(
                 market_id="m2", event_id="ev2",
-                title="Bad extreme",
-                yes_price=0.98, volume=500, open_interest=100,
+                title="Low volume event",
+                yes_price=0.50, volume=500, open_interest=100,
                 resolution_time=datetime(2026, 3, 31, tzinfo=UTC),
             ),
         ]
@@ -169,24 +167,18 @@ class TestPipelineDBPersistence:
 
         run_scan_pipeline(markets, config, db=db, event_rows=event_rows)
 
-        # ev1 should be in DB (had passing market)
+        # ev1 should be in DB (good volume)
         ev1 = get_event("ev1", db)
         assert ev1 is not None
         assert ev1.structure_score is not None
 
-        # ev2 should NOT be in DB (no passing market)
+        # ev2 should NOT be in DB (low volume)
         ev2 = get_event("ev2", db)
         assert ev2 is None
-
-        # Only m1 should be in DB
-        m1 = get_market("m1", db)
-        assert m1 is not None
-        m2 = get_market("m2", db)
-        assert m2 is None
         db.close()
 
-    def test_multi_outcome_event_all_siblings_persisted(self, tmp_path):
-        """If one sub-market passes, ALL sibling markets of that event are persisted."""
+    def test_multi_outcome_all_siblings_scored(self, tmp_path):
+        """All sub-markets of a passing event are scored — not just 'good' ones."""
         db = PolilyDB(tmp_path / "test.db")
 
         event_rows = [make_event(event_id="ev1", market_count=3)]
@@ -245,15 +237,21 @@ class TestPipelineDBPersistence:
         assert m2 is not None
         assert m3 is not None
 
-        # ALL siblings should have book depth (from enrichment of full sibling set)
-        assert m1.bid_depth is not None  # passed filter, fetched
-        assert m2.bid_depth is not None  # sibling, must also be fetched
-        assert m3.bid_depth is not None  # sibling, must also be fetched
+        # ALL siblings should have structure_score (event-level filter → all scored)
+        assert m1.structure_score is not None
+        assert m2.structure_score is not None  # extreme price but still scored
+        assert m3.structure_score is not None  # extreme price but still scored
 
-        # Event should be in DB with score
+        # ALL siblings should have score_breakdown
+        assert m1.score_breakdown is not None
+        assert m2.score_breakdown is not None
+        assert m3.score_breakdown is not None
+
+        # Event should be in DB with score = max(sub-market scores)
         ev = get_event("ev1", db)
         assert ev is not None
         assert ev.structure_score is not None
+        assert ev.structure_score == max(m1.structure_score, m2.structure_score, m3.structure_score)
         db.close()
 
     def test_pipeline_updates_event_scores(self, tmp_path):

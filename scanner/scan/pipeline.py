@@ -17,7 +17,6 @@ from scanner.api import CLOB_BASE, parse_clob_book
 from scanner.core.config import ScannerConfig
 from scanner.core.models import Market
 from scanner.orderbook import is_stale_book
-from scanner.scan.filters import apply_hard_filters
 from scanner.scan.mispricing import MispricingResult, detect_mispricing
 from scanner.scan.reporting import ScoredCandidate, TierResult, classify_tiers
 from scanner.scan.scoring import compute_structure_score
@@ -85,52 +84,63 @@ def run_scan_pipeline(
         _console = Console(file=__import__("io").StringIO(), stderr=False)
     else:
         _console = Console()
+    # Event-level filtering (replaces per-market filter)
+    from scanner.scan.filters import filter_events
     _report("筛选", "start")
-    with _timed_status(_console, "Filtering markets"):
-        filter_result = apply_hard_filters(markets, config.filters, config.heuristics)
-    passed_eids = {getattr(m, "event_id", None) for m in filter_result.passed if getattr(m, "event_id", None)}
-    # Count total markets in eligible events (siblings included)
-    eligible_market_count = sum(1 for m in markets if getattr(m, "event_id", None) in passed_eids)
-    _report("筛选", "done", f"{len(passed_eids)} 事件 / {eligible_market_count} 市场")
-    logger.info(
-        "Filters: %d passed, %d rejected out of %d",
-        len(filter_result.passed), len(filter_result.rejected), len(markets),
-    )
+    # Pair events with their markets
+    event_map = {}
+    for er in (event_rows or []):
+        event_map[er.event_id] = er
+    market_by_event: dict[str, list[Market]] = {}
+    for m in markets:
+        eid = getattr(m, "event_id", None)
+        if eid:
+            market_by_event.setdefault(eid, []).append(m)
 
-    passed = filter_result.passed
+    # Build pairs; create synthetic EventRow for markets without matching event_row
+    from scanner.core.event_store import EventRow
+    pairs = []
+    for eid, mkts in market_by_event.items():
+        if eid in event_map:
+            pairs.append((event_map[eid], mkts))
+        else:
+            # Synthetic event from market data (backward compat when no event_rows)
+            total_vol = sum(m.volume or 0 for m in mkts)
+            pairs.append((EventRow(
+                event_id=eid, title=mkts[0].title if mkts else eid,
+                volume=total_vol, updated_at="",
+            ), mkts))
+    with _timed_status(_console, "Filtering events"):
+        ef_result = filter_events(pairs)
+    passed_eids = ef_result.passed_event_ids
+    eligible = ef_result.passed_markets  # ALL sub-markets of passed events
+    _report("筛选", "done", f"{len(passed_eids)} 事件 / {len(eligible)} 市场")
+    logger.info("Event filter: %d events passed, %d rejected", len(passed_eids), len(ef_result.rejected))
 
-    # Fetch order books for ALL markets in eligible events (siblings included)
-    # So that detail page + poll have complete depth data for every sub-market
-    if config.scanner.two_pass_scan and passed:
-        eligible_eids = {getattr(m, "event_id", None) for m in passed if getattr(m, "event_id", None)}
-        siblings = [m for m in markets if getattr(m, "event_id", None) in eligible_eids]
+    # Fetch order books for ALL eligible markets concurrently
+    if config.scanner.two_pass_scan and eligible:
         _report("获取盘口", "start")
         try:
-            with _timed_status(_console, f"Fetching order books ({len(siblings)} markets)"):
-                siblings = _run_async(enrich_with_orderbook(siblings, config))
-            _report("获取盘口", "done", f"{len(siblings)} 市场")
-            logger.info("Order books fetched for %d markets (%d events)", len(siblings), len(eligible_eids))
-            # Update passed list with enriched versions (they're mutated in place, but be safe)
-            sibling_map = {m.market_id: m for m in siblings}
-            passed = [sibling_map.get(m.market_id, m) for m in passed]
+            with _timed_status(_console, f"Fetching order books ({len(eligible)} markets)"):
+                eligible = _run_async(enrich_with_orderbook(eligible, config))
+            _report("获取盘口", "done", f"{len(eligible)} 市场")
         except Exception as e:
             _report("获取盘口", "fail")
             logger.warning("Order book fetch failed, continuing without depth data: %s", e)
 
     # Market type classification from Polymarket tags
     from scanner.scan.tag_classifier import classify_from_tags
-    for market in passed:
+    for market in eligible:
         market.market_type = classify_from_tags(market.tags)
 
-    # Fetch price data via data enrichment modules
+    # Fetch price data (crypto only, deduped by asset)
     from scanner.market_types.registry import find_matching_module
     price_params: dict[str, dict] = {}
     if config.mispricing.enabled:
         _report("获取实时价格", "start")
         try:
             with _timed_status(_console, "Fetching price data"):
-                price_params = _run_async(_fetch_price_params_batch(passed, config))
-            # Show unique asset prices (deduped)
+                price_params = _run_async(_fetch_price_params_batch(eligible, config))
             asset_prices: dict[str, float] = {}
             for params in price_params.values():
                 label = params.pop("_asset_label", "?")
@@ -144,9 +154,9 @@ def run_scan_pipeline(
             _console.print(" [dim]Price data skipped[/dim]")
             logger.warning("Price data fetch failed: %s", e)
 
-    # Score + Mispricing (pure rules, no AI) — no progress step, instant
+    # Score ALL eligible markets (not just filtered ones)
     candidates: list[ScoredCandidate] = []
-    for market in passed:
+    for market in eligible:
         score = compute_structure_score(
             market,
             config.scoring.weights,
@@ -171,9 +181,9 @@ def run_scan_pipeline(
 
     # AI analysis removed from scan pipeline — triggered on-demand via 'a' key
 
-    # Persist to DB: only filtered events + all their sibling markets, then scores
+    # Persist to DB: eligible events + all their markets, then scores
     if db is not None:
-        _persist_filtered(passed, markets, event_rows or [], db)
+        _persist_filtered(eligible, markets, event_rows or [], db)
         _update_event_scores(candidates, tiers, db)
 
     logger.info(
