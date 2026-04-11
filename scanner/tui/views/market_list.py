@@ -32,8 +32,6 @@ class MarketListView(Widget):
     """Event-first research list with fold/expand for multi-outcome events."""
 
     BINDINGS = [
-        Binding("enter", "view_detail", "详情"),
-        Binding("space", "toggle_expand", "展开/收起"),
         Binding("p", "quick_pass", "PASS"),
         Binding("m", "toggle_monitor", "监控"),
         Binding("o", "open_link", "打开链接"),
@@ -191,28 +189,29 @@ class MarketListView(Widget):
                     return e
         return None
 
-    def action_toggle_expand(self) -> None:
-        item = self._get_selected()
-        if not item or item["type"] != "event":
-            return
-        ev = item["event"]["event"]
-        if item["event"]["market_count"] <= 1:
-            return
-        if ev.event_id in self._expanded:
-            self._expanded.discard(ev.event_id)
-        else:
-            self._expanded.add(ev.event_id)
-        self._rebuild_table()
-
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        e = self._get_selected_event()
-        if e:
-            self.post_message(ViewDetailRequested(e["event"].event_id))
-
-    def action_view_detail(self) -> None:
-        e = self._get_selected_event()
-        if e:
-            self.post_message(ViewDetailRequested(e["event"].event_id))
+        """Enter/click: event row → toggle expand, sub-market row → open detail."""
+        item = self._get_selected()
+        if not item:
+            return
+        if item["type"] == "event":
+            ev = item["event"]
+            if ev["market_count"] > 1:
+                # Multi-outcome: toggle expand
+                eid = ev["event"].event_id
+                if eid in self._expanded:
+                    self._expanded.discard(eid)
+                else:
+                    self._expanded.add(eid)
+                self._rebuild_table()
+            else:
+                # Binary: go to detail
+                self.post_message(ViewDetailRequested(ev["event"].event_id))
+        elif item["type"] in ("sub_market", "more"):
+            # Sub-market or "more": go to event detail
+            eid = item.get("event_id")
+            if eid:
+                self.post_message(ViewDetailRequested(eid))
 
     def action_quick_pass(self) -> None:
         e = self._get_selected_event()
