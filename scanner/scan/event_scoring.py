@@ -48,7 +48,7 @@ def compute_event_quality_score(
     info = _score_information_value(active, neg_risk=neg_risk)
     liq = _score_liquidity_aggregate(event, active)
     res = _score_resolution_quality(event)
-    con = _score_consistency(active)
+    con = _score_consistency(active, neg_risk=neg_risk)
     time = _score_time_window(active)
 
     return EventQualityScore(
@@ -206,11 +206,19 @@ def _score_resolution_quality(event: EventRow) -> float:
 # Dimension 4: Consistency (0-10)
 # ---------------------------------------------------------------------------
 
-def _score_consistency(markets: list[Market]) -> float:
-    """Overround normality + pricing efficiency."""
+def _score_consistency(markets: list[Market], *, neg_risk: bool = False) -> float:
+    """Overround normality + pricing efficiency.
+
+    Overround (price_sum vs 1.0) only makes sense for negRisk events
+    where outcomes are mutually exclusive. For non-negRisk, return neutral.
+    """
     prices = [m.yes_price for m in markets if m.yes_price and m.yes_price > 0]
     if not prices:
         return 0.0
+
+    # Non-negRisk: outcomes are independent, overround is meaningless
+    if not neg_risk:
+        return round(0.7 * 10, 2)
 
     price_sum = sum(prices)
 

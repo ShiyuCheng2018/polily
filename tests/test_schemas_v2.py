@@ -14,7 +14,7 @@ def _valid_output(**overrides) -> NarrativeWriterOutput:
     defaults = {
         "event_id": "test",
         "action": "PASS",
-        "why_not_now": "No edge visible, friction dominates.",
+        "why_not": "No edge visible, friction dominates.",
         "summary": "Market efficiently priced, no action.",
         "one_line_verdict": "PASS: no edge.",
         "invalidation_findings": [ResearchFinding(finding="f", source="s", impact="i")],
@@ -50,20 +50,19 @@ class TestNewTypes:
 
 class TestNarrativeWriterOutputV3:
     def test_new_decision_fields(self):
-        out = _valid_output(action="WATCH", bias="YES", strength="medium",
-                            confidence="medium", opportunity_type="watch_only",
-                            why_now="", why_not_now="摩擦太高",
+        out = _valid_output(action="WATCH",
+                            confidence="medium",
+                            why="", why_not="摩擦太高",
                             friction_vs_edge="friction_exceeds")
         assert out.action == "WATCH"
-        assert out.bias == "YES"
         assert out.friction_vs_edge == "friction_exceeds"
 
     def test_with_crypto_context(self):
         out = _valid_output(
-            action="BUY_YES", bias="YES", strength="strong",
-            confidence="high", opportunity_type="instant_mispricing",
-            why_now="Strong edge detected",
-            why_not_now="",
+            action="BUY_YES",
+            confidence="high",
+            why="Strong edge detected",
+            why_not="",
             summary="有 edge",
             crypto=CryptoContext(
                 distance_to_threshold_pct=5.2, buffer_pct=5.2,
@@ -94,7 +93,6 @@ class TestNarrativeWriterOutputV3:
         """Old data with minimal fields should still validate."""
         out = NarrativeWriterOutput(event_id="test", summary="old format")
         assert out.action == "PASS"
-        assert out.bias == "NONE"
         assert out.crypto is None
 
     def test_old_data_with_deprecated_fields_loads(self):
@@ -134,19 +132,19 @@ class TestNarrativeWriterOutputV3:
 
 
 class TestSemanticValidation:
-    def test_pass_requires_why_not_now(self):
+    def test_pass_requires_why_not(self):
         out = NarrativeWriterOutput(
             event_id="test", action="PASS",
             summary="ok summary", one_line_verdict="verdict",
             next_check_at="2026-04-10T12:00:00",
         )
         errors = out.semantic_errors()
-        assert any("why_not_now" in e for e in errors)
+        assert any("why_not" in e for e in errors)
 
-    def test_watch_requires_why_not_now(self):
-        out = _valid_output(action="WATCH", why_not_now="")
+    def test_watch_requires_why_not(self):
+        out = _valid_output(action="WATCH", why_not="")
         errors = out.semantic_errors()
-        assert any("why_not_now" in e for e in errors)
+        assert any("why_not" in e for e in errors)
 
     def test_complete_pass_no_errors(self):
         out = _valid_output()
@@ -155,9 +153,11 @@ class TestSemanticValidation:
     def test_complete_buy_no_errors(self):
         out = _valid_output(
             action="BUY_YES",
-            why_now="Strong edge with clear catalyst detected",
-            why_not_now="",
+            why="Strong edge with clear catalyst detected",
+            why_not="",
+            recommended_market_id="0xtest",
             supporting_findings=[ResearchFinding(finding="f", source="s", impact="i")],
+            invalidation_findings=[ResearchFinding(finding="f", source="s", impact="i")],
         )
         assert out.semantic_errors() == []
 
@@ -168,15 +168,21 @@ class TestSemanticValidation:
 
     def test_next_check_at_required_for_all_actions(self):
         """next_check_at is required for every action."""
-        for action in ("BUY_YES", "BUY_NO", "WATCH", "PASS", "HOLD", "SELL", "REDUCE"):
+        for action in ("BUY_YES", "BUY_NO", "WATCH", "PASS", "HOLD", "SELL_YES", "REDUCE_YES"):
             kwargs = {"action": action, "next_check_at": None}
             if action in ("BUY_YES", "BUY_NO"):
-                kwargs["why_now"] = "Strong edge detected here"
-                kwargs["why_not_now"] = ""
+                kwargs["why"] = "Strong edge detected here"
+                kwargs["why_not"] = ""
                 kwargs["supporting_findings"] = [ResearchFinding(finding="f", source="s", impact="i")]
-            elif action in ("HOLD", "SELL", "REDUCE"):
-                kwargs["why_now"] = "Position management reason here"
-                kwargs["why_not_now"] = ""
+                kwargs["recommended_market_id"] = "0xtest"
+                kwargs["invalidation_findings"] = [ResearchFinding(finding="f", source="s", impact="i")]
+            elif action in ("HOLD", "SELL_YES", "REDUCE_YES"):
+                kwargs["mode"] = "position_management"
+                kwargs["thesis_status"] = "broken" if "SELL" in action else "intact"
+                kwargs["why"] = "Position management reason here"
+                kwargs["why_not"] = ""
+                if "SELL" in action:
+                    kwargs["invalidation_findings"] = [ResearchFinding(finding="f", source="s", impact="i")]
             out = _valid_output(**kwargs)
             errors = out.semantic_errors()
             assert any("next_check_at" in e for e in errors), f"{action} should require next_check_at"
@@ -193,32 +199,44 @@ class TestSemanticValidation:
 
 class TestPositionActions:
     def test_hold_action_valid(self):
-        out = _valid_output(action="HOLD", why_now="Thesis intact, BTC above threshold", why_not_now="")
+        out = _valid_output(action="HOLD", mode="position_management",
+                            thesis_status="intact",
+                            why="Thesis intact, BTC above threshold", why_not="")
         assert out.semantic_errors() == []
 
     def test_sell_action_valid(self):
-        out = _valid_output(action="SELL", why_now="Thesis broken, recommend exit", why_not_now="",
+        out = _valid_output(action="SELL_YES", mode="position_management",
+                            thesis_status="broken",
+                            why="Thesis broken, recommend exit", why_not="",
                             invalidation_findings=[ResearchFinding(finding="f", source="s", impact="i")])
         assert out.semantic_errors() == []
 
     def test_reduce_action_valid(self):
-        out = _valid_output(action="REDUCE", why_now="Edge narrowing, take partial profit", why_not_now="")
+        out = _valid_output(action="REDUCE_YES", mode="position_management",
+                            thesis_status="weakened",
+                            why="Edge narrowing, take partial profit", why_not="")
         assert out.semantic_errors() == []
 
-    def test_hold_requires_why_now(self):
-        out = _valid_output(action="HOLD", why_now="", why_not_now="")
+    def test_hold_requires_why(self):
+        out = _valid_output(action="HOLD", mode="position_management",
+                            thesis_status="intact",
+                            why="", why_not="")
         errors = out.semantic_errors()
-        assert any("why_now" in e for e in errors)
+        assert any("why" in e for e in errors)
 
     def test_sell_requires_invalidation(self):
-        """SELL without invalidation_findings should error."""
-        out = _valid_output(action="SELL", why_now="Thesis broken completely", why_not_now="",
+        """SELL_YES without invalidation_findings should error."""
+        out = _valid_output(action="SELL_YES", mode="position_management",
+                            thesis_status="broken",
+                            why="Thesis broken completely", why_not="",
                             invalidation_findings=[])
         errors = out.semantic_errors()
         assert any("invalidation" in e.lower() for e in errors)
 
-    def test_sell_requires_why_now(self):
-        out = _valid_output(action="SELL", why_now="", why_not_now="",
+    def test_sell_requires_why(self):
+        out = _valid_output(action="SELL_YES", mode="position_management",
+                            thesis_status="broken",
+                            why="", why_not="",
                             invalidation_findings=[ResearchFinding(finding="f", source="s", impact="i")])
         errors = out.semantic_errors()
-        assert any("why_now" in e for e in errors)
+        assert any("why" in e for e in errors)

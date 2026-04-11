@@ -140,6 +140,14 @@ class NarrativeWriterOutput(BaseModel):
                     errors.append("SELL requires substantive why")
                 if self.thesis_status != "broken":
                     errors.append("SELL should have thesis_status=broken")
+                if not self.invalidation_findings:
+                    errors.append("SELL requires invalidation_findings")
+            elif self.action == "HOLD":
+                if not self.why or len(self.why.strip()) < 10:
+                    errors.append("HOLD requires substantive why")
+            elif self.action in ("REDUCE_YES", "REDUCE_NO"):
+                if not self.why or len(self.why.strip()) < 10:
+                    errors.append("REDUCE requires substantive why")
             if self.thesis_status is None:
                 errors.append("position mode requires thesis_status")
 

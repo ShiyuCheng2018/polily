@@ -214,17 +214,17 @@ class MarketDetailView(Widget):
             with contextlib.suppress(ValueError, TypeError):
                 bd = _json.loads(mr.score_breakdown)
 
-        if bd:
-            # Get type-specific max weights
-            from scanner.scan.scoring import _DEFAULT_WEIGHTS, _TYPE_WEIGHTS
-            mtype = getattr(mr, "market_type", None) or "other"
-            # Try to get market_type from parent event if not on market
-            if mtype == "other" and self._detail:
-                ev = self._detail.get("event")
-                if ev:
-                    mtype = getattr(ev, "market_type", None) or "other"
-            tw = _TYPE_WEIGHTS.get(mtype, _DEFAULT_WEIGHTS)
+        # Get type-specific max weights
+        from scanner.scan.scoring import _DEFAULT_WEIGHTS, _TYPE_WEIGHTS
+        mtype = getattr(mr, "market_type", None) or "other"
+        # Try to get market_type from parent event if not on market
+        if mtype == "other" and self._detail:
+            ev = self._detail.get("event")
+            if ev:
+                mtype = getattr(ev, "market_type", None) or "other"
+        tw = _TYPE_WEIGHTS.get(mtype, _DEFAULT_WEIGHTS)
 
+        if bd:
             breakdown = [
                 ("流动性", bd.get("liquidity", 0), tw["liquidity"]),
                 ("可验证性", bd.get("verifiability", 0), tw["verifiability"]),
@@ -529,15 +529,26 @@ class MarketDetailView(Widget):
                 return
 
             # --- KPI Row ---
+            mode = n.get("mode", "discovery")
             action = n.get("action", "PASS")
             action_label, _ = ACTION_DISPLAY.get(action, ("[dim]?[/dim]", "dim"))
-            bias = n.get("bias")
-            bias_str = f"偏向 {bias}" if bias and bias != "NONE" else ""
 
+            # "判定" card: action + direction (discovery) or action + thesis_status (position)
+            if mode == "position_management":
+                ts = n.get("thesis_status", "")
+                ts_label = {"intact": "论点完整", "weakened": "论点减弱", "broken": "论点失效"}.get(ts, "")
+                action_content = f"{action_label}\n{ts_label}" if ts_label else action_label
+            else:
+                direction = n.get("direction", "")
+                dir_str = f"方向 {direction}" if direction else ""
+                action_content = f"{action_label}\n{dir_str}" if dir_str else action_label
+
+            # "置信度" card: just confidence bar
             confidence = n.get("confidence", "low")
             conf_bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
-            strength = n.get("strength", "")
+            conf_content = conf_bar
 
+            # "时间窗口" card: keep as-is
             tw = n.get("time_window", {})
             if isinstance(tw, dict):
                 urgency = tw.get("urgency", "")
@@ -546,15 +557,21 @@ class MarketDetailView(Widget):
                 urgency = ""
                 tw_note = ""
             urgency_label = {"urgent": "紧急", "normal": "正常", "no_rush": "不急"}.get(urgency, urgency)
-
-            fve = n.get("friction_vs_edge", "")
-            fve_label = {"edge_exceeds": "edge > 摩擦", "roughly_equals": "edge ≈ 摩擦", "friction_exceeds": "摩擦 > edge"}.get(fve, fve)
-            exec_risk = n.get("execution_risk", "")
-
-            action_content = f"{action_label}\n{bias_str}" if bias_str else action_label
-            conf_content = f"{conf_bar}\n强度 {strength}" if strength else conf_bar
             time_content = f"{urgency_label}\n{tw_note}" if tw_note else urgency_label
-            fve_content = f"{fve_label}\n执行风险 {exec_risk}" if exec_risk else fve_label
+
+            # "摩擦vs边际" card: friction_vs_edge (discovery) or stop_loss/take_profit (position)
+            if mode == "position_management":
+                sl = n.get("stop_loss")
+                tp = n.get("take_profit")
+                parts = []
+                if sl is not None:
+                    parts.append(f"止损 {sl:.2f}")
+                if tp is not None:
+                    parts.append(f"止盈 {tp:.2f}")
+                fve_content = "\n".join(parts) if parts else "[dim]无[/dim]"
+            else:
+                fve = n.get("friction_vs_edge", "")
+                fve_content = {"edge_exceeds": "edge > 摩擦", "roughly_equals": "edge ≈ 摩擦", "friction_exceeds": "摩擦 > edge"}.get(fve, fve)
 
             with HorizontalGroup(id="ai-kpi-row"):
                 for content, card_id, title in [

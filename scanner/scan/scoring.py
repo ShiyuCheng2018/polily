@@ -191,7 +191,7 @@ _OBJECTIVE_SIGNALS = re.compile(
     r"\b(price|above|below|reach|exceed|by .+ date|"
     r"before|on .+ \d{4}|vote|pass|win|elect|"
     r"announce|release|report|data|deadline|"
-    r"GDP|CPI|rate|percent)\b",
+    r"GDP|CPI|interest rate|rate cut|rate hike|rate decision|percent)\b",
     re.IGNORECASE,
 )
 
@@ -228,7 +228,7 @@ def _score_objective_verifiability(m: Market) -> float:
     elif re.search(r'\b(win|elect|vote|score|medal|rank|seed|draft|make the|decision|ruling|verdict)\b', title, re.IGNORECASE):
         layer1 = 0.40
     # Official data release: rate, CPI, GDP, Fed, BOJ, ECB
-    elif re.search(r'\b(rate|CPI|GDP|inflation|Fed|BOJ|ECB|BOE|RBA|FOMC|basis points?|bps)\b', title + " " + rules_and_desc, re.IGNORECASE):
+    elif re.search(r'\b(interest rate|rate cut|rate hike|rate decision|CPI|GDP|inflation|Fed|BOJ|ECB|BOE|RBA|FOMC|basis points?|bps)\b', title + " " + rules_and_desc, re.IGNORECASE):
         layer1 = 0.45
     # Event occurrence: announce, release, sign, pass, approve
     elif re.search(r'\b(announce|release|sign|pass|approve|launch|confirm|file)\b', title, re.IGNORECASE):

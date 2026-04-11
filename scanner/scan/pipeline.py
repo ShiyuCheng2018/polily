@@ -336,6 +336,9 @@ def _update_event_scores(
     for c in candidates:
         eid = getattr(c.market, "event_id", None)
         if eid:
+            from scanner.scan.scoring import _DEFAULT_WEIGHTS, _TYPE_WEIGHTS
+            mtype = getattr(c.market, "market_type", "other")
+            _tw = _TYPE_WEIGHTS.get(mtype, _DEFAULT_WEIGHTS)
             bd = {
                 "liquidity": round(c.score.liquidity_structure, 1),
                 "verifiability": round(c.score.objective_verifiability, 1),
@@ -343,7 +346,7 @@ def _update_event_scores(
                 "time": round(c.score.time_structure, 1),
                 "friction": round(c.score.trading_friction, 1),
             }
-            if c.score.net_edge > 0:
+            if _tw.get("net_edge", 0) > 0:
                 bd["net_edge"] = round(c.score.net_edge, 1)
             commentary = generate_commentary(
                 bd, c.score.total, c.market.market_id,
@@ -505,6 +508,3 @@ def _run_async(coro):
             return pool.submit(asyncio.run, coro).result()
     except RuntimeError:
         return asyncio.run(coro)
-
-
-    # AI functions removed — analysis is now on-demand via service.analyze_market()

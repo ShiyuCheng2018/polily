@@ -19,7 +19,7 @@ else:
     SYSTEM_PROMPT = "You are a Polymarket trading analyst."
 
 # Tools the agent can use for research
-AGENT_TOOLS = ["Read", "Bash", "Grep", "WebSearch", "TodoWrite", "StructuredOutput"]
+AGENT_TOOLS = ["Read", "Bash", "Grep", "WebSearch", "StructuredOutput"]
 
 
 class NarrativeWriterAgent:

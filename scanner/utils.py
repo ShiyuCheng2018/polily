@@ -26,9 +26,17 @@ def extract_market_id_from_prompt(prompt: str) -> str:
 
 
 def extract_event_id_from_prompt(prompt: str) -> str:
-    """Extract event_id from a JSON prompt string. Falls back to market_id. Returns 'unknown' if not found."""
+    """Extract event_id from prompt string. Supports new plain-text and legacy JSON formats.
+
+    Returns 'unknown' if not found.
+    """
     import re
     try:
+        # New format: "分析事件 347197。" or "分析事件 347197."
+        match = re.search(r'分析事件\s+(\S+)[。.]', prompt)
+        if match:
+            return match.group(1)
+        # Legacy JSON format
         match = re.search(r'"event_id":\s*"([^"]+)"', prompt)
         if match:
             return match.group(1)
