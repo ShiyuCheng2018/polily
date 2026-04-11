@@ -230,14 +230,14 @@ class MarketDetailView(Widget):
                 ("时间", bd.get("time", 0), tw["time"]),
                 ("摩擦", bd.get("friction", 0), tw["friction"]),
             ]
-            if bd.get("net_edge", 0) > 0:
-                breakdown.append(("Edge", bd["net_edge"], tw["net_edge"]))
+            if tw.get("net_edge", 0) > 0:
+                breakdown.append(("Edge", bd.get("net_edge", 0), tw["net_edge"]))
         else:
             breakdown = []
 
         # Dimension key mapping for commentary lookup
         dim_keys = ["liquidity", "verifiability", "probability", "time", "friction"]
-        if bd.get("net_edge", 0) > 0:
+        if tw.get("net_edge", 0) > 0:
             dim_keys.append("net_edge")
 
         from rich.text import Text

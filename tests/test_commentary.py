@@ -114,7 +114,7 @@ class TestGetDimensionPhrase:
     def test_correct_level_low(self):
         """Score 0 out of 30 => pct 0 => level 0 => one of the first-level phrases."""
         phrase = get_dimension_phrase("liquidity", 0, 30, "test_market")
-        level_0_phrases = ["有价无市", "纸面价格而已", "挂单都没人理"]
+        level_0_phrases = ["鬼都不来交易", "挂单？挂给谁看", "这盘口是摆设"]
         assert phrase in level_0_phrases
 
     def test_correct_level_high(self):
@@ -204,7 +204,7 @@ class TestGenerateCommentary:
             {"liquidity": 2, "verifiability": 1, "probability": 2, "time": 1, "friction": 1},
             7.0, "low_test", "other",
         )
-        low_phrases = ["这市场基本废了", "别浪费时间", "结构全面崩坏"]
+        low_phrases = ["这市场烂透了，碰都别碰", "结构全面崩坏，纯粹浪费时间", "垃圾市场，下一个"]
         assert result["judgment"] in low_phrases
 
         # High score
