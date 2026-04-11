@@ -322,13 +322,20 @@ def _update_event_scores(
             (score, tier, eid),
         )
 
-    # Update per-market scores
+    # Update per-market scores + breakdown
     for c in candidates:
         eid = getattr(c.market, "event_id", None)
         if eid:
+            breakdown = json.dumps({
+                "liquidity": round(c.score.liquidity_structure, 1),
+                "verifiability": round(c.score.objective_verifiability, 1),
+                "probability": round(c.score.probability_space, 1),
+                "time": round(c.score.time_structure, 1),
+                "friction": round(c.score.trading_friction, 1),
+            })
             db.conn.execute(
-                "UPDATE markets SET structure_score = ? WHERE market_id = ?",
-                (c.score.total, c.market.market_id),
+                "UPDATE markets SET structure_score = ?, score_breakdown = ? WHERE market_id = ?",
+                (c.score.total, breakdown, c.market.market_id),
             )
 
     db.conn.commit()

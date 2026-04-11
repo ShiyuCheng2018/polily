@@ -68,6 +68,7 @@ class MarketRow(BaseModel):
     liquidity: float | None = None
     order_min_tick_size: float | None = None
     structure_score: float | None = None
+    score_breakdown: str | None = None  # JSON: {"liquidity":26,"verifiability":20,...}
     yes_price: float | None = None
     no_price: float | None = None
     best_bid: float | None = None
@@ -172,7 +173,7 @@ _MARKET_ALL_COLS = (
     "condition_id", "question_id", "clob_token_id_yes", "clob_token_id_no",
     "neg_risk", "neg_risk_request_id", "neg_risk_other",
     "resolution_source", "end_date", "volume", "liquidity",
-    "order_min_tick_size", "structure_score",
+    "order_min_tick_size", "structure_score", "score_breakdown",
     "yes_price", "no_price", "best_bid", "best_ask", "spread",
     "last_trade_price", "bid_depth", "ask_depth",
     "book_bids", "book_asks", "recent_trades",

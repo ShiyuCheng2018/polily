@@ -201,47 +201,29 @@ class MarketDetailView(Widget):
                 self._add_score_breakdown_rows(table, mr)
 
     def _add_score_breakdown_rows(self, table: DataTable, mr) -> None:
-        """Insert score breakdown rows for an expanded sub-market."""
-        # Build a Market object from MarketRow for scoring
+        """Insert score breakdown rows from stored data (or compute on-demand)."""
+        import json as _json
+
+        total = mr.structure_score or 0
+
+        # Read stored breakdown if available
         import contextlib
-        from datetime import UTC, datetime
+        bd = None
+        if mr.score_breakdown:
+            with contextlib.suppress(ValueError, TypeError):
+                bd = _json.loads(mr.score_breakdown)
 
-        from scanner.core.models import Market
-        from scanner.scan.scoring import compute_structure_score
-        res_time = None
-        if mr.end_date:
-            with contextlib.suppress(ValueError):
-                res_time = datetime.fromisoformat(mr.end_date.replace("Z", "+00:00"))
-
-        market = Market(
-            market_id=mr.market_id,
-            title=mr.question,
-            outcomes=["Yes", "No"],
-            yes_price=mr.yes_price,
-            no_price=mr.no_price,
-            best_bid_yes=mr.best_bid,
-            best_ask_yes=mr.best_ask,
-            spread_yes=mr.spread,
-            volume=mr.volume,
-            resolution_time=res_time,
-            data_fetched_at=datetime.now(UTC),
-        )
-        # Reconstruct book depth if available
-        if mr.bid_depth is not None:
-            from scanner.core.models import BookLevel
-            market.book_depth_bids = [BookLevel(price=mr.best_bid or 0, size=mr.bid_depth)]
-            market.book_depth_asks = [BookLevel(price=mr.best_ask or 0, size=mr.ask_depth or 0)]
-
-        from scanner.core.config import ScoringWeights
-        score = compute_structure_score(market, ScoringWeights())
-
-        breakdown = [
-            ("流动性结构", score.liquidity_structure, 30),
-            ("客观可验证性", score.objective_verifiability, 25),
-            ("概率空间", score.probability_space, 20),
-            ("时间结构", score.time_structure, 15),
-            ("交易摩擦", score.trading_friction, 10),
-        ]
+        if bd:
+            breakdown = [
+                ("流动性结构", bd.get("liquidity", 0), 30),
+                ("客观可验证性", bd.get("verifiability", 0), 25),
+                ("概率空间", bd.get("probability", 0), 20),
+                ("时间结构", bd.get("time", 0), 15),
+                ("交易摩擦", bd.get("friction", 0), 10),
+            ]
+        else:
+            # No stored breakdown — show total only
+            breakdown = []
 
         for i, (name, val, max_val) in enumerate(breakdown):
             bar_len = int(val / max_val * 15) if max_val > 0 else 0
@@ -253,10 +235,10 @@ class MarketDetailView(Widget):
             self._sub_row_map.append({"type": "breakdown", "market_id": mr.market_id})
 
         # Total score
-        total_bar_len = int(score.total / 100 * 15)
+        total_bar_len = int(total / 100 * 15)
         total_bar = "█" * total_bar_len + "░" * (15 - total_bar_len)
         table.add_row(
-            "  └ 总分", f"{total_bar} {score.total:.0f}/100", "", "", "", "",
+            "  └ 总分", f"{total_bar} {total:.0f}/100", "", "", "", "",
             key=f"bd_{mr.market_id}_total",
         )
         self._sub_row_map.append({"type": "breakdown", "market_id": mr.market_id})

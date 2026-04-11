@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS markets (
     liquidity           REAL,
     order_min_tick_size REAL,
     structure_score     REAL,
+    score_breakdown     TEXT,
     yes_price           REAL,
     no_price            REAL,
     best_bid            REAL,
