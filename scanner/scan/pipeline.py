@@ -185,6 +185,8 @@ def run_scan_pipeline(
     if db is not None:
         _persist_filtered(eligible, markets, event_rows or [], db)
         _update_event_scores(candidates, tiers, db)
+        # Event-level quality score (replaces max-of-sub-markets)
+        _update_event_quality_scores(event_map, market_by_event, passed_eids, db)
 
     logger.info(
         "Tiers: A=%d, B=%d, C=%d",
@@ -348,6 +350,29 @@ def _update_event_scores(
                 (c.score.total, breakdown, c.market.market_id),
             )
 
+    db.conn.commit()
+
+
+def _update_event_quality_scores(
+    event_map: dict,
+    market_by_event: dict[str, list[Market]],
+    passed_eids: set[str],
+    db: PolilyDB,
+) -> None:
+    """Compute and store event-level quality scores (replaces max-of-sub-markets)."""
+    from scanner.scan.event_scoring import compute_event_quality_score
+
+    for eid in passed_eids:
+        ev = event_map.get(eid)
+        mkts = market_by_event.get(eid, [])
+        if not ev or not mkts:
+            continue
+        score = compute_event_quality_score(ev, mkts)
+        # Overwrite events.structure_score with event-level quality score
+        db.conn.execute(
+            "UPDATE events SET structure_score = ? WHERE event_id = ?",
+            (score.total, eid),
+        )
     db.conn.commit()
 
 

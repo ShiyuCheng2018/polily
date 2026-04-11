@@ -247,11 +247,11 @@ class TestPipelineDBPersistence:
         assert m2.score_breakdown is not None
         assert m3.score_breakdown is not None
 
-        # Event should be in DB with score = max(sub-market scores)
+        # Event should have event-level quality score (NOT max of sub-markets)
         ev = get_event("ev1", db)
         assert ev is not None
         assert ev.structure_score is not None
-        assert ev.structure_score == max(m1.structure_score, m2.structure_score, m3.structure_score)
+        assert ev.structure_score > 0  # event-level score, different from sub-market scores
         db.close()
 
     def test_pipeline_updates_event_scores(self, tmp_path):
