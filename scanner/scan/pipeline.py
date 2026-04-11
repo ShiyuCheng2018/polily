@@ -112,7 +112,7 @@ def run_scan_pipeline(
             ), mkts))
 
     with _timed_status(_console, "Filtering events"):
-        ef_result = filter_events(pairs, min_volume=50_000)
+        ef_result = filter_events(pairs, min_volume=200_000)
     stage1_eids = ef_result.passed_event_ids
     eligible = ef_result.passed_markets
     _report("筛选", "done", f"{len(stage1_eids)} 事件 / {len(eligible)} 市场")
@@ -176,7 +176,7 @@ def run_scan_pipeline(
     # --- Stage 2: Quality gate — only persist high-quality events ---
     from scanner.scan.event_scoring import compute_event_quality_score
 
-    _MIN_EVENT_QUALITY = 55  # hardcoded, ~100-150 events target
+    _MIN_EVENT_QUALITY = 55  # quality gate, ~100-150 events
     passed_eids: set[str] = set()
     for eid in stage1_eids:
         ev = event_map.get(eid)
@@ -201,6 +201,17 @@ def run_scan_pipeline(
         _persist_filtered(eligible, markets, event_rows or [], db)
         _update_event_scores(candidates, db)
         _update_event_quality_scores(event_map, market_by_event, passed_eids, db)
+        # Cleanup: close events where all active sub-markets have expired end_date
+        from datetime import UTC, datetime
+        now_iso = datetime.now(UTC).isoformat()
+        db.conn.execute("""
+            UPDATE events SET closed = 1
+            WHERE closed = 0 AND event_id NOT IN (
+                SELECT DISTINCT event_id FROM markets
+                WHERE closed = 0 AND (end_date > ? OR end_date IS NULL)
+            )
+        """, (now_iso,))
+        db.conn.commit()
 
     logger.info(
         "Tiers: A=%d, B=%d, C=%d",
