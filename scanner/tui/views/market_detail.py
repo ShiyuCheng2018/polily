@@ -246,13 +246,20 @@ class MarketDetailView(Widget):
         for i, (name, val, max_val) in enumerate(breakdown):
             bar_len = int(val / max_val * 15) if max_val > 0 else 0
             bar = "█" * bar_len + "░" * (15 - bar_len)
-            is_last = i == len(breakdown) - 1
-            conn = "└" if is_last else "├"
             table.add_row(
-                f"  {conn} {name}", f"{bar} {val:.0f}/{max_val}", "", "", "", "",
+                f"  ├ {name}", f"{bar} {val:.0f}/{max_val}", "", "", "", "",
                 key=f"bd_{mr.market_id}_{i}",
             )
             self._sub_row_map.append({"type": "breakdown", "market_id": mr.market_id})
+
+        # Total score
+        total_bar_len = int(score.total / 100 * 15)
+        total_bar = "█" * total_bar_len + "░" * (15 - total_bar_len)
+        table.add_row(
+            "  └ 总分", f"{total_bar} {score.total:.0f}/100", "", "", "", "",
+            key=f"bd_{mr.market_id}_total",
+        )
+        self._sub_row_map.append({"type": "breakdown", "market_id": mr.market_id})
 
     def _on_sub_market_selected(self, row_idx: int) -> None:
         """Handle Enter/click on sub-market table row."""
