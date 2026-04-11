@@ -114,11 +114,28 @@ def run_scan_pipeline(
     with _timed_status(_console, "Filtering events"):
         ef_result = filter_events(pairs, min_volume=200_000)
     stage1_eids = ef_result.passed_event_ids
-    eligible = ef_result.passed_markets
-    _report("筛选", "done", f"{len(stage1_eids)} 事件 / {len(eligible)} 市场")
     logger.info("Stage 1 filter: %d events passed, %d rejected", len(stage1_eids), len(ef_result.rejected))
 
-    # --- Fetch order books for stage 1 eligible markets ---
+    # --- Stage 2: Quality gate (coarse — no depth data yet) ---
+    from scanner.scan.event_scoring import compute_event_quality_score
+
+    _MIN_EVENT_QUALITY = 55
+    passed_eids: set[str] = set()
+    for eid in stage1_eids:
+        ev = event_map.get(eid)
+        mkts = market_by_event.get(eid, [])
+        if not ev or not mkts:
+            continue
+        eq_score = compute_event_quality_score(ev, mkts)
+        if eq_score.total >= _MIN_EVENT_QUALITY:
+            passed_eids.add(eid)
+
+    # Collect only quality-gated markets
+    eligible = [m for m in ef_result.passed_markets if getattr(m, "event_id", None) in passed_eids]
+    _report("筛选", "done", f"{len(passed_eids)} 事件 / {len(eligible)} 市场 (从{len(stage1_eids)}事件筛选)")
+    logger.info("Stage 2 quality gate: %d events (score >= %d)", len(passed_eids), _MIN_EVENT_QUALITY)
+
+    # --- Fetch order books for quality-gated markets only ---
     if config.scanner.two_pass_scan and eligible:
         _report("获取盘口", "start")
         try:
@@ -155,7 +172,7 @@ def run_scan_pipeline(
             _console.print(" [dim]Price data skipped[/dim]")
             logger.warning("Price data fetch failed: %s", e)
 
-    # Score ALL eligible markets
+    # Score ALL quality-gated markets (now with depth data)
     candidates: list[ScoredCandidate] = []
     for market in eligible:
         mkt_params = price_params.get(market.market_id, {})
@@ -172,26 +189,6 @@ def run_scan_pipeline(
             score=score,
             mispricing=mispricing,
         ))
-
-    # --- Stage 2: Quality gate — only persist high-quality events ---
-    from scanner.scan.event_scoring import compute_event_quality_score
-
-    _MIN_EVENT_QUALITY = 55  # quality gate, ~100-150 events
-    passed_eids: set[str] = set()
-    for eid in stage1_eids:
-        ev = event_map.get(eid)
-        mkts = market_by_event.get(eid, [])
-        if not ev or not mkts:
-            continue
-        eq_score = compute_event_quality_score(ev, mkts)
-        if eq_score.total >= _MIN_EVENT_QUALITY:
-            passed_eids.add(eid)
-
-    # Filter candidates to only passed events
-    candidates = [c for c in candidates if getattr(c.market, "event_id", None) in passed_eids]
-    eligible = [m for m in eligible if getattr(m, "event_id", None) in passed_eids]
-
-    logger.info("Stage 2 quality gate: %d events passed (score >= %d)", len(passed_eids), _MIN_EVENT_QUALITY)
 
     # Tier classification (simplified: all passed = research)
     tiers = classify_tiers(candidates, config.scoring.thresholds)
