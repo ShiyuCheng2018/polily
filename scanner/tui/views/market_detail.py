@@ -168,13 +168,17 @@ class MarketDetailView(Widget):
             try:
                 table = self.query_one("#sub-market-table", DataTable)
                 table.clear()
+                from scanner.tui.utils import format_countdown
                 for mr in markets:
                     label = mr.group_item_title or mr.question[:40]
+                    if mr.closed:
+                        label = f"[已过期] {label}"
                     yes = f"{mr.yes_price:.2f}" if mr.yes_price is not None else "?"
                     no = f"{mr.no_price:.2f}" if mr.no_price is not None else "?"
                     spread = f"{mr.spread:.1%}" if mr.spread else "?"
                     vol = f"${mr.volume:,.0f}" if mr.volume else "?"
-                    table.add_row(label, yes, no, spread, vol, key=mr.market_id)
+                    end = format_countdown(mr.end_date) if mr.end_date else "?"
+                    table.add_row(label, yes, no, spread, vol, end, key=mr.market_id)
             except Exception:
                 pass
 
@@ -216,6 +220,7 @@ class MarketDetailView(Widget):
                     yield self._make_card("kpi-leader", "领先")
                     yield self._make_card("kpi-entropy", "分散度")
                     yield self._make_card("kpi-count", "子市场")
+                    yield self._make_card("kpi-end", "结算")
                     yield self._make_card("kpi-score", "评分")
                 else:
                     yield self._make_card("kpi-yes", "YES")
@@ -228,7 +233,7 @@ class MarketDetailView(Widget):
                 yield Static("")
                 table = DataTable(id="sub-market-table")
                 table.cursor_type = "row"
-                table.add_columns("选项", "YES", "NO", "价差", "成交量")
+                table.add_columns("选项", "YES", "NO", "价差", "成交量", "结算")
                 yield table
 
             # --- Analyzing state ---
@@ -311,7 +316,22 @@ class MarketDetailView(Widget):
         else:
             self._set_card("kpi-entropy", "?")
 
-        self._set_card("kpi-count", str(len(markets)))
+        closed_count = sum(1 for m in markets if m.closed)
+        count_str = str(len(markets))
+        if closed_count > 0:
+            count_str += f" ({closed_count}过期)"
+        self._set_card("kpi-count", count_str)
+
+        # Date range for active sub-markets
+        from datetime import UTC, datetime
+
+        from scanner.tui.utils import format_countdown_range
+        now_iso = datetime.now(UTC).isoformat()
+        active_ends = [m.end_date for m in markets if not m.closed and m.end_date and m.end_date > now_iso]
+        if active_ends:
+            self._set_card("kpi-end", format_countdown_range(min(active_ends), max(active_ends)))
+        else:
+            self._set_card("kpi-end", "?")
 
         score = event.structure_score
         self._set_card("kpi-score", f"{score:.0f}" if score else "?")
