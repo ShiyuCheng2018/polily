@@ -145,14 +145,14 @@ class MarketListView(Widget):
         # Keep original order (group_item_threshold) — shows natural distribution
         active.sort(key=lambda m: m.group_item_threshold or "999")
 
-        for i, m in enumerate(active[:10]):
+        for i, m in enumerate(active):
             label = m.group_item_title or m.question[:20]
             price = m.yes_price or 0
 
             bar_len = int(price * 20)
             bar = "█" * bar_len + "░" * (20 - bar_len)
 
-            is_last = i == min(len(active), 10) - 1
+            is_last = i == len(active) - 1
             connector = "└" if is_last else "├"
 
             vol = _fmt_volume(m.volume)
@@ -163,12 +163,6 @@ class MarketListView(Widget):
             )
             self._row_map.append({"type": "sub_market", "market": m, "event_id": event_id})
 
-        if len(active) > 10:
-            table.add_row(
-                f"  └ ... 还有 {len(active) - 10} 个", "", "", "", "", "", "",
-                key=f"more_{event_id}",
-            )
-            self._row_map.append({"type": "more", "event_id": event_id})
 
     def _get_selected(self) -> dict | None:
         try:
