@@ -214,15 +214,26 @@ class MarketDetailView(Widget):
                 bd = _json.loads(mr.score_breakdown)
 
         if bd:
+            # Get type-specific max weights
+            from scanner.scan.scoring import _DEFAULT_WEIGHTS, _TYPE_WEIGHTS
+            mtype = getattr(mr, "market_type", None) or "other"
+            # Try to get market_type from parent event if not on market
+            if mtype == "other" and self._detail:
+                ev = self._detail.get("event")
+                if ev:
+                    mtype = getattr(ev, "market_type", None) or "other"
+            tw = _TYPE_WEIGHTS.get(mtype, _DEFAULT_WEIGHTS)
+
             breakdown = [
-                ("流动性结构", bd.get("liquidity", 0), 30),
-                ("客观可验证性", bd.get("verifiability", 0), 25),
-                ("概率空间", bd.get("probability", 0), 20),
-                ("时间结构", bd.get("time", 0), 15),
-                ("交易摩擦", bd.get("friction", 0), 10),
+                ("流动性结构", bd.get("liquidity", 0), tw["liquidity"]),
+                ("客观可验证性", bd.get("verifiability", 0), tw["verifiability"]),
+                ("概率空间", bd.get("probability", 0), tw["probability"]),
+                ("时间结构", bd.get("time", 0), tw["time"]),
+                ("交易摩擦", bd.get("friction", 0), tw["friction"]),
             ]
+            if bd.get("net_edge", 0) > 0:
+                breakdown.append(("Net Edge", bd["net_edge"], tw["net_edge"]))
         else:
-            # No stored breakdown — show total only
             breakdown = []
 
         for i, (name, val, max_val) in enumerate(breakdown):

@@ -157,18 +157,18 @@ def run_scan_pipeline(
     # Score ALL eligible markets (not just filtered ones)
     candidates: list[ScoredCandidate] = []
     for market in eligible:
-        score = compute_structure_score(
-            market,
-            config.scoring.weights,
-        )
-
-        # Try enrichment module mispricing, fall through to generic
+        # Compute mispricing first (needed for crypto net_edge scoring)
         mkt_params = price_params.get(market.market_id, {})
         enrichment_mod = find_matching_module(market)
         if enrichment_mod and mkt_params:
             mispricing = enrichment_mod.detect_mispricing(market, mkt_params, config) or MispricingResult(signal="none")
         else:
             mispricing = detect_mispricing(market, config.mispricing)
+
+        # Score with mispricing data (crypto gets net_edge from it)
+        score = compute_structure_score(
+            market, config.scoring.weights, mispricing=mispricing,
+        )
 
         candidates.append(ScoredCandidate(
             market=market,
@@ -338,13 +338,16 @@ def _update_event_scores(
     for c in candidates:
         eid = getattr(c.market, "event_id", None)
         if eid:
-            breakdown = json.dumps({
+            bd = {
                 "liquidity": round(c.score.liquidity_structure, 1),
                 "verifiability": round(c.score.objective_verifiability, 1),
                 "probability": round(c.score.probability_space, 1),
                 "time": round(c.score.time_structure, 1),
                 "friction": round(c.score.trading_friction, 1),
-            })
+            }
+            if c.score.net_edge > 0:
+                bd["net_edge"] = round(c.score.net_edge, 1)
+            breakdown = json.dumps(bd)
             db.conn.execute(
                 "UPDATE markets SET structure_score = ?, score_breakdown = ? WHERE market_id = ?",
                 (c.score.total, breakdown, c.market.market_id),

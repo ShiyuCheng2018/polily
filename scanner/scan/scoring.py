@@ -57,10 +57,12 @@ _DEFAULT_WEIGHTS = {
 def compute_structure_score(
     market: Market,
     weights: ScoringWeights,
+    mispricing: object | None = None,
 ) -> ScoreBreakdown:
     """Compute a 0-100 structure score with type-specific weight profiles.
 
     Crypto markets get Net Edge dimension (25%), others get 0%.
+    Pass mispricing (MispricingResult) to enable net_edge scoring for crypto.
     """
     market_type = getattr(market, "market_type", None) or "other"
     tw = _TYPE_WEIGHTS.get(market_type, _DEFAULT_WEIGHTS)
@@ -71,10 +73,10 @@ def compute_structure_score(
     time = _score_time_structure(market)
     fric = _score_trading_friction(market)
 
-    # Net edge: only for crypto (requires fair value model)
+    # Net edge: only for crypto with mispricing data
     ne = 0.0
-    if tw["net_edge"] > 0:
-        ne = _score_net_edge(market)
+    if tw["net_edge"] > 0 and mispricing is not None:
+        ne = _score_net_edge(market, mispricing)
 
     breakdown = ScoreBreakdown(
         liquidity_structure=round(liq * tw["liquidity"], 2),
@@ -96,17 +98,24 @@ def compute_structure_score(
     return breakdown
 
 
-def _score_net_edge(market: Market) -> float:
+def _score_net_edge(market: Market, mispricing: object) -> float:
     """Score net edge for crypto markets (0-1).
 
-    Requires fair value data (from mispricing module).
-    Without it, returns 0 (no penalty, just no bonus).
+    Net Edge = |deviation_pct| - round_trip_friction.
+    Higher net edge (after friction) = better score.
     """
-    # Net edge needs external fair value data which isn't on the Market object.
-    # It's computed in the pipeline via mispricing detection.
-    # For now, return 0 — the pipeline's mispricing result provides the edge signal.
-    # This dimension will be populated when we integrate mispricing into scoring.
-    return 0.0
+    deviation = getattr(mispricing, "deviation_pct", None)
+    if not deviation or deviation <= 0:
+        return 0.0
+
+    friction = market.round_trip_friction_pct or 0.04
+    net = deviation - friction
+
+    if net <= 0:
+        return 0.0
+
+    # Map net edge to 0-1: 0%→0, 5%→0.5, 10%+→1.0
+    return min(1.0, net / 0.10)
 
 
 # ---------------------------------------------------------------------------
