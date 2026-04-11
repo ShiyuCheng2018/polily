@@ -116,19 +116,25 @@ def _score_liquidity_aggregate(event: EventRow, markets: list[Market]) -> float:
         vol_score = 0.0
 
     # Min bid depth across active markets (weakest link)
-    depths = [m.total_bid_depth_usd or 0 for m in markets]
-    min_depth = min(depths) if depths else 0
-    # $100→0.4, $1K→0.6, $10K→0.8, $100K→1.0
-    if min_depth > 0:
-        depth_score = min(math.log10(max(min_depth, 1)) / 5.0, 1.0)
-        depth_score = max(depth_score, 0)
+    # If depth data not yet available (pre-orderbook), treat as neutral (0.5)
+    depths = [m.total_bid_depth_usd for m in markets if m.total_bid_depth_usd is not None]
+    has_depth_data = len(depths) > 0
+    if has_depth_data:
+        min_depth = min(depths) if depths else 0
+        if min_depth > 0:
+            depth_score = min(math.log10(max(min_depth, 1)) / 5.0, 1.0)
+            depth_score = max(depth_score, 0)
+        else:
+            depth_score = 0.0
     else:
-        depth_score = 0.0
+        depth_score = 0.5  # neutral when no depth data yet
 
     # Coverage ratio: how many markets have meaningful depth ($100+)
-    if markets:
-        with_depth = sum(1 for m in markets if (m.total_bid_depth_usd or 0) >= 100)
+    if has_depth_data and markets:
+        with_depth = sum(1 for d in depths if d >= 100)
         coverage = with_depth / len(markets)
+    elif not has_depth_data:
+        coverage = 0.5  # neutral when no depth data yet
     else:
         coverage = 0.0
 
