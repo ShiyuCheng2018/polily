@@ -458,6 +458,8 @@ async def _fetch_price_params_batch(
             asset_data[symbol] = {
                 "current_underlying_price": price,
                 "annual_volatility": vol,
+                "vol_source": "binance" if history else "fallback_default",
+                "vol_data_days": len(history),
             }
         except Exception as e:
             logger.warning("Price fetch failed for %s: %s", symbol, e)

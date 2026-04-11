@@ -83,7 +83,7 @@ def detect_mispricing(
 
     # Crypto threshold mispricing
     if (
-        market.market_type == "crypto_threshold"
+        market.market_type in ("crypto", "crypto_threshold")
         and market.yes_price is not None
         and current_underlying_price is not None
         and threshold_price is not None
