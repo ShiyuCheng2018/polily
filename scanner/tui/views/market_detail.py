@@ -136,6 +136,8 @@ class MarketDetailView(Widget):
         # Load data synchronously so compose() has it
         self._detail = self.service.get_event_detail(self.event_id)
         self._version_idx: int = -1
+        self._expanded_markets: set[str] = set()  # market_ids with expanded score breakdown
+        self._sub_row_map: list[dict] = []  # maps sub-market table rows
 
         if self._detail is not None:
             analyses = self._detail.get("analyses", [])
@@ -165,22 +167,109 @@ class MarketDetailView(Widget):
         # Fill sub-market table for multi-outcome events
         markets = d.get("markets", [])
         if len(markets) > 1:
-            try:
-                table = self.query_one("#sub-market-table", DataTable)
-                table.clear()
-                from scanner.tui.utils import format_countdown
-                for mr in markets:
-                    label = mr.group_item_title or mr.question[:40]
-                    if mr.closed:
-                        label = f"[已过期] {label}"
-                    yes = f"{mr.yes_price:.2f}" if mr.yes_price is not None else "?"
-                    no = f"{mr.no_price:.2f}" if mr.no_price is not None else "?"
-                    spread = f"{mr.spread:.1%}" if mr.spread else "?"
-                    vol = f"${mr.volume:,.0f}" if mr.volume else "?"
-                    end = format_countdown(mr.end_date) if mr.end_date else "?"
-                    table.add_row(label, yes, no, spread, vol, end, key=mr.market_id)
-            except Exception:
-                pass
+            self._rebuild_sub_market_table(markets)
+
+    def _rebuild_sub_market_table(self, markets: list) -> None:
+        """Build sub-market table with expandable score breakdown."""
+        try:
+            table = self.query_one("#sub-market-table", DataTable)
+        except Exception:
+            return
+
+        table.clear()
+        self._sub_row_map = []
+
+        from scanner.tui.utils import format_countdown
+
+        for mr in markets:
+            label = mr.group_item_title or mr.question[:40]
+            if mr.closed:
+                label = f"[已过期] {label}"
+            is_expanded = mr.market_id in self._expanded_markets
+            prefix = "▼ " if is_expanded else "▶ " if not mr.closed else "  "
+
+            yes = f"{mr.yes_price:.2f}" if mr.yes_price is not None else "?"
+            no = f"{mr.no_price:.2f}" if mr.no_price is not None else "?"
+            spread = f"{mr.spread:.1%}" if mr.spread else "?"
+            vol = f"${mr.volume:,.0f}" if mr.volume else "?"
+            end = format_countdown(mr.end_date) if mr.end_date else "?"
+
+            table.add_row(f"{prefix}{label}", yes, no, spread, vol, end, key=f"m_{mr.market_id}")
+            self._sub_row_map.append({"type": "market", "market": mr})
+
+            if is_expanded:
+                self._add_score_breakdown_rows(table, mr)
+
+    def _add_score_breakdown_rows(self, table: DataTable, mr) -> None:
+        """Insert score breakdown rows for an expanded sub-market."""
+        # Build a Market object from MarketRow for scoring
+        import contextlib
+        from datetime import UTC, datetime
+
+        from scanner.core.models import Market
+        from scanner.scan.scoring import compute_structure_score
+        res_time = None
+        if mr.end_date:
+            with contextlib.suppress(ValueError):
+                res_time = datetime.fromisoformat(mr.end_date.replace("Z", "+00:00"))
+
+        market = Market(
+            market_id=mr.market_id,
+            title=mr.question,
+            outcomes=["Yes", "No"],
+            yes_price=mr.yes_price,
+            no_price=mr.no_price,
+            best_bid_yes=mr.best_bid,
+            best_ask_yes=mr.best_ask,
+            spread_yes=mr.spread,
+            volume=mr.volume,
+            resolution_time=res_time,
+            data_fetched_at=datetime.now(UTC),
+        )
+        # Reconstruct book depth if available
+        if mr.bid_depth is not None:
+            from scanner.core.models import BookLevel
+            market.book_depth_bids = [BookLevel(price=mr.best_bid or 0, size=mr.bid_depth)]
+            market.book_depth_asks = [BookLevel(price=mr.best_ask or 0, size=mr.ask_depth or 0)]
+
+        from scanner.core.config import ScoringWeights
+        score = compute_structure_score(market, ScoringWeights())
+
+        breakdown = [
+            ("流动性结构", score.liquidity_structure, 30),
+            ("客观可验证性", score.objective_verifiability, 25),
+            ("概率空间", score.probability_space, 20),
+            ("时间结构", score.time_structure, 15),
+            ("交易摩擦", score.trading_friction, 10),
+        ]
+
+        for i, (name, val, max_val) in enumerate(breakdown):
+            bar_len = int(val / max_val * 15) if max_val > 0 else 0
+            bar = "█" * bar_len + "░" * (15 - bar_len)
+            is_last = i == len(breakdown) - 1
+            conn = "└" if is_last else "├"
+            table.add_row(
+                f"  {conn} {name}", f"{bar} {val:.0f}/{max_val}", "", "", "", "",
+                key=f"bd_{mr.market_id}_{i}",
+            )
+            self._sub_row_map.append({"type": "breakdown", "market_id": mr.market_id})
+
+    def _on_sub_market_selected(self, row_idx: int) -> None:
+        """Handle Enter/click on sub-market table row."""
+        if row_idx < 0 or row_idx >= len(self._sub_row_map):
+            return
+        item = self._sub_row_map[row_idx]
+        if item["type"] == "market":
+            mr = item["market"]
+            if mr.closed:
+                return  # don't expand expired
+            mid = mr.market_id
+            if mid in self._expanded_markets:
+                self._expanded_markets.discard(mid)
+            else:
+                self._expanded_markets.add(mid)
+            markets = (self._detail or {}).get("markets", [])
+            self._rebuild_sub_market_table(markets)
 
     # ------------------------------------------------------------------
     # Compose
@@ -488,6 +577,11 @@ class MarketDetailView(Widget):
             self.post_message(CancelAnalysisRequested())
         else:
             self.post_message(BackToList())
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle Enter/click on sub-market table — toggle score breakdown."""
+        if event.data_table.id == "sub-market-table":
+            self._on_sub_market_selected(event.cursor_row)
 
     def action_analyze(self) -> None:
         if self._analyzing:
