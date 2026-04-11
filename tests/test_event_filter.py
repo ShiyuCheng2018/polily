@@ -111,6 +111,60 @@ class TestEventFilterAllSubMarketsScored:
         assert "m3" in passed_mids
 
 
+class TestEventFilterTimeWindow:
+    def test_over_60_days_rejected(self):
+        """Events with nearest resolution > 60 days should be rejected."""
+        end = (datetime.now(UTC) + timedelta(days=90)).isoformat()
+        mkts = [make_market(market_id="m1", event_id="ev1", yes_price=0.55,
+                           resolution_time=datetime.now(UTC) + timedelta(days=90))]
+        ev, _ = _make_event_with_markets(end_date=end, markets=mkts)
+        result = filter_events([(ev, mkts)])
+        assert ev.event_id not in result.passed_event_ids
+
+    def test_under_60_days_passes(self):
+        end = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+        mkts = [make_market(market_id="m1", event_id="ev1", yes_price=0.55,
+                           resolution_time=datetime.now(UTC) + timedelta(days=30))]
+        ev, _ = _make_event_with_markets(end_date=end, markets=mkts)
+        result = filter_events([(ev, mkts)])
+        assert ev.event_id in result.passed_event_ids
+
+    def test_over_30_days_all_extreme_rejected(self):
+        """> 30 days + all sub-markets extreme probability → rejected."""
+        end = (datetime.now(UTC) + timedelta(days=45)).isoformat()
+        mkts = [
+            make_market(market_id="m1", event_id="ev1", yes_price=0.95,
+                       resolution_time=datetime.now(UTC) + timedelta(days=45)),
+            make_market(market_id="m2", event_id="ev1", yes_price=0.03,
+                       resolution_time=datetime.now(UTC) + timedelta(days=45)),
+        ]
+        ev, _ = _make_event_with_markets(end_date=end, markets=mkts)
+        result = filter_events([(ev, mkts)])
+        assert ev.event_id not in result.passed_event_ids
+
+    def test_over_30_days_balanced_passes(self):
+        """> 30 days but balanced probability → passes."""
+        end = (datetime.now(UTC) + timedelta(days=45)).isoformat()
+        mkts = [
+            make_market(market_id="m1", event_id="ev1", yes_price=0.55,
+                       resolution_time=datetime.now(UTC) + timedelta(days=45)),
+            make_market(market_id="m2", event_id="ev1", yes_price=0.45,
+                       resolution_time=datetime.now(UTC) + timedelta(days=45)),
+        ]
+        ev, _ = _make_event_with_markets(end_date=end, markets=mkts)
+        result = filter_events([(ev, mkts)])
+        assert ev.event_id in result.passed_event_ids
+
+
+class TestEventFilterVolumeNone:
+    def test_volume_none_passes(self):
+        """Event with volume=None should pass (unknown, not rejected)."""
+        ev, mkts = _make_event_with_markets(volume=None)
+        ev.volume = None
+        result = filter_events([(ev, mkts)])
+        assert ev.event_id in result.passed_event_ids
+
+
 class TestEventFilterResult:
     def test_result_counts(self):
         events = [

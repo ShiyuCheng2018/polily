@@ -3,12 +3,12 @@
 Determines if an event is worth researching. Uses event-level aggregates,
 not individual sub-market quality.
 
-Dimensions:
-  1. Information Value (25)  — entropy, leader margin, HHI
+Dimensions (total 100):
+  1. Information Value (20)  — entropy, leader margin
   2. Liquidity Aggregate (25) — volume, min depth, coverage ratio
-  3. Resolution Quality (20) — resolution source, description quality
-  4. Consistency (15) — overround, pricing efficiency
-  5. Time Window (15) — resolution in sweet spot
+  3. Resolution Quality (15) — resolution source, description quality
+  4. Consistency (10) — overround, pricing efficiency
+  5. Time Window (30) — 1-7 days sweet spot, steep decay beyond
 """
 
 from __future__ import annotations
@@ -27,11 +27,11 @@ if TYPE_CHECKING:
 class EventQualityScore:
     """Event-level quality score with 5 dimensions."""
 
-    information_value: float = 0.0    # 0-25
+    information_value: float = 0.0    # 0-20
     liquidity_aggregate: float = 0.0  # 0-25
-    resolution_quality: float = 0.0   # 0-20
-    consistency: float = 0.0          # 0-15
-    time_window: float = 0.0          # 0-15
+    resolution_quality: float = 0.0   # 0-15
+    consistency: float = 0.0          # 0-10
+    time_window: float = 0.0          # 0-30
     total: float = 0.0                # 0-100
 
 
@@ -61,7 +61,7 @@ def compute_event_quality_score(
 
 
 # ---------------------------------------------------------------------------
-# Dimension 1: Information Value (0-25)
+# Dimension 1: Information Value (0-20)
 # ---------------------------------------------------------------------------
 
 def _score_information_value(markets: list[Market]) -> float:
@@ -98,7 +98,7 @@ def _score_information_value(markets: list[Market]) -> float:
 
     # Combine: entropy 60% + margin 40%
     raw = entropy * 0.6 + margin_score * 0.4
-    return round(min(raw * 25, 25), 2)
+    return round(min(raw * 20, 20), 2)
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +144,7 @@ def _score_liquidity_aggregate(event: EventRow, markets: list[Market]) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Dimension 3: Resolution Quality (0-20)
+# Dimension 3: Resolution Quality (0-15)
 # ---------------------------------------------------------------------------
 
 def _score_resolution_quality(event: EventRow) -> float:
@@ -173,11 +173,11 @@ def _score_resolution_quality(event: EventRow) -> float:
     obj_matches = sum(1 for kw in obj_keywords if kw in desc_lower)
     score += min(obj_matches * 0.05, 0.25)
 
-    return round(min(score * 20, 20), 2)
+    return round(min(score * 15, 15), 2)
 
 
 # ---------------------------------------------------------------------------
-# Dimension 4: Consistency (0-15)
+# Dimension 4: Consistency (0-10)
 # ---------------------------------------------------------------------------
 
 def _score_consistency(markets: list[Market]) -> float:
@@ -204,16 +204,16 @@ def _score_consistency(markets: list[Market]) -> float:
     if len(prices) == 1:
         overround_score = 0.7  # neutral
 
-    return round(min(overround_score * 15, 15), 2)
+    return round(min(overround_score * 10, 10), 2)
 
 
 # ---------------------------------------------------------------------------
-# Dimension 5: Time Window (0-15)
+# Dimension 5: Time Window (0-30)
+# User insight: 3-7 days is prime trading window. > 60 days filtered at gate.
 # ---------------------------------------------------------------------------
 
 def _score_time_window(markets: list[Market]) -> float:
-    """Resolution in sweet spot (1-30 days)."""
-    # Get minimum days to resolution across active markets
+    """Resolution time scoring — steep curve, 1-7 days is sweet spot."""
     now = datetime.now(UTC)
     min_days = None
     for m in markets:
@@ -223,22 +223,21 @@ def _score_time_window(markets: list[Market]) -> float:
                 min_days = days
 
     if min_days is None:
-        return 7.5  # neutral when unknown
+        return 0.0  # no data = no score (penalize)
 
-    # Sweet spot: 1-14 days → full score
-    # < 0.5 days → too close (might miss)
-    # > 60 days → too far (capital lock)
     if min_days < 0.5:
-        score = 0.3
+        score = 0.3   # too close, might miss entry
     elif min_days <= 1:
-        score = 0.6
+        score = 0.7
+    elif min_days <= 7:
+        score = 1.0   # prime trading window
     elif min_days <= 14:
-        score = 1.0
-    elif min_days <= 30:
         score = 0.8
-    elif min_days <= 60:
+    elif min_days <= 30:
         score = 0.5
-    else:
+    elif min_days <= 60:
         score = 0.2
+    else:
+        score = 0.0   # > 60 days (shouldn't reach here, filtered at gate)
 
-    return round(score * 15, 2)
+    return round(score * 30, 2)

@@ -106,6 +106,22 @@ def _check_event(
     if matches_any(ev.title, ["5 min", "1 min", "5min", "1min"]):
         return "Noise event"
 
+    # Time window checks — based on nearest active sub-market resolution
+    now = datetime.now(UTC)
+    future_markets = [m for m in markets if m.resolution_time and m.resolution_time > now]
+    if future_markets:
+        nearest_days = min((m.resolution_time - now).total_seconds() / 86400 for m in future_markets)
+
+        # > 60 days: not in trading window yet
+        if nearest_days > 60:
+            return f"Too far from resolution ({nearest_days:.0f}d > 60d)"
+
+        # > 30 days + all extreme probability: direction decided, no trade value
+        if nearest_days > 30:
+            prices = [m.yes_price for m in future_markets if m.yes_price and m.yes_price > 0]
+            if prices and all(p > 0.85 or p < 0.15 for p in prices):
+                return f"Far resolution ({nearest_days:.0f}d) + all extreme probability"
+
     return None
 
 

@@ -21,7 +21,7 @@ def _sample_markets() -> list[Market]:
             volume=80000,
             open_interest=50000,
             resolution_source="https://coingecko.com",
-            resolution_time=datetime(2026, 6, 30, tzinfo=UTC),
+            resolution_time=datetime(2026, 4, 20, tzinfo=UTC),
         ),
         # Good economics market
         make_market(
@@ -31,7 +31,7 @@ def _sample_markets() -> list[Market]:
             volume=60000,
             open_interest=40000,
             resolution_source="https://bls.gov",
-            resolution_time=datetime(2026, 7, 2, tzinfo=UTC),
+            resolution_time=datetime(2026, 4, 25, tzinfo=UTC),
         ),
         # Should be filtered: extreme probability
         make_market(
@@ -142,13 +142,13 @@ class TestPipelineDBPersistence:
                 title="Will BTC be above $88,000 on March 30?",
                 yes_price=0.50, volume=80000, open_interest=50000,
                 resolution_source="https://coingecko.com",
-                resolution_time=datetime(2026, 6, 30, tzinfo=UTC),
+                resolution_time=datetime(2026, 4, 20, tzinfo=UTC),
             ),
             make_market(
                 market_id="m2", event_id="ev2",
                 title="Low volume event",
                 yes_price=0.50, volume=500, open_interest=100,
-                resolution_time=datetime(2026, 6, 30, tzinfo=UTC),
+                resolution_time=datetime(2026, 4, 20, tzinfo=UTC),
             ),
         ]
 
@@ -178,21 +178,21 @@ class TestPipelineDBPersistence:
                 market_id="m1", event_id="ev1",
                 title="Team A wins?",
                 yes_price=0.50, volume=200000, open_interest=100000,
-                resolution_time=datetime(2026, 6, 30, tzinfo=UTC),
+                resolution_time=datetime(2026, 4, 20, tzinfo=UTC),
                 clob_token_id_yes="tok1",
             ),
             make_market(
                 market_id="m2", event_id="ev1",
                 title="Draw?",
                 yes_price=0.25, volume=80000, open_interest=50000,
-                resolution_time=datetime(2026, 6, 30, tzinfo=UTC),
+                resolution_time=datetime(2026, 4, 20, tzinfo=UTC),
                 clob_token_id_yes="tok2",
             ),
             make_market(
                 market_id="m3", event_id="ev1",
                 title="Team B wins?",
                 yes_price=0.25, volume=80000, open_interest=50000,
-                resolution_time=datetime(2026, 6, 30, tzinfo=UTC),
+                resolution_time=datetime(2026, 4, 20, tzinfo=UTC),
                 clob_token_id_yes="tok3",
             ),
         ]
@@ -250,7 +250,7 @@ class TestPipelineDBPersistence:
                 title="Will BTC be above $88,000 on March 30?",
                 yes_price=0.50, volume=80000, open_interest=50000,
                 resolution_source="https://coingecko.com",
-                resolution_time=datetime(2026, 6, 30, tzinfo=UTC),
+                resolution_time=datetime(2026, 4, 20, tzinfo=UTC),
             ),
         ]
         config = load_config(__import__("pathlib").Path("config.example.yaml"))
