@@ -331,6 +331,8 @@ def _update_event_scores(
     Event-level score + tier are handled by _update_event_quality_scores.
     """
     # Update per-market scores + breakdown
+    from scanner.scan.commentary import generate_commentary
+
     for c in candidates:
         eid = getattr(c.market, "event_id", None)
         if eid:
@@ -343,6 +345,11 @@ def _update_event_scores(
             }
             if c.score.net_edge > 0:
                 bd["net_edge"] = round(c.score.net_edge, 1)
+            commentary = generate_commentary(
+                bd, c.score.total, c.market.market_id,
+                market_type=getattr(c.market, "market_type", "other"),
+            )
+            bd["commentary"] = commentary
             breakdown = json.dumps(bd)
             db.conn.execute(
                 "UPDATE markets SET structure_score = ?, score_breakdown = ? WHERE market_id = ?",

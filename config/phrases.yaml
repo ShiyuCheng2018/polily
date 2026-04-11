@@ -1,0 +1,418 @@
+dimensions:
+  liquidity:
+    label: "流动性结构"
+    label_short: "流动性"
+    levels:
+      - range: [0, 5]
+        phrases: ["有价无市", "纸面价格而已", "挂单都没人理"]
+      - range: [5, 10]
+        phrases: ["流动性几乎为零", "买得进去出不来", "做市商都跑了"]
+      - range: [10, 15]
+        phrases: ["盘口极薄", "稍微大点的单就打穿", "滑点能吃掉你全部利润"]
+      - range: [15, 20]
+        phrases: ["深度堪忧", "只够散户小打小闹", "进出都得小心翼翼"]
+      - range: [20, 25]
+        phrases: ["深度偏弱", "$20的单都得看看盘口", "流动性刚够用"]
+      - range: [25, 30]
+        phrases: ["能交易但别太大", "小仓位还行", "盘口勉强够看"]
+      - range: [30, 35]
+        phrases: ["流动性一般般", "够散户操作", "价差有点宽"]
+      - range: [35, 40]
+        phrases: ["流动性中等偏下", "挂限价单问题不大", "别用市价单"]
+      - range: [40, 45]
+        phrases: ["流动性还行", "正常操作没问题", "价差可以接受"]
+      - range: [45, 50]
+        phrases: ["流动性中规中矩", "大部分时候够用", "偶尔价差会拉大"]
+      - range: [50, 55]
+        phrases: ["流动性过得去", "盘口还算紧", "正常尺寸的单没压力"]
+      - range: [55, 60]
+        phrases: ["流动性不错", "买卖都挺顺畅", "盘口比较健康"]
+      - range: [60, 65]
+        phrases: ["流动性良好", "进出很方便", "做市商在认真做事"]
+      - range: [65, 70]
+        phrases: ["盘口挺厚实", "大单也不会太滑", "流动性让人放心"]
+      - range: [70, 75]
+        phrases: ["深度很不错", "价差紧实", "可以放心操作"]
+      - range: [75, 80]
+        phrases: ["盘口很深", "流动性上乘", "大资金也能轻松进出"]
+      - range: [80, 85]
+        phrases: ["流动性优秀", "盘口厚得像墙", "想怎么买就怎么买"]
+      - range: [85, 90]
+        phrases: ["顶级流动性", "做市商抢着报价", "随时进出零压力"]
+      - range: [90, 95]
+        phrases: ["机构级深度", "几乎没有滑点", "流动性满分"]
+      - range: [95, 100]
+        phrases: ["想买多少买多少", "随便造", "盘口深不见底"]
+
+  verifiability:
+    label: "客观可验证性"
+    label_short: "可验证性"
+    levels:
+      - range: [0, 5]
+        phrases: ["怎么结算完全是谜", "规则不透明", "结果全凭平台心情"]
+      - range: [5, 10]
+        phrases: ["结算标准很模糊", "争议风险极高", "搞不清楚怎么算赢"]
+      - range: [10, 15]
+        phrases: ["结算依据不太靠谱", "可能出现争议", "规则写得像作文"]
+      - range: [15, 20]
+        phrases: ["结算有一定主观性", "规则不够清晰", "得仔细读规则再下单"]
+      - range: [20, 25]
+        phrases: ["结算标准勉强可接受", "有规则但留了口子", "小心措辞陷阱"]
+      - range: [25, 30]
+        phrases: ["有结算依据但不算硬", "规则基本清楚", "大概知道怎么结算"]
+      - range: [30, 35]
+        phrases: ["结算依据一般", "规则说得过去", "不算特别客观"]
+      - range: [35, 40]
+        phrases: ["结算标准还行", "有据可查但不算硬核", "中等可验证"]
+      - range: [40, 45]
+        phrases: ["结算比较靠谱", "有明确的判定标准", "争议概率不大"]
+      - range: [45, 50]
+        phrases: ["结算标准比较清晰", "有数据源支撑", "规则写得还不错"]
+      - range: [50, 55]
+        phrases: ["可验证性过得去", "有官方渠道可以核实", "结算有据可依"]
+      - range: [55, 60]
+        phrases: ["结算标准不错", "有比较可靠的数据源", "结果好查证"]
+      - range: [60, 65]
+        phrases: ["结算规则清楚", "数据源比较权威", "争议概率很低"]
+      - range: [65, 70]
+        phrases: ["结算非常明确", "官方数据说了算", "没什么争议空间"]
+      - range: [70, 75]
+        phrases: ["结算依据很硬", "白纸黑字有数据", "一查就知道结果"]
+      - range: [75, 80]
+        phrases: ["可验证性很高", "公开API可查", "结算零争议"]
+      - range: [80, 85]
+        phrases: ["结算铁证如山", "数据源硬得不能再硬", "API直接读数"]
+      - range: [85, 90]
+        phrases: ["结算机制近乎完美", "官方直接出数", "链上可验证"]
+      - range: [90, 95]
+        phrases: ["数字说话零废话", "价格过线自动结算", "验证成本为零"]
+      - range: [95, 100]
+        phrases: ["看一眼价格就知道结果", "结算比ATM取钱还确定", "这结果没法赖"]
+
+  probability:
+    label: "概率空间"
+    label_short: "概率空间"
+    levels:
+      - range: [0, 5]
+        phrases: ["赔率太极端了", "这价格没肉吃", "接近板上钉钉"]
+      - range: [5, 10]
+        phrases: ["价格几乎到头了", "就算对了也赚不了多少", "赔率极差"]
+      - range: [10, 15]
+        phrases: ["概率空间很小", "价格太偏了", "风险收益比很差"]
+      - range: [15, 20]
+        phrases: ["空间不太够", "价格偏向一边", "赔率不怎么样"]
+      - range: [20, 25]
+        phrases: ["概率空间偏小", "上行空间有限", "得有很强信号才值得"]
+      - range: [25, 30]
+        phrases: ["概率空间一般", "还有点赔率", "价格不算太极端"]
+      - range: [30, 35]
+        phrases: ["概率空间还行", "有一定的操作余地", "赔率勉强可以"]
+      - range: [35, 40]
+        phrases: ["概率空间中等", "价格开始有意思了", "赔率说得过去"]
+      - range: [40, 45]
+        phrases: ["概率空间不错", "价格挺均衡", "做多做空都有理由"]
+      - range: [45, 50]
+        phrases: ["概率空间良好", "赔率比较公平", "价格还没定论"]
+      - range: [50, 55]
+        phrases: ["价格在甜蜜区", "赔率正好", "进场空间很舒服"]
+      - range: [55, 60]
+        phrases: ["赔率挺合理", "不算贵也不算便宜", "概率空间优质"]
+      - range: [60, 65]
+        phrases: ["概率空间大", "两边都有肉吃", "价格还在拉锯"]
+      - range: [65, 70]
+        phrases: ["概率空间很大", "市场还没形成共识", "赔率给得慷慨"]
+      - range: [70, 75]
+        phrases: ["概率空间很宽", "市场在博弈", "两边都有big money"]
+      - range: [75, 80]
+        phrases: ["概率空间开阔", "价格接近五五开", "方向选对就赚翻"]
+      - range: [80, 85]
+        phrases: ["赔率黄金区域", "概率空间上乘", "做对了收益非常可观"]
+      - range: [85, 90]
+        phrases: ["极佳的赔率", "五五开的战场", "概率空间顶级"]
+      - range: [90, 95]
+        phrases: ["赔率完美", "概率空间几乎满分", "市场完全没定论"]
+      - range: [95, 100]
+        phrases: ["完美50/50", "纯粹的概率博弈", "这就是教科书级赔率"]
+
+  time:
+    label: "时间结构"
+    label_short: "时间"
+    levels:
+      - range: [0, 5]
+        phrases: ["太远了先观望", "还早着呢", "等催化剂再说"]
+      - range: [5, 10]
+        phrases: ["时间线拉得太长", "资金效率极低", "等更近再考虑"]
+      - range: [10, 15]
+        phrases: ["时间太远了", "钱锁在这里太久", "黄花菜都凉了"]
+      - range: [15, 20]
+        phrases: ["还有不少时间", "不着急入场", "资金利用率不高"]
+      - range: [20, 25]
+        phrases: ["时间偏远", "除非强信号否则等等", "先挂着watchlist"]
+      - range: [25, 30]
+        phrases: ["时间窗口一般", "可以开始关注了", "还没到最佳入场时机"]
+      - range: [30, 35]
+        phrases: ["时间还行", "可以提前布局", "离催化剂不算太远"]
+      - range: [35, 40]
+        phrases: ["时间框架可接受", "一两周内见分晓", "可以考虑进场"]
+      - range: [40, 45]
+        phrases: ["时间结构还不错", "催化剂在路上了", "资金锁定周期合理"]
+      - range: [45, 50]
+        phrases: ["时间窗口比较好", "一周左右见真章", "节奏感不错"]
+      - range: [50, 55]
+        phrases: ["时间结构不错", "快要到催化剂了", "持仓周期合理"]
+      - range: [55, 60]
+        phrases: ["时间框架良好", "几天内有结果", "资金效率不错"]
+      - range: [60, 65]
+        phrases: ["时间窗口优质", "催化剂就快到了", "很快见分晓"]
+      - range: [65, 70]
+        phrases: ["时间结构很好", "黄金交易窗口", "几天内出结果"]
+      - range: [70, 75]
+        phrases: ["时间窗口极佳", "催化剂近在眼前", "3-5天内定胜负"]
+      - range: [75, 80]
+        phrases: ["最佳交易窗口", "就这两三天的事", "催化剂触手可及"]
+      - range: [80, 85]
+        phrases: ["时间节奏完美", "马上要出结果了", "资金效率满分"]
+      - range: [85, 90]
+        phrases: ["倒计时进行中", "催化剂就在明后天", "短线机会窗口"]
+      - range: [90, 95]
+        phrases: ["读秒阶段", "结果即将揭晓", "最后的进场窗口"]
+      - range: [95, 100]
+        phrases: ["就差临门一脚", "今天就知道结果", "倒计时最后几小时"]
+
+  friction:
+    label: "交易摩擦"
+    label_short: "摩擦"
+    levels:
+      - range: [0, 5]
+        phrases: ["进去就先亏一截", "价差吃掉全部利润", "别给做市商送钱"]
+      - range: [5, 10]
+        phrases: ["摩擦成本高得离谱", "一来一回亏8%+", "除非天大的edge否则别碰"]
+      - range: [10, 15]
+        phrases: ["交易成本很高", "往返摩擦吃掉大部分利润", "价差太宽了"]
+      - range: [15, 20]
+        phrases: ["摩擦偏高", "需要较大偏差才能覆盖成本", "注意往返价差"]
+      - range: [20, 25]
+        phrases: ["交易成本不低", "吃掉一部分利润", "限价单必须用"]
+      - range: [25, 30]
+        phrases: ["摩擦中等偏高", "成本需要考虑进去", "价差有点肉疼"]
+      - range: [30, 35]
+        phrases: ["交易成本一般", "价差还行但别忘了算进去", "摩擦可控"]
+      - range: [35, 40]
+        phrases: ["摩擦中等", "成本不高不低", "正常水平的价差"]
+      - range: [40, 45]
+        phrases: ["摩擦尚可", "成本在合理范围", "不会太影响收益"]
+      - range: [45, 50]
+        phrases: ["交易成本还行", "往返摩擦能接受", "不算太贵"]
+      - range: [50, 55]
+        phrases: ["摩擦在正常范围", "成本还好", "不会吃太多利润"]
+      - range: [55, 60]
+        phrases: ["摩擦比较低", "交易成本不错", "价差比较紧"]
+      - range: [60, 65]
+        phrases: ["摩擦偏低", "成本友好", "做市商报价紧实"]
+      - range: [65, 70]
+        phrases: ["低摩擦", "进出成本很低", "价差控制得好"]
+      - range: [70, 75]
+        phrases: ["摩擦很低", "交易成本几乎不影响收益", "报价很紧"]
+      - range: [75, 80]
+        phrases: ["超低摩擦", "进出成本微乎其微", "几乎不用考虑价差"]
+      - range: [80, 85]
+        phrases: ["摩擦极低", "交易成本忽略不计", "价差像纸一样薄"]
+      - range: [85, 90]
+        phrases: ["摩擦近乎为零", "做市商在拼了", "随时进出不心疼"]
+      - range: [90, 95]
+        phrases: ["摩擦可以忽略", "价差窄到极致", "成本几乎为零"]
+      - range: [95, 100]
+        phrases: ["零摩擦天堂", "买卖价一样", "交易所级别的报价"]
+
+  net_edge:
+    label: "净Edge"
+    label_short: "Edge"
+    levels:
+      - range: [0, 5]
+        phrases: ["模型没发现偏差", "价格和估值基本一致", "没有可量化的edge"]
+      - range: [5, 10]
+        phrases: ["微弱偏差信号", "扣掉摩擦就没了", "模型给的edge太薄"]
+      - range: [10, 15]
+        phrases: ["有点偏差但不够看", "edge不够覆盖成本", "信号太弱了"]
+      - range: [15, 20]
+        phrases: ["有一丝edge", "勉强覆盖摩擦", "模型看到了点什么"]
+      - range: [20, 25]
+        phrases: ["有点意思", "edge刚好能覆盖成本", "值得再看看"]
+      - range: [25, 30]
+        phrases: ["模型开始有信号了", "扣完摩擦还有点肉", "edge可以考虑"]
+      - range: [30, 35]
+        phrases: ["有一定edge", "偏差开始有意义了", "模型在说话"]
+      - range: [35, 40]
+        phrases: ["edge不错", "价格和模型有明显偏差", "值得认真看看"]
+      - range: [40, 45]
+        phrases: ["edge比较可观", "模型信号比较强", "偏差足够覆盖成本"]
+      - range: [45, 50]
+        phrases: ["相当不错的edge", "模型和市场分歧明显", "值得重仓关注"]
+      - range: [50, 55]
+        phrases: ["edge很好", "模型给出了明确信号", "定价偏差可观"]
+      - range: [55, 60]
+        phrases: ["edge优秀", "市场价和模型差很大", "这个偏差值得抓"]
+      - range: [60, 65]
+        phrases: ["强edge信号", "市场明显定价错误", "难得的机会"]
+      - range: [65, 70]
+        phrases: ["edge非常强", "模型估值和市价差距巨大", "这种偏差不常见"]
+      - range: [70, 75]
+        phrases: ["极强的edge", "市场严重偏离估值", "如果模型对就是送钱"]
+      - range: [75, 80]
+        phrases: ["罕见的大edge", "市场定价偏差离谱", "要么市场知道什么要么白送"]
+      - range: [80, 85]
+        phrases: ["edge大到不真实", "先确认模型没算错", "这偏差太夸张了"]
+      - range: [85, 90]
+        phrases: ["天上掉馅饼级别", "反复检查模型吧", "这种edge是异常值"]
+      - range: [90, 95]
+        phrases: ["要么bug要么机会", "模型和市场严重打架", "先看看是不是数据错了"]
+      - range: [95, 100]
+        phrases: ["这肯定哪里不对", "市场要么崩了要么你发现了金矿", "三重检查后再动手"]
+
+overall:
+  total_judgment:
+    - range: [0, 10]
+      phrases: ["这市场基本废了", "别浪费时间", "结构全面崩坏"]
+    - range: [10, 20]
+      phrases: ["这个市场结构很差", "基本面不支持交易", "别碰"]
+    - range: [20, 30]
+      phrases: ["市场结构偏弱", "不太适合操作", "需要非常强的理由才值得"]
+    - range: [30, 40]
+      phrases: ["市场结构一般", "勉强可以看看", "不是最好的机会"]
+    - range: [40, 50]
+      phrases: ["市场结构中等偏下", "凑合但有短板", "挑挑拣拣的话不选这个"]
+    - range: [50, 55]
+      phrases: ["市场结构刚及格", "勉强够交易门槛", "条件一般般"]
+    - range: [55, 60]
+      phrases: ["市场结构还行", "可以考虑", "条件基本满足"]
+    - range: [60, 65]
+      phrases: ["市场结构不错", "值得认真看看", "条件比较理想"]
+    - range: [65, 70]
+      phrases: ["市场结构良好", "值得花时间研究", "多数条件到位"]
+    - range: [70, 75]
+      phrases: ["市场结构很好", "很值得关注", "大部分条件都到位了"]
+    - range: [75, 80]
+      phrases: ["市场结构优良", "重点关注对象", "条件相当不错"]
+    - range: [80, 85]
+      phrases: ["市场结构优秀", "难得的好市场", "各方面都很不错"]
+    - range: [85, 90]
+      phrases: ["市场结构出色", "这种机会不多见", "几乎挑不出毛病"]
+    - range: [90, 95]
+      phrases: ["教科书级的市场结构", "顶级交易机会", "很少能遇到这么好的"]
+    - range: [95, 100]
+      phrases: ["完美市场结构", "千里挑一", "所有条件全满分"]
+
+  strongest:
+    - "亮点在{dim}: {phrase}"
+    - "最大优势是{dim} — {phrase}"
+    - "{dim}表现突出: {phrase}"
+
+  weakest:
+    - "短板是{dim}: {phrase}"
+    - "最大风险在{dim} — {phrase}"
+    - "注意{dim}: {phrase}"
+
+  advice:
+    # === Edge + Liquidity 交叉 (crypto核心场景) ===
+    - condition: {net_edge_pct_gte: 70, liquidity_pct_gte: 70}
+      phrases: ["Edge大+盘口深，教科书级setup，限价建仓", "模型强信号+流动性充足，严格执行", "这种机会不多，按纪律打"]
+    - condition: {net_edge_pct_gte: 50, liquidity_pct_lt: 30}
+      phrases: ["有edge但流动性太差，纸面利润而已", "模型说有机会但盘口太薄，小仓位限价单试试", "Edge看着诱人但你出不来"]
+    - condition: {net_edge_pct_gte: 50, liquidity_pct_gte: 30, liquidity_pct_lt: 50}
+      phrases: ["Edge不错但流动性一般，轻仓限价慢慢挂", "模型有信号但盘口不够厚，控制好仓位", "有机会但进出要耐心"]
+    - condition: {net_edge_pct_gte: 50, liquidity_pct_gte: 50}
+      phrases: ["Edge+流动性双达标，按纪律限价建仓", "模型发现明确偏差且盘口深，可以按计划执行", "量化信号明确，流动性也够"]
+
+    # === Edge + Friction 交叉 ===
+    - condition: {net_edge_pct_gte: 40, friction_pct_lt: 20}
+      phrases: ["有edge但摩擦把利润全吃了，不划算", "模型看到机会但价差太宽，等报价改善", "理论上有edge但实际进出成本太高"]
+    - condition: {net_edge_pct_gte: 30, friction_pct_gte: 60}
+      phrases: ["edge+低摩擦，性价比不错", "偏差扣完摩擦还有肉，值得做", "模型信号+低成本，条件不错"]
+
+    # === Edge + Time 交叉 ===
+    - condition: {net_edge_pct_gte: 40, time_pct_lt: 15}
+      phrases: ["模型看到edge但离结算太远，先watchlist跟着", "有偏差但时间成本高，等更近再考虑", "edge在但资金效率太低，先盯着"]
+    - condition: {net_edge_pct_gte: 40, time_pct_gte: 60}
+      phrases: ["edge+好时间窗口，催化剂快来了，准备好", "模型信号+时间到位，可以行动", "偏差明显且快到结算，别错过"]
+
+    # === Friction 单维度极端 ===
+    - condition: {friction_pct_lt: 10}
+      phrases: ["摩擦成本高得离谱，进去就亏", "价差宽到没法交易，先别碰", "做市商在这里赚翻了，别当韭菜"]
+    - condition: {friction_pct_lt: 25, net_edge_pct_lt: 40}
+      phrases: ["摩擦成本太高edge不够覆盖，等价差收窄", "往返摩擦吃掉大部分利润空间，先观望", "做市商赚的比你多，等更好的报价"]
+    - condition: {friction_pct_gte: 80, liquidity_pct_gte: 60}
+      phrases: ["低摩擦+好流动性，交易条件很好", "进出成本极低且盘口深，想做就做", "价差几乎没有，随时可以操作"]
+
+    # === Verifiability 相关 ===
+    - condition: {verifiability_pct_lt: 15, total_gte: 50}
+      phrases: ["其他条件OK但结算太模糊，小心争议", "数据面不错但结算规则不靠谱，控制仓位", "结构可以但结算有风险，别all in"]
+    - condition: {verifiability_pct_lt: 25}
+      phrases: ["结算依据很不清晰，争议风险高", "规则太模糊了，输赢都说不清", "这种结算标准，赢了也不一定拿到钱"]
+    - condition: {verifiability_pct_gte: 80, total_gte: 60}
+      phrases: ["结算铁板钉钉，其他条件也不错，放心做", "结果确定性高+结构好，专注判断方向就行", "验证性满分，不用担心争议"]
+
+    # === Time 单维度和交叉 ===
+    - condition: {time_pct_gte: 80, liquidity_pct_gte: 50, probability_pct_gte: 40}
+      phrases: ["时间+流动性+概率空间三好，抓紧进场", "黄金窗口什么都到位了，别犹豫", "催化剂马上来盘口也深，就是现在"]
+    - condition: {time_pct_gte: 60, liquidity_pct_lt: 30}
+      phrases: ["快到deadline但流动性太差，先挂限价单守着", "时间窗口好但盘口薄，可以挂单等催化剂", "结算在即但买卖困难"]
+    - condition: {time_pct_lt: 10}
+      phrases: ["离结算太远了，现在进去纯锁资金", "太早了，有更好的去处", "先观望，等进入30天窗口再说"]
+    - condition: {time_pct_lt: 20, total_gte: 50}
+      phrases: ["其他条件不错但太早了，加入watchlist等时间窗口", "结构可以但时间太远，先关注不急入场", "好市场但还没到火候，等更近再说"]
+    - condition: {time_pct_lt: 20, total_lt: 50}
+      phrases: ["时间远+结构差，没什么看头", "太早了而且条件也不好，跳过", "等更好的机会吧"]
+
+    # === Probability 单维度和交叉 ===
+    - condition: {probability_pct_lt: 10}
+      phrases: ["价格已经到极端了，完全没空间", "一边倒的市场，除非你有内幕", "赔率烂到没法看"]
+    - condition: {probability_pct_lt: 20, liquidity_pct_gte: 50}
+      phrases: ["价格极端但盘口深，如果你有强信号可以反着做", "赔率差但流动性好，适合逆向思维者", "大部分人不会碰但如果你有edge可以考虑"]
+    - condition: {probability_pct_lt: 20}
+      phrases: ["价格太极端了赔率不好", "已经接近定论进场意义不大", "赔率太差了就算对了也赚不了多少"]
+    - condition: {probability_pct_gte: 70, friction_pct_gte: 60}
+      phrases: ["赔率好+摩擦低，性价比高", "概率空间大且成本低，好setup", "价格还在拉锯成本又低，可以参与"]
+    - condition: {probability_pct_gte: 70, time_pct_gte: 50}
+      phrases: ["赔率好+时间合适，条件不错", "概率空间大且窗口好，值得认真看", "还没定论又快到催化剂了"]
+
+    # === Liquidity 单维度极端 ===
+    - condition: {liquidity_pct_lt: 10}
+      phrases: ["流动性几乎为零，有价无市", "这盘口没法交易，看看就好", "想买买不到想卖卖不掉"]
+    - condition: {liquidity_pct_lt: 20, total_gte: 50}
+      phrases: ["除了流动性其他都还行，等盘口改善", "结构OK但盘口太薄，暂时不适合操作", "条件不错就差流动性，先watchlist"]
+    - condition: {liquidity_pct_gte: 80, friction_pct_gte: 70}
+      phrases: ["盘口深+摩擦低，交易条件顶级", "想买多少买多少且成本极低", "做市商卷得好，散户受益"]
+
+    # === 非crypto高分场景 ===
+    - condition: {total_gte: 70, net_edge_pct_lt: 5, is_crypto: false}
+      phrases: ["市场结构不错但没有量化edge，需要自己判断方向", "结构面都好缺的是方向判断，看看AI分析再决定", "硬件达标但软件没有，结合新闻和分析判断方向"]
+    - condition: {total_gte: 60, is_crypto: false, time_pct_gte: 50}
+      phrases: ["非crypto市场结构OK+时间合适，研究下基本面", "结构分不错，关键看你对事件本身的判断", "市场条件到位，做好功课再决定方向"]
+
+    # === 综合总分分段 ===
+    - condition: {total_lt: 25}
+      phrases: ["结构太差了，别在这浪费子弹", "这市场不值得你花时间", "去找更好的机会"]
+    - condition: {total_gte: 25, total_lt: 40}
+      phrases: ["结构偏弱，除非你有独到见解", "条件不怎么样，风险收益比不好", "不是不能做，但有更好的选择"]
+    - condition: {total_gte: 40, total_lt: 55}
+      phrases: ["条件中等，小仓位玩玩可以", "结构一般般，别投太多", "及格线附近，看个人风险偏好"]
+    - condition: {total_gte: 55, total_lt: 65}
+      phrases: ["各方面还行但不突出，小仓位试水可以", "中规中矩的机会适合轻仓参与", "条件及格严格控制仓位"]
+    - condition: {total_gte: 65, total_lt: 75}
+      phrases: ["条件不错，值得认真对待", "结构良好可以适当加仓", "各维度比较均衡，是个好标的"]
+    - condition: {total_gte: 75, total_lt: 85}
+      phrases: ["条件很好按纪律操作，限价建仓控制仓位", "难得的好机会，限价单入场设好止损", "各维度评分都高，认真对待但仍然控制风险"]
+    - condition: {total_gte: 85}
+      phrases: ["顶级setup，全力研究这个机会", "罕见的好条件，值得投入时间和仓位", "所有指标都亮绿灯，按计划执行"]
+
+    # === 多维度同时弱 ===
+    - condition: {liquidity_pct_lt: 30, friction_pct_lt: 30}
+      phrases: ["流动性差+摩擦高，双杀局面，别碰", "进不去出不来还贵，三重打击", "盘口薄还价差大，做市商都不想做这个"]
+    - condition: {liquidity_pct_lt: 30, time_pct_lt: 20}
+      phrases: ["流动性差+时间远，双重劣势", "盘口薄还要等很久，资金效率极差", "等流动性改善+时间更近再说"]
+    - condition: {probability_pct_lt: 25, friction_pct_lt: 30}
+      phrases: ["赔率差+摩擦高，做了也白做", "没空间还贵，图啥呢", "概率空间小+成本高，算算就知道不值"]
+
+    # === Fallback ===
+    - condition: {total_gte: 0}
+      phrases: ["先看看AI分析再决定", "条件一般谨慎为上", "做好research再动手"]

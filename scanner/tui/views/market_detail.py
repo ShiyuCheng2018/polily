@@ -224,35 +224,44 @@ class MarketDetailView(Widget):
             tw = _TYPE_WEIGHTS.get(mtype, _DEFAULT_WEIGHTS)
 
             breakdown = [
-                ("流动性结构", "价差+深度+挂单平衡", bd.get("liquidity", 0), tw["liquidity"]),
-                ("客观可验证性", self._resolution_hint(mr), bd.get("verifiability", 0), tw["verifiability"]),
-                ("概率空间", "价格离0.5越近空间越大", bd.get("probability", 0), tw["probability"]),
-                ("时间结构", "1-7天最佳交易窗口", bd.get("time", 0), tw["time"]),
-                ("交易摩擦", "价差+手续费往返成本", bd.get("friction", 0), tw["friction"]),
+                ("流动性", bd.get("liquidity", 0), tw["liquidity"]),
+                ("可验证性", bd.get("verifiability", 0), tw["verifiability"]),
+                ("概率空间", bd.get("probability", 0), tw["probability"]),
+                ("时间", bd.get("time", 0), tw["time"]),
+                ("摩擦", bd.get("friction", 0), tw["friction"]),
             ]
             if bd.get("net_edge", 0) > 0:
-                breakdown.append(("Net Edge", "模型偏差-摩擦成本", bd["net_edge"], tw["net_edge"]))
+                breakdown.append(("Edge", bd["net_edge"], tw["net_edge"]))
         else:
             breakdown = []
 
+        # Dimension key mapping for commentary lookup
+        dim_keys = ["liquidity", "verifiability", "probability", "time", "friction"]
+        if bd.get("net_edge", 0) > 0:
+            dim_keys.append("net_edge")
+
         from rich.text import Text
-        for i, (name, hint, val, max_val) in enumerate(breakdown):
+        for i, (name, val, max_val) in enumerate(breakdown):
             # Cap to current weight (breakdown may be from older scan with different weights)
             val = min(val, max_val) if max_val > 0 else val
             bar_len = int(val / max_val * 15) if max_val > 0 else 0
             bar = "█" * bar_len + "░" * (15 - bar_len)
-            label = Text.assemble("  ├ ", name, " ", (hint, "dim"))
+            comment = ""
+            if i < len(dim_keys):
+                comment = bd.get("commentary", {}).get("dim_comments", {}).get(dim_keys[i], "")
+            label = f"  ├ {name}"
             table.add_row(
-                label, f"{bar} {val:.0f}/{max_val}", "", "", "", "",
+                label, f"{bar} {val:.0f}/{max_val}", comment, "", "", "",
                 key=f"bd_{mr.market_id}_{i}",
             )
             self._sub_row_map.append({"type": "breakdown", "market_id": mr.market_id})
 
-        # Total score
+        # Total score + overall commentary on the same row
         total_bar_len = int(total / 100 * 15)
         total_bar = "█" * total_bar_len + "░" * (15 - total_bar_len)
+        overall_comment = bd.get("commentary", {}).get("overall", "")
         table.add_row(
-            "  └ 总分", f"{total_bar} {total:.0f}/100", "", "", "", "",
+            "  └ 总分", f"{total_bar} {total:.0f}/100", overall_comment, "", "", "",
             key=f"bd_{mr.market_id}_total",
         )
         self._sub_row_map.append({"type": "breakdown", "market_id": mr.market_id})
@@ -401,50 +410,7 @@ class MarketDetailView(Widget):
         avg = sum(scores) / len(scores)
         return f"市场 {avg:.0f} ({min(scores):.0f}~{max(scores):.0f})"
 
-    def _resolution_hint(self, mr) -> str:
-        """Short verifiability label: source type + domain if available."""
-        import re
 
-        # Collect resolution source and description
-        src = getattr(mr, "resolution_source", None)
-        desc = ""
-        if self._detail:
-            ev = self._detail.get("event")
-            if ev:
-                src = src or getattr(ev, "resolution_source", None)
-                desc = getattr(ev, "description", "") or ""
-        text = (src or "") + " " + desc
-
-        # Extract domain from URL if present
-        domain = ""
-        url_match = re.search(r'https?://(?:www\.)?([^/\s]+)', text)
-        if url_match:
-            domain = url_match.group(1)
-
-        # Classify resolution type from event title (not sub-market title)
-        ev_title = ""
-        if self._detail:
-            ev = self._detail.get("event")
-            if ev:
-                ev_title = getattr(ev, "title", "") or ""
-        title = ev_title or getattr(mr, "question", "") or getattr(mr, "title", "") or ""
-
-        if re.search(r'\b(price|above|below|exceed|reach)\b', title, re.I) and re.search(r'\$[\d,]+|\d{2,}', title):
-            label = "数值阈值"
-        elif re.search(r'#\s*\w+|how many|number of|\b(count|total|tweets|posts|followers)\b', title, re.I):
-            label = "数值计数"
-        elif re.search(r'\b(win|elect|vote|score|medal|rank|seed|draft|make the|decision|ruling|verdict)\b', title, re.I):
-            label = "官方结果"
-        elif re.search(r'\b(rate|CPI|GDP|inflation|Fed|BOJ|ECB|BOE|RBA|FOMC|basis points?|bps)\b', title + " " + desc, re.I):
-            label = "官方数据"
-        elif re.search(r'\b(announce|release|sign|pass|approve|launch|confirm|file)\b', title, re.I):
-            label = "事件发生"
-        else:
-            label = "需人为判断"
-
-        if domain:
-            return f"{label} via {domain}"
-        return label
 
     def _fill_kpi_multi(self, event, markets) -> None:
         """Fill KPI cards for multi-outcome (negRisk) events."""
