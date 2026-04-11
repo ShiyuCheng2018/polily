@@ -61,10 +61,10 @@ def _seed(db, event_id="ev1", market_id="m1", **event_kw):
 
 
 class TestGetResearchEvents:
-    def test_returns_research_and_watchlist(self, db, service):
-        _seed(db, "ev1", "m1", tier="research", structure_score=80)
-        _seed(db, "ev2", "m2", tier="watchlist", structure_score=60)
-        _seed(db, "ev3", "m3", tier="filtered", structure_score=30)
+    def test_returns_quality_gated_events(self, db, service):
+        _seed(db, "ev1", "m1", structure_score=80)
+        _seed(db, "ev2", "m2", structure_score=60)
+        _seed(db, "ev3", "m3")  # no score → not in results
         events = service.get_research_events()
         event_ids = [e["event"].event_id for e in events]
         assert "ev1" in event_ids

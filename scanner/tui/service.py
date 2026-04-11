@@ -239,9 +239,9 @@ class ScanService:
     # ------------------------------------------------------------------
 
     def get_research_events(self) -> list[dict]:
-        """Return events with tier in (research, watchlist), sorted by score desc."""
+        """Return all quality-gated events, sorted by score desc."""
         return self._query_events(
-            "WHERE e.tier IN ('research', 'watchlist') AND e.closed = 0"
+            "WHERE e.closed = 0 AND e.structure_score IS NOT NULL"
         )
 
     def get_all_events(self) -> list[dict]:

@@ -85,8 +85,10 @@ def run_scan_pipeline(
     else:
         _console = Console()
     # Event-level filtering (replaces per-market filter)
+    # --- Stage 1: Lightweight event filter (volume + noise + expiry) ---
     from scanner.scan.filters import filter_events
     _report("筛选", "start")
+
     # Pair events with their markets
     event_map = {}
     for er in (event_rows or []):
@@ -97,27 +99,26 @@ def run_scan_pipeline(
         if eid:
             market_by_event.setdefault(eid, []).append(m)
 
-    # Build pairs; create synthetic EventRow for markets without matching event_row
     from scanner.core.event_store import EventRow
     pairs = []
     for eid, mkts in market_by_event.items():
         if eid in event_map:
             pairs.append((event_map[eid], mkts))
         else:
-            # Synthetic event from market data (backward compat when no event_rows)
             total_vol = sum(m.volume or 0 for m in mkts)
             pairs.append((EventRow(
                 event_id=eid, title=mkts[0].title if mkts else eid,
                 volume=total_vol, updated_at="",
             ), mkts))
-    with _timed_status(_console, "Filtering events"):
-        ef_result = filter_events(pairs)
-    passed_eids = ef_result.passed_event_ids
-    eligible = ef_result.passed_markets  # ALL sub-markets of passed events
-    _report("筛选", "done", f"{len(passed_eids)} 事件 / {len(eligible)} 市场")
-    logger.info("Event filter: %d events passed, %d rejected", len(passed_eids), len(ef_result.rejected))
 
-    # Fetch order books for ALL eligible markets concurrently
+    with _timed_status(_console, "Filtering events"):
+        ef_result = filter_events(pairs, min_volume=50_000)
+    stage1_eids = ef_result.passed_event_ids
+    eligible = ef_result.passed_markets
+    _report("筛选", "done", f"{len(stage1_eids)} 事件 / {len(eligible)} 市场")
+    logger.info("Stage 1 filter: %d events passed, %d rejected", len(stage1_eids), len(ef_result.rejected))
+
+    # --- Fetch order books for stage 1 eligible markets ---
     if config.scanner.two_pass_scan and eligible:
         _report("获取盘口", "start")
         try:
@@ -128,12 +129,12 @@ def run_scan_pipeline(
             _report("获取盘口", "fail")
             logger.warning("Order book fetch failed, continuing without depth data: %s", e)
 
-    # Market type classification from Polymarket tags
+    # Market type classification
     from scanner.scan.tag_classifier import classify_from_tags
     for market in eligible:
         market.market_type = classify_from_tags(market.tags)
 
-    # Fetch price data (crypto only, deduped by asset)
+    # Fetch crypto price data (deduped by asset)
     from scanner.market_types.registry import find_matching_module
     price_params: dict[str, dict] = {}
     if config.mispricing.enabled:
@@ -154,10 +155,9 @@ def run_scan_pipeline(
             _console.print(" [dim]Price data skipped[/dim]")
             logger.warning("Price data fetch failed: %s", e)
 
-    # Score ALL eligible markets (not just filtered ones)
+    # Score ALL eligible markets
     candidates: list[ScoredCandidate] = []
     for market in eligible:
-        # Compute mispricing first (needed for crypto net_edge scoring)
         mkt_params = price_params.get(market.market_id, {})
         enrichment_mod = find_matching_module(market)
         if enrichment_mod and mkt_params:
@@ -165,7 +165,6 @@ def run_scan_pipeline(
         else:
             mispricing = detect_mispricing(market, config.mispricing)
 
-        # Score with mispricing data (crypto gets net_edge from it)
         score = compute_structure_score(market, mispricing=mispricing)
 
         candidates.append(ScoredCandidate(
@@ -174,16 +173,33 @@ def run_scan_pipeline(
             mispricing=mispricing,
         ))
 
-    # Tier classification
+    # --- Stage 2: Quality gate — only persist high-quality events ---
+    from scanner.scan.event_scoring import compute_event_quality_score
+
+    _MIN_EVENT_QUALITY = 55  # hardcoded, ~100-150 events target
+    passed_eids: set[str] = set()
+    for eid in stage1_eids:
+        ev = event_map.get(eid)
+        mkts = market_by_event.get(eid, [])
+        if not ev or not mkts:
+            continue
+        eq_score = compute_event_quality_score(ev, mkts)
+        if eq_score.total >= _MIN_EVENT_QUALITY:
+            passed_eids.add(eid)
+
+    # Filter candidates to only passed events
+    candidates = [c for c in candidates if getattr(c.market, "event_id", None) in passed_eids]
+    eligible = [m for m in eligible if getattr(m, "event_id", None) in passed_eids]
+
+    logger.info("Stage 2 quality gate: %d events passed (score >= %d)", len(passed_eids), _MIN_EVENT_QUALITY)
+
+    # Tier classification (simplified: all passed = research)
     tiers = classify_tiers(candidates, config.scoring.thresholds)
 
-    # AI analysis removed from scan pipeline — triggered on-demand via 'a' key
-
-    # Persist to DB: eligible events + all their markets, then scores
+    # Persist to DB: only quality-gated events + their markets
     if db is not None:
         _persist_filtered(eligible, markets, event_rows or [], db)
         _update_event_scores(candidates, db)
-        # Event-level quality score (replaces max-of-sub-markets)
         _update_event_quality_scores(event_map, market_by_event, passed_eids, db)
 
     logger.info(
@@ -341,15 +357,10 @@ def _update_event_quality_scores(
             continue
         score = compute_event_quality_score(ev, mkts)
         # Tier from event quality score (same thresholds as sub-market tiers)
-        if score.total >= 70:
-            tier = "research"
-        elif score.total >= 45:
-            tier = "watchlist"
-        else:
-            tier = "filtered"
+        # All events that pass quality gate are "research" (no tier distinction)
         db.conn.execute(
-            "UPDATE events SET structure_score = ?, tier = ? WHERE event_id = ?",
-            (score.total, tier, eid),
+            "UPDATE events SET structure_score = ?, tier = 'research' WHERE event_id = ?",
+            (score.total, eid),
         )
     db.conn.commit()
 

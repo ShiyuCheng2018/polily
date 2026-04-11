@@ -216,19 +216,19 @@ class ScanLogDetailView(Widget):
             conn = self._db.conn
             # Research events + markets
             r = conn.execute(
-                "SELECT COUNT(*) FROM events WHERE tier IN ('research','watchlist') AND closed=0"
+                "SELECT COUNT(*) FROM events WHERE structure_score IS NOT NULL AND closed=0"
             ).fetchone()
             research_events = r[0] if r else 0
             r = conn.execute(
                 "SELECT COUNT(*) FROM markets m JOIN events e ON m.event_id=e.event_id "
-                "WHERE e.tier IN ('research','watchlist') AND e.closed=0"
+                "WHERE e.structure_score IS NOT NULL AND e.closed=0"
             ).fetchone()
             research_markets = r[0] if r else 0
 
             # Type distribution
             rows = conn.execute(
                 "SELECT COALESCE(market_type,'other'), COUNT(*) FROM events "
-                "WHERE tier IN ('research','watchlist') AND closed=0 "
+                "WHERE structure_score IS NOT NULL AND closed=0 "
                 "GROUP BY market_type ORDER BY COUNT(*) DESC"
             ).fetchall()
             type_summary = " | ".join(f"{row[0]}: {row[1]}" for row in rows) if rows else "-"
@@ -245,7 +245,7 @@ class ScanLogDetailView(Widget):
             from datetime import UTC, datetime
             r = conn.execute(
                 "SELECT MIN(end_date), MAX(end_date) FROM events "
-                "WHERE end_date IS NOT NULL AND closed=0 AND tier IN ('research','watchlist')"
+                "WHERE end_date IS NOT NULL AND closed=0 AND structure_score IS NOT NULL"
             ).fetchone()
             now = datetime.now(UTC)
 
