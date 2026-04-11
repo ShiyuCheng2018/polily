@@ -58,8 +58,10 @@ ACTION_DISPLAY = {
     "BUY_YES": ("[green]BUY YES[/green]", "green"),
     "BUY_NO": ("[green]BUY NO[/green]", "green"),
     "HOLD": ("[cyan]HOLD[/cyan]", "cyan"),
-    "SELL": ("[red]SELL[/red]", "red"),
-    "REDUCE": ("[yellow]REDUCE[/yellow]", "yellow"),
+    "SELL_YES": ("[red]SELL YES[/red]", "red"),
+    "SELL_NO": ("[red]SELL NO[/red]", "red"),
+    "REDUCE_YES": ("[yellow]REDUCE YES[/yellow]", "yellow"),
+    "REDUCE_NO": ("[yellow]REDUCE NO[/yellow]", "yellow"),
 }
 
 CONFIDENCE_BAR = {
@@ -583,17 +585,57 @@ class MarketDetailView(Widget):
             yield from self._compose_version_selector(analyses, extra=nc_str)
 
     def _compose_ai_why_panel(self, n: dict) -> ComposeResult:
-        """Left sub-panel: why/why not + risks + recheck conditions."""
+        """Left sub-panel: why/why not + risks + recheck + position thesis."""
+        mode = n.get("mode", "discovery")
         panel = DashPanel(id="ai-why")
         panel.border_title = "决策依据"
         with panel:
-            # Why now / why not now
-            why = n.get("why_now") or ""
-            why_not = n.get("why_not_now") or ""
+            # Why / why not (new schema uses "why" and "why_not")
+            why = n.get("why") or n.get("why_now") or ""
+            why_not = n.get("why_not") or n.get("why_not_now") or ""
             if why:
-                yield Static(f"[green]为什么做:[/green] {why}", classes="row")
+                yield Static(f"[green]为什么:[/green] {why}", classes="row")
             if why_not:
-                yield Static(f"[yellow]为什么不做:[/yellow] {why_not}", classes="row")
+                yield Static(f"[yellow]为什么不:[/yellow] {why_not}", classes="row")
+
+            # Position mode: thesis status
+            if mode == "position_management":
+                ts = n.get("thesis_status", "")
+                tn = n.get("thesis_note", "")
+                ts_icon = {"intact": "[green]✓[/green]", "weakened": "[yellow]~[/yellow]", "broken": "[red]✗[/red]"}.get(ts, "?")
+                if ts:
+                    yield Static(f"\n[bold]论点状态[/bold] {ts_icon} {ts}", classes="row")
+                if tn:
+                    yield Static(f"  {tn}", classes="row")
+                pnl_note = n.get("current_pnl_note", "")
+                if pnl_note:
+                    yield Static(f"  {pnl_note}", classes="row")
+                sl = n.get("stop_loss")
+                tp = n.get("take_profit")
+                if sl is not None or tp is not None:
+                    sl_str = f"止损 {sl:.2f}" if sl is not None else ""
+                    tp_str = f"止盈 {tp:.2f}" if tp is not None else ""
+                    yield Static(f"  {sl_str}  {tp_str}".strip(), classes="row")
+
+            # Discovery mode: recommended market + entry
+            if mode == "discovery":
+                rec = n.get("recommended_market_title") or n.get("recommended_market_id")
+                direction = n.get("direction")
+                entry = n.get("entry_price")
+                size = n.get("position_size_usd")
+                if rec:
+                    parts = [f"[bold]推荐:[/bold] {rec}"]
+                    if direction:
+                        parts.append(f"方向 {direction}")
+                    if entry:
+                        parts.append(f"限价 {entry:.2f}")
+                    if size:
+                        parts.append(f"仓位 ${size:.0f}")
+                    yield Static(f"\n{'  '.join(parts)}", classes="row")
+
+                overview = n.get("event_overview", "")
+                if overview:
+                    yield Static(f"[dim]{overview}[/dim]", classes="row")
 
             # Summary
             summary = n.get("summary", "")
@@ -672,13 +714,20 @@ class MarketDetailView(Widget):
                 if mak:
                     yield Static(f"  [dim]{mak}[/dim]", classes="row")
 
+            # Alternative market (position mode: swap recommendation)
+            alt_id = n.get("alternative_market_id")
+            alt_note = n.get("alternative_note", "")
+            if alt_id:
+                yield Static(f"\n[bold]换仓建议[/bold]", classes="row")
+                yield Static(f"  → {alt_id} {alt_note}", classes="row")
+
             # Counterparty note
             cn = n.get("counterparty_note", "")
             if cn:
                 yield Static(f"\n[dim]{cn}[/dim]", classes="row")
 
             # If no evidence at all
-            if not supporting and not invalid and not crypto:
+            if not supporting and not invalid and not crypto and not alt_id:
                 yield Static("[dim]无调研数据[/dim]", classes="row")
 
     def _compose_version_selector(self, analyses, extra: str = "") -> ComposeResult:

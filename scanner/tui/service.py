@@ -122,11 +122,7 @@ class ScanService:
         trigger_source: str = "manual",
         on_heartbeat=None,
     ) -> AnalysisVersion:
-        """Run AI analysis on an event. Reads all data from DB."""
-        from scanner.scan.mispricing import MispricingResult
-        from scanner.scan.reporting import ScoredCandidate
-        from scanner.scan.scoring import ScoreBreakdown
-
+        """Run AI analysis on an event. Agent reads DB autonomously."""
         event = get_event(event_id, self.db)
         if event is None:
             raise ValueError(f"Event {event_id} not found in DB")
@@ -134,56 +130,34 @@ class ScanService:
 
         start_time = time.time()
 
-        # Build a ScoredCandidate from DB data (use first market as representative)
-        market_row = markets[0] if markets else None
-        # Build a minimal Market-like object for the agent
-        import contextlib
-
-        from scanner.core.models import Market
-
-        res_time = None
-        end_date_str = (market_row.end_date if market_row else None) or event.end_date
-        if end_date_str:
-            with contextlib.suppress(ValueError, AttributeError):
-                res_time = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
-
-        m = Market(
-            market_id=market_row.market_id if market_row else event_id,
-            title=event.title,
-            description=event.description,
-            event_id=event_id,
-            yes_price=market_row.yes_price if market_row else None,
-            no_price=market_row.no_price if market_row else None,
-            best_bid_yes=market_row.best_bid if market_row else None,
-            best_ask_yes=market_row.best_ask if market_row else None,
-            spread_yes=market_row.spread if market_row else None,
-            volume=market_row.volume if market_row else None,
-            resolution_time=res_time,
-            outcomes=["Yes", "No"],
-            data_fetched_at=datetime.now(UTC),
-        )
-
-        total = event.structure_score or 0
-        score = ScoreBreakdown(
-            liquidity_structure=0, objective_verifiability=0,
-            probability_space=0, time_structure=0, trading_friction=0,
-            total=total,
-        )
-        mispricing = MispricingResult(signal="none")
-        candidate = ScoredCandidate(market=m, score=score, mispricing=mispricing)
+        # Check if user has open positions in this event
+        from scanner.core.paper_store import get_event_open_trades
+        open_trades = get_event_open_trades(event_id, self.db)
+        has_position = len(open_trades) > 0
+        position_summary = None
+        if has_position:
+            lines = []
+            for t in open_trades:
+                side = t.get("side", "?").upper()
+                entry = t.get("entry_price", 0)
+                size = t.get("position_size_usd", 0)
+                mid = t.get("market_id", "?")
+                title = t.get("title", "")[:40]
+                lines.append(f"{side} @ {entry:.2f}  ${size:.0f}  {mid}  {title}")
+            position_summary = "\n".join(lines)
 
         # Get existing analyses for version numbering
         existing = get_event_analyses(event_id, self.db)
         new_version_num = (existing[-1].version if existing else 0) + 1
 
-        # Run NarrativeWriter
+        # Run NarrativeWriter — agent reads DB and searches web autonomously
         narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
         self._current_narrator = narrator
         try:
-            include_bias = self.config.execution_hints.show_conditional_advice
             narrative_output = await narrator.generate(
-                candidate,
-                include_bias=include_bias,
+                event_id=event_id,
+                has_position=has_position,
+                position_summary=position_summary,
                 on_heartbeat=on_heartbeat,
             )
         finally:
