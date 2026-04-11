@@ -68,7 +68,7 @@ def generate_commentary(breakdown: dict, total_score: float, market_id: str, mar
     dim_comments = {}
     dim_pcts = {}
     dims = ["liquidity", "verifiability", "probability", "time", "friction"]
-    if tw.get("net_edge", 0) > 0 and breakdown.get("net_edge", 0) > 0:
+    if tw.get("net_edge", 0) > 0:
         dims.append("net_edge")
 
     for dim in dims:
