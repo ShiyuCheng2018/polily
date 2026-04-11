@@ -102,14 +102,17 @@ class MarketListView(Widget):
             else:
                 title = f"  {ev.title[:38]}" + ("..." if len(ev.title) > 38 else "")
 
-            # Summary (概况)
+            # Summary (概况) — market count + expired count
             if is_multi:
-                leader = e.get("leader_title", "")
-                price = e.get("leader_price")
-                if leader and price:
-                    summary = f"{mc}档 {leader[:10]}@{price:.0%}"
+                # Count closed sub-markets
+                closed_count = self.service.db.conn.execute(
+                    "SELECT COUNT(*) FROM markets WHERE event_id=? AND closed=1",
+                    (ev.event_id,),
+                ).fetchone()[0]
+                if closed_count > 0:
+                    summary = f"{mc}个市场 ({closed_count}个过期)"
                 else:
-                    summary = f"{mc}档"
+                    summary = f"{mc}个市场"
             else:
                 price = e.get("leader_price")
                 if price:
