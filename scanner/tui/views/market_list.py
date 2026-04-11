@@ -142,7 +142,8 @@ class MarketListView(Widget):
 
         markets = get_event_markets(event_id, self.service.db)
         active = [m for m in markets if not m.closed]
-        active.sort(key=lambda m: m.yes_price or 0, reverse=True)
+        # Keep original order (group_item_threshold) — shows natural distribution
+        active.sort(key=lambda m: m.group_item_threshold or "999")
 
         for i, m in enumerate(active[:10]):
             label = m.group_item_title or m.question[:20]
