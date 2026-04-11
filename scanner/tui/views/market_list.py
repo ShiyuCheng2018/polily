@@ -1,5 +1,7 @@
 """MarketListView: event-first research list with fold/expand + probability bars."""
 
+from datetime import UTC, datetime
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.message import Message
@@ -126,10 +128,11 @@ class MarketListView(Widget):
             # Resolution — range for multi-outcome, single for binary
             if is_multi:
                 from scanner.tui.utils import format_countdown_range
+                now_iso = datetime.now(UTC).isoformat()
                 r = self.service.db.conn.execute(
                     "SELECT MIN(end_date), MAX(end_date) FROM markets "
-                    "WHERE event_id=? AND closed=0 AND end_date IS NOT NULL",
-                    (ev.event_id,),
+                    "WHERE event_id=? AND closed=0 AND end_date IS NOT NULL AND end_date > ?",
+                    (ev.event_id, now_iso),
                 ).fetchone()
                 days = format_countdown_range(r[0] if r else None, r[1] if r else None)
             else:
