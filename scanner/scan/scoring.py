@@ -15,7 +15,6 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from scanner.core.config import ScoringWeights
 from scanner.core.models import Market
 
 if TYPE_CHECKING:
@@ -56,7 +55,6 @@ _DEFAULT_WEIGHTS = {
 
 def compute_structure_score(
     market: Market,
-    weights: ScoringWeights,
     mispricing: object | None = None,
 ) -> ScoreBreakdown:
     """Compute a 0-100 structure score with type-specific weight profiles.
@@ -105,8 +103,9 @@ def _score_net_edge(market: Market, mispricing: object) -> float:
     Higher net edge (after friction) = better score.
     """
     deviation = getattr(mispricing, "deviation_pct", None)
-    if not deviation or deviation <= 0:
+    if not deviation:
         return 0.0
+    deviation = abs(deviation)  # overpriced (NO side) edge also counts
 
     friction = market.round_trip_friction_pct or 0.04
     net = deviation - friction

@@ -132,7 +132,6 @@ class TestEnrichWithOrderbook:
 
 class TestOrderBookIntegrationWithScoring:
     def test_market_with_depth_scores_higher_liquidity(self):
-        from scanner.core.config import ScoringWeights
         from scanner.scan.scoring import compute_structure_score
 
         m_with_depth = make_market(
@@ -145,8 +144,8 @@ class TestOrderBookIntegrationWithScoring:
             book_depth_bids=None, book_depth_asks=None,
         )
 
-        s1 = compute_structure_score(m_with_depth, ScoringWeights())
-        s2 = compute_structure_score(m_no_depth, ScoringWeights())
+        s1 = compute_structure_score(m_with_depth)
+        s2 = compute_structure_score(m_no_depth)
 
         assert s1.liquidity_structure > s2.liquidity_structure
 

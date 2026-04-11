@@ -57,11 +57,9 @@ def test_realtime_score_recalculation(db):
     """Structure score should change when computed with different price/depth."""
     from datetime import UTC, datetime, timedelta
 
-    from scanner.core.config import ScannerConfig
     from scanner.core.models import BookLevel, Market
     from scanner.scan.scoring import compute_structure_score
 
-    config = ScannerConfig()
     resolution = (datetime.now(UTC) + timedelta(days=2)).isoformat()
 
     # Market with good depth
@@ -73,7 +71,7 @@ def test_realtime_score_recalculation(db):
         book_depth_bids=[BookLevel(price=1.0, size=100000)],
         book_depth_asks=[BookLevel(price=1.0, size=80000)],
     )
-    score1 = compute_structure_score(m1, config.scoring.weights)
+    score1 = compute_structure_score(m1)
 
     # Same market with thin depth
     m2 = Market(
@@ -84,7 +82,7 @@ def test_realtime_score_recalculation(db):
         book_depth_bids=[BookLevel(price=1.0, size=500)],
         book_depth_asks=[BookLevel(price=1.0, size=300)],
     )
-    score2 = compute_structure_score(m2, config.scoring.weights)
+    score2 = compute_structure_score(m2)
 
     # Good depth should score higher on liquidity
     assert score1.liquidity_structure > score2.liquidity_structure
@@ -98,7 +96,7 @@ def test_realtime_score_recalculation(db):
         book_depth_bids=[BookLevel(price=1.0, size=100000)],
         book_depth_asks=[BookLevel(price=1.0, size=80000)],
     )
-    score3 = compute_structure_score(m3, config.scoring.weights)
+    score3 = compute_structure_score(m3)
 
     # 0.50 (sweet zone) should score higher on probability space than 0.95 (extreme)
     assert score1.probability_space > score3.probability_space

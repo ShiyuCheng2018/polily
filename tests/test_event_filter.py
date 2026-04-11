@@ -30,6 +30,13 @@ class TestEventFilterVolume:
         result = filter_events([(ev, mkts)])
         assert ev.event_id not in result.passed_event_ids
 
+    def test_volume_none_passes(self):
+        """Event with volume=None should pass (unknown, not rejected)."""
+        ev, mkts = _make_event_with_markets(volume=None)
+        ev.volume = None
+        result = filter_events([(ev, mkts)])
+        assert ev.event_id in result.passed_event_ids
+
 
 class TestEventFilterExpiry:
     def test_future_end_date_passes(self):

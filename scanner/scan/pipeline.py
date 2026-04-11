@@ -166,9 +166,7 @@ def run_scan_pipeline(
             mispricing = detect_mispricing(market, config.mispricing)
 
         # Score with mispricing data (crypto gets net_edge from it)
-        score = compute_structure_score(
-            market, config.scoring.weights, mispricing=mispricing,
-        )
+        score = compute_structure_score(market, mispricing=mispricing)
 
         candidates.append(ScoredCandidate(
             market=market,
@@ -184,7 +182,7 @@ def run_scan_pipeline(
     # Persist to DB: eligible events + all their markets, then scores
     if db is not None:
         _persist_filtered(eligible, markets, event_rows or [], db)
-        _update_event_scores(candidates, tiers, db)
+        _update_event_scores(candidates, db)
         # Event-level quality score (replaces max-of-sub-markets)
         _update_event_quality_scores(event_map, market_by_event, passed_eids, db)
 
@@ -299,41 +297,12 @@ def _persist_filtered(
 
 def _update_event_scores(
     candidates: list[ScoredCandidate],
-    tiers: TierResult,
     db: PolilyDB,
 ) -> None:
-    """Update events.structure_score/tier and markets.structure_score in DB after scoring."""
-    # Build event_id → max score mapping (event gets its best market's score)
-    event_scores: dict[str, float] = {}
-    for c in candidates:
-        eid = getattr(c.market, "event_id", None)
-        if eid:
-            current = event_scores.get(eid, 0.0)
-            event_scores[eid] = max(current, c.score.total)
+    """Update markets.structure_score + score_breakdown in DB after scoring.
 
-    # Build event_id → best tier mapping (research > watchlist > filtered)
-    event_tiers: dict[str, str] = {}
-    for c in tiers.tier_a:
-        eid = getattr(c.market, "event_id", None)
-        if eid:
-            event_tiers[eid] = "research"
-    for c in tiers.tier_b:
-        eid = getattr(c.market, "event_id", None)
-        if eid and eid not in event_tiers:
-            event_tiers[eid] = "watchlist"
-    for c in tiers.tier_c:
-        eid = getattr(c.market, "event_id", None)
-        if eid and eid not in event_tiers:
-            event_tiers[eid] = "filtered"
-
-    # Update event rows
-    for eid, score in event_scores.items():
-        tier = event_tiers.get(eid, "filtered")
-        db.conn.execute(
-            "UPDATE events SET structure_score = ?, tier = ? WHERE event_id = ?",
-            (score, tier, eid),
-        )
-
+    Event-level score + tier are handled by _update_event_quality_scores.
+    """
     # Update per-market scores + breakdown
     for c in candidates:
         eid = getattr(c.market, "event_id", None)
@@ -371,10 +340,16 @@ def _update_event_quality_scores(
         if not ev or not mkts:
             continue
         score = compute_event_quality_score(ev, mkts)
-        # Overwrite events.structure_score with event-level quality score
+        # Tier from event quality score (same thresholds as sub-market tiers)
+        if score.total >= 70:
+            tier = "research"
+        elif score.total >= 45:
+            tier = "watchlist"
+        else:
+            tier = "filtered"
         db.conn.execute(
-            "UPDATE events SET structure_score = ? WHERE event_id = ?",
-            (score.total, eid),
+            "UPDATE events SET structure_score = ?, tier = ? WHERE event_id = ?",
+            (score.total, tier, eid),
         )
     db.conn.commit()
 

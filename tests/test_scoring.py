@@ -2,7 +2,6 @@
 
 from datetime import UTC, datetime
 
-from scanner.core.config import ScoringWeights
 from scanner.core.models import BookLevel
 from scanner.scan.scoring import compute_structure_score
 from tests.conftest import make_market
@@ -11,7 +10,7 @@ from tests.conftest import make_market
 class TestStructureScore:
     def test_score_is_0_to_100(self):
         m = make_market()
-        result = compute_structure_score(m, ScoringWeights())
+        result = compute_structure_score(m)
         assert 0 <= result.total <= 100
 
     def test_perfect_market_scores_high(self):
@@ -29,7 +28,7 @@ class TestStructureScore:
             book_depth_bids=[BookLevel(price=0.49, size=2000), BookLevel(price=0.48, size=3000)],
             book_depth_asks=[BookLevel(price=0.51, size=2000), BookLevel(price=0.52, size=3000)],
         )
-        result = compute_structure_score(m, ScoringWeights())
+        result = compute_structure_score(m)
         assert result.total >= 60
 
     def test_bad_market_scores_low(self):
@@ -46,12 +45,12 @@ class TestStructureScore:
             book_depth_bids=[BookLevel(price=0.85, size=50)],
             book_depth_asks=[BookLevel(price=0.99, size=50)],
         )
-        result = compute_structure_score(m, ScoringWeights())
+        result = compute_structure_score(m)
         assert result.total < 30
 
     def test_breakdown_has_all_components(self):
         m = make_market()
-        result = compute_structure_score(m, ScoringWeights())
+        result = compute_structure_score(m)
         assert result.liquidity_structure >= 0
         assert result.objective_verifiability >= 0
         assert result.probability_space >= 0
@@ -60,7 +59,7 @@ class TestStructureScore:
 
     def test_breakdown_sums_to_total(self):
         m = make_market()
-        result = compute_structure_score(m, ScoringWeights())
+        result = compute_structure_score(m)
         component_sum = (
             result.liquidity_structure + result.objective_verifiability
             + result.probability_space + result.time_structure
@@ -71,15 +70,15 @@ class TestStructureScore:
     def test_mid_probability_scores_higher(self):
         m_mid = make_market(yes_price=0.50)
         m_edge = make_market(yes_price=0.22)
-        s_mid = compute_structure_score(m_mid, ScoringWeights())
-        s_edge = compute_structure_score(m_edge, ScoringWeights())
+        s_mid = compute_structure_score(m_mid)
+        s_edge = compute_structure_score(m_edge)
         assert s_mid.probability_space > s_edge.probability_space
 
     def test_tighter_spread_scores_higher(self):
         m_tight = make_market(best_bid_yes=0.545, best_ask_yes=0.555)
         m_wide = make_market(best_bid_yes=0.50, best_ask_yes=0.60)
-        s_tight = compute_structure_score(m_tight, ScoringWeights())
-        s_wide = compute_structure_score(m_wide, ScoringWeights())
+        s_tight = compute_structure_score(m_tight)
+        s_wide = compute_structure_score(m_wide)
         assert s_tight.liquidity_structure > s_wide.liquidity_structure
 
     def test_deeper_book_scores_higher(self):
@@ -91,21 +90,21 @@ class TestStructureScore:
             book_depth_bids=[BookLevel(price=0.54, size=50)],
             book_depth_asks=[BookLevel(price=0.56, size=50)],
         )
-        s_deep = compute_structure_score(m_deep, ScoringWeights())
-        s_shallow = compute_structure_score(m_shallow, ScoringWeights())
+        s_deep = compute_structure_score(m_deep)
+        s_shallow = compute_structure_score(m_shallow)
         assert s_deep.liquidity_structure > s_shallow.liquidity_structure
 
     def test_no_depth_data_lower_liquidity(self):
         m_with = make_market()
         m_without = make_market(book_depth_bids=None, book_depth_asks=None)
-        s_with = compute_structure_score(m_with, ScoringWeights())
-        s_without = compute_structure_score(m_without, ScoringWeights())
+        s_with = compute_structure_score(m_with)
+        s_without = compute_structure_score(m_without)
         assert s_with.liquidity_structure > s_without.liquidity_structure
 
     def test_objective_baseline_zero(self):
         """Market with no resolution data should score 0 on objectivity."""
         m = make_market(resolution_source=None, rules=None, description=None)
-        s = compute_structure_score(m, ScoringWeights())
+        s = compute_structure_score(m)
         # Only title-based score possible, but title has "above" which matches objective signals
         # Baseline is 0, so even with title bonus it should be low
         assert s.objective_verifiability < 15  # less than 60% of max (25)
@@ -116,8 +115,8 @@ class TestStructureScore:
             rules="Resolves YES if BTC exceeds $88,000 on March 30 per Binance. Clear binary outcome.",
         )
         m_bad = make_market(resolution_source=None, rules=None, description=None)
-        s_good = compute_structure_score(m_good, ScoringWeights())
-        s_bad = compute_structure_score(m_bad, ScoringWeights())
+        s_good = compute_structure_score(m_good)
+        s_bad = compute_structure_score(m_bad)
         assert s_good.objective_verifiability > s_bad.objective_verifiability
 
     def test_time_sweet_spot(self):
@@ -130,14 +129,14 @@ class TestStructureScore:
             resolution_time=datetime(2026, 4, 10, tzinfo=UTC),
             data_fetched_at=datetime(2026, 3, 28, tzinfo=UTC),  # 13 days
         )
-        s_sweet = compute_structure_score(m_sweet, ScoringWeights())
-        s_far = compute_structure_score(m_far, ScoringWeights())
+        s_sweet = compute_structure_score(m_sweet)
+        s_far = compute_structure_score(m_far)
         assert s_sweet.time_structure > s_far.time_structure
 
     def test_friction_tiers(self):
         """Lower friction should score higher."""
         m_low = make_market(best_bid_yes=0.545, best_ask_yes=0.555)  # ~1.8% friction
         m_high = make_market(best_bid_yes=0.50, best_ask_yes=0.60)  # ~36% friction
-        s_low = compute_structure_score(m_low, ScoringWeights())
-        s_high = compute_structure_score(m_high, ScoringWeights())
+        s_low = compute_structure_score(m_low)
+        s_high = compute_structure_score(m_high)
         assert s_low.trading_friction > s_high.trading_friction

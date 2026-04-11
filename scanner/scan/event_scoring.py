@@ -107,7 +107,7 @@ def _score_information_value(markets: list[Market]) -> float:
 
 def _score_liquidity_aggregate(event: EventRow, markets: list[Market]) -> float:
     """Total volume + min depth + coverage ratio."""
-    # Event volume (log scale: $5K→0, $50K→0.5, $500K→0.8, $5M→1.0)
+    # Event volume (log scale: $5K→0, $50K→0.33, $500K→0.67, $5M→1.0)
     vol = event.volume or 0
     if vol > 0:
         vol_score = min(math.log10(vol / 5000) / 3.0, 1.0)  # log10(1000) = 3
@@ -118,7 +118,7 @@ def _score_liquidity_aggregate(event: EventRow, markets: list[Market]) -> float:
     # Min bid depth across active markets (weakest link)
     depths = [m.total_bid_depth_usd or 0 for m in markets]
     min_depth = min(depths) if depths else 0
-    # $100→0, $1K→0.3, $10K→0.7, $100K→1.0
+    # $100→0.4, $1K→0.6, $10K→0.8, $100K→1.0
     if min_depth > 0:
         depth_score = min(math.log10(max(min_depth, 1)) / 5.0, 1.0)
         depth_score = max(depth_score, 0)
