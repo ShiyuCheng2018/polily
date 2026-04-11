@@ -65,7 +65,7 @@ class MarketListView(Widget):
             return
         table = self.query_one("#market-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("事件", "类型", "概况", "交易量", "结算", "评分", "状态")
+        table.add_columns("事件", "评分", "概况", "交易量", "结算", "类型", "状态")
         self._rebuild_table()
 
     def _rebuild_table(self) -> None:
@@ -139,7 +139,7 @@ class MarketListView(Widget):
                 days = format_countdown(ev.end_date)
 
             table.add_row(
-                title, ev.market_type or "other", summary, vol, days, score, status,
+                title, score, summary, vol, days, ev.market_type or "other", status,
                 key=f"ev_{ev.event_id}",
             )
             self._row_map.append({"type": "event", "event": e})
