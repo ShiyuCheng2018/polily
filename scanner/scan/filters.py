@@ -1,10 +1,17 @@
-"""Hard filters: reject markets that fail strict exclusion rules."""
+"""Hard filters: reject events/markets that fail strict exclusion rules."""
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from scanner.core.config import FiltersConfig, HeuristicsConfig
+from scanner.core.event_store import EventRow
 from scanner.core.models import Market
 from scanner.utils import matches_any
+
+# Default thresholds for event-level filtering
+_MIN_EVENT_VOLUME = 5000  # $5K total volume
 
 
 @dataclass
@@ -14,9 +21,92 @@ class Rejection:
 
 
 @dataclass
+class EventRejection:
+    event_id: str
+    reason: str
+
+
+@dataclass
 class FilterResult:
     passed: list[Market] = field(default_factory=list)
     rejected: list[Rejection] = field(default_factory=list)
+
+
+@dataclass
+class EventFilterResult:
+    """Result of event-level filtering."""
+    passed_event_ids: set[str] = field(default_factory=set)
+    passed_markets: list[Market] = field(default_factory=list)  # ALL sub-markets of passed events
+    rejected: list[EventRejection] = field(default_factory=list)
+
+
+def filter_events(
+    event_market_pairs: list[tuple[EventRow, list[Market]]],
+    min_volume: float = _MIN_EVENT_VOLUME,
+) -> EventFilterResult:
+    """Filter at event level. When an event passes, ALL its sub-markets are included.
+
+    Event-level criteria:
+    - Has at least one sub-market with a valid price (> 0)
+    - Event total volume >= min_volume
+    - Event end_date not in the past (if set)
+    - Event title is not noise
+    """
+    result = EventFilterResult()
+
+    for event, markets in event_market_pairs:
+        reason = _check_event(event, markets, min_volume)
+        if reason is None:
+            result.passed_event_ids.add(event.event_id)
+            result.passed_markets.extend(markets)
+        else:
+            result.rejected.append(EventRejection(event_id=event.event_id, reason=reason))
+
+    return result
+
+
+def _check_event(
+    ev: EventRow,
+    markets: list[Market],
+    min_volume: float,
+) -> str | None:
+    """Return rejection reason, or None if event passes."""
+
+    # Must have at least one sub-market
+    if not markets:
+        return "No sub-markets"
+
+    # Must have at least one sub-market with valid price
+    has_valid_price = any(m.yes_price and m.yes_price > 0 for m in markets)
+    if not has_valid_price:
+        return "No sub-market with valid price"
+
+    # Volume check (event-level aggregate)
+    if ev.volume is not None and ev.volume < min_volume:
+        return f"Event volume too low (${ev.volume:,.0f} < ${min_volume:,.0f})"
+
+    # End date check — reject if ALL sub-markets are past resolution
+    if ev.end_date:
+        try:
+            end = datetime.fromisoformat(ev.end_date.replace("Z", "+00:00"))
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=UTC)
+            if end < datetime.now(UTC):
+                # Check if any sub-market still has future end_date
+                has_future = any(
+                    m.resolution_time and m.resolution_time > datetime.now(UTC)
+                    for m in markets
+                )
+                if not has_future:
+                    return "All sub-markets expired"
+        except (ValueError, TypeError):
+            pass
+
+    # Noise check (event title)
+    if matches_any(ev.title, ["5 min", "1 min", "5min", "1min"]):
+        return "Noise event"
+
+    return None
 
 
 def apply_hard_filters(
