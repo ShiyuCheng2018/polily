@@ -25,6 +25,9 @@ class TestExtractCryptoAsset:
     def test_sol_title(self):
         assert extract_crypto_asset("SOL above $200?") == "SOL/USDT"
 
+    def test_cardano_alias(self):
+        assert extract_crypto_asset("Cardano above $1.50?") == "ADA/USDT"
+
     def test_unknown_returns_none(self):
         assert extract_crypto_asset("Will Trump win?") is None
 
@@ -44,6 +47,32 @@ class TestExtractThresholdPrice:
 
     def test_percentage_excluded(self):
         assert extract_threshold_price("CPI above 3.5%?") is None
+
+    # --- Sub-dollar and edge cases ---
+
+    def test_sub_dollar_with_dollar_sign(self):
+        """Dollar-prefixed sub-dollar values should be extracted."""
+        assert extract_threshold_price("ADA above $1.50 by Friday?") == 1.5
+
+    def test_sub_dollar_fifty_cents(self):
+        """Dollar-prefixed values below $1 should be extracted."""
+        assert extract_threshold_price("DOGE above $0.50?") == 0.5
+
+    def test_dollar_with_comma_large(self):
+        """Dollar-prefixed large values with commas still work."""
+        assert extract_threshold_price("BTC above $88,000 on March 30?") == 88000.0
+
+    def test_bare_large_number(self):
+        """Bare numbers >= 100 should be extracted as prices."""
+        assert extract_threshold_price("BTC above 88000") == 88000.0
+
+    def test_percentage_bare_rejected(self):
+        """Values followed by % should be rejected."""
+        assert extract_threshold_price("CPI above 3.5%?") is None
+
+    def test_bare_small_number_rejected(self):
+        """Bare small numbers (< 100) without $ should be rejected."""
+        assert extract_threshold_price("Will it go above 50 by Friday?") is None
 
 
 class TestComputeRealizedVol:

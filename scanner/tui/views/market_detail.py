@@ -183,8 +183,7 @@ class MarketDetailView(Widget):
 
         for mr in markets:
             label = mr.group_item_title or mr.question[:40]
-            if mr.closed:
-                label = f"[已过期] {label}"
+            # 结算列已显示"(已过期)"，标题不再重复标注
             is_expanded = mr.market_id in self._expanded_markets
             prefix = "▼ " if is_expanded else "▶ " if not mr.closed else "  "
 
@@ -225,22 +224,26 @@ class MarketDetailView(Widget):
             tw = _TYPE_WEIGHTS.get(mtype, _DEFAULT_WEIGHTS)
 
             breakdown = [
-                ("流动性结构", bd.get("liquidity", 0), tw["liquidity"]),
-                ("客观可验证性", bd.get("verifiability", 0), tw["verifiability"]),
-                ("概率空间", bd.get("probability", 0), tw["probability"]),
-                ("时间结构", bd.get("time", 0), tw["time"]),
-                ("交易摩擦", bd.get("friction", 0), tw["friction"]),
+                ("流动性结构", "价差+深度+挂单平衡", bd.get("liquidity", 0), tw["liquidity"]),
+                ("客观可验证性", self._resolution_hint(mr), bd.get("verifiability", 0), tw["verifiability"]),
+                ("概率空间", "价格离0.5越近空间越大", bd.get("probability", 0), tw["probability"]),
+                ("时间结构", "1-7天最佳交易窗口", bd.get("time", 0), tw["time"]),
+                ("交易摩擦", "价差+手续费往返成本", bd.get("friction", 0), tw["friction"]),
             ]
             if bd.get("net_edge", 0) > 0:
-                breakdown.append(("Net Edge", bd["net_edge"], tw["net_edge"]))
+                breakdown.append(("Net Edge", "模型偏差-摩擦成本", bd["net_edge"], tw["net_edge"]))
         else:
             breakdown = []
 
-        for i, (name, val, max_val) in enumerate(breakdown):
+        from rich.text import Text
+        for i, (name, hint, val, max_val) in enumerate(breakdown):
+            # Cap to current weight (breakdown may be from older scan with different weights)
+            val = min(val, max_val) if max_val > 0 else val
             bar_len = int(val / max_val * 15) if max_val > 0 else 0
             bar = "█" * bar_len + "░" * (15 - bar_len)
+            label = Text.assemble("  ├ ", name, " ", (hint, "dim"))
             table.add_row(
-                f"  ├ {name}", f"{bar} {val:.0f}/{max_val}", "", "", "", "",
+                label, f"{bar} {val:.0f}/{max_val}", "", "", "", "",
                 key=f"bd_{mr.market_id}_{i}",
             )
             self._sub_row_map.append({"type": "breakdown", "market_id": mr.market_id})
@@ -307,7 +310,10 @@ class MarketDetailView(Widget):
             with HorizontalGroup(id="kpi-row"):
                 if is_multi:
                     yield self._make_card("kpi-leader", "领先")
-                    yield self._make_card("kpi-entropy", "分散度")
+                    if event.neg_risk:
+                        yield self._make_card("kpi-overround", "溢价率")
+                    else:
+                        yield self._make_card("kpi-overround", "最小价差")
                     yield self._make_card("kpi-count", "子市场")
                     yield self._make_card("kpi-end", "结算")
                     yield self._make_card("kpi-score", "评分")
@@ -381,7 +387,64 @@ class MarketDetailView(Widget):
         self._set_card("kpi-spread", spread_str)
 
         score = event.structure_score
-        self._set_card("kpi-score", f"{score:.0f}" if score else "?")
+        mkt_summary = self._market_score_summary(markets)
+        score_text = f"事件 {score:.0f}" if score else "?"
+        if mkt_summary:
+            score_text += f"\n{mkt_summary}"
+        self._set_card("kpi-score", score_text)
+
+    def _market_score_summary(self, markets) -> str:
+        """Summarize sub-market scores: avg (min~max)."""
+        scores = [m.structure_score for m in markets if m.structure_score is not None and not m.closed]
+        if not scores:
+            return ""
+        avg = sum(scores) / len(scores)
+        return f"市场 {avg:.0f} ({min(scores):.0f}~{max(scores):.0f})"
+
+    def _resolution_hint(self, mr) -> str:
+        """Short verifiability label: source type + domain if available."""
+        import re
+
+        # Collect resolution source and description
+        src = getattr(mr, "resolution_source", None)
+        desc = ""
+        if self._detail:
+            ev = self._detail.get("event")
+            if ev:
+                src = src or getattr(ev, "resolution_source", None)
+                desc = getattr(ev, "description", "") or ""
+        text = (src or "") + " " + desc
+
+        # Extract domain from URL if present
+        domain = ""
+        url_match = re.search(r'https?://(?:www\.)?([^/\s]+)', text)
+        if url_match:
+            domain = url_match.group(1)
+
+        # Classify resolution type from event title (not sub-market title)
+        ev_title = ""
+        if self._detail:
+            ev = self._detail.get("event")
+            if ev:
+                ev_title = getattr(ev, "title", "") or ""
+        title = ev_title or getattr(mr, "question", "") or getattr(mr, "title", "") or ""
+
+        if re.search(r'\b(price|above|below|exceed|reach)\b', title, re.I) and re.search(r'\$[\d,]+|\d{2,}', title):
+            label = "数值阈值"
+        elif re.search(r'#\s*\w+|how many|number of|\b(count|total|tweets|posts|followers)\b', title, re.I):
+            label = "数值计数"
+        elif re.search(r'\b(win|elect|vote|score|medal|rank|seed|draft|make the|decision|ruling|verdict)\b', title, re.I):
+            label = "官方结果"
+        elif re.search(r'\b(rate|CPI|GDP|inflation|Fed|BOJ|ECB|BOE|RBA|FOMC|basis points?|bps)\b', title + " " + desc, re.I):
+            label = "官方数据"
+        elif re.search(r'\b(announce|release|sign|pass|approve|launch|confirm|file)\b', title, re.I):
+            label = "事件发生"
+        else:
+            label = "需人为判断"
+
+        if domain:
+            return f"{label} via {domain}"
+        return label
 
     def _fill_kpi_multi(self, event, markets) -> None:
         """Fill KPI cards for multi-outcome (negRisk) events."""
@@ -389,21 +452,35 @@ class MarketDetailView(Widget):
         leader = max(markets, key=lambda m: m.yes_price or 0, default=None)
         if leader and leader.yes_price is not None:
             name = (leader.group_item_title or leader.question)[:20]
-            self._set_card("kpi-leader", f"{name}\n{leader.yes_price:.2f}")
+            no = leader.no_price if leader.no_price is not None else round(1 - leader.yes_price, 4)
+            self._set_card("kpi-leader", f"{name}\nYES:{leader.yes_price:.2f} NO:{no:.2f}")
         else:
             self._set_card("kpi-leader", "?")
 
-        # Entropy (measure of probability dispersion)
-        prices = [m.yes_price for m in markets if m.yes_price and m.yes_price > 0]
-        if prices:
-            total = sum(prices)
-            norm = [p / total for p in prices] if total > 0 else prices
-            entropy = -sum(p * math.log2(p) for p in norm if p > 0)
-            max_entropy = math.log2(len(prices)) if len(prices) > 1 else 1
-            rel_entropy = entropy / max_entropy if max_entropy > 0 else 0
-            self._set_card("kpi-entropy", f"{rel_entropy:.2f}")
+        # negRisk: overround | non-negRisk: tightest spread
+        active = [m for m in markets if not m.closed]
+        if event.neg_risk:
+            prices = [m.yes_price for m in active if m.yes_price is not None]
+            if prices:
+                overround = sum(prices) - 1.0
+                total_spread = sum(m.spread for m in active if m.spread is not None)
+                net = overround + total_spread
+                sign = "+" if overround >= 0 else ""
+                net_sign = "+" if net >= 0 else ""
+                self._set_card("kpi-overround", f"{sign}{overround:.1%}\n净{net_sign}{net:.1%}")
+            else:
+                self._set_card("kpi-overround", "?")
         else:
-            self._set_card("kpi-entropy", "?")
+            spreads = [
+                m.spread for m in active
+                if m.spread is not None and m.spread > 0
+                and m.yes_price is not None and 0.05 <= m.yes_price <= 0.95
+            ]
+            if spreads:
+                best = min(spreads)
+                self._set_card("kpi-overround", f"{best:.1%}")
+            else:
+                self._set_card("kpi-overround", "?")
 
         closed_count = sum(1 for m in markets if m.closed)
         count_str = str(len(markets))
@@ -423,7 +500,11 @@ class MarketDetailView(Widget):
             self._set_card("kpi-end", "?")
 
         score = event.structure_score
-        self._set_card("kpi-score", f"{score:.0f}" if score else "?")
+        mkt_summary = self._market_score_summary(markets)
+        score_text = f"事件 {score:.0f}" if score else "?"
+        if mkt_summary:
+            score_text += f"\n{mkt_summary}"
+        self._set_card("kpi-score", score_text)
 
     def _set_card(self, card_id: str, content: str) -> None:
         import contextlib

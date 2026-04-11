@@ -35,21 +35,21 @@ class ScoreBreakdown:
 # Type-specific weight profiles (all sum to 100)
 _TYPE_WEIGHTS = {
     "crypto": {
-        "liquidity": 20, "verifiability": 15, "probability": 15,
-        "time": 15, "friction": 10, "net_edge": 25,
+        "liquidity": 22, "verifiability": 10, "probability": 15,
+        "time": 18, "friction": 10, "net_edge": 25,
     },
     "sports": {
-        "liquidity": 25, "verifiability": 20, "probability": 20,
-        "time": 20, "friction": 15, "net_edge": 0,
+        "liquidity": 30, "verifiability": 10, "probability": 20,
+        "time": 25, "friction": 15, "net_edge": 0,
     },
     "political": {
-        "liquidity": 25, "verifiability": 20, "probability": 20,
-        "time": 20, "friction": 15, "net_edge": 0,
+        "liquidity": 30, "verifiability": 10, "probability": 20,
+        "time": 25, "friction": 15, "net_edge": 0,
     },
 }
 _DEFAULT_WEIGHTS = {
-    "liquidity": 25, "verifiability": 20, "probability": 20,
-    "time": 20, "friction": 15, "net_edge": 0,
+    "liquidity": 30, "verifiability": 10, "probability": 20,
+    "time": 25, "friction": 15, "net_edge": 0,
 }
 
 
@@ -105,6 +105,11 @@ def _score_net_edge(market: Market, mispricing: object) -> float:
     deviation = getattr(mispricing, "deviation_pct", None)
     if not deviation:
         return 0.0
+
+    # No bid = can't exit position, edge is theoretical only
+    if not market.total_bid_depth_usd:
+        return 0.0
+
     deviation = abs(deviation)  # overpriced (NO side) edge also counts
 
     friction = market.round_trip_friction_pct or 0.04
@@ -174,6 +179,14 @@ _SUBJECTIVE_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+# Vague resolution criteria — penalize when in description/rules
+_VAGUE_RESOLUTION = re.compile(
+    r"\b(qualifying|significant|major|meaningful|substantial|"
+    r"credible|notable|material|effectively|largely|"
+    r"sole discretion|reasonably|in .+ judgment)\b",
+    re.IGNORECASE,
+)
+
 _OBJECTIVE_SIGNALS = re.compile(
     r"\b(price|above|below|reach|exceed|by .+ date|"
     r"before|on .+ \d{4}|vote|pass|win|elect|"
@@ -184,48 +197,82 @@ _OBJECTIVE_SIGNALS = re.compile(
 
 
 def _score_objective_verifiability(m: Market) -> float:
-    score = 0.0
+    """Two-layer verifiability scoring.
 
-    # Resolution source: strong signal (+0.30)
-    # Check dedicated field first, then look in rules/description text
-    has_resolution_source = bool(m.resolution_source and len(m.resolution_source.strip()) > 3)
-    if not has_resolution_source:
-        rules_text = (m.rules or "") + " " + (m.description or "")
-        if re.search(r"resolution source.*?\bis\b|resolves? to .yes.|resolves? to .no.", rules_text, re.IGNORECASE):
-            has_resolution_source = True
-    if has_resolution_source:
-        score += 0.30
+    Layer 1 — Resolution type (0.0-0.50):
+      Numeric threshold (price > X @ source)  → 0.50
+      Official result (election, score)       → 0.40
+      Event occurrence (announce, sign, pass)  → 0.25
+      Status judgment (conflict ends, recession) → 0.10
 
-    # Rules text quality
-    if m.rules:
-        rules_len = len(m.rules)
-        if rules_len > 200:
-            score += 0.25
-        elif rules_len > 100:
-            score += 0.15
-        elif rules_len > 30:
-            score += 0.08
-
-    # Title content analysis — objective keywords
+    Layer 2 — Source quality (0.0-0.50):
+      API-grade data source URL               → 0.50
+      News/official org URL                   → 0.30
+      Text description with resolve rules     → 0.15
+      No description                          → 0.00
+    """
+    rules_and_desc = (m.rules or "") + " " + (m.description or "")
     title = m.title
-    if _OBJECTIVE_SIGNALS.search(title):
-        score += 0.20
 
-    # Description bonus
-    if m.description and len(m.description) > 50:
-        score += 0.10
+    # --- Layer 1: Resolution type classification ---
+    layer1 = 0.10  # default: status judgment
 
-    # Binary market bonus
-    if m.is_binary:
-        score += 0.10
+    # Numeric threshold: price/above/below + number + data source
+    if re.search(r'\b(price|above|below|exceed|reach)\b', title, re.IGNORECASE) and \
+       re.search(r'\$[\d,]+|\d{2,}', title):
+        layer1 = 0.50
+    # Numeric count: tweets, posts, followers, "# of"
+    elif re.search(r'#\s*\w+|how many|number of|\b(count|total|tweets|posts|followers)\b', title, re.IGNORECASE):
+        layer1 = 0.45
+    # Official result: election, score, vote count, central bank decision
+    elif re.search(r'\b(win|elect|vote|score|medal|rank|seed|draft|make the|decision|ruling|verdict)\b', title, re.IGNORECASE):
+        layer1 = 0.40
+    # Official data release: rate, CPI, GDP, Fed, BOJ, ECB
+    elif re.search(r'\b(rate|CPI|GDP|inflation|Fed|BOJ|ECB|BOE|RBA|FOMC|basis points?|bps)\b', title + " " + rules_and_desc, re.IGNORECASE):
+        layer1 = 0.45
+    # Event occurrence: announce, release, sign, pass, approve
+    elif re.search(r'\b(announce|release|sign|pass|approve|launch|confirm|file)\b', title, re.IGNORECASE):
+        layer1 = 0.25
 
-    # Subjective penalty
+    # Vague resolution penalty on Layer 1
+    vague_hits = len(_VAGUE_RESOLUTION.findall(rules_and_desc))
+    if vague_hits >= 3:
+        layer1 = min(layer1, 0.10)
+    elif vague_hits >= 1:
+        layer1 *= 0.7
+
+    # Subjective title penalty
     if _SUBJECTIVE_PATTERNS.search(title):
-        score -= 0.25
-    if m.description and _SUBJECTIVE_PATTERNS.search(m.description):
-        score -= 0.10
+        layer1 *= 0.5
 
-    return min(1.0, max(0.0, score))
+    # --- Layer 2: Source quality ---
+    layer2 = 0.0
+
+    # Check for API-grade data sources (Binance, CoinGecko, BLS, etc.)
+    _API_SOURCES = re.compile(
+        r'binance|coinbase|coingecko|kraken|bls\.gov|fred\.|'
+        r'boj\.or\.jp|ecb\.europa|federalreserve\.gov|boe\.co\.uk|rba\.gov|'
+        r'espn|nfl\.com|nba\.com|mlb\.com|fifa\.com|'
+        r'fec\.gov|sec\.gov|gov\.uk|\.gov\b|'
+        r'ap news|associated press|reuters',
+        re.IGNORECASE,
+    )
+    src = m.resolution_source or ""
+    if src and re.search(r'https?://', src):
+        if _API_SOURCES.search(src):
+            layer2 = 0.50  # API-grade
+        else:
+            layer2 = 0.30  # some URL
+    elif _API_SOURCES.search(rules_and_desc):
+        layer2 = 0.40  # mentioned in description
+    elif re.search(r'https?://', rules_and_desc):
+        layer2 = 0.25  # URL in description
+    elif re.search(r'resolve.{1,30}(yes|no)', rules_and_desc, re.IGNORECASE):
+        layer2 = 0.15  # has resolve rules text
+    elif len(rules_and_desc.strip()) > 50:
+        layer2 = 0.10  # some description
+
+    return min(1.0, max(0.0, layer1 + layer2))
 
 
 # ---------------------------------------------------------------------------
@@ -266,12 +313,15 @@ def _score_time_structure(m: Market) -> float:
     elif 5.0 < days <= 7.0:
         time_score = 0.7
     elif 7.0 < days <= 14.0:
-        # Linear decay from 0.5 at 7d to 0.1 at 14d
-        time_score = 0.5 - 0.4 * (days - 7) / 7
+        # Linear decay from 0.5 at 7d to 0.2 at 14d
+        time_score = 0.5 - 0.3 * (days - 7) / 7
+    elif 14.0 < days <= 30.0:
+        # Slow decay from 0.2 at 14d to 0.05 at 30d
+        time_score = 0.2 - 0.15 * (days - 14) / 16
     elif days < 0.5:
         time_score = 0.3  # too soon, hard to act
     else:
-        time_score = 0.0  # > 14 days
+        time_score = 0.0  # > 30 days
 
     # Catalyst proximity component (30%)
     # Near resolution = stronger catalyst signal

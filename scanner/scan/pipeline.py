@@ -165,7 +165,10 @@ def run_scan_pipeline(
                 p = params.get("current_underlying_price")
                 if p:
                     asset_prices.setdefault(label, p)
-            detail = " | ".join(f"{k}: ${v:,.0f}" for k, v in asset_prices.items())
+            detail = " | ".join(
+                f"{k}: ${v:,.2f}" if v < 10 else f"{k}: ${v:,.0f}"
+                for k, v in asset_prices.items()
+            )
             _report("获取实时价格", "done", detail or "无 crypto")
         except Exception as e:
             _report("获取实时价格", "skip")
