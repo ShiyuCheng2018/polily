@@ -155,6 +155,37 @@ class Market(BaseModel):
 
     @computed_field
     @property
+    def vamp(self) -> float | None:
+        """Volume-Adjusted Mid Price — more accurate than simple mid in imbalanced books."""
+        bid = self.best_bid_yes
+        ask = self.best_ask_yes
+        bd = self.total_bid_depth_usd
+        ad = self.total_ask_depth_usd
+        if bid is not None and ask is not None and bd and ad and (bd + ad) > 0:
+            return (bid * ad + ask * bd) / (bd + ad)
+        return self.mid_price_yes
+
+    @computed_field
+    @property
+    def order_book_imbalance(self) -> float | None:
+        """OBI: (bid_depth - ask_depth) / (bid_depth + ask_depth). Range -1 to +1."""
+        bd = self.total_bid_depth_usd
+        ad = self.total_ask_depth_usd
+        if bd is not None and ad is not None and (bd + ad) > 0:
+            return (bd - ad) / (bd + ad)
+        return None
+
+    @computed_field
+    @property
+    def slippage_20usd(self) -> float | None:
+        """Estimated slippage for a $20 market order: order_size / (2 * depth)."""
+        bd = self.total_bid_depth_usd
+        if bd and bd > 0:
+            return 20.0 / (2 * bd)
+        return None
+
+    @computed_field
+    @property
     def polymarket_url(self) -> str:
         if self.event_slug:
             if self.market_slug:
