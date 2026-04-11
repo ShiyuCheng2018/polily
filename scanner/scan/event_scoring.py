@@ -44,7 +44,8 @@ def compute_event_quality_score(
     if not active:
         return EventQualityScore()
 
-    info = _score_information_value(active)
+    neg_risk = getattr(event, "neg_risk", False)
+    info = _score_information_value(active, neg_risk=neg_risk)
     liq = _score_liquidity_aggregate(event, active)
     res = _score_resolution_quality(event)
     con = _score_consistency(active)
@@ -64,12 +65,23 @@ def compute_event_quality_score(
 # Dimension 1: Information Value (0-20)
 # ---------------------------------------------------------------------------
 
-def _score_information_value(markets: list[Market]) -> float:
-    """Entropy + leader margin → how uncertain/interesting is this event."""
+def _score_information_value(markets: list[Market], *, neg_risk: bool = False) -> float:
+    """How uncertain/interesting is this event.
+
+    negRisk (mutually exclusive): entropy + leader margin.
+    Non-negRisk (independent): tradeable market ratio + best probability space.
+    """
     prices = [m.yes_price for m in markets if m.yes_price and m.yes_price > 0]
     if not prices:
         return 0.0
 
+    if neg_risk:
+        return _info_neg_risk(prices)
+    return _info_independent(prices)
+
+
+def _info_neg_risk(prices: list[float]) -> float:
+    """negRisk: entropy + leader margin (original logic)."""
     total = sum(prices)
     if total <= 0:
         return 0.0
@@ -89,15 +101,29 @@ def _score_information_value(markets: list[Market]) -> float:
     sorted_prices = sorted(prices, reverse=True)
     if len(sorted_prices) >= 2:
         margin = sorted_prices[0] - sorted_prices[1]
-        # 0 margin → 1.0, 0.5 margin → 0.0
         margin_score = max(0, 1.0 - margin * 2)
     else:
-        # Binary market: distance from 0.5
         p = sorted_prices[0]
-        margin_score = 1.0 - abs(p - 0.5) * 2  # 0.5 → 1.0, 0/1 → 0.0
+        margin_score = 1.0 - abs(p - 0.5) * 2
 
-    # Combine: entropy 60% + margin 40%
     raw = entropy * 0.6 + margin_score * 0.4
+    return round(min(raw * 20, 20), 2)
+
+
+def _info_independent(prices: list[float]) -> float:
+    """Non-negRisk: tradeable ratio + best probability space."""
+    n = len(prices)
+    if n == 0:
+        return 0.0
+
+    # Tradeable market ratio: how many sub-markets have YES in [0.10, 0.90]
+    tradeable = sum(1 for p in prices if 0.10 <= p <= 0.90)
+    ratio = tradeable / n
+
+    # Best probability space: closest to 0.50
+    best_space = max(1.0 - 2.0 * abs(p - 0.5) for p in prices)
+
+    raw = ratio * 0.4 + best_space * 0.6
     return round(min(raw * 20, 20), 2)
 
 

@@ -318,7 +318,8 @@ class MarketDetailView(Widget):
             # --- KPI Row ---
             with HorizontalGroup(id="kpi-row"):
                 if is_multi:
-                    yield self._make_card("kpi-leader", "领先")
+                    leader_label = self._leader_card_label(event, markets)
+                    yield self._make_card("kpi-leader", leader_label)
                     if event.neg_risk:
                         yield self._make_card("kpi-overround", "溢价率")
                     else:
@@ -413,18 +414,14 @@ class MarketDetailView(Widget):
 
 
     def _fill_kpi_multi(self, event, markets) -> None:
-        """Fill KPI cards for multi-outcome (negRisk) events."""
-        # Leader: highest yes_price
-        leader = max(markets, key=lambda m: m.yes_price or 0, default=None)
-        if leader and leader.yes_price is not None:
-            name = (leader.group_item_title or leader.question)[:20]
-            no = leader.no_price if leader.no_price is not None else round(1 - leader.yes_price, 4)
-            self._set_card("kpi-leader", f"{name}\nYES:{leader.yes_price:.2f} NO:{no:.2f}")
+        """Fill KPI cards for multi-outcome events."""
+        active = [m for m in markets if not m.closed and m.yes_price is not None]
+        if event.neg_risk:
+            self._fill_leader_neg_risk(active)
         else:
-            self._set_card("kpi-leader", "?")
+            self._fill_leader_independent(active)
 
         # negRisk: overround | non-negRisk: tightest spread
-        active = [m for m in markets if not m.closed]
         if event.neg_risk:
             prices = [m.yes_price for m in active if m.yes_price is not None]
             if prices:
@@ -471,6 +468,44 @@ class MarketDetailView(Widget):
         if mkt_summary:
             score_text += f"\n{mkt_summary}"
         self._set_card("kpi-score", score_text)
+
+    @staticmethod
+    def _leader_card_label(event, markets) -> str:
+        """Choose card title based on event type."""
+        import re
+        if event.neg_risk:
+            return "领先"
+        title = event.title or ""
+        # Threshold: "above/below ___"
+        if re.search(r'\b(above|below|exceed|reach)\b', title, re.I):
+            return "关注区"
+        # Deadline: "by...?" / "ends by"
+        if re.search(r'\bby\b', title, re.I) or re.search(r'ends?\s+by', title, re.I):
+            return "最近窗口"
+        return "最高概率"
+
+    def _fill_leader_neg_risk(self, active) -> None:
+        """negRisk: show the option with highest YES price."""
+        leader = max(active, key=lambda m: m.yes_price or 0, default=None)
+        if leader and leader.yes_price is not None:
+            name = (leader.group_item_title or leader.question)[:20]
+            no = leader.no_price if leader.no_price is not None else round(1 - leader.yes_price, 4)
+            self._set_card("kpi-leader", f"{name}\nYES:{leader.yes_price:.2f} NO:{no:.2f}")
+        else:
+            self._set_card("kpi-leader", "?")
+
+    def _fill_leader_independent(self, active) -> None:
+        """Non-negRisk: show ATM zone or nearest meaningful deadline."""
+        # Find markets with YES closest to 0.50 (most uncertain = most interesting)
+        tradeable = [m for m in active if m.yes_price and 0.05 <= m.yes_price <= 0.95]
+        if tradeable:
+            # Sort by distance from 0.50
+            tradeable.sort(key=lambda m: abs(m.yes_price - 0.5))
+            best = tradeable[0]
+            name = (best.group_item_title or best.question)[:20]
+            self._set_card("kpi-leader", f"{name}\nYES:{best.yes_price:.2f} NO:{best.no_price:.2f}")
+        else:
+            self._set_card("kpi-leader", "无可交易标的")
 
     def _set_card(self, card_id: str, content: str) -> None:
         import contextlib
