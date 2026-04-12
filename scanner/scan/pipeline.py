@@ -199,7 +199,7 @@ def run_scan_pipeline(
     # Persist to DB: only quality-gated events + their markets
     if db is not None:
         _persist_filtered(eligible, markets, event_rows or [], db)
-        _update_event_scores(candidates, db)
+        _update_event_scores(candidates, db, price_params=price_params)
         _update_event_quality_scores(event_map, market_by_event, passed_eids, db)
         # Cleanup: close events where all active sub-markets have expired end_date
         from datetime import UTC, datetime
@@ -325,11 +325,13 @@ def _persist_filtered(
 def _update_event_scores(
     candidates: list[ScoredCandidate],
     db: PolilyDB,
+    price_params: dict | None = None,
 ) -> None:
     """Update markets.structure_score + score_breakdown in DB after scoring.
 
     Event-level score + tier are handled by _update_event_quality_scores.
     """
+    price_params = price_params or {}
     # Update per-market scores + breakdown
     from scanner.scan.commentary import generate_commentary
 
@@ -348,6 +350,32 @@ def _update_event_scores(
             }
             if _tw.get("net_edge", 0) > 0:
                 bd["net_edge"] = round(c.score.net_edge, 1)
+            # Persist mispricing data for agent consumption
+            mp = c.mispricing
+            if mp.signal != "none" or mp.theoretical_fair_value is not None:
+                bd["mispricing"] = {
+                    "fair_value": mp.theoretical_fair_value,
+                    "fair_value_low": mp.fair_value_low,
+                    "fair_value_high": mp.fair_value_high,
+                    "deviation_pct": mp.deviation_pct,
+                    "direction": mp.direction,
+                    "signal": mp.signal,
+                    "model_confidence": mp.model_confidence,
+                }
+            # Persist price params (volatility, threshold, underlying price)
+            mkt_p = price_params.get(c.market.market_id, {})
+            if mkt_p:
+                bd["price_params"] = {
+                    k: v for k, v in {
+                        "underlying_price": mkt_p.get("current_underlying_price"),
+                        "threshold_price": mkt_p.get("threshold_price"),
+                        "annual_volatility": mkt_p.get("annual_volatility"),
+                        "vol_source": mkt_p.get("vol_source"),
+                    }.items() if v is not None
+                }
+            # Round-trip friction
+            if c.market.round_trip_friction_pct is not None:
+                bd["round_trip_friction_pct"] = round(c.market.round_trip_friction_pct, 4)
             commentary = generate_commentary(
                 bd, c.score.total, c.market.market_id,
                 market_type=getattr(c.market, "market_type", "other"),

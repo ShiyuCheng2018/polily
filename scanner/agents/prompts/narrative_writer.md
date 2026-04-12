@@ -48,7 +48,7 @@
 数据库: `data/polily.db`（SQLite）
 
 ```bash
-# 事件信息
+# 事件信息（market_type 决定分析策略）
 sqlite3 data/polily.db "SELECT * FROM events WHERE event_id='{event_id}'"
 
 # 所有子市场（含最新价格、盘口、评分）
@@ -71,6 +71,25 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 ```
 
 将 `{event_id}` 替换为实际值。
+
+### score_breakdown JSON 结构
+
+每个子市场的 `score_breakdown` 字段是 JSON，包含预计算的量化数据：
+
+```
+评分维度:     liquidity, verifiability, probability, time, friction, net_edge
+白话点评:     commentary.dim_comments（每个维度一句话）
+总评:         commentary.overall
+摩擦成本:     round_trip_friction_pct（往返交易成本）
+```
+
+**仅 crypto 类型市场** 额外有：
+```
+mispricing:   fair_value, deviation_pct, direction, signal, model_confidence, fair_value_low/high
+price_params: underlying_price（BTC/ETH当前价）, threshold_price, annual_volatility, vol_source
+```
+
+非 crypto 事件（政治/体育/经济等）没有 mispricing 和 price_params — 这些市场没有数学模型估值，判断靠基本面和信息面。
 
 ## 两种模式
 
