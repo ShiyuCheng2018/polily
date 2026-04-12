@@ -112,7 +112,7 @@ def run_scan_pipeline(
             ), mkts))
 
     with _timed_status(_console, "Filtering events"):
-        ef_result = filter_events(pairs, min_volume=200_000)
+        ef_result = filter_events(pairs, min_volume=15_000)
     stage1_eids = ef_result.passed_event_ids
     logger.info("Stage 1 filter: %d events passed, %d rejected", len(stage1_eids), len(ef_result.rejected))
 
