@@ -9,12 +9,6 @@ from pydantic import BaseModel, ConfigDict
 AnalysisMode = Literal["discovery", "position_management"]
 Confidence = Literal["low", "medium", "high"]
 
-# Discovery actions
-DiscoveryAction = Literal["BUY_YES", "BUY_NO", "WATCH", "PASS"]
-# Position management actions
-PositionAction = Literal["HOLD", "BUY_YES", "BUY_NO", "SELL_YES", "SELL_NO", "REDUCE_YES", "REDUCE_NO"]
-
-FrictionEdge = Literal["edge_exceeds", "roughly_equals", "friction_exceeds"]
 ThesisStatus = Literal["intact", "weakened", "broken"]
 
 
@@ -60,62 +54,56 @@ class PositionAdvice(BaseModel):
     research_findings: list["ResearchFinding"] = []
 
 
+class Operation(BaseModel):
+    """A single trading operation recommendation."""
+    action: str  # BUY_YES, BUY_NO, SELL_YES, SELL_NO, REDUCE_YES, REDUCE_NO, HOLD
+    market_id: str | None = None
+    market_title: str | None = None
+    entry_price: float | None = None
+    position_size_usd: float | None = None
+    reasoning: str = ""  # why this specific operation
+
+
 # --- Main output schema ---
 
 class NarrativeWriterOutput(BaseModel):
-    """Unified AI analysis output — discovery + position management mode."""
+    """Unified AI analysis output — modular structure with agent commentary."""
 
     event_id: str
     mode: AnalysisMode = "discovery"
-
-    # Decision
-    action: str = "PASS"  # DiscoveryAction | PositionAction
     confidence: Confidence = "low"
 
-    # Timing
-    time_window: TimeWindow = TimeWindow(urgency="normal", note="")
+    # Modular content
+    operations: list[Operation] = []  # trading operations (can be empty for WATCH/PASS)
+    operations_commentary: str = ""   # agent's interpretation of operations
 
-    # Why
-    why: str = ""  # core reasoning
-    why_not: str | None = None  # why NOT to act (for WATCH/PASS)
+    analysis: str = ""                # event-level logic (macro, fundamentals, timing)
+    analysis_commentary: str = ""     # agent's interpretation
 
-    # Evidence
     supporting_findings: list[ResearchFinding] = []
     invalidation_findings: list[ResearchFinding] = []
+    evidence_commentary: str = ""     # agent's interpretation of evidence
 
-    # Risk
     risk_flags: list[RiskFlag] = []
-    counterparty_note: str = ""
+    risk_commentary: str = ""         # agent's interpretation of risks
 
-    # Scheduling
-    next_check_at: str | None = None
-    next_check_reason: str = ""
-
-    # Display
-    summary: str = ""
-    one_line_verdict: str = ""
-
-    # --- Discovery mode fields ---
-    recommended_market_id: str | None = None
-    recommended_market_title: str | None = None
-    direction: Literal["YES", "NO"] | None = None
-    entry_price: float | None = None
-    position_size_usd: float | None = None
-    event_overview: str | None = None
-    friction_vs_edge: FrictionEdge | None = None
-    recheck_conditions: list[str] = []
-    crypto: CryptoContext | None = None
-
-    # --- Position management fields ---
+    # Position mode
     thesis_status: ThesisStatus | None = None
     thesis_note: str | None = None
-    current_pnl_note: str | None = None
     stop_loss: float | None = None
     take_profit: float | None = None
     alternative_market_id: str | None = None
     alternative_note: str | None = None
 
-    # --- Internal dev feedback (not shown to users) ---
+    # Summary (final synthesis of ALL modules)
+    summary: str = ""
+
+    # Scheduling
+    time_window: TimeWindow = TimeWindow(urgency="normal", note="")
+    next_check_at: str | None = None
+    next_check_reason: str = ""
+
+    # Dev feedback
     dev_feedback: str | None = None
 
     model_config = ConfigDict(extra="ignore")
@@ -124,46 +112,24 @@ class NarrativeWriterOutput(BaseModel):
         """Return list of semantic issues. Empty = OK."""
         errors = []
 
-        if self.mode == "discovery":
-            if self.action in ("BUY_YES", "BUY_NO"):
-                if not self.why or len(self.why.strip()) < 10:
-                    errors.append("BUY requires substantive why")
-                if not self.supporting_findings:
-                    errors.append("BUY requires at least 1 supporting_finding")
-                if not self.recommended_market_id:
-                    errors.append("BUY requires recommended_market_id")
-                if not self.invalidation_findings:
-                    errors.append("BUY requires invalidation_findings")
-            elif self.action in ("WATCH", "PASS"):
-                if not self.why_not or len((self.why_not or "").strip()) < 10:
-                    errors.append("WATCH/PASS requires substantive why_not")
-                if self.recommended_market_id:
-                    errors.append(f"{self.action} must not have recommended_market_id")
-                if self.entry_price is not None:
-                    errors.append(f"{self.action} must not have entry_price")
-                if self.direction is not None:
-                    errors.append(f"{self.action} must not have direction")
-        else:  # position_management
-            if self.action in ("SELL_YES", "SELL_NO"):
-                if not self.why or len(self.why.strip()) < 10:
-                    errors.append("SELL requires substantive why")
-                if self.thesis_status != "broken":
-                    errors.append("SELL should have thesis_status=broken")
-                if not self.invalidation_findings:
-                    errors.append("SELL requires invalidation_findings")
-            elif self.action == "HOLD":
-                if not self.why or len(self.why.strip()) < 10:
-                    errors.append("HOLD requires substantive why")
-            elif self.action in ("REDUCE_YES", "REDUCE_NO"):
-                if not self.why or len(self.why.strip()) < 10:
-                    errors.append("REDUCE requires substantive why")
+        # If operations list is not empty, each operation must have action and reasoning
+        for i, op in enumerate(self.operations):
+            if not op.action:
+                errors.append(f"operation[{i}] missing action")
+            if not op.reasoning:
+                errors.append(f"operation[{i}] missing reasoning")
+
+        # If mode is position_management, thesis_status is required
+        if self.mode == "position_management":
             if self.thesis_status is None:
                 errors.append("position mode requires thesis_status")
 
-        if not self.next_check_at:
-            errors.append("next_check_at is required")
+        # summary must be non-empty
         if not self.summary or len(self.summary.strip()) < 5:
             errors.append("summary required")
-        if not self.one_line_verdict or len(self.one_line_verdict.strip()) < 5:
-            errors.append("one_line_verdict required")
+
+        # next_check_at is required
+        if not self.next_check_at:
+            errors.append("next_check_at is required")
+
         return errors

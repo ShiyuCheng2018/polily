@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, HorizontalGroup, VerticalScroll
+from textual.containers import HorizontalGroup, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
@@ -525,231 +525,132 @@ class MarketDetailView(Widget):
         with panel:
             n = self._current_narrative(analyses)
             if n is None:
-                yield Static("[dim]无分析数据[/dim]", classes="row")
+                yield Static("[dim]无分析数据[/dim]")
                 return
 
-            # --- KPI Row ---
-            mode = n.get("mode", "discovery")
-            action = n.get("action", "PASS")
-            action_label, _ = ACTION_DISPLAY.get(action, ("[dim]?[/dim]", "dim"))
+            # --- Operations module ---
+            ops = n.get("operations", [])
+            if ops:
+                yield Static("── 操作 ──", classes="section-label")
+                for op in ops:
+                    action = op.get("action", "")
+                    title = op.get("market_title", "")
+                    entry = op.get("entry_price")
+                    size = op.get("position_size_usd")
+                    reasoning = op.get("reasoning", "")
 
-            # "判定" card: action + direction (discovery) or action + thesis_status (position)
-            if mode == "position_management":
-                ts = n.get("thesis_status", "")
-                ts_label = {"intact": "论点完整", "weakened": "论点减弱", "broken": "论点失效"}.get(ts, "")
-                action_content = f"{action_label}\n{ts_label}" if ts_label else action_label
-            else:
-                action_content = action_label
+                    yield Static(f"\n▸ {title}")
+                    parts = [action]
+                    if entry is not None:
+                        parts.append(f"限价 {entry:.2f}")
+                    if size is not None:
+                        parts.append(f"仓位 ${size:.0f}")
+                    yield Static(f"  {'  '.join(parts)}")
+                    if reasoning:
+                        yield Static(f"  [dim]{reasoning}[/dim]")
 
-            # "置信度" card: just confidence bar
-            confidence = n.get("confidence", "low")
-            conf_bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
-            conf_label = {"low": "低", "medium": "中", "high": "高"}.get(confidence, confidence)
-            conf_content = f"{conf_bar} {conf_label}"
+                ops_comment = n.get("operations_commentary", "")
+                if ops_comment:
+                    yield Static(f"\n{ops_comment}")
 
-            # "时间窗口" card: keep as-is
-            tw = n.get("time_window", {})
-            urgency_label = ""
-            if isinstance(tw, dict):
-                urgency = tw.get("urgency", "")
-                urgency_label = {"urgent": "紧急", "normal": "正常", "no_rush": "不急"}.get(urgency, urgency)
-            time_content = urgency_label or "?"
-
-            # "摩擦vs边际" card: friction_vs_edge (discovery) or stop_loss/take_profit (position)
-            if mode == "position_management":
-                sl = n.get("stop_loss")
-                tp = n.get("take_profit")
-                parts = []
-                if sl is not None:
-                    parts.append(f"止损 {sl:.2f}")
-                if tp is not None:
-                    parts.append(f"止盈 {tp:.2f}")
-                fve_content = "\n".join(parts) if parts else "[dim]无[/dim]"
-            else:
-                fve = n.get("friction_vs_edge", "")
-                fve_content = {"edge_exceeds": "edge > 摩擦", "roughly_equals": "edge ≈ 摩擦", "friction_exceeds": "摩擦 > edge"}.get(fve, fve)
-
-            def _card(content, card_id, title):
-                c = MetricCard(content, id=card_id)
-                c.border_title = title
-                return c
-
-            with HorizontalGroup(id="ai-kpi-row1"):
-                yield _card(action_content, "ai-action", "判定")
-                yield _card(conf_content, "ai-conf", "置信度")
-            with HorizontalGroup(id="ai-kpi-row2"):
-                yield _card(time_content, "ai-time", "时间窗口")
-                yield _card(fve_content, "ai-fve", "摩擦vs边际")
-
-            # --- Verdict ---
-            verdict = n.get("one_line_verdict", "")
-            if verdict:
-                yield Static(f"\n[bold]{verdict}[/bold]", classes="row")
-
-            # --- Two sub-panels ---
-            with Horizontal(id="ai-panels"):
-                yield from self._compose_ai_why_panel(n)
-                yield from self._compose_ai_evidence_panel(n)
-
-            # --- Next check + version ---
-            nc = n.get("next_check_at")
-            nr = n.get("next_check_reason", "")
-            nc_str = f"下次检查: [cyan]{nc[:16]}[/cyan] {nr}" if nc else ""
-            yield Static("")
-            yield from self._compose_version_selector(analyses, extra=nc_str)
-
-    def _compose_ai_why_panel(self, n: dict) -> ComposeResult:
-        """Left sub-panel: why/why not + risks + recheck + position thesis."""
-        mode = n.get("mode", "discovery")
-        panel = DashPanel(id="ai-why")
-        panel.border_title = "决策依据"
-        with panel:
-            # Time window note (full text)
-            tw = n.get("time_window", {})
-            tw_note = tw.get("note", "") if isinstance(tw, dict) else ""
-            if tw_note:
-                yield Static(f"[cyan]时间:[/cyan] {tw_note}", classes="row")
-
-            # Why / why not (new schema uses "why" and "why_not")
-            why = n.get("why") or n.get("why_now") or ""
-            why_not = n.get("why_not") or n.get("why_not_now") or ""
-            if why:
-                yield Static(f"[green]为什么:[/green] {why}", classes="row")
-            if why_not:
-                yield Static(f"[yellow]为什么不:[/yellow] {why_not}", classes="row")
-
-            # Position mode: thesis status
-            if mode == "position_management":
-                ts = n.get("thesis_status", "")
+            # --- Position module (position mode only) ---
+            thesis = n.get("thesis_status")
+            if thesis:
+                yield Static("\n── 持仓 ──", classes="section-label")
+                ts_icon = {"intact": "[green]✓[/green]", "weakened": "[yellow]~[/yellow]", "broken": "[red]✗[/red]"}.get(thesis, "?")
+                yield Static(f"论点 {ts_icon} {thesis}")
                 tn = n.get("thesis_note", "")
-                ts_icon = {"intact": "[green]✓[/green]", "weakened": "[yellow]~[/yellow]", "broken": "[red]✗[/red]"}.get(ts, "?")
-                if ts:
-                    yield Static(f"\n[bold]论点状态[/bold] {ts_icon} {ts}", classes="row")
                 if tn:
-                    yield Static(f"  {tn}", classes="row")
-                pnl_note = n.get("current_pnl_note", "")
-                if pnl_note:
-                    yield Static(f"  {pnl_note}", classes="row")
+                    yield Static(f"  {tn}")
                 sl = n.get("stop_loss")
                 tp = n.get("take_profit")
                 if sl is not None or tp is not None:
-                    sl_str = f"止损 {sl:.2f}" if sl is not None else ""
-                    tp_str = f"止盈 {tp:.2f}" if tp is not None else ""
-                    yield Static(f"  {sl_str}  {tp_str}".strip(), classes="row")
+                    parts = []
+                    if sl is not None:
+                        parts.append(f"止损 {sl:.2f}")
+                    if tp is not None:
+                        parts.append(f"止盈 {tp:.2f}")
+                    yield Static(f"  {'  '.join(parts)}")
+                alt = n.get("alternative_market_id")
+                if alt:
+                    yield Static(f"  换仓 → {alt} {n.get('alternative_note', '')}")
 
-            # Discovery mode: recommended market + entry (only for BUY actions)
-            action = n.get("action", "PASS")
-            if mode == "discovery" and action in ("BUY_YES", "BUY_NO"):
-                rec = n.get("recommended_market_title") or n.get("recommended_market_id")
-                direction = n.get("direction")
-                entry = n.get("entry_price")
-                size = n.get("position_size_usd")
-                if rec:
-                    parts = [f"[bold]推荐:[/bold] {rec}"]
-                    if entry:
-                        parts.append(f"限价 {entry:.2f}")
-                    if size:
-                        parts.append(f"仓位 ${size:.0f}")
-                    yield Static(f"\n{'  '.join(parts)}", classes="row")
+            # --- Analysis module ---
+            analysis_text = n.get("analysis", "")
+            if analysis_text:
+                yield Static("\n── 分析 ──", classes="section-label")
+                yield Static(f"\n{analysis_text}")
+                ac = n.get("analysis_commentary", "")
+                if ac:
+                    yield Static(f"\n{ac}")
 
-                overview = n.get("event_overview", "")
-                if overview:
-                    yield Static(f"[dim]{overview}[/dim]", classes="row")
-
-            # Summary
-            summary = n.get("summary", "")
-            if summary:
-                yield Static(f"\n{summary}", classes="row")
-
-            # Risk flags (all severities)
-            risks = n.get("risk_flags", [])
-            if risks:
-                yield Static("\n[bold]风险[/bold]", classes="row")
-                for rf in risks:
-                    sev = rf.get("severity", "info") if isinstance(rf, dict) else "info"
-                    text = rf.get("text", str(rf)) if isinstance(rf, dict) else str(rf)
-                    icon = {"critical": "[red]![/red]", "warning": "[yellow]⚠[/yellow]", "info": "[dim]ℹ[/dim]"}.get(sev, "·")
-                    yield Static(f"  {icon} {text}", classes="row")
-
-            # Recheck conditions
-            conditions = n.get("recheck_conditions", [])
-            if conditions:
-                yield Static("\n[bold]重新关注条件[/bold]", classes="row")
-                for c in conditions:
-                    yield Static(f"  · {c}", classes="row")
-
-    def _compose_ai_evidence_panel(self, n: dict) -> ComposeResult:
-        """Right sub-panel: supporting + invalidation findings + crypto context."""
-        panel = DashPanel(id="ai-evidence")
-        panel.border_title = "AI 调研发现"
-        with panel:
-            # Supporting findings
+            # --- Evidence module ---
             supporting = n.get("supporting_findings", [])
-            if supporting:
-                yield Static("[green]支撑证据[/green]", classes="row")
+            invalid = n.get("invalidation_findings", [])
+            if supporting or invalid:
+                yield Static("\n── 证据 ──", classes="section-label")
                 for f in supporting:
                     if isinstance(f, dict):
-                        finding = f.get("finding", "")
-                        source = f.get("source", "")
+                        yield Static(f"\n✓ {f.get('finding', '')}")
+                        src = f.get("source", "")
                         impact = f.get("impact", "")
-                        yield Static(f"  ✓ {finding}", classes="row")
-                        if source or impact:
-                            yield Static(f"    [dim]{source} → {impact}[/dim]", classes="row")
-                    else:
-                        yield Static(f"  ✓ {f}", classes="row")
-
-            # Invalidation findings
-            invalid = n.get("invalidation_findings", [])
-            if invalid:
-                yield Static(f"\n[red]失效条件[/red]", classes="row")
+                        if src or impact:
+                            yield Static(f"  [dim]{src} → {impact}[/dim]")
                 for f in invalid:
                     if isinstance(f, dict):
-                        finding = f.get("finding", "")
-                        source = f.get("source", "")
+                        yield Static(f"\n✗ {f.get('finding', '')}")
+                        src = f.get("source", "")
                         impact = f.get("impact", "")
-                        yield Static(f"  ✗ {finding}", classes="row")
-                        if source or impact:
-                            yield Static(f"    [dim]{source} → {impact}[/dim]", classes="row")
-                    else:
-                        yield Static(f"  ✗ {f}", classes="row")
+                        if src or impact:
+                            yield Static(f"  [dim]{src} → {impact}[/dim]")
+                ec = n.get("evidence_commentary", "")
+                if ec:
+                    yield Static(f"\n{ec}")
 
-            # Crypto context
-            crypto = n.get("crypto")
-            if crypto and isinstance(crypto, dict):
-                yield Static(f"\n[bold]Crypto[/bold]", classes="row")
-                dist = crypto.get("distance_to_threshold_pct")
-                buf = crypto.get("buffer_conclusion", "")
-                vol = crypto.get("daily_vol_pct")
-                parts = []
-                if dist is not None:
-                    parts.append(f"距阈值 {dist:.1f}%")
-                if buf:
-                    parts.append(f"缓冲 {buf}")
-                if vol is not None:
-                    parts.append(f"日波动 {vol:.1f}%")
-                if parts:
-                    yield Static(f"  {' | '.join(parts)}", classes="row")
-                mak = crypto.get("market_already_knows", "")
-                if mak:
-                    yield Static(f"  [dim]{mak}[/dim]", classes="row")
+            # --- Risk module ---
+            risks = n.get("risk_flags", [])
+            if risks:
+                yield Static("\n── 风险 ──", classes="section-label")
+                for rf in risks:
+                    if isinstance(rf, dict):
+                        sev = rf.get("severity", "info")
+                        text = rf.get("text", "")
+                        icon = {"critical": "[red]![/red]", "warning": "[yellow]⚠[/yellow]", "info": "[dim]ℹ[/dim]"}.get(sev, "·")
+                        yield Static(f"\n{icon} {text}")
+                rc = n.get("risk_commentary", "")
+                if rc:
+                    yield Static(f"\n{rc}")
 
-            # Alternative market (position mode: swap recommendation)
-            alt_id = n.get("alternative_market_id")
-            alt_note = n.get("alternative_note", "")
-            if alt_id:
-                yield Static(f"\n[bold]换仓建议[/bold]", classes="row")
-                yield Static(f"  → {alt_id} {alt_note}", classes="row")
+            # --- Summary module ---
+            summary = n.get("summary", "")
+            if summary:
+                yield Static("\n── 总结 ──", classes="section-label")
+                yield Static(f"\n[bold]{summary}[/bold]")
 
-            # Counterparty note
-            cn = n.get("counterparty_note", "")
-            if cn:
-                yield Static(f"\n[dim]{cn}[/dim]", classes="row")
+            # --- Next steps ---
+            yield Static("\n── 下一步 ──", classes="section-label")
+            nc = n.get("next_check_at")
+            nr = n.get("next_check_reason", "")
+            if nc:
+                # Convert to local time
+                from datetime import datetime
+                try:
+                    utc_dt = datetime.fromisoformat(nc)
+                    local_dt = utc_dt.astimezone()
+                    nc_local = local_dt.strftime("%m-%d %H:%M")
+                except (ValueError, TypeError):
+                    nc_local = nc[:16]
+                yield Static(f"\n下次检查  [cyan]{nc_local}[/cyan]  {nr}")
 
-            # If no evidence at all
-            if not supporting and not invalid and not crypto and not alt_id:
-                yield Static("[dim]无调研数据[/dim]", classes="row")
+            confidence = n.get("confidence", "low")
+            conf_bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
+            conf_label = {"low": "低", "medium": "中", "high": "高"}.get(confidence, confidence)
+            yield Static(f"置信度 {conf_bar} {conf_label}")
 
-    def _compose_version_selector(self, analyses, extra: str = "") -> ComposeResult:
+            yield Static("")
+            yield from self._compose_version_selector(analyses)
+
+    def _compose_version_selector(self, analyses) -> ComposeResult:
         if not analyses or self._version_idx < 0:
             return
         v = analyses[self._version_idx]
@@ -769,10 +670,7 @@ class MarketDetailView(Widget):
             "movement": "异动", "scan": "扫描",
         }
         trigger_label = trigger_map.get(v.trigger_source, v.trigger_source)
-        parts = [f"v{v.version} ({ts}) [{trigger_label}] ({idx}/{total}) 按v切换"]
-        if extra:
-            parts.append(extra)
-        yield Static(f"[dim]{' | '.join(parts)}[/dim]", classes="row")
+        yield Static(f"[dim]v{v.version} ({ts}) [{trigger_label}] ({idx}/{total}) 按v切换[/dim]", classes="row")
 
     def _current_narrative(self, analyses) -> dict | None:
         """Get the narrative_output dict from the selected version."""

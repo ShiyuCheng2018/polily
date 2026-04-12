@@ -116,11 +116,9 @@ Prompt 指令: scanner/agents/prompts/narrative_writer.md"""
         return NarrativeWriterOutput(
             event_id=event_id,
             mode="discovery",
-            action="PASS",
             confidence="low",
             summary="AI 分析不可用，请手动查看。",
             risk_flags=[RiskFlag(text="AI 不可用", severity="warning")],
-            one_line_verdict="AI 离线",
         ).model_dump()
 
 
@@ -136,7 +134,8 @@ def _write_dev_feedback(event_id: str, output: NarrativeWriterOutput) -> None:
         os.makedirs(log_dir, exist_ok=True)
         ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
         with open(os.path.join(log_dir, "agent_feedback.log"), "a") as f:
-            f.write(f"\n=== [{ts}] event={event_id} action={output.action} ===\n")
+            ops_summary = ",".join(op.action for op in output.operations) or "none"
+            f.write(f"\n=== [{ts}] event={event_id} ops={ops_summary} ===\n")
             f.write(f"{feedback}\n")
     except Exception:
         pass
@@ -151,11 +150,8 @@ def narrative_fallback(event_id: str) -> NarrativeWriterOutput:
     return NarrativeWriterOutput(
         event_id=event_id,
         mode="discovery",
-        action="WATCH",
         confidence="low",
-        why_not="AI 分析失败，无法给出判断",
         summary="AI 分析不可用，建议手动查看事件详情后决定。",
-        one_line_verdict="AI 挂了，自己看吧",
         risk_flags=[RiskFlag(text="AI 分析失败，结果不可靠", severity="warning")],
         next_check_at=next_check,
         next_check_reason="AI 失败后默认 24h 重试",

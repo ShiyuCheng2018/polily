@@ -11,25 +11,34 @@ from tests.conftest import make_cli_response_structured
 
 SAMPLE_NARRATIVE_OUTPUT = {
     "event_id": "ev_test",
-    "action": "WATCH",
     "confidence": "medium",
     "time_window": {"urgency": "normal", "note": "还剩 2.0 天"},
-    "why": "",
-    "why_not": "摩擦吃掉 60% 潜在利润，当前不值得进场",
-    "friction_vs_edge": "roughly_equals",
-    "summary": "Crypto market with moderate mispricing signal.",
+    "operations": [
+        {
+            "action": "BUY_YES",
+            "market_id": "0xtest",
+            "market_title": "BTC > $88K",
+            "entry_price": 0.62,
+            "position_size_usd": 20,
+            "reasoning": "Moderate mispricing with edge after friction",
+        },
+    ],
+    "operations_commentary": "单一方向操作，仓位适中",
+    "analysis": "BTC approaching threshold with momentum",
+    "analysis_commentary": "技术面支撑，基本面中性",
+    "summary": "Crypto market with moderate mispricing signal, edge after friction.",
     "risk_flags": [
         {"text": "Round-trip friction eats most edge", "severity": "critical"},
         {"text": "Bots dominate this market", "severity": "warning"},
     ],
-    "counterparty_note": "Crypto threshold markets are bot-heavy.",
+    "risk_commentary": "摩擦是主要风险",
     "supporting_findings": [
         {"finding": "BTC 当前价格 $67,750", "source": "Binance", "impact": "距阈值 $88k 还有 23%"},
     ],
     "invalidation_findings": [
         {"finding": "若 BTC 突破 $70K", "source": "技术面", "impact": "YES 可能低估"},
     ],
-    "one_line_verdict": "Moderate mispricing in crypto threshold, thin edge after friction.",
+    "evidence_commentary": "证据支持方向但不确定",
     "next_check_at": "2026-04-12T12:00:00",
     "next_check_reason": "Monitor friction levels",
 }
@@ -51,7 +60,8 @@ class TestNarrativeWriterAgent:
             result = await agent.generate(event_id="ev_test")
             assert isinstance(result, NarrativeWriterOutput)
             assert result.event_id == "ev_test"
-            assert result.action == "WATCH"
+            assert len(result.operations) == 1
+            assert result.operations[0].action == "BUY_YES"
             assert len(result.risk_flags) > 0
             assert len(result.supporting_findings) > 0
 
@@ -76,8 +86,6 @@ class TestNarrativeFallback:
         assert isinstance(result, NarrativeWriterOutput)
         assert result.event_id == "ev_test"
         assert len(result.summary) > 0
-        assert result.action in ("BUY_YES", "BUY_NO", "WATCH", "PASS", "HOLD",
-                                 "SELL_YES", "SELL_NO", "REDUCE_YES", "REDUCE_NO")
         assert result.confidence == "low"
 
     def test_fallback_has_risk_flags_with_severity(self):
@@ -86,10 +94,10 @@ class TestNarrativeFallback:
         for rf in result.risk_flags:
             assert rf.severity in ("critical", "warning", "info")
 
-    def test_fallback_action_is_watch(self):
-        """Fallback always returns WATCH since AI was unavailable."""
+    def test_fallback_operations_empty(self):
+        """Fallback returns empty operations since AI was unavailable."""
         result = narrative_fallback("ev_test")
-        assert result.action == "WATCH"
+        assert result.operations == []
 
     def test_fallback_has_next_check(self):
         result = narrative_fallback("ev_test")

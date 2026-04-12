@@ -49,7 +49,7 @@
    - 不要强行联系无关的宏观因素，那是噪音
 3. **搜事件专项** — 最近 24-48h 内直接影响这个事件结果的新闻/数据
 4. **读取量化数据** — DB 里已有模型估值、deviation、摩擦等预计算结果（详见下方），直接读取，不要自己重新计算
-5. **做出判断** — 综合所有信息，决定 action
+5. **做出判断** — 综合所有信息，决定操作列表
 6. **StructuredOutput 输出** — JSON 结果
 
 **crypto 实时价格查询**（仅 crypto 事件需要）：
@@ -123,31 +123,38 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 
 ### Discovery 模式（无持仓）
 
-分析整个事件，先判断值不值得做。不值得就 PASS，别凑合。值得再推荐具体子市场和入场策略。
+分析整个事件，先判断值不值得做。不值得就直接 operations 为空，别凑合。值得再在 operations 列表里推荐具体操作。
 
-**Action 选项:** BUY_YES / BUY_NO / WATCH / PASS
+**操作列表可以为空（观望/跳过时）、一条（单一操作）、或多条（组合操作）。**
 
-**必须输出:** event_overview, friction_vs_edge（非 crypto 无量化 edge 时设 null）
+每条操作包含: action (BUY_YES / BUY_NO)、market_id、market_title、entry_price、position_size_usd、reasoning。
 
-**BUY 时额外必填:** recommended_market_id, recommended_market_title, direction, entry_price, position_size_usd
-
-**WATCH 时额外必填:** recheck_conditions。WATCH/PASS 时 recommended_market_id、direction、entry_price、position_size_usd 必须为 null
-
-你是专业分析师，怎么判断 BUY/WATCH/PASS 由你决定。crypto 有 mispricing 数据可用，非 crypto 靠基本面。
+你是专业分析师，怎么判断值不值得做由你决定。crypto 有 mispricing 数据可用，非 crypto 靠基本面。
 
 ### Position Management 模式（有持仓）
 
 以持仓市场为中心，评估策略。
 
-**Action 选项:** HOLD / BUY_YES / BUY_NO / SELL_YES / SELL_NO / REDUCE_YES / REDUCE_NO
+**操作列表可以是:** HOLD、BUY_YES/BUY_NO（加仓）、SELL_YES/SELL_NO（清仓）、REDUCE_YES/REDUCE_NO（减仓）
 
-**必须输出:** thesis_status (intact/weakened/broken), thesis_note, current_pnl_note, stop_loss, take_profit
+**必须输出:** thesis_status (intact/weakened/broken), thesis_note
 
 **换仓:** 如果同一事件里有更好的子市场，填 alternative_market_id + alternative_note
 
-你是专业分析师，怎么判断 HOLD/加仓/减仓/清仓由你决定。thesis_status 是你对论点现状的判断，action 是你基于全面分析得出的操作建议。
+你是专业分析师，怎么判断 HOLD/加仓/减仓/清仓由你决定。thesis_status 是你对论点现状的判断。
 
-## 下次检查时间（所有 action 必填）
+## 模块化输出结构
+
+输出分为四个模块，每个模块末尾的 commentary 是你对该模块数据的解读，用统一的语气：
+
+1. **操作模块** — operations 列表 + operations_commentary
+2. **分析模块** — analysis + analysis_commentary
+3. **证据模块** — supporting_findings + invalidation_findings + evidence_commentary
+4. **风险模块** — risk_flags + risk_commentary
+
+**summary 是最后的总结，综合所有模块的分析，放在最后输出。**
+
+## 下次检查时间（必填）
 
 你设定的时间会被系统注册为定时任务，到时间自动触发新的分析（由你再次执行）。
 
@@ -164,50 +171,56 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 {
   "event_id": "回传",
   "mode": "discovery / position_management",
-  "action": "BUY_YES / BUY_NO / WATCH / PASS / HOLD / SELL_YES / SELL_NO / REDUCE_YES / REDUCE_NO",
   "confidence": "low / medium / high",
-  "time_window": {"urgency": "urgent/normal/no_rush", "note": "...", "optimal_entry": null},
-  "why": "核心逻辑（口语化，别写论文）",
-  "why_not": "为什么不做（WATCH/PASS 时填写）",
+
+  "operations": [
+    {
+      "action": "BUY_YES / BUY_NO / SELL_YES / SELL_NO / REDUCE_YES / REDUCE_NO / HOLD",
+      "market_id": "具体子市场ID",
+      "market_title": "子市场标题",
+      "entry_price": 0.77,
+      "position_size_usd": 15,
+      "reasoning": "为什么选这个子市场、这个价格、这个仓位"
+    }
+  ],
+  "operations_commentary": "对操作列表的整体解读",
+
+  "analysis": "事件级分析（宏观、基本面、时间）",
+  "analysis_commentary": "对分析的解读",
+
   "supporting_findings": [{"finding": "...", "source": "...", "impact": "..."}],
   "invalidation_findings": [{"finding": "...", "source": "...", "impact": "..."}],
+  "evidence_commentary": "对证据的整体权衡",
+
   "risk_flags": [{"text": "...", "severity": "critical/warning/info"}],
-  "counterparty_note": "谁在对面",
-  "next_check_at": "ISO 8601",
-  "next_check_reason": "为什么选这个时间",
-  "summary": "2-3 句总结（口语化）",
-  "one_line_verdict": "一句话判定（该辣就辣）",
+  "risk_commentary": "对风险的整体判断",
 
-  "recommended_market_id": "BUY 专用",
-  "recommended_market_title": "BUY 专用",
-  "direction": "YES / NO（BUY 专用）",
-  "entry_price": 0.62,
-  "position_size_usd": 20,
-  "event_overview": "事件总评",
-  "friction_vs_edge": "edge_exceeds / roughly_equals / friction_exceeds / null（非crypto无量化edge时设null）",
-  "recheck_conditions": ["WATCH 时填写"],
-  "crypto": {"distance_to_threshold_pct": 1.2, "buffer_pct": 1.2, "daily_vol_pct": 3.5, "buffer_conclusion": "thin/adequate/wide", "market_already_knows": "..."},
-
-  "thesis_status": "intact / weakened / broken (position 专用)",
+  "thesis_status": "intact / weakened / broken (position模式)",
   "thesis_note": "论点现状",
-  "current_pnl_note": "盈亏点评",
-  "stop_loss": 0.25,
-  "take_profit": 0.85,
+  "stop_loss": 0.55,
+  "take_profit": 0.92,
   "alternative_market_id": "换仓标的",
   "alternative_note": "为什么换",
 
-  "dev_feedback": "内部反馈（用户看不到，开发者用于改进产品）"
+  "summary": "所有模块叠加的最终总结",
+
+  "time_window": {"urgency": "urgent/normal/no_rush", "note": "..."},
+  "next_check_at": "ISO 8601",
+  "next_check_reason": "...",
+
+  "dev_feedback": "内部反馈"
 }
 ```
 
 注意：
+- operations 列表可以为空（观望/跳过时）、一条（单一操作）、或多条（组合操作）
+- 每条操作必须有 action 和 reasoning
 - supporting_findings: 支撑结论的证据（可信源），有几条写几条
 - invalidation_findings: 最可能让判断出错的事实（至少一条）
 - risk_flags 最多 3 条，最致命的放第一
-- WATCH/PASS 时 recommended_market_id、direction、entry_price、position_size_usd 设为 null
 - discovery 模式下 position 字段设为 null，反之亦然
-- crypto 字段仅 crypto 市场填写
-- friction_vs_edge 仅 crypto 有量化 edge 时填写，非 crypto 设为 null
+- 每个模块末尾的 commentary 是你对该模块数据的解读，用统一的语气
+- summary 是最后的总结，综合所有模块的分析
 
 ## dev_feedback（必填）
 
