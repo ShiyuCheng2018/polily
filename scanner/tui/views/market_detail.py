@@ -551,13 +551,22 @@ class MarketDetailView(Widget):
             tw = n.get("time_window", {})
             if isinstance(tw, dict):
                 urgency = tw.get("urgency", "")
-                tw_note = tw.get("note", "")
+                optimal = tw.get("optimal_entry")
             else:
                 urgency = ""
-                tw_note = ""
+                optimal = None
             urgency_label = {"urgent": "紧急", "normal": "正常", "no_rush": "不急"}.get(urgency, urgency)
-            tw_note_short = tw_note[:20] if tw_note else ""
-            time_content = f"{urgency_label}\n{tw_note_short}" if tw_note_short else urgency_label
+            if optimal:
+                # Show optimal entry time in local timezone
+                from datetime import datetime, timezone
+                try:
+                    opt_dt = datetime.fromisoformat(optimal)
+                    opt_local = opt_dt.astimezone().strftime("%m-%d %H:%M")
+                    time_content = f"{urgency_label}\n最佳入场 {opt_local}"
+                except (ValueError, TypeError):
+                    time_content = urgency_label
+            else:
+                time_content = urgency_label
 
             # "摩擦vs边际" card: friction_vs_edge (discovery) or stop_loss/take_profit (position)
             if mode == "position_management":
@@ -608,6 +617,12 @@ class MarketDetailView(Widget):
         panel = DashPanel(id="ai-why")
         panel.border_title = "决策依据"
         with panel:
+            # Time window note (full text)
+            tw = n.get("time_window", {})
+            tw_note = tw.get("note", "") if isinstance(tw, dict) else ""
+            if tw_note:
+                yield Static(f"[cyan]时间:[/cyan] {tw_note}", classes="row")
+
             # Why / why not (new schema uses "why" and "why_not")
             why = n.get("why") or n.get("why_now") or ""
             why_not = n.get("why_not") or n.get("why_not_now") or ""
