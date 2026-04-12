@@ -66,7 +66,7 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 
 ### Discovery 模式（无持仓）
 
-分析整个事件，推荐最佳子市场 + 入场策略。
+分析整个事件，先判断值不值得做。不值得就 PASS，别凑合。值得再推荐具体子市场和入场策略。
 
 **Action 选项:** BUY_YES / BUY_NO / WATCH / PASS
 

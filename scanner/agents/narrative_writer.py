@@ -104,7 +104,7 @@ Prompt 指令: scanner/agents/prompts/narrative_writer.md"""
         if has_position and position_summary:
             prompt += f"\n\n用户当前持仓:\n{position_summary}"
         elif not has_position:
-            prompt += "\n\n用户在此事件无持仓。分析整个事件，推荐最佳子市场 + 入场策略。"
+            prompt += "\n\n用户在此事件无持仓。判断这个事件值不值得做，不值得就直接 PASS，值得再说具体怎么做。"
 
         return prompt
 
