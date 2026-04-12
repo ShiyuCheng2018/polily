@@ -555,7 +555,7 @@ class MarketDetailView(Widget):
             # --- Position module (position mode only) ---
             thesis = n.get("thesis_status")
             if thesis:
-                yield Static("\n── 持仓 ──", classes="section-label")
+                yield Static("\n\n── 持仓 ──", classes="section-label")
                 ts_icon = {"intact": "[green]✓[/green]", "weakened": "[yellow]~[/yellow]", "broken": "[red]✗[/red]"}.get(thesis, "?")
                 yield Static(f"论点 {ts_icon} {thesis}")
                 tn = n.get("thesis_note", "")
@@ -573,6 +573,7 @@ class MarketDetailView(Widget):
                 alt = n.get("alternative_market_id")
                 if alt:
                     yield Static(f"  换仓 → {alt} {n.get('alternative_note', '')}")
+                yield Static("")
 
             # --- Analysis module ---
             analysis_text = n.get("analysis", "")
