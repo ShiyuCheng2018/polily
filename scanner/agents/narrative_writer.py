@@ -116,7 +116,6 @@ Prompt 指令: scanner/agents/prompts/narrative_writer.md"""
         return NarrativeWriterOutput(
             event_id=event_id,
             mode="discovery",
-            confidence="low",
             summary="AI 分析不可用，请手动查看。",
             risk_flags=[RiskFlag(text="AI 不可用", severity="warning")],
         ).model_dump()
@@ -150,7 +149,6 @@ def narrative_fallback(event_id: str) -> NarrativeWriterOutput:
     return NarrativeWriterOutput(
         event_id=event_id,
         mode="discovery",
-        confidence="low",
         summary="AI 分析不可用，建议手动查看事件详情后决定。",
         risk_flags=[RiskFlag(text="AI 分析失败，结果不可靠", severity="warning")],
         next_check_at=next_check,

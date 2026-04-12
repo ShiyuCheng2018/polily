@@ -11,12 +11,12 @@ from tests.conftest import make_cli_response_structured
 
 SAMPLE_NARRATIVE_OUTPUT = {
     "event_id": "ev_test",
-    "confidence": "medium",
     "time_window": {"urgency": "normal", "note": "还剩 2.0 天"},
     "operations": [
         {
             "action": "BUY_YES",
             "market_id": "0xtest",
+            "confidence": "medium",
             "market_title": "BTC > $88K",
             "entry_price": 0.62,
             "position_size_usd": 20,
@@ -84,7 +84,7 @@ class TestNarrativeFallback:
         assert isinstance(result, NarrativeWriterOutput)
         assert result.event_id == "ev_test"
         assert len(result.summary) > 0
-        assert result.confidence == "low"
+        assert len(result.summary) > 0
 
     def test_fallback_has_risk_flags_with_severity(self):
         result = narrative_fallback("ev_test")

@@ -61,6 +61,7 @@ class Operation(BaseModel):
     market_title: str | None = None
     entry_price: float | None = None
     position_size_usd: float | None = None
+    confidence: Confidence = "medium"  # agent 对这条操作的把握
     reasoning: str = ""  # why this specific operation
 
 
@@ -71,7 +72,6 @@ class NarrativeWriterOutput(BaseModel):
 
     event_id: str
     mode: AnalysisMode = "discovery"
-    confidence: Confidence = "low"
 
     # Modular content
     operations: list[Operation] = []  # trading operations (can be empty for WATCH/PASS)

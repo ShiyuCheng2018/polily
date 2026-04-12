@@ -173,7 +173,6 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 {
   "event_id": "回传",
   "mode": "discovery / position_management",
-  "confidence": "low / medium / high",
 
   "operations": [
     {
@@ -182,6 +181,7 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
       "market_title": "子市场标题",
       "entry_price": 0.77,
       "position_size_usd": 15,
+      "confidence": "low / medium / high（你对这条操作的把握）",
       "reasoning": "为什么选这个子市场、这个价格、这个仓位"
     }
   ],

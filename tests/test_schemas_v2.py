@@ -63,12 +63,13 @@ class TestNarrativeWriterOutputV4:
                 action="BUY_YES", market_id="0xtest",
                 market_title="BTC > $80K",
                 entry_price=0.65, position_size_usd=20,
+                confidence="high",
                 reasoning="Strong edge detected",
             )],
-            confidence="high",
         )
         assert len(out.operations) == 1
         assert out.operations[0].action == "BUY_YES"
+        assert out.operations[0].confidence == "high"
         assert out.semantic_errors() == []
 
     def test_multiple_operations(self):
@@ -107,13 +108,12 @@ class TestNarrativeWriterOutputV4:
         )
         data = out.model_dump()
         restored = NarrativeWriterOutput.model_validate(data)
-        assert restored.confidence == "low"
+        assert restored.operations == out.operations
 
     def test_backward_compat_defaults(self):
         """Old data with minimal fields should still validate."""
         out = NarrativeWriterOutput(event_id="test", summary="old format")
         assert out.operations == []
-        assert out.confidence == "low"
 
     def test_old_data_with_deprecated_fields_loads(self):
         """Old stored data with removed fields should load via extra=ignore."""

@@ -537,13 +537,18 @@ class MarketDetailView(Widget):
                 size = op.get("position_size_usd")
                 reasoning = op.get("reasoning", "")
 
+                conf = op.get("confidence", "")
+                conf_bar = CONFIDENCE_BAR.get(conf, "")
+                conf_label = {"low": "低", "medium": "中", "high": "高"}.get(conf, "")
+                conf_str = f"  {conf_bar} {conf_label}" if conf_bar else ""
+
                 yield Static(f"\n▸ {title}")
                 parts = [action]
                 if entry is not None:
                     parts.append(f"限价 {entry:.2f}")
                 if size is not None:
                     parts.append(f"仓位 ${size:.0f}")
-                yield Static(f"  {'  '.join(parts)}")
+                yield Static(f"  {'  '.join(parts)}{conf_str}")
                 if reasoning:
                     yield Static(f"  [dim]{reasoning}[/dim]")
 
@@ -636,11 +641,6 @@ class MarketDetailView(Widget):
                 except (ValueError, TypeError):
                     nc_local = nc[:16]
                 yield Static(f"\n下次检查  [cyan]{nc_local}[/cyan]  {nr}")
-
-            confidence = n.get("confidence", "low")
-            conf_bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
-            conf_label = {"low": "低", "medium": "中", "high": "高"}.get(confidence, confidence)
-            yield Static(f"置信度 {conf_bar} {conf_label}")
 
             yield Static("")
             yield from self._compose_version_selector(analyses)
