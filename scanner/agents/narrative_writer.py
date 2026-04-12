@@ -97,11 +97,16 @@ class NarrativeWriterAgent:
         """Build minimal prompt — agent reads DB and searches web on its own."""
         mode = "position_management" if has_position else "discovery"
 
+        from datetime import datetime
+        local_tz = datetime.now().astimezone().tzname()
+        local_now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+
         prompt = f"""分析事件 {event_id}。
 
 模式: {mode}
 数据库: data/polily.db
-Prompt 指令: scanner/agents/prompts/narrative_writer.md"""
+Prompt 指令: scanner/agents/prompts/narrative_writer.md
+当前时间: {local_now}（用户时区 {local_tz}，分析文字里用本地时间）"""
 
         if has_position and position_summary:
             prompt += f"\n\n用户当前持仓:\n{position_summary}"
