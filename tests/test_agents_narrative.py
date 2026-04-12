@@ -32,13 +32,11 @@ SAMPLE_NARRATIVE_OUTPUT = {
         {"text": "Bots dominate this market", "severity": "warning"},
     ],
     "risk_commentary": "摩擦是主要风险",
-    "supporting_findings": [
+    "research_findings": [
         {"finding": "BTC 当前价格 $67,750", "source": "Binance", "impact": "距阈值 $88k 还有 23%"},
-    ],
-    "invalidation_findings": [
         {"finding": "若 BTC 突破 $70K", "source": "技术面", "impact": "YES 可能低估"},
     ],
-    "evidence_commentary": "证据支持方向但不确定",
+    "research_commentary": "资讯支持方向但不确定",
     "next_check_at": "2026-04-12T12:00:00",
     "next_check_reason": "Monitor friction levels",
 }
@@ -63,7 +61,7 @@ class TestNarrativeWriterAgent:
             assert len(result.operations) == 1
             assert result.operations[0].action == "BUY_YES"
             assert len(result.risk_flags) > 0
-            assert len(result.supporting_findings) > 0
+            assert len(result.research_findings) > 0
 
     @pytest.mark.asyncio
     async def test_fallback_on_failure(self):

@@ -85,20 +85,21 @@ class TestNarrativeWriterOutputV4:
         out = _valid_output(
             analysis="BTC approaching threshold",
             analysis_commentary="Looks bullish",
-            evidence_commentary="Evidence is mixed",
+            research_commentary="Research is mixed",
             risk_commentary="Low risk overall",
             operations_commentary="Simple directional play",
         )
         assert out.analysis_commentary == "Looks bullish"
-        assert out.evidence_commentary == "Evidence is mixed"
+        assert out.research_commentary == "Research is mixed"
 
-    def test_supporting_and_invalidation_findings(self):
+    def test_research_findings(self):
         out = _valid_output(
-            supporting_findings=[ResearchFinding(finding="支持", source="A", impact="正面")],
-            invalidation_findings=[ResearchFinding(finding="反驳", source="B", impact="可能推翻")],
+            research_findings=[
+                ResearchFinding(finding="CPI低于预期", source="CoinDesk", impact="BTC上涨"),
+                ResearchFinding(finding="ETF流入", source="Bloomberg", impact="机构买盘"),
+            ],
         )
-        assert len(out.supporting_findings) == 1
-        assert len(out.invalidation_findings) == 1
+        assert len(out.research_findings) == 2
 
     def test_model_dump_roundtrip(self):
         out = _valid_output(

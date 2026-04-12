@@ -151,7 +151,7 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 
 1. **操作模块** — operations 列表 + operations_commentary
 2. **分析模块** — analysis + analysis_commentary
-3. **证据模块** — supporting_findings + invalidation_findings + evidence_commentary
+3. **互联资讯** — research_findings + research_commentary
 4. **风险模块** — risk_flags + risk_commentary
 
 **summary 是最后的总结，综合所有模块的分析，放在最后输出。**
@@ -190,9 +190,8 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
   "analysis": "事件级分析（宏观、基本面、时间）",
   "analysis_commentary": "对分析的解读",
 
-  "supporting_findings": [{"finding": "...", "source": "...", "impact": "..."}],
-  "invalidation_findings": [{"finding": "...", "source": "...", "impact": "..."}],
-  "evidence_commentary": "对证据的整体权衡",
+  "research_findings": [{"finding": "...", "source": "...", "impact": "..."}],
+  "research_commentary": "对资讯的整体解读",
 
   "risk_flags": [{"text": "...", "severity": "critical/warning/info"}],
   "risk_commentary": "对风险的整体判断",
@@ -217,8 +216,7 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 注意：
 - operations 列表可以为空（观望/跳过时）、一条（单一操作）、或多条（组合操作）
 - 每条操作必须有 action 和 reasoning
-- supporting_findings: 支撑结论的证据（可信源），有几条写几条
-- invalidation_findings: 最可能让判断出错的事实（至少一条）
+- research_findings: 联网搜到的资讯，自由组织，不用分正面负面
 - risk_flags 最多 3 条，最致命的放第一
 - discovery 模式下 position 字段设为 null，反之亦然
 - 每个模块末尾的 commentary 是你对该模块数据的解读，用统一的语气

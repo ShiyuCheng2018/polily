@@ -80,9 +80,8 @@ class NarrativeWriterOutput(BaseModel):
     analysis: str = ""                # event-level logic (macro, fundamentals, timing)
     analysis_commentary: str = ""     # agent's interpretation
 
-    supporting_findings: list[ResearchFinding] = []
-    invalidation_findings: list[ResearchFinding] = []
-    evidence_commentary: str = ""     # agent's interpretation of evidence
+    research_findings: list[ResearchFinding] = []  # 互联资讯 — agent 自由组织
+    research_commentary: str = ""     # agent's interpretation of research
 
     risk_flags: list[RiskFlag] = []
     risk_commentary: str = ""         # agent's interpretation of risks

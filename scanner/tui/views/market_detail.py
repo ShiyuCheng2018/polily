@@ -584,21 +584,21 @@ class MarketDetailView(Widget):
                     yield Markdown(ac)
 
             # --- Evidence module ---
-            supporting = n.get("supporting_findings", [])
-            invalid = n.get("invalidation_findings", [])
-            if supporting or invalid:
-                yield Static("\n── 证据 ──", classes="section-label")
-                evidence_md = ""
-                for f in supporting:
+            # --- Research module (互联资讯) ---
+            # Support both old (supporting/invalidation) and new (research_findings) schema
+            findings = n.get("research_findings", [])
+            if not findings:
+                findings = n.get("supporting_findings", []) + n.get("invalidation_findings", [])
+            if findings:
+                yield Static("\n── 互联资讯 ──", classes="section-label")
+                research_md = ""
+                for f in findings:
                     if isinstance(f, dict):
-                        evidence_md += f"\n- ✓ {f.get('finding', '')}  *{f.get('source', '')} → {f.get('impact', '')}*"
-                for f in invalid:
-                    if isinstance(f, dict):
-                        evidence_md += f"\n- ✗ {f.get('finding', '')}  *{f.get('source', '')} → {f.get('impact', '')}*"
-                yield Markdown(evidence_md)
-                ec = n.get("evidence_commentary", "")
-                if ec:
-                    yield Markdown(ec)
+                        research_md += f"\n- {f.get('finding', '')}  *{f.get('source', '')} → {f.get('impact', '')}*"
+                yield Markdown(research_md)
+                rc = n.get("research_commentary", "") or n.get("evidence_commentary", "")
+                if rc:
+                    yield Markdown(rc)
 
             # --- Risk module ---
             risks = n.get("risk_flags", [])
