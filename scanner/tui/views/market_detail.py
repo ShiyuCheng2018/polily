@@ -546,7 +546,8 @@ class MarketDetailView(Widget):
             # "置信度" card: just confidence bar
             confidence = n.get("confidence", "low")
             conf_bar = CONFIDENCE_BAR.get(confidence, CONFIDENCE_BAR["low"])
-            conf_content = conf_bar
+            conf_label = {"low": "低", "medium": "中", "high": "高"}.get(confidence, confidence)
+            conf_content = f"{conf_bar} {conf_label}"
 
             # "时间窗口" card: keep as-is
             tw = n.get("time_window", {})
@@ -557,7 +558,8 @@ class MarketDetailView(Widget):
                 urgency = ""
                 tw_note = ""
             urgency_label = {"urgent": "紧急", "normal": "正常", "no_rush": "不急"}.get(urgency, urgency)
-            time_content = f"{urgency_label}\n{tw_note}" if tw_note else urgency_label
+            tw_note_short = tw_note[:20] if tw_note else ""
+            time_content = f"{urgency_label}\n{tw_note_short}" if tw_note_short else urgency_label
 
             # "摩擦vs边际" card: friction_vs_edge (discovery) or stop_loss/take_profit (position)
             if mode == "position_management":
