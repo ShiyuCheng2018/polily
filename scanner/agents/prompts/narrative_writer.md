@@ -78,7 +78,7 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 - recommended_market_id + recommended_market_title: 推荐哪个子市场
 - direction: YES 还是 NO
 - entry_price: 建议限价（不是市价）
-- position_size_usd: 建议仓位（参考用户历史仓位习惯）
+- position_size_usd: 建议仓位（根据 edge 大小、置信度、流动性和风险综合判断，不要盲目跟随用户历史仓位）
 
 **WATCH 时额外必填:**
 - recheck_conditions: 什么条件下重新评估
