@@ -93,6 +93,9 @@ sqlite3 data/polily.db "SELECT version, created_at, trigger_source, structure_sc
 # 异动记录
 sqlite3 data/polily.db "SELECT * FROM movement_log WHERE event_id='{event_id}' ORDER BY id DESC LIMIT 20"
 
+# 所有活跃事件（发现跨域关联，比如地缘事件影响crypto价格）
+sqlite3 data/polily.db "SELECT event_id, title, market_type, volume, end_date FROM events WHERE closed = 0 ORDER BY volume DESC"
+
 # 监控状态
 sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'"
 ```
