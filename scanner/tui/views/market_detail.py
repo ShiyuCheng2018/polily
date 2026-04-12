@@ -343,8 +343,8 @@ class MarketDetailView(Widget):
                 table.add_columns("选项", "YES", "NO", "价差", "成交量", "结算")
                 yield table
 
-            # --- Analyzing state ---
             # --- Position panel (always on top) ---
+            yield Static("")
             yield from self._compose_position_panel(d)
 
             # --- AI Analysis panel (below) ---

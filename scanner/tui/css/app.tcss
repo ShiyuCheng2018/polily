@@ -55,6 +55,14 @@ DataTable > .datatable--cursor {
     background: $primary 30%;
 }
 
+#panel-position {
+    margin: 1 0;
+}
+
+#panel-analysis {
+    margin: 1 0;
+}
+
 /* 详情视图 */
 .detail-section {
     padding: 1 0;
