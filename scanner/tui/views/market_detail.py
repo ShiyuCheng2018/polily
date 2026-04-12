@@ -549,24 +549,11 @@ class MarketDetailView(Widget):
 
             # "时间窗口" card: keep as-is
             tw = n.get("time_window", {})
+            urgency_label = ""
             if isinstance(tw, dict):
                 urgency = tw.get("urgency", "")
-                optimal = tw.get("optimal_entry")
-            else:
-                urgency = ""
-                optimal = None
-            urgency_label = {"urgent": "紧急", "normal": "正常", "no_rush": "不急"}.get(urgency, urgency)
-            if optimal:
-                # Show optimal entry time in local timezone
-                from datetime import datetime, timezone
-                try:
-                    opt_dt = datetime.fromisoformat(optimal)
-                    opt_local = opt_dt.astimezone().strftime("%m-%d %H:%M")
-                    time_content = f"{urgency_label}\n最佳入场 {opt_local}"
-                except (ValueError, TypeError):
-                    time_content = urgency_label
-            else:
-                time_content = urgency_label
+                urgency_label = {"urgent": "紧急", "normal": "正常", "no_rush": "不急"}.get(urgency, urgency)
+            time_content = urgency_label or "?"
 
             # "摩擦vs边际" card: friction_vs_edge (discovery) or stop_loss/take_profit (position)
             if mode == "position_management":
