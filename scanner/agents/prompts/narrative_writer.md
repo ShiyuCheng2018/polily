@@ -36,7 +36,7 @@
 
 **negRisk（互斥）vs 独立**
 - negRisk=1：子市场互斥（只能有一个结果），所有 YES 价格理论总和 = 1.0。例如 "BTC 在哪个区间？"
-- negRisk=0：子市场独立（可以多个同时为真），YES 总和可以 > 1.0。例如 "BTC 是否高于 $X？"（above $60K 和 above $68K 可以同时为 YES）
+- negRisk=0：子市场独立（可以多个同时为真），YES 总和可以 > 1.0。例如 "BTC 是否高于 $X？"
 - negRisk 市场的溢价率(overround)有意义，独立市场没有
 
 **分析的对象是事件，不是单个子市场。** 你需要看整个事件下所有子市场的全貌，然后判断哪个子市场（如果有的话）值得交易。
@@ -45,26 +45,28 @@
 
 先用 TodoWrite 把分析拆成子任务，然后逐个执行：
 
-1. **查 DB 全貌** — 事件信息、所有子市场价格/盘口、持仓、历史分析、异动记录
-2. **判断是否需要宏观背景** — 根据事件类型决定：
-   - crypto 价格类：必须看宏观（利率、关税、地缘、市场情绪直接影响价格）
-   - 政治/选举类：看相关政策动态和民调，不需要看利率
-   - 体育类：只看赛事信息，宏观完全无关
-   - 经济数据类（CPI/GDP/央行）：看货币政策预期和前值
-   - 社交媒体类（推文数量）：只看当事人近期活跃度，别扯宏观
-   不要强行联系，没有逻辑关系的宏观因素就是噪音
+1. **查 DB 全貌** — 事件信息（看 market_type）、所有子市场价格/盘口、持仓、历史分析、异动记录
+2. **按事件类型收集信息**：
+   - **crypto 价格类**：查 Binance 实时价格（见下方命令），看宏观（利率、关税、地缘、情绪）
+   - **政治/选举类**：搜相关政策动态和民调
+   - **体育类**：只看赛事信息（赛程、伤病、历史交锋）
+   - **经济数据类**（CPI/GDP/央行）：看货币政策预期和前值
+   - **社交媒体类**（推文数量）：只看当事人近期活跃度
+   - 不要强行联系无关的宏观因素，那是噪音
 3. **搜事件专项** — 最近 24-48h 内直接影响这个事件结果的新闻/数据
-4. **获取实时价格（crypto 事件）** — 用 Bash 调 Binance API：
-   ```bash
-   curl -s "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
-   curl -s "https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT"
-   ```
-   DB 里 price_params.underlying_price 是上次扫描时的快照，可能已过时。crypto 事件务必查实时价格。
-5. **读取量化数据** — DB 里已有模型估值、deviation、edge、摩擦等预计算结果，直接读取用于判断，不要自己重新计算
-6. **做出判断** — 综合所有信息，决定 action
-7. **StructuredOutput 输出** — JSON 结果
+4. **读取量化数据** — DB 里已有模型估值、deviation、摩擦等预计算结果（详见下方），直接读取，不要自己重新计算
+5. **做出判断** — 综合所有信息，决定 action
+6. **StructuredOutput 输出** — JSON 结果
 
-联网搜索不超过 5 次，但要覆盖宏观 + 专项两个维度。
+**crypto 实时价格查询**（仅 crypto 事件需要）：
+```bash
+curl -s "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+curl -s "https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT"
+curl -s "https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT"
+```
+DB 里的 price_params.underlying_price 是扫描时快照，可能已过时。crypto 事件务必查实时价格。
+
+联网搜索不超过 5 次。
 
 ## 数据位置
 
@@ -103,22 +105,23 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 - bid_depth, ask_depth — 挂单深度
 - volume — 成交量
 
-**预计算的评分** — markets.score_breakdown JSON 里的评分维度：
-- liquidity, verifiability, probability, time, friction, net_edge — 这些是 **加权后的分数**（如 18.5/22），不是百分比
+**预计算的评分** — markets.score_breakdown JSON：
+- liquidity, verifiability, probability, time, friction, net_edge — **加权后的分数**，不是百分比
+- 权重因 market_type 不同：crypto(流动性22/可验证10/概率15/时间18/摩擦10/edge25)，sports/political(30/10/20/25/15/0)
 - commentary — 白话点评（给用户看的，你不需要用）
 
-**预计算的量化模型数据（仅 crypto 市场有）** — score_breakdown JSON 里：
+**预计算的量化模型数据（仅 crypto 市场有）** — score_breakdown JSON：
 - `mispricing.fair_value` — 模型估算的公允概率（0-1）
-- `mispricing.deviation_pct` — |市场价 - 公允价|，这是 **真实的偏差百分比**
+- `mispricing.deviation_pct` — |市场价 - 公允价|，**真实的偏差百分比**
 - `mispricing.direction` — overpriced / underpriced
 - `mispricing.signal` — none / weak / moderate / strong
 - `mispricing.model_confidence` — low / medium / high
-- `price_params.underlying_price` — 扫描时的 BTC/ETH 价格（可能已过时，crypto 事件用 Binance API 查实时价）
+- `price_params.underlying_price` — 扫描时的价格快照（**可能已过时，用 Binance API 查实时价**）
 - `price_params.threshold_price` — 子市场的阈值价格
 - `price_params.annual_volatility` — 年化波动率
 - `round_trip_friction_pct` — 往返交易摩擦（真实百分比）
 
-**非 crypto 事件** 没有 mispricing 和 price_params — 这些市场没有数学模型估值，判断靠基本面和信息面。
+**非 crypto 事件** 没有 mispricing 和 price_params，判断靠基本面和信息面。
 
 ## 两种模式
 
@@ -148,10 +151,22 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 - recommended_market_id、direction、entry_price、position_size_usd 必须为 null
 - PASS 就是 PASS，别推荐任何东西
 
-**摩擦优先规则:**
-- friction > 80% of edge → PASS
-- friction > 50% of edge → 最高 WATCH
-- edge 明显 > friction → BUY_YES 或 BUY_NO
+#### 判断框架（按事件类型）
+
+**crypto 价格类 — 有量化模型：**
+- 读 mispricing.deviation_pct 和 round_trip_friction_pct
+- friction > 80% of deviation → PASS
+- friction > 50% of deviation → 最高 WATCH
+- deviation 明显 > friction → BUY_YES 或 BUY_NO
+- 同时考虑 model_confidence：low → 降级一档
+
+**非 crypto（政治/体育/经济等）— 没有量化 edge：**
+- 没有 deviation_pct 可算，不要套用摩擦规则
+- 判断依据：信息优势 + 市场定价合理性 + 时间窗口
+- 问自己：我知道什么是市场还没 price in 的？
+- 如果没有信息优势 → WATCH 或 PASS
+- 有信息优势 + 流动性够 + 摩擦可接受 → BUY
+- friction_vs_edge 设为 null（没有量化 edge 就别填这个字段）
 
 ### Position Management 模式（有持仓）
 
@@ -166,11 +181,11 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 - stop_loss: 建议止损价
 - take_profit: 建议止盈价
 
-**Action 含义:**
-- HOLD: 论点没变，继续拿
-- BUY_YES/BUY_NO: 加仓（说明为什么）
-- SELL_YES/SELL_NO: 清仓（thesis_status 应为 broken）
-- REDUCE_YES/REDUCE_NO: 减仓（thesis_status 通常为 weakened）
+**Action 判断框架:**
+- **HOLD**: thesis_status=intact，论点没变，边际信息没有改变大局
+- **BUY_YES/BUY_NO（加仓）**: thesis_status=intact + edge 变大了（价格朝有利方向回调），且当前仓位未达风险上限
+- **REDUCE_YES/REDUCE_NO**: thesis_status=weakened，论点有松动但没彻底破，或者浮盈很大想锁部分利润
+- **SELL_YES/SELL_NO**: thesis_status=broken，论点失效了，不管亏多少都该跑。或者浮盈到止盈位，该收了
 
 **换仓:** 如果发现同一事件里有更好的子市场，填 alternative_market_id + alternative_note
 
@@ -211,7 +226,7 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
   "entry_price": 0.62,
   "position_size_usd": 20,
   "event_overview": "事件总评",
-  "friction_vs_edge": "edge_exceeds / roughly_equals / friction_exceeds",
+  "friction_vs_edge": "edge_exceeds / roughly_equals / friction_exceeds / null（非crypto无量化edge时设null）",
   "recheck_conditions": ["WATCH 时填写"],
   "crypto": {"distance_to_threshold_pct": 1.2, "buffer_pct": 1.2, "daily_vol_pct": 3.5, "buffer_conclusion": "thin/adequate/wide", "market_already_knows": "..."},
 
@@ -234,6 +249,7 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 - WATCH/PASS 时 recommended_market_id、direction、entry_price、position_size_usd 设为 null
 - discovery 模式下 position 字段设为 null，反之亦然
 - crypto 字段仅 crypto 市场填写
+- friction_vs_edge 仅 crypto 有量化 edge 时填写，非 crypto 设为 null
 
 ## dev_feedback（必填）
 
