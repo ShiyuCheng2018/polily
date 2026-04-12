@@ -13,7 +13,7 @@ from textual.binding import Binding
 from textual.containers import HorizontalGroup, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, Markdown, Static
 
 from scanner.pnl import calc_unrealized_pnl
 from scanner.tui.widgets.cards import DashPanel, MetricCard
@@ -528,30 +528,29 @@ class MarketDetailView(Widget):
                 yield Static("[dim]无分析数据[/dim]")
                 return
 
-            # --- Operations module ---
+            # --- Operations module (always shown) ---
             ops = n.get("operations", [])
-            if ops:
-                yield Static("── 操作 ──", classes="section-label")
-                for op in ops:
-                    action = op.get("action", "")
-                    title = op.get("market_title", "")
-                    entry = op.get("entry_price")
-                    size = op.get("position_size_usd")
-                    reasoning = op.get("reasoning", "")
+            yield Static("── 操作 ──", classes="section-label")
+            for op in ops:
+                action = op.get("action", "")
+                title = op.get("market_title", "")
+                entry = op.get("entry_price")
+                size = op.get("position_size_usd")
+                reasoning = op.get("reasoning", "")
 
-                    yield Static(f"\n▸ {title}")
-                    parts = [action]
-                    if entry is not None:
-                        parts.append(f"限价 {entry:.2f}")
-                    if size is not None:
-                        parts.append(f"仓位 ${size:.0f}")
-                    yield Static(f"  {'  '.join(parts)}")
-                    if reasoning:
-                        yield Static(f"  [dim]{reasoning}[/dim]")
+                yield Static(f"\n▸ {title}")
+                parts = [action]
+                if entry is not None:
+                    parts.append(f"限价 {entry:.2f}")
+                if size is not None:
+                    parts.append(f"仓位 ${size:.0f}")
+                yield Static(f"  {'  '.join(parts)}")
+                if reasoning:
+                    yield Static(f"  [dim]{reasoning}[/dim]")
 
-                ops_comment = n.get("operations_commentary", "")
-                if ops_comment:
-                    yield Static(f"\n{ops_comment}")
+            ops_comment = n.get("operations_commentary", "")
+            if ops_comment:
+                yield Markdown(ops_comment)
 
             # --- Position module (position mode only) ---
             thesis = n.get("thesis_status")
@@ -579,53 +578,49 @@ class MarketDetailView(Widget):
             analysis_text = n.get("analysis", "")
             if analysis_text:
                 yield Static("\n── 分析 ──", classes="section-label")
-                yield Static(f"\n{analysis_text}")
+                yield Markdown(analysis_text)
                 ac = n.get("analysis_commentary", "")
                 if ac:
-                    yield Static(f"\n{ac}")
+                    yield Markdown(ac)
 
             # --- Evidence module ---
             supporting = n.get("supporting_findings", [])
             invalid = n.get("invalidation_findings", [])
             if supporting or invalid:
                 yield Static("\n── 证据 ──", classes="section-label")
+                evidence_md = ""
                 for f in supporting:
                     if isinstance(f, dict):
-                        yield Static(f"\n✓ {f.get('finding', '')}")
-                        src = f.get("source", "")
-                        impact = f.get("impact", "")
-                        if src or impact:
-                            yield Static(f"  [dim]{src} → {impact}[/dim]")
+                        evidence_md += f"\n- ✓ {f.get('finding', '')}  *{f.get('source', '')} → {f.get('impact', '')}*"
                 for f in invalid:
                     if isinstance(f, dict):
-                        yield Static(f"\n✗ {f.get('finding', '')}")
-                        src = f.get("source", "")
-                        impact = f.get("impact", "")
-                        if src or impact:
-                            yield Static(f"  [dim]{src} → {impact}[/dim]")
+                        evidence_md += f"\n- ✗ {f.get('finding', '')}  *{f.get('source', '')} → {f.get('impact', '')}*"
+                yield Markdown(evidence_md)
                 ec = n.get("evidence_commentary", "")
                 if ec:
-                    yield Static(f"\n{ec}")
+                    yield Markdown(ec)
 
             # --- Risk module ---
             risks = n.get("risk_flags", [])
             if risks:
                 yield Static("\n── 风险 ──", classes="section-label")
+                risk_md = ""
                 for rf in risks:
                     if isinstance(rf, dict):
                         sev = rf.get("severity", "info")
                         text = rf.get("text", "")
-                        icon = {"critical": "[red]![/red]", "warning": "[yellow]⚠[/yellow]", "info": "[dim]ℹ[/dim]"}.get(sev, "·")
-                        yield Static(f"\n{icon} {text}")
+                        icon = {"critical": "🔴", "warning": "🟡", "info": "ℹ️"}.get(sev, "·")
+                        risk_md += f"\n- {icon} {text}"
+                yield Markdown(risk_md)
                 rc = n.get("risk_commentary", "")
                 if rc:
-                    yield Static(f"\n{rc}")
+                    yield Markdown(rc)
 
             # --- Summary module ---
             summary = n.get("summary", "")
             if summary:
                 yield Static("\n── 总结 ──", classes="section-label")
-                yield Static(f"\n[bold]{summary}[/bold]")
+                yield Markdown(summary)
 
             # --- Next steps ---
             yield Static("\n── 下一步 ──", classes="section-label")
