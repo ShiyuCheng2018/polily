@@ -349,12 +349,11 @@ class MarketDetailView(Widget):
 
             # --- AI Analysis panel (below) ---
             if self._analyzing:
-                yield Static("AI 分析中...", classes="section-label")
-                yield Static("正在联网搜索 + 分析，请稍候...", classes="row")
-            elif analyses:
+                yield Static("[dim]AI 分析中... 完成后自动更新[/dim]", classes="row")
+            if analyses:
                 yield Static("")
                 yield from self._compose_analysis_panel(analyses)
-            else:
+            elif not self._analyzing:
                 yield Static("")
                 yield Static("[dim]按 a 启动 AI 分析[/dim]", classes="row")
 
