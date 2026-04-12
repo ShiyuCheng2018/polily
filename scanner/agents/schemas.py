@@ -115,6 +115,9 @@ class NarrativeWriterOutput(BaseModel):
     alternative_market_id: str | None = None
     alternative_note: str | None = None
 
+    # --- Internal dev feedback (not shown to users) ---
+    dev_feedback: str | None = None
+
     model_config = ConfigDict(extra="ignore")
 
     def semantic_errors(self) -> list[str]:

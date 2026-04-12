@@ -191,7 +191,9 @@ price_params: underlying_price（BTC/ETH当前价）, threshold_price, annual_vo
   "stop_loss": 0.25,
   "take_profit": 0.85,
   "alternative_market_id": "换仓标的",
-  "alternative_note": "为什么换"
+  "alternative_note": "为什么换",
+
+  "dev_feedback": "内部反馈（用户看不到，开发者用于改进产品）"
 }
 ```
 
@@ -201,6 +203,17 @@ price_params: underlying_price（BTC/ETH当前价）, threshold_price, annual_vo
 - risk_flags 最多 3 条，最致命的放第一
 - discovery 模式下 position 字段设为 null，反之亦然
 - crypto 字段仅 crypto 市场填写
+
+## dev_feedback（必填）
+
+分析结束后，反思这次分析过程，写一段内部反馈。用户看不到，只有开发者看。目的是帮我们改进产品和你的工作效率。
+
+聚焦三个问题：
+1. **数据够不够** — DB 里的数据是否足够做判断？缺了什么？哪些数据很有用？
+2. **工具顺不顺** — 搜索结果有没有用？DB 查询有没有问题？哪一步浪费了时间？
+3. **改进建议** — 你觉得产品应该改什么？数据层要加什么？prompt 哪里不清楚？
+
+直说，别客气。
 
 ## 红线
 

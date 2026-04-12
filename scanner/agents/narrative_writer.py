@@ -80,10 +80,12 @@ class NarrativeWriterAgent:
 
             errors = output.semantic_errors()
             if not errors:
+                _write_dev_feedback(event_id, output)
                 return output
             last_output = output
 
         # Retries exhausted — return last output (partial is better than fallback)
+        _write_dev_feedback(event_id, last_output)
         return last_output
 
     def _build_prompt(
@@ -120,6 +122,24 @@ Prompt 指令: scanner/agents/prompts/narrative_writer.md"""
             risk_flags=[RiskFlag(text="AI 不可用", severity="warning")],
             one_line_verdict="AI 离线",
         ).model_dump()
+
+
+def _write_dev_feedback(event_id: str, output: NarrativeWriterOutput) -> None:
+    """Append agent feedback to data/logs/agent_feedback.log."""
+    feedback = output.dev_feedback
+    if not feedback:
+        return
+    try:
+        import os
+        from datetime import UTC, datetime
+        log_dir = os.path.join(os.getcwd(), "data", "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        with open(os.path.join(log_dir, "agent_feedback.log"), "a") as f:
+            f.write(f"\n=== [{ts}] event={event_id} action={output.action} ===\n")
+            f.write(f"{feedback}\n")
+    except Exception:
+        pass
 
 
 def narrative_fallback(event_id: str) -> NarrativeWriterOutput:
