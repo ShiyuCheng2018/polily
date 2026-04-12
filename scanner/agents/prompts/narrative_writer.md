@@ -88,7 +88,7 @@ sqlite3 data/polily.db "SELECT pt.*, m.group_item_title, m.yes_price, m.no_price
 # 用户历史交易
 sqlite3 data/polily.db "SELECT side, entry_price, position_size_usd, exit_price, realized_pnl, status FROM paper_trades ORDER BY created_at DESC LIMIT 20"
 
-# 分析历史
+# 你的历史分析
 sqlite3 data/polily.db "SELECT version, created_at, trigger_source, structure_score FROM analyses WHERE event_id='{event_id}' ORDER BY version"
 
 # 异动记录
