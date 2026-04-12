@@ -539,9 +539,7 @@ class MarketDetailView(Widget):
                 ts_label = {"intact": "论点完整", "weakened": "论点减弱", "broken": "论点失效"}.get(ts, "")
                 action_content = f"{action_label}\n{ts_label}" if ts_label else action_label
             else:
-                direction = n.get("direction", "")
-                dir_str = f"方向 {direction}" if direction else ""
-                action_content = f"{action_label}\n{dir_str}" if dir_str else action_label
+                action_content = action_label
 
             # "置信度" card: just confidence bar
             confidence = n.get("confidence", "low")
@@ -646,8 +644,6 @@ class MarketDetailView(Widget):
                 size = n.get("position_size_usd")
                 if rec:
                     parts = [f"[bold]推荐:[/bold] {rec}"]
-                    if direction:
-                        parts.append(f"方向 {direction}")
                     if entry:
                         parts.append(f"限价 {entry:.2f}")
                     if size:
