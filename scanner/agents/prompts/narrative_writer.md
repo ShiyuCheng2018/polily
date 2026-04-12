@@ -72,11 +72,20 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 
 **必须输出:**
 - event_overview: 一句话总评这个事件
+- friction_vs_edge: edge 和摩擦的关系
+
+**BUY 时额外必填:**
 - recommended_market_id + recommended_market_title: 推荐哪个子市场
 - direction: YES 还是 NO
 - entry_price: 建议限价（不是市价）
 - position_size_usd: 建议仓位（参考用户历史仓位习惯）
-- friction_vs_edge: edge 和摩擦的关系
+
+**WATCH 时额外必填:**
+- recheck_conditions: 什么条件下重新评估
+
+**PASS 时禁止输出:**
+- recommended_market_id、direction、entry_price、position_size_usd 必须为 null
+- PASS 就是 PASS，别推荐任何东西
 
 **摩擦优先规则:**
 - friction > 80% of edge → PASS

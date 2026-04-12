@@ -134,6 +134,10 @@ class NarrativeWriterOutput(BaseModel):
             elif self.action in ("WATCH", "PASS"):
                 if not self.why_not or len((self.why_not or "").strip()) < 10:
                     errors.append("WATCH/PASS requires substantive why_not")
+                if self.action == "PASS" and self.recommended_market_id:
+                    errors.append("PASS must not have recommended_market_id")
+                if self.action == "PASS" and self.entry_price is not None:
+                    errors.append("PASS must not have entry_price")
         else:  # position_management
             if self.action in ("SELL_YES", "SELL_NO"):
                 if not self.why or len(self.why.strip()) < 10:

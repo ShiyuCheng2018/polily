@@ -575,16 +575,17 @@ class MarketDetailView(Widget):
                 fve = n.get("friction_vs_edge", "")
                 fve_content = {"edge_exceeds": "edge > 摩擦", "roughly_equals": "edge ≈ 摩擦", "friction_exceeds": "摩擦 > edge"}.get(fve, fve)
 
-            with HorizontalGroup(id="ai-kpi-row"):
-                for content, card_id, title in [
-                    (action_content, "ai-action", "判定"),
-                    (conf_content, "ai-conf", "置信度"),
-                    (time_content, "ai-time", "时间窗口"),
-                    (fve_content, "ai-fve", "摩擦vs边际"),
-                ]:
-                    card = MetricCard(content, id=card_id)
-                    card.border_title = title
-                    yield card
+            def _card(content, card_id, title):
+                c = MetricCard(content, id=card_id)
+                c.border_title = title
+                return c
+
+            with HorizontalGroup(id="ai-kpi-row1"):
+                yield _card(action_content, "ai-action", "判定")
+                yield _card(conf_content, "ai-conf", "置信度")
+            with HorizontalGroup(id="ai-kpi-row2"):
+                yield _card(time_content, "ai-time", "时间窗口")
+                yield _card(fve_content, "ai-fve", "摩擦vs边际")
 
             # --- Verdict ---
             verdict = n.get("one_line_verdict", "")
@@ -636,8 +637,9 @@ class MarketDetailView(Widget):
                     tp_str = f"止盈 {tp:.2f}" if tp is not None else ""
                     yield Static(f"  {sl_str}  {tp_str}".strip(), classes="row")
 
-            # Discovery mode: recommended market + entry
-            if mode == "discovery":
+            # Discovery mode: recommended market + entry (only for BUY actions)
+            action = n.get("action", "PASS")
+            if mode == "discovery" and action in ("BUY_YES", "BUY_NO"):
                 rec = n.get("recommended_market_title") or n.get("recommended_market_id")
                 direction = n.get("direction")
                 entry = n.get("entry_price")
