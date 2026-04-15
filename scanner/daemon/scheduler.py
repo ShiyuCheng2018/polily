@@ -79,12 +79,11 @@ class WatchScheduler:
                 continue
 
             if check_at <= now:
-                # Overdue — schedule 5 seconds from now
-                run_at = now + timedelta(seconds=5)
-            else:
-                run_at = check_at
+                # Overdue — skip, don't补跑 (context is stale)
+                logger.info("Skipping overdue check for %s (was %s)", eid, check_at)
+                continue
 
-            self.schedule_check(eid, run_at)
+            self.schedule_check(eid, run_at=check_at)
             count += 1
         logger.info("Restored %d check jobs from DB", count)
         return count
@@ -125,13 +124,15 @@ class WatchScheduler:
 def _execute_check(event_id: str, db, config=None, watch_scheduler=None) -> None:
     """Job function called by APScheduler for scheduled event checks.
 
-    Placeholder: will call recheck_event (Task 3.5) once implemented.
+    Creates a lightweight ScanService to run AI analysis.
     """
     logger.info("Executing scheduled check for event %s", event_id)
     try:
         from scanner.daemon.recheck import recheck_event
+        from scanner.tui.service import ScanService
 
-        result = recheck_event(event_id, db=db, trigger_source="scheduled")
+        service = ScanService(db)
+        result = recheck_event(event_id, db=db, service=service, trigger_source="scheduled")
         logger.info("Check result for %s: %s", event_id, result)
 
         # Re-schedule if result provides a next_check_at
