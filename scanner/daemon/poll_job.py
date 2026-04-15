@@ -28,8 +28,10 @@ from scanner.price_feeds import extract_crypto_asset
 
 logger = logging.getLogger(__name__)
 
+# Max concurrent market fetches. Each slot holds book+midpoint (2 requests),
+# so actual peak concurrent HTTP requests is ~2x this value.
 _SEMAPHORE_LIMIT = 100
-_poll_count = 0
+_poll_count = 0  # Safe: poll executor is single-threaded (APScheduler config)
 _poll_log: logging.Logger | None = None
 
 
@@ -38,12 +40,14 @@ def _get_poll_log() -> logging.Logger:
     global _poll_log
     if _poll_log is not None:
         return _poll_log
-    import os
-    log_dir = os.path.join(os.getcwd(), "data")
-    os.makedirs(log_dir, exist_ok=True)
+    from pathlib import Path
+    # Use project root (3 levels up from this file) to avoid cwd dependency
+    project_root = Path(__file__).resolve().parent.parent.parent
+    log_dir = str(project_root / "data")
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
     _poll_log = logging.getLogger("polily.poll")
     _poll_log.propagate = False
-    handler = logging.FileHandler(os.path.join(log_dir, "poll.log"))
+    handler = logging.FileHandler(str(Path(log_dir) / "poll.log"))
     handler.setFormatter(logging.Formatter("%(message)s"))
     _poll_log.addHandler(handler)
     _poll_log.setLevel(logging.INFO)
@@ -264,7 +268,6 @@ def _run_intelligence_layer(db: PolilyDB) -> None:
                 is_cold = len(market_entries) < _MIN_HISTORY
                 is_stale = False
                 if market_entries:
-                    from datetime import UTC, datetime
                     latest_ts = market_entries[0].get("created_at", "")
                     try:
                         latest_dt = datetime.fromisoformat(latest_ts)
@@ -590,6 +593,6 @@ async def _fetch_midpoint(client: httpx.AsyncClient, token_id: str) -> float | N
         if resp.status_code == 200:
             mid = resp.json().get("mid")
             return float(mid) if mid is not None else None
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Midpoint fetch failed for %s: %s", token_id[:20], e)
     return None

@@ -90,9 +90,17 @@ class MonitorListView(Widget):
         e = self._get_selected()
         if not e:
             return
-        self.service.toggle_monitor(e["event"].event_id, enable=False)
+        eid = e["event"].event_id
+        self.service.toggle_monitor(eid, enable=False)
         self.notify(f"关闭监控: {e['event'].title[:30]}")
         self.screen.refresh_sidebar_counts()
+        # Remove row from table
+        try:
+            table = self.query_one("#monitor-table", DataTable)
+            table.remove_row(eid)
+            self._monitored = [m for m in self._monitored if m["event"].event_id != eid]
+        except Exception:
+            pass
 
     def refresh_data(self) -> None:
         """Incremental update: refresh monitored events data in-place."""

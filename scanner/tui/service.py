@@ -221,7 +221,10 @@ class ScanService:
         return self._query_events("WHERE e.closed = 0")
 
     def _query_events(self, where_clause: str) -> list[dict]:
-        """Query events with summary fields (market_count, monitor, position, leader, next_check_at)."""
+        """Query events with summary fields.
+
+        SAFETY: where_clause must be a hardcoded string, never user input.
+        """
         sql = f"""
             SELECT e.*,
                    COUNT(DISTINCT mk.market_id) AS market_count,
@@ -296,6 +299,11 @@ class ScanService:
             "SELECT COUNT(*) FROM event_monitors WHERE auto_monitor = 1",
         ).fetchone()
         return row[0] if row else 0
+
+    def is_event_monitored(self, event_id: str) -> bool:
+        """Check if an event has auto_monitor enabled."""
+        mon = get_event_monitor(event_id, self.db)
+        return bool(mon and mon.get("auto_monitor"))
 
     # ------------------------------------------------------------------
     # Paper trades

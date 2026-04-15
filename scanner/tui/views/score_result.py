@@ -115,9 +115,7 @@ class ScoreResultView(Widget):
             return False
 
     def _is_monitored(self) -> bool:
-        from scanner.core.monitor_store import get_event_monitor
-        mon = get_event_monitor(self.event_id, self.service.db)
-        return bool(mon and mon.get("auto_monitor"))
+        return self.service.is_event_monitored(self.event_id)
 
     def on_button_pressed(self, event) -> None:
         if not hasattr(event, "button"):

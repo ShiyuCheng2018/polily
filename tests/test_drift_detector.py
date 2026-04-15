@@ -134,8 +134,12 @@ class TestBuildPriceHistory:
 
         db = PolilyDB(tmp_path / "test.db")
         for price in [0.50, 0.51, 0.52]:
-            append_movement("m1", MovementResult(magnitude=10, quality=10),
-                           yes_price=price, prev_yes_price=price - 0.01, db=db)
+            append_movement(
+                event_id="ev1", market_id="m1",
+                yes_price=price, prev_yes_price=price - 0.01,
+                magnitude=10, quality=10, label="noise", db=db,
+            )
+        db.conn.commit()
 
         history = build_price_history("m1", db)
         assert len(history) == 3

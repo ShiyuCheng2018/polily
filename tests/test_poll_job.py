@@ -381,7 +381,7 @@ class TestFetchMidpoint:
         assert result is None
 
 
-class TestWideSpreandIntegration:
+class TestWideSpreadIntegration:
     """Integration test for wide spread handling through global_poll."""
 
     def test_wide_spread_gets_correct_price_via_midpoint(self, db):

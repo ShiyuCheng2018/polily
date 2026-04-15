@@ -132,7 +132,7 @@ def _info_independent(prices: list[float]) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Dimension 2: Liquidity Aggregate (0-25)
+# Dimension 2: Liquidity Aggregate (0-20)
 # ---------------------------------------------------------------------------
 
 def _score_liquidity_aggregate(event: EventRow, markets: list[Market]) -> float:
@@ -246,7 +246,7 @@ def _score_consistency(markets: list[Market], *, neg_risk: bool = False) -> floa
 
 
 # ---------------------------------------------------------------------------
-# Dimension 5: Time Window (0-30)
+# Dimension 5: Time Window (0-20)
 # User insight: 3-7 days is prime trading window. > 60 days filtered at gate.
 # ---------------------------------------------------------------------------
 

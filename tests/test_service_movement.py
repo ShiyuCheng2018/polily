@@ -10,12 +10,17 @@ def test_movement_summary_format(tmp_path):
     from scanner.monitor.store import append_movement
 
     db = PolilyDB(tmp_path / "test.db")
-    append_movement("m1", MovementResult(magnitude=50.0, quality=40.0),
-                    yes_price=0.50, prev_yes_price=0.48, db=db)
-    append_movement("m1", MovementResult(magnitude=82.0, quality=71.0),
-                    yes_price=0.55, prev_yes_price=0.50, triggered_analysis=True, db=db)
+    append_movement(
+        event_id="ev1", market_id="m1", magnitude=50.0, quality=40.0, label="noise",
+        yes_price=0.50, prev_yes_price=0.48, db=db,
+    )
+    append_movement(
+        event_id="ev1", market_id="m1", magnitude=82.0, quality=71.0, label="consensus",
+        yes_price=0.55, prev_yes_price=0.50, triggered_analysis=True, db=db,
+    )
+    db.conn.commit()
 
-    summary = get_movement_summary("m1", db, hours=6)
+    summary = get_movement_summary("ev1", db, hours=6)
     assert summary is not None
     assert "Movement Log" in summary
     assert "TRIGGERED AI" in summary

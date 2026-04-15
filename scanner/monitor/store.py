@@ -10,11 +10,8 @@ if TYPE_CHECKING:
 
 
 def append_movement(
-    _market_id_compat=None,
-    _result_compat=None,
-    /,
     *,
-    event_id: str | None = None,
+    event_id: str,
     market_id: str | None = None,
     yes_price: float | None = None,
     no_price: float | None = None,
@@ -30,29 +27,7 @@ def append_movement(
     snapshot: str = "{}",
     db: PolilyDB,
 ) -> None:
-    """Append a movement log entry.
-
-    Supports both old positional API and new keyword-only API:
-      Old: append_movement("market_id", result_obj, yes_price=..., db=...)
-      New: append_movement(event_id="...", market_id="...", magnitude=..., db=...)
-
-    The old positional form treats the first arg as both event_id and market_id.
-    """
-    # Handle backward-compatible positional call:
-    #   append_movement("market_id", MovementResult(...), ...)
-    if _market_id_compat is not None:
-        if event_id is None:
-            event_id = _market_id_compat
-        if market_id is None:
-            market_id = _market_id_compat
-    if _result_compat is not None:
-        # Extract magnitude/quality/label from MovementResult
-        magnitude = getattr(_result_compat, "magnitude", magnitude)
-        quality = getattr(_result_compat, "quality", quality)
-        label = getattr(_result_compat, "label", label)
-
-    if event_id is None:
-        event_id = market_id or ""
+    """Append a movement log entry."""
 
     db.conn.execute(
         """INSERT INTO movement_log
@@ -164,35 +139,6 @@ def get_recent_movements(market_id: str, db: PolilyDB, hours: int = 6) -> list[d
         (market_id, market_id, cutoff),
     ).fetchall()
     return [dict(r) for r in rows]
-
-
-def get_price_status(market_id: str, db: PolilyDB, watch_price: float | None = None) -> dict | None:
-    """Get latest price status for a market.
-
-    Backward-compatible alias for TUI views.
-    """
-    row = db.conn.execute(
-        """SELECT * FROM movement_log
-        WHERE (market_id = ? OR event_id = ?)
-        ORDER BY id DESC LIMIT 1""",
-        (market_id, market_id),
-    ).fetchone()
-    if not row:
-        return None
-    entry = dict(row)
-    current_price = entry.get("yes_price", 0)
-    base = watch_price or entry.get("prev_yes_price") or current_price
-    change_pct = ((current_price - base) / base * 100) if base and base > 0 else 0
-    return {
-        "current_price": current_price,
-        "change_pct": change_pct,
-        "magnitude": entry.get("magnitude", 0),
-        "quality": entry.get("quality", 0),
-        "label": entry.get("label", "noise"),
-        "bid_depth": entry.get("bid_depth", 0.0),
-        "ask_depth": entry.get("ask_depth", 0.0),
-        "spread": entry.get("spread"),
-    }
 
 
 def prune_old_movements(db: PolilyDB, days: int = 7) -> int:

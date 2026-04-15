@@ -29,5 +29,9 @@ class TestParsePolymarketUrl:
     def test_empty_returns_none(self):
         assert parse_polymarket_url("") is None
 
+    def test_www_prefix(self):
+        result = parse_polymarket_url("https://www.polymarket.com/event/my-event")
+        assert result == "my-event"
+
     def test_invalid_url_returns_none(self):
         assert parse_polymarket_url("https://google.com/something") is None
