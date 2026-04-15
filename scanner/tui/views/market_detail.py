@@ -113,7 +113,7 @@ class MarketDetailView(Widget):
         monitor = d.get("monitor")
 
         with VerticalScroll():
-            yield EventHeader(event, monitor)
+            yield EventHeader(event, monitor, movements)
             yield EventKpiRow(event, markets)
             yield SubMarketTable(markets, event)
             yield Static("")

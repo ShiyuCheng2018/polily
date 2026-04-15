@@ -1,12 +1,21 @@
-"""EventHeader: title + type/deadline/monitor status."""
+"""EventHeader: title + type/deadline/monitor status + movement."""
 
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
 
+from scanner.tui.components.movement_sparkline import get_event_movement
+
+_LABEL_CN = {
+    "consensus": "共识异动",
+    "whale_move": "大单异动",
+    "slow_build": "缓慢累积",
+    "noise": "平静",
+}
+
 
 class EventHeader(Widget):
-    """Event title bar with type, deadline, and monitor status."""
+    """Event title bar with type, deadline, monitor status, and movement."""
 
     DEFAULT_CSS = """
     EventHeader { height: auto; }
@@ -14,10 +23,11 @@ class EventHeader(Widget):
     EventHeader .hdr-sub { color: $text-muted; padding: 0 0 0 2; }
     """
 
-    def __init__(self, event, monitor: dict | None = None):
+    def __init__(self, event, monitor: dict | None = None, movements: list | None = None):
         super().__init__()
         self._event = event
         self._monitor = monitor
+        self._movements = movements or []
 
     def compose(self) -> ComposeResult:
         event = self._event
@@ -37,7 +47,17 @@ class EventHeader(Widget):
             from scanner.tui.utils import format_countdown
             deadline_str = format_countdown(event.end_date)
         mtype = event.market_type or "other"
+
+        # Movement status
+        m, q, label = get_event_movement(self._movements)
+        label_cn = _LABEL_CN.get(label, label)
+        if label == "noise":
+            mov_str = f"[green]{label_cn}[/green] [dim]M:{m:.0f} Q:{q:.0f}[/dim]"
+        else:
+            color = "red" if m >= 70 else "yellow"
+            mov_str = f"[{color}]{label_cn}[/] M:{m:.0f} Q:{q:.0f}"
+
         yield Static(
-            f"{mtype} | 结算: {deadline_str} | {monitor_str}",
+            f"{mtype} | 结算: {deadline_str} | {monitor_str} | {mov_str}",
             classes="hdr-sub",
         )

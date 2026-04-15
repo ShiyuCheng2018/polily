@@ -157,17 +157,29 @@ PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
 
 
 def is_daemon_running() -> bool:
-    """Check if the scheduler daemon is running via launchd."""
+    """Check if the scheduler daemon process is actually running.
+
+    launchctl list shows registered services even after the process exits.
+    We query the specific label and check for a PID key in the output.
+    """
     import subprocess
 
-    result = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
-    return PLIST_LABEL in result.stdout
+    result = subprocess.run(
+        ["launchctl", "list", PLIST_LABEL],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return False
+    # When running: output contains '"PID" = 12345;'
+    # When stopped: no PID key in output
+    return '"PID"' in result.stdout
 
 
 def ensure_daemon_running() -> bool:
     """Start the daemon via launchd if not already running.
 
     Returns True if daemon was started, False if already running.
+    Handles the case where the service is registered but process has exited.
     """
     import subprocess
 
@@ -179,6 +191,12 @@ def ensure_daemon_running() -> bool:
     plist_bytes = generate_launchd_plist(working_dir=working_dir)
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     PLIST_PATH.write_bytes(plist_bytes)
+
+    # Unload first if registered but not running (stale registration)
+    subprocess.run(
+        ["launchctl", "unload", str(PLIST_PATH)],
+        capture_output=True,  # ignore errors if not loaded
+    )
     subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
     logger.info("Auto-started scheduler daemon via launchd")
     return True

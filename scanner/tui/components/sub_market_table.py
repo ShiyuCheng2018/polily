@@ -51,9 +51,9 @@ class SubMarketTable(Widget):
             is_expanded = mr.market_id in self._expanded
             prefix = "▼ " if is_expanded else "▶ " if not mr.closed else "  "
 
-            yes = f"{mr.yes_price:.2f}" if mr.yes_price is not None else "?"
-            no = f"{mr.no_price:.2f}" if mr.no_price is not None else "?"
-            spread = f"{mr.spread:.1%}" if mr.spread else "?"
+            yes = f"{mr.yes_price * 100:.1f}¢" if mr.yes_price is not None else "?"
+            no = f"{mr.no_price * 100:.1f}¢" if mr.no_price is not None else "?"
+            spread = f"{mr.spread * 100:.1f}¢" if mr.spread else "?"
             vol = f"${mr.volume:,.0f}" if mr.volume else "?"
             end = format_countdown(mr.end_date) if mr.end_date else "?"
 

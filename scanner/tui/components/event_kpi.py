@@ -66,9 +66,9 @@ class EventKpiRow(Widget):
         no = mr.no_price if mr and mr.no_price is not None else round(1 - yes, 4)
         spread = mr.spread if mr and mr.spread else None
 
-        self._set_card("kpi-yes", f"{yes:.3f}")
-        self._set_card("kpi-no", f"{no:.3f}")
-        self._set_card("kpi-spread", f"{spread:.1%}" if spread else "?")
+        self._set_card("kpi-yes", f"{yes * 100:.1f}¢")
+        self._set_card("kpi-no", f"{no * 100:.1f}¢")
+        self._set_card("kpi-spread", f"{spread * 100:.1f}¢" if spread else "?")
 
         score = event.structure_score
         mkt_summary = self._market_score_summary(markets)
@@ -93,7 +93,7 @@ class EventKpiRow(Widget):
                 net = overround + total_spread
                 sign = "+" if overround >= 0 else ""
                 net_sign = "+" if net >= 0 else ""
-                self._set_card("kpi-overround", f"{sign}{overround:.1%}\n净{net_sign}{net:.1%}")
+                self._set_card("kpi-overround", f"{sign}{overround:.1%}\n净{net_sign}{net * 100:.1f}¢")
             else:
                 self._set_card("kpi-overround", "?")
         else:
@@ -103,7 +103,7 @@ class EventKpiRow(Widget):
                 and m.yes_price is not None and 0.05 <= m.yes_price <= 0.95
             ]
             if spreads:
-                self._set_card("kpi-overround", f"{min(spreads):.1%}")
+                self._set_card("kpi-overround", f"{min(spreads) * 100:.1f}¢")
             else:
                 self._set_card("kpi-overround", "?")
 
@@ -144,7 +144,7 @@ class EventKpiRow(Widget):
         if leader and leader.yes_price is not None:
             name = (leader.group_item_title or leader.question)[:20]
             no = leader.no_price if leader.no_price is not None else round(1 - leader.yes_price, 4)
-            self._set_card("kpi-leader", f"{name}\nYES:{leader.yes_price:.2f} NO:{no:.2f}")
+            self._set_card("kpi-leader", f"{name}\nYES:{leader.yes_price * 100:.1f}¢ NO:{no * 100:.1f}¢")
         else:
             self._set_card("kpi-leader", "?")
 
@@ -154,7 +154,7 @@ class EventKpiRow(Widget):
             tradeable.sort(key=lambda m: abs(m.yes_price - 0.5))
             best = tradeable[0]
             name = (best.group_item_title or best.question)[:20]
-            self._set_card("kpi-leader", f"{name}\nYES:{best.yes_price:.2f} NO:{best.no_price:.2f}")
+            self._set_card("kpi-leader", f"{name}\nYES:{best.yes_price * 100:.1f}¢ NO:{best.no_price * 100:.1f}¢")
         else:
             self._set_card("kpi-leader", "无可交易标的")
 

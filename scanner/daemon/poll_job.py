@@ -28,8 +28,8 @@ from scanner.price_feeds import extract_crypto_asset
 
 logger = logging.getLogger(__name__)
 
-# Max concurrent market fetches. Each slot holds book+midpoint (2 requests),
-# so actual peak concurrent HTTP requests is ~2x this value.
+# Max concurrent market fetches. Each slot holds 4 requests
+# (/book + /midpoint + /price BUY + /price SELL).
 _SEMAPHORE_LIMIT = 100
 _poll_count = 0  # Safe: poll executor is single-threaded (APScheduler config)
 _poll_log: logging.Logger | None = None
@@ -103,7 +103,7 @@ def global_poll(db: PolilyDB | None = None) -> None:
     crypto_symbols = _collect_crypto_symbols(db)
 
     t_fetch = _time.monotonic()
-    results, underlying_prices = asyncio.run(
+    results, underlying_prices, trades_by_id = asyncio.run(
         _fetch_all(fetchable, crypto_symbols),
     )
     clob_elapsed = _time.monotonic() - t_fetch
@@ -141,6 +141,17 @@ def global_poll(db: PolilyDB | None = None) -> None:
         if result.get("bid_depth") and result.get("bid_depth") > 0:
             book_ok += 1
         update_market_prices(market.market_id, db=db, **result)
+
+    # Write trades to markets.recent_trades
+    trades_ok = 0
+    for market in fetchable:
+        trades = trades_by_id.get(market.market_id)
+        if trades:
+            db.conn.execute(
+                "UPDATE markets SET recent_trades = ? WHERE market_id = ?",
+                (json.dumps(trades), market.market_id),
+            )
+            trades_ok += 1
 
     db.conn.commit()
 
@@ -182,9 +193,7 @@ def global_poll(db: PolilyDB | None = None) -> None:
     plog.info(f"── poll #{_poll_count} {'─' * 50}")
 
     # fetch line
-    n_book = sum(1 for m in fetchable if m.spread is None or m.spread < 0.50)
-    n_mid_only = len(fetchable) - n_book
-    fetch_parts = [f"clob/book+mid {n_book} + mid-only {n_mid_only} = {len(fetchable)} markets {clob_elapsed:.1f}s"]
+    fetch_parts = [f"clob {len(fetchable)} markets {clob_elapsed:.1f}s"]
     if crypto_symbols:
         bin_status = f"binance/ticker {len(underlying_prices)}/{len(crypto_symbols)}"
         if len(underlying_prices) < len(crypto_symbols):
@@ -198,7 +207,7 @@ def global_poll(db: PolilyDB | None = None) -> None:
 
     # check line — data completeness
     n_total = len(fetchable)
-    check_parts = [f"price: {price_ok}/{n_total}", f"book: {book_ok}/{n_total}", f"score: {refresh_n}/{n_total}"]
+    check_parts = [f"price: {price_ok}/{n_total}", f"book: {book_ok}/{n_total}", f"trades: {trades_ok}/{n_total}", f"score: {refresh_n}/{n_total}"]
     if underlying_prices:
         bin_parts = [f"{sym.replace('USDT','')} ${p:,.0f}" for sym, p in underlying_prices.items()]
         check_parts.append(f"binance: {' '.join(bin_parts)}")
@@ -472,51 +481,26 @@ def _collect_crypto_symbols(db: PolilyDB) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_all(markets: list, crypto_symbols: set[str] | None = None) -> tuple[list, dict[str, float]]:
-    """Fetch CLOB books + midpoints + Binance tickers concurrently.
+async def _fetch_all(
+    markets: list, crypto_symbols: set[str] | None = None,
+) -> tuple[list, dict[str, float], dict[str, list]]:
+    """Fetch CLOB data + Binance tickers + trades concurrently.
 
-    For each market, fetches /book and /midpoint as a single unit.
-    All markets + Binance run concurrently under a shared semaphore.
-
-    Returns (results, underlying_prices).
+    Returns (results, underlying_prices, trades_by_market_id).
     results: list parallel to markets (dict | Exception).
     underlying_prices: {"BTCUSDT": 71035.0, ...} — empty if no crypto.
+    trades_by_market_id: {"m1": [{"price":..., "size":..., "side":...}, ...], ...}
     """
+    from scanner.core.clob import fetch_clob_market_data
+
     sem = asyncio.Semaphore(_SEMAPHORE_LIMIT)
 
-    async def _fetch_book_and_mid(client: httpx.AsyncClient, market):
-        """Fetch /book + /midpoint concurrently for one market."""
+    async def _fetch_one(client: httpx.AsyncClient, market):
         async with sem:
-            book_result, mid = await asyncio.gather(
-                _fetch_single_market(client, market),
-                _fetch_midpoint(client, market.clob_token_id_yes),
-            )
-            if mid is not None:
-                book_result["yes_price"] = mid
-                book_result["no_price"] = round(1 - mid, 4)
-                book_result["last_trade_price"] = mid
-            return book_result
-
-    async def _fetch_mid_only(client: httpx.AsyncClient, market):
-        """Fetch only /midpoint for wide-spread markets (skip book)."""
-        async with sem:
-            mid = await _fetch_midpoint(client, market.clob_token_id_yes)
-            if mid is not None:
-                return {
-                    "yes_price": mid,
-                    "no_price": round(1 - mid, 4),
-                    "last_trade_price": mid,
-                }
-            return {}  # no update
+            return await fetch_clob_market_data(client, market.clob_token_id_yes)
 
     async with httpx.AsyncClient(timeout=15) as client:
-        # Split: narrow spread → book+midpoint, wide spread → midpoint only
-        tasks = []
-        for m in markets:
-            if m.spread is not None and m.spread >= 0.50:
-                tasks.append(_fetch_mid_only(client, m))
-            else:
-                tasks.append(_fetch_book_and_mid(client, m))
+        clob_tasks = [_fetch_one(client, m) for m in markets]
 
         binance_task = None
         if crypto_symbols:
@@ -524,7 +508,11 @@ async def _fetch_all(markets: list, crypto_symbols: set[str] | None = None) -> t
                 _fetch_binance_tickers(client, crypto_symbols),
             )
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        trades_task = asyncio.ensure_future(
+            _fetch_trades_batch(client, markets),
+        )
+
+        results = await asyncio.gather(*clob_tasks, return_exceptions=True)
 
         underlying: dict[str, float] = {}
         if binance_task is not None:
@@ -533,7 +521,13 @@ async def _fetch_all(markets: list, crypto_symbols: set[str] | None = None) -> t
             except Exception as e:
                 logger.debug("Binance ticker fetch failed: %s", e)
 
-        return results, underlying
+        trades_by_id: dict[str, list] = {}
+        try:
+            trades_by_id = await trades_task
+        except Exception as e:
+            logger.debug("Trades batch fetch failed: %s", e)
+
+        return results, underlying, trades_by_id
 
 
 async def _fetch_binance_tickers(
@@ -556,57 +550,52 @@ async def _fetch_binance_tickers(
     return {item["symbol"]: float(item["price"]) for item in resp.json()}
 
 
-async def _fetch_single_market(client: httpx.AsyncClient, market) -> dict:
-    """Fetch order book for one market. Returns price summary dict.
+_TRADES_SEM_LIMIT = 5  # Data API is slower; limit concurrency
+_DATA_API_BASE = "https://data-api.polymarket.com"
 
-    Only fetches /book for depth data. yes_price is set later from
-    the batch /midpoint fetch (see _fetch_all).
 
-    Raises httpx.HTTPStatusError on 404 etc. so caller can handle it.
+async def _fetch_trades_batch(
+    client: httpx.AsyncClient,
+    markets: list,
+) -> dict[str, list]:
+    """Fetch recent trades for all markets from Data API.
+
+    Uses condition_id (not token_id). Concurrency limited to 5.
+    Returns {market_id: [{"price":..., "size":..., "side":...}, ...]}.
     """
-    token_id = market.clob_token_id_yes
+    sem = asyncio.Semaphore(_TRADES_SEM_LIMIT)
+    result: dict[str, list] = {}
 
-    book_resp = await client.get(
-        "https://clob.polymarket.com/book",
-        params={"token_id": token_id},
-    )
-    book_resp.raise_for_status()
-    book = book_resp.json()
+    async def _fetch_one(market):
+        cid = market.condition_id
+        if not cid:
+            return
+        async with sem:
+            try:
+                resp = await client.get(
+                    f"{_DATA_API_BASE}/trades",
+                    params={"market": cid, "limit": 20},
+                )
+                if resp.status_code != 200:
+                    return
+                data = resp.json()
+                if isinstance(data, list):
+                    raw = data
+                elif isinstance(data, dict):
+                    raw = data.get("data", [])
+                else:
+                    return
+                result[market.market_id] = [
+                    {
+                        "price": float(t.get("price", 0)),
+                        "size": float(t.get("size", 0)),
+                        "side": t.get("side", ""),
+                    }
+                    for t in raw
+                    if t.get("price") is not None
+                ]
+            except Exception as e:
+                logger.debug("Trades fetch failed for %s: %s", market.market_id, e)
 
-    bids = book.get("bids", [])
-    asks = book.get("asks", [])
-
-    best_bid = float(bids[0]["price"]) if bids else None
-    best_ask = float(asks[0]["price"]) if asks else None
-    spread = round(best_ask - best_bid, 4) if best_bid and best_ask else None
-    bid_depth = sum(float(b["size"]) for b in bids)
-    ask_depth = sum(float(a["size"]) for a in asks)
-
-    return {
-        "best_bid": best_bid,
-        "best_ask": best_ask,
-        "spread": spread,
-        "bid_depth": bid_depth,
-        "ask_depth": ask_depth,
-        "book_bids": json.dumps(
-            [{"price": float(b["price"]), "size": float(b["size"])} for b in bids],
-        ),
-        "book_asks": json.dumps(
-            [{"price": float(a["price"]), "size": float(a["size"])} for a in asks],
-        ),
-    }
-
-
-async def _fetch_midpoint(client: httpx.AsyncClient, token_id: str) -> float | None:
-    """Fetch /midpoint for a single token. Returns YES price or None."""
-    try:
-        resp = await client.get(
-            "https://clob.polymarket.com/midpoint",
-            params={"token_id": token_id},
-        )
-        if resp.status_code == 200:
-            mid = resp.json().get("mid")
-            return float(mid) if mid is not None else None
-    except Exception as e:
-        logger.debug("Midpoint fetch failed for %s: %s", token_id[:20], e)
-    return None
+    await asyncio.gather(*[_fetch_one(m) for m in markets])
+    return result

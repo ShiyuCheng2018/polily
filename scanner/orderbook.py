@@ -63,15 +63,6 @@ def compute_depth_imbalance(
     return total_bid / total_ask
 
 
-def is_stale_book(bids: list[BookLevel], asks: list[BookLevel]) -> bool:
-    """Detect a stale/ghost order book (bid near 0, ask near 1)."""
-    if not bids or not asks:
-        return True
-    best_bid = bids[0].price
-    best_ask = asks[0].price
-    return best_bid < 0.05 and best_ask > 0.95
-
-
 def analyze_book(
     bids: list[BookLevel],
     asks: list[BookLevel],
@@ -83,7 +74,6 @@ def analyze_book(
 
     avg_price, slippage_pct = compute_slippage(asks, order_size_usd)
     imbalance = compute_depth_imbalance(bids, asks)
-    stale = is_stale_book(bids, asks)
 
     return OrderBookAnalysis(
         total_bid_depth=total_bid,
@@ -91,5 +81,5 @@ def analyze_book(
         slippage_avg_price=avg_price,
         slippage_pct=slippage_pct,
         imbalance_ratio=imbalance,
-        is_stale=stale,
+        is_stale=not bids or not asks,
     )

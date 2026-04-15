@@ -1,7 +1,6 @@
 """Tests for global poll job — price layer."""
-import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -16,7 +15,7 @@ from scanner.core.event_store import (
     upsert_market,
 )
 from scanner.core.monitor_store import upsert_event_monitor
-from scanner.daemon.poll_job import _fetch_midpoint, _fetch_single_market, global_poll
+from scanner.daemon.poll_job import global_poll
 
 
 @pytest.fixture
@@ -47,7 +46,7 @@ class TestGlobalPollPriceLayer:
         """Poll should fetch CLOB data and update markets table."""
         _seed(db)
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.return_value = {
                 "yes_price": 0.55,
                 "no_price": 0.45,
@@ -79,7 +78,7 @@ class TestGlobalPollPriceLayer:
         """404 from CLOB should mark market as closed."""
         _seed(db)
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = httpx.HTTPStatusError(
                 "Not Found",
                 request=MagicMock(),
@@ -107,7 +106,7 @@ class TestGlobalPollPriceLayer:
         )
         upsert_event_monitor("ev1", auto_monitor=True, db=db)
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = httpx.HTTPStatusError(
                 "Not Found",
                 request=MagicMock(),
@@ -122,7 +121,7 @@ class TestGlobalPollPriceLayer:
         """Markets with closed=1 should not be fetched."""
         _seed(db, closed=1)
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             global_poll(db)
 
         mock_fetch.assert_not_called()
@@ -131,7 +130,7 @@ class TestGlobalPollPriceLayer:
         """Markets without clob_token_id_yes should be skipped."""
         _seed(db, token=None)
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             global_poll(db)
 
         mock_fetch.assert_not_called()
@@ -140,7 +139,7 @@ class TestGlobalPollPriceLayer:
         """Non-404 errors (503, timeout) should NOT close the market."""
         _seed(db)
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = httpx.HTTPStatusError(
                 "Service Unavailable",
                 request=MagicMock(),
@@ -168,8 +167,8 @@ class TestGlobalPollPriceLayer:
         )
         upsert_event_monitor("ev1", auto_monitor=True, db=db)
 
-        def _side_effect(client, market):
-            if market.market_id == "m1":
+        def _side_effect(client, token_id):
+            if token_id == "t1":  # m1's token
                 raise httpx.HTTPStatusError(
                     "Not Found",
                     request=MagicMock(),
@@ -186,10 +185,9 @@ class TestGlobalPollPriceLayer:
                 "ask_depth": 100.0,
                 "book_bids": "[]",
                 "book_asks": "[]",
-                "recent_trades": "[]",
             }
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = _side_effect
             global_poll(db)
 
@@ -224,7 +222,7 @@ class TestGlobalPollPriceLayer:
 
         call_count = 0
 
-        def _side_effect(client, market):
+        def _side_effect(client, token_id):
             nonlocal call_count
             call_count += 1
             price = 0.50 + call_count * 0.01
@@ -242,7 +240,7 @@ class TestGlobalPollPriceLayer:
                 "recent_trades": "[]",
             }
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = _side_effect
             global_poll(db)
 
@@ -256,7 +254,7 @@ class TestGlobalPollPriceLayer:
     def test_no_active_markets_is_noop(self, db):
         """Poll with no active markets should not error."""
         # Empty DB — no markets at all
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             global_poll(db)
         mock_fetch.assert_not_called()
 
@@ -267,7 +265,7 @@ class TestGlobalPollPriceLayer:
         bids = [{"price": 0.54, "size": 500}]
         asks = [{"price": 0.56, "size": 400}]
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.return_value = {
                 "yes_price": 0.55,
                 "no_price": 0.45,
@@ -290,7 +288,7 @@ class TestGlobalPollPriceLayer:
         """Price layer should only fetch /book, not /trades."""
         _seed(db)
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.return_value = {
                 "yes_price": 0.55,
                 "no_price": 0.45,
@@ -311,90 +309,20 @@ class TestGlobalPollPriceLayer:
         assert "recent_trades" not in mock_fetch.return_value
 
 
-class TestFetchSingleMarket:
-    """Tests for _fetch_single_market — the actual CLOB fetch logic."""
-
-    def _make_market(self, token="tok1", condition_id="0x123"):
-        m = MagicMock()
-        m.clob_token_id_yes = token
-        m.condition_id = condition_id
-        return m
-
-    @pytest.mark.asyncio
-    async def test_book_only_no_trades(self):
-        """_fetch_single_market should only call /book, not /trades or /midpoint."""
-        book_response = MagicMock()
-        book_response.json.return_value = {
-            "bids": [{"price": "0.54", "size": "500"}],
-            "asks": [{"price": "0.56", "size": "400"}],
-        }
-        book_response.raise_for_status = MagicMock()
-
-        client = AsyncMock(spec=httpx.AsyncClient)
-        client.get.return_value = book_response
-
-        result = await _fetch_single_market(client, self._make_market())
-
-        assert client.get.call_count == 1
-        assert "book" in client.get.call_args[0][0]
-        assert "yes_price" not in result  # price comes from midpoint batch
-        assert "recent_trades" not in result
-
-    @pytest.mark.asyncio
-    async def test_book_returns_depth_data(self):
-        """_fetch_single_market should return orderbook depth."""
-        book_response = MagicMock()
-        book_response.json.return_value = {
-            "bids": [{"price": "0.54", "size": "500"}, {"price": "0.53", "size": "300"}],
-            "asks": [{"price": "0.56", "size": "400"}],
-        }
-        book_response.raise_for_status = MagicMock()
-
-        client = AsyncMock(spec=httpx.AsyncClient)
-        client.get.return_value = book_response
-
-        result = await _fetch_single_market(client, self._make_market())
-        assert result["bid_depth"] == 800.0
-        assert result["ask_depth"] == 400.0
-        assert result["spread"] == 0.02
-
-
-class TestFetchMidpoint:
-    @pytest.mark.asyncio
-    async def test_returns_midpoint_price(self):
-        mid_response = MagicMock()
-        mid_response.json.return_value = {"mid": "0.548"}
-        mid_response.status_code = 200
-
-        client = AsyncMock(spec=httpx.AsyncClient)
-        client.get.return_value = mid_response
-
-        result = await _fetch_midpoint(client, "token123")
-        assert result == pytest.approx(0.548)
-
-    @pytest.mark.asyncio
-    async def test_returns_none_on_failure(self):
-        client = AsyncMock(spec=httpx.AsyncClient)
-        client.get.side_effect = Exception("timeout")
-
-        result = await _fetch_midpoint(client, "token123")
-        assert result is None
-
-
 class TestWideSpreadIntegration:
     """Integration test for wide spread handling through global_poll."""
 
-    def test_wide_spread_gets_correct_price_via_midpoint(self, db):
-        """Wide spread markets should get correct price from /midpoint."""
+    def test_negRisk_gets_correct_bid_ask_from_price_endpoint(self, db):
+        """negRisk markets should get correct bid/ask from /price, not /book."""
         _seed(db)
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.return_value = {
-                "yes_price": 0.929,  # from /midpoint, not (0.001+0.999)/2
+                "yes_price": 0.929,   # from /midpoint
                 "no_price": 0.071,
-                "best_bid": 0.001,
-                "best_ask": 0.999,
-                "spread": 0.998,
+                "best_bid": 0.925,    # from /price SELL (real bid)
+                "best_ask": 0.935,    # from /price BUY (real ask)
+                "spread": 0.01,       # real spread, not 0.998
                 "last_trade_price": 0.929,
                 "bid_depth": 1000.0,
                 "ask_depth": 500.0,
@@ -405,6 +333,9 @@ class TestWideSpreadIntegration:
 
         market = get_market("m1", db)
         assert market.yes_price == 0.929
+        assert market.best_bid == 0.925
+        assert market.best_ask == 0.935
+        assert market.spread == 0.01
 
 
 class TestPollOnlyMonitoredEvents:
@@ -418,7 +349,7 @@ class TestPollOnlyMonitoredEvents:
 
         call_count = 0
 
-        def _side_effect(client, market):
+        def _side_effect(client, token_id):
             nonlocal call_count
             call_count += 1
             return {
@@ -429,7 +360,7 @@ class TestPollOnlyMonitoredEvents:
                 "book_bids": "[]", "book_asks": "[]",
             }
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = _side_effect
             global_poll(db)
 
@@ -443,7 +374,7 @@ class TestPollOnlyMonitoredEvents:
         """If no events are monitored, poll should not fetch anything."""
         _seed(db, "ev1", "m1", token="t1", monitored=False)
 
-        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
             global_poll(db)
 
         mock_fetch.assert_not_called()

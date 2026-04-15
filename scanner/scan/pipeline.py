@@ -10,10 +10,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from scanner.api import CLOB_BASE, parse_clob_book
 from scanner.core.config import ScannerConfig
-from scanner.core.models import Market
-from scanner.orderbook import is_stale_book
+from scanner.core.models import BookLevel, Market
 from scanner.scan.mispricing import MispricingResult, detect_mispricing
 from scanner.scan.reporting import ScoredCandidate
 from scanner.scan.scoring import compute_structure_score
@@ -96,13 +94,15 @@ async def enrich_with_orderbook(
     markets: list[Market],
     config: ScannerConfig,
 ) -> list[Market]:
-    """Fetch order books for all markets concurrently from CLOB API.
+    """Fetch order books + real bid/ask for all markets from CLOB API.
 
-    Uses asyncio.gather with Semaphore(100) for concurrent CLOB requests.
-    Markets with fetch failures keep their existing depth (usually None).
-    Stale books (bid≈0, ask≈1) are flagged by clearing depth to None.
+    Uses fetch_clob_market_data (4 endpoints per market) to get accurate
+    bid/ask from /price endpoints (not /book, which is unreliable for negRisk).
+    Markets with fetch failures keep their existing data (usually None).
     """
     import asyncio
+
+    from scanner.core.clob import fetch_clob_market_data
 
     sem = asyncio.Semaphore(100)
     timeout = httpx.Timeout(config.api.request_timeout_seconds)
@@ -113,20 +113,28 @@ async def enrich_with_orderbook(
             return
         async with sem:
             try:
-                resp = await client.get(
-                    f"{CLOB_BASE}/book",
-                    params={"token_id": token_id},
-                )
-                resp.raise_for_status()
-                bids, asks = parse_clob_book(resp.json())
+                data = await fetch_clob_market_data(client, token_id)
 
-                if is_stale_book(bids, asks):
-                    logger.warning("Stale book for %s, clearing depth", market.market_id)
-                    market.book_depth_bids = None
-                    market.book_depth_asks = None
-                else:
-                    market.book_depth_bids = bids
-                    market.book_depth_asks = asks
+                # Book depth
+                if data.get("book_bids"):
+                    raw_bids = json.loads(data["book_bids"])
+                    market.book_depth_bids = [
+                        BookLevel(price=b["price"], size=b["size"]) for b in raw_bids
+                    ]
+                if data.get("book_asks"):
+                    raw_asks = json.loads(data["book_asks"])
+                    market.book_depth_asks = [
+                        BookLevel(price=a["price"], size=a["size"]) for a in raw_asks
+                    ]
+
+                # Real bid/ask from /price endpoints
+                if data.get("best_bid") is not None:
+                    market.best_bid_yes = data["best_bid"]
+                if data.get("best_ask") is not None:
+                    market.best_ask_yes = data["best_ask"]
+                if data.get("spread") is not None:
+                    market.spread_yes = data["spread"]
+
             except Exception as e:
                 logger.warning("Failed to fetch book for %s: %s", market.market_id, e)
 
