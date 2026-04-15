@@ -28,7 +28,7 @@ class SubMarketTable(Widget):
         yield Static("")
         table = DataTable(id="sub-market-table")
         table.cursor_type = "row"
-        table.add_columns("选项", "YES", "NO", "价差", "成交量", "结算")
+        table.add_columns("选项", "YES", "NO", "价差", "成交量", "结算", "评分")
         yield table
 
     def on_mount(self) -> None:
@@ -57,7 +57,15 @@ class SubMarketTable(Widget):
             vol = f"${mr.volume:,.0f}" if mr.volume else "?"
             end = format_countdown(mr.end_date) if mr.end_date else "?"
 
-            table.add_row(f"{prefix}{label}", yes, no, spread, vol, end, key=f"m_{mr.market_id}")
+            score_str = "?"
+            if mr.structure_score:
+                overall = ""
+                if mr.score_breakdown:
+                    with contextlib.suppress(ValueError, TypeError):
+                        bd = _json.loads(mr.score_breakdown)
+                        overall = bd.get("commentary", {}).get("overall", "")
+                score_str = f"{mr.structure_score:.0f} {overall}" if overall else f"{mr.structure_score:.0f}"
+            table.add_row(f"{prefix}{label}", yes, no, spread, vol, end, score_str, key=f"m_{mr.market_id}")
             self._row_map.append({"type": "market", "market": mr})
 
             if is_expanded:
@@ -100,20 +108,14 @@ class SubMarketTable(Widget):
             comment = ""
             if bd and i < len(dim_keys):
                 comment = bd.get("commentary", {}).get("dim_comments", {}).get(dim_keys[i], "")
+            connector = "└" if i == len(breakdown) - 1 else "├"
             table.add_row(
-                f"  ├ {name}", f"{bar} {val:.0f}/{max_val}", comment, "", "", "",
+                f"  {connector} {name}", f"{bar} {val:.0f}/{max_val}", comment, "", "", "", "",
                 key=f"bd_{mr.market_id}_{i}",
             )
             self._row_map.append({"type": "breakdown", "market_id": mr.market_id})
 
-        total_bar_len = int(total / 100 * 15)
-        total_bar = "█" * total_bar_len + "░" * (15 - total_bar_len)
-        overall_comment = bd.get("commentary", {}).get("overall", "") if bd else ""
-        table.add_row(
-            "  └ 总分", f"{total_bar} {total:.0f}/100", overall_comment, "", "", "",
-            key=f"bd_{mr.market_id}_total",
-        )
-        self._row_map.append({"type": "breakdown", "market_id": mr.market_id})
+        # Total score row removed — already shown in the 评分 column
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.data_table.id != "sub-market-table":

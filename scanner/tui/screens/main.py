@@ -93,7 +93,8 @@ class MainScreen(Screen):
             if alive and not self._loading and not self._analyzing:
                 self._refresh_current_view()
         except Exception:
-            pass
+            import logging
+            logging.getLogger(__name__).debug("heartbeat error", exc_info=True)
 
     @staticmethod
     def _is_daemon_alive() -> bool:
@@ -113,10 +114,11 @@ class MainScreen(Screen):
     def _refresh_current_view(self) -> None:
         """Call refresh_data() on the current visible view if it supports it."""
         content = self.query_one("#content-area")
-        for child in content.children:
-            if hasattr(child, "refresh_data"):
-                child.refresh_data()
-                break
+        # Walk all descendants, not just direct children
+        for widget in content.walk_children():
+            if hasattr(widget, "refresh_data"):
+                widget.refresh_data()
+                return
 
     def _update_progress(self, steps: list[StepInfo]):
         """Main thread: update live progress if ScanLogView is visible."""

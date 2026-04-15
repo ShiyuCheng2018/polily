@@ -127,6 +127,24 @@ class MarketDetailView(Widget):
                 yield Static("[dim]按 a 启动 AI 分析[/dim]", classes="row")
 
     # ------------------------------------------------------------------
+    # Refresh
+    # ------------------------------------------------------------------
+
+    def refresh_data(self) -> None:
+        """Re-fetch data from DB and recompose the view."""
+        new_detail = self.service.get_event_detail(self.event_id)
+        if new_detail is None:
+            return
+        self._detail = new_detail
+        # Preserve analysis version selection
+        analyses = self._detail.get("analyses", [])
+        if analyses and 0 <= self._version_idx < len(analyses):
+            pass  # keep current
+        elif analyses:
+            self._version_idx = len(analyses) - 1
+        self.recompose()
+
+    # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
 

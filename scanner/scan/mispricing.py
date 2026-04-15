@@ -5,6 +5,7 @@ For all markets: check multi-outcome price sum consistency.
 """
 
 import math
+import re
 from dataclasses import dataclass
 
 from scanner.core.config import MispricingConfig
@@ -27,6 +28,51 @@ class MispricingResult:
 def normal_cdf(x: float) -> float:
     """Standard normal cumulative distribution function using math.erf."""
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+_BARRIER_KEYWORDS = re.compile(r'\b(dip to|reach|hit)\b', re.IGNORECASE)
+_EUROPEAN_KEYWORDS = re.compile(r'\b(above|below|over|under)\b', re.IGNORECASE)
+
+
+def is_barrier_market(question: str) -> bool:
+    """Detect if a market question is barrier/touch type vs European.
+
+    Barrier: "dip to", "reach", "hit" — path-dependent, any-time touch.
+    European: "above", "below" — price at expiry.
+    """
+    if _EUROPEAN_KEYWORDS.search(question):
+        return False
+    return bool(_BARRIER_KEYWORDS.search(question))
+
+
+def compute_barrier_touch_prob(
+    current_price: float,
+    barrier_price: float,
+    days_to_resolution: float,
+    annual_volatility: float,
+) -> float:
+    """Estimate P(price touches barrier during period) using first-passage formula.
+
+    For zero-drift GBM: P(touch K) = 2 * N(-|ln(S/K)| / (σ√T))
+    Works for both up-barriers (reach) and down-barriers (dip to).
+    """
+    if current_price <= 0 or barrier_price <= 0:
+        return 0.0
+
+    if abs(current_price - barrier_price) / barrier_price < 0.001:
+        return 1.0  # already at barrier
+
+    if days_to_resolution <= 0:
+        return 1.0 if abs(current_price - barrier_price) / barrier_price < 0.001 else 0.0
+
+    t = days_to_resolution / 365.0
+    sigma_sqrt_t = annual_volatility * math.sqrt(t)
+
+    if sigma_sqrt_t < 1e-10:
+        return 0.0
+
+    d = abs(math.log(current_price / barrier_price)) / sigma_sqrt_t
+    return 2.0 * normal_cdf(-d)
 
 
 def compute_crypto_fair_value(
@@ -90,22 +136,28 @@ def detect_mispricing(
         and annual_volatility is not None
         and market.days_to_resolution is not None
     ):
-        fair_value = compute_crypto_fair_value(
-            current_price=current_underlying_price,
-            threshold_price=threshold_price,
-            days_to_resolution=market.days_to_resolution,
-            annual_volatility=annual_volatility,
+        # Choose model: barrier (touch) vs European (at expiry)
+        question = getattr(market, "title", "") or ""
+        use_barrier = is_barrier_market(question)
+
+        def _fv(price, threshold, days, vol):
+            if use_barrier:
+                return compute_barrier_touch_prob(price, threshold, days, vol)
+            return compute_crypto_fair_value(price, threshold, days, vol)
+
+        fair_value = _fv(
+            current_underlying_price, threshold_price,
+            market.days_to_resolution, annual_volatility,
         )
         result.theoretical_fair_value = round(fair_value, 4)
 
         # Compute fair value range: ±1σ estimation error
-        # Vol estimation error ~20% of vol itself, propagated through model
         vol_error = annual_volatility * 0.2
-        fv_high = compute_crypto_fair_value(
+        fv_high = _fv(
             current_underlying_price, threshold_price,
             market.days_to_resolution, annual_volatility + vol_error,
         )
-        fv_low = compute_crypto_fair_value(
+        fv_low = _fv(
             current_underlying_price, threshold_price,
             market.days_to_resolution, max(0.01, annual_volatility - vol_error),
         )
