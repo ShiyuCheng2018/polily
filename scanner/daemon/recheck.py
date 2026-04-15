@@ -70,7 +70,7 @@ def recheck_event(
                     from scanner.core.monitor_store import update_next_check_at
 
                     reason = version.narrative_output.get("next_check_reason", "")
-                    update_next_check_at(event_id, next_check, reason, db)
+                    update_next_check_at(event_id, next_check, reason, db, notify=False)
                     return RecheckResult(
                         event_id=event_id,
                         next_check_at=next_check,

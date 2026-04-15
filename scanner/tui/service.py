@@ -196,12 +196,7 @@ class ScanService:
                 narrative_output.next_check_reason,
                 self.db,
             )
-            # Notify daemon to register check_job
-            try:
-                from scanner.daemon.notify import notify_daemon
-                notify_daemon()
-            except Exception:
-                pass
+            # notify_daemon is called inside update_next_check_at
 
         return version
 

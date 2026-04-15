@@ -22,6 +22,12 @@ def _suppress_agent_debug_log(monkeypatch):
     monkeypatch.setattr("scanner.agents.base._dump_debug", lambda *a, **kw: None)
 
 
+@pytest.fixture(autouse=True)
+def _suppress_daemon_notify(monkeypatch):
+    """Prevent tests from sending SIGUSR1 to the running daemon."""
+    monkeypatch.setattr("scanner.daemon.notify.notify_daemon", lambda: False)
+
+
 @pytest.fixture
 def polily_db(tmp_path):
     """Provide a PolilyDB in a temp directory that auto-cleans up."""

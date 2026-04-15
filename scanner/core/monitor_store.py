@@ -54,11 +54,14 @@ def update_next_check_at(
     next_check_at: str | None,
     reason: str | None,
     db: PolilyDB,
+    *,
+    notify: bool = True,
 ) -> None:
     """Update the next AI check time for an event.
 
     Uses UPSERT: if no event_monitors row exists, creates one with
     auto_monitor=0 (stores schedule without enabling monitoring).
+    Set notify=False when called from within the daemon (avoids self-signaling).
     """
     now = datetime.now(UTC).isoformat()
     db.conn.execute(
@@ -75,6 +78,6 @@ def update_next_check_at(
     db.conn.commit()
 
     # Notify daemon to reload check jobs from DB
-    if next_check_at:
+    if notify and next_check_at:
         from scanner.daemon.notify import notify_daemon
         notify_daemon()

@@ -31,11 +31,24 @@ class TestNotifyAfterAnalysis:
         mon = get_event_monitor("ev1", db)
         assert mon["next_check_at"] == "2026-04-21T09:00:00+08:00"
 
-    def test_no_notify_when_next_check_unchanged(self, db):
-        """If next_check_at is None, no notification needed."""
+    def test_no_notify_when_clearing_next_check(self, db):
+        """When next_check_at is set to None, no notification should fire."""
         upsert_event(EventRow(event_id="ev1", title="Test", updated_at="now"), db)
         upsert_event_monitor("ev1", auto_monitor=True, db=db)
 
-        mon = get_event_monitor("ev1", db)
-        assert mon["next_check_at"] is None
-        # No update_next_check_at called = no notify
+        from scanner.core.monitor_store import update_next_check_at
+
+        with patch("scanner.daemon.notify.notify_daemon") as mock_notify:
+            update_next_check_at("ev1", None, None, db)
+            mock_notify.assert_not_called()
+
+    def test_no_notify_when_notify_false(self, db):
+        """Daemon-internal calls pass notify=False to avoid self-signaling."""
+        upsert_event(EventRow(event_id="ev1", title="Test", updated_at="now"), db)
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
+
+        from scanner.core.monitor_store import update_next_check_at
+
+        with patch("scanner.daemon.notify.notify_daemon") as mock_notify:
+            update_next_check_at("ev1", "2026-04-21T09:00:00+08:00", "test", db, notify=False)
+            mock_notify.assert_not_called()
