@@ -55,9 +55,12 @@ class MovementResult(BaseModel):
 
     @property
     def cooldown_seconds(self) -> int:
-        """Dynamic cooldown based on magnitude."""
+        """Dynamic cooldown based on magnitude.
+
+        Must exceed AI analysis time (~15min) to prevent overlapping runs.
+        """
         if self.magnitude >= 90:
-            return 180    # 3min
+            return 1200   # 20min
         if self.magnitude >= 80:
-            return 600    # 10min
-        return 1800       # 30min
+            return 1800   # 30min
+        return 3600       # 60min
