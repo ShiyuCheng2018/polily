@@ -4,14 +4,7 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
 
-from scanner.tui.components.movement_sparkline import get_event_movement
-
-_LABEL_CN = {
-    "consensus": "共识异动",
-    "whale_move": "大单异动",
-    "slow_build": "缓慢累积",
-    "noise": "平静",
-}
+from scanner.tui.components.movement_sparkline import _LABEL_CN, get_event_movement
 
 
 class EventHeader(Widget):

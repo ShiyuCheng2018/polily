@@ -13,7 +13,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -462,14 +462,14 @@ def _check_event_trigger(
     if not latest:
         return
 
-    # Aggregate: max M and Q across sub-markets in latest tick
-    # (get_event_latest returns the single most recent entry;
-    #  we need all entries from the latest tick)
+    # Aggregate: max M and Q across sub-markets in latest tick (within 60s)
+    cutoff = (datetime.now(UTC) - timedelta(seconds=60)).isoformat()
     recent = db.conn.execute(
-        """SELECT magnitude, quality, created_at FROM movement_log
+        """SELECT magnitude, quality FROM movement_log
         WHERE event_id = ? AND market_id IS NOT NULL
-        ORDER BY created_at DESC LIMIT ?""",
-        (event_id, len(active_markets)),
+        AND created_at >= ?
+        ORDER BY created_at DESC""",
+        (event_id, cutoff),
     ).fetchall()
 
     if not recent:
@@ -492,7 +492,6 @@ def _check_event_trigger(
     ).fetchone()
 
     if last_triggered:
-        from datetime import UTC, datetime
         try:
             last_dt = datetime.fromisoformat(last_triggered["created_at"])
             if last_dt.tzinfo is None:

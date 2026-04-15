@@ -27,18 +27,14 @@ def get_event_movement(movements: list[dict]) -> tuple[float, float, str]:
     if not market_entries:
         return 0, 0, "noise"
 
-    latest_ts = market_entries[0].get("created_at", "")
-    # Take all entries within same tick (same second group)
-    tick_entries = []
-    for e in market_entries:
-        ts = e.get("created_at", "")
-        # Same tick = within first batch (they're ordered DESC, stop at gap)
-        if not tick_entries or abs(len(ts) - len(latest_ts)) < 5:
-            tick_entries.append(e)
-        else:
-            break
-        if len(tick_entries) >= 50:
-            break
+    latest_ts = market_entries[0].get("created_at", "")[:19]  # trim to second
+    # Take all entries within same tick (same second)
+    tick_entries = [
+        e for e in market_entries
+        if e.get("created_at", "")[:19] == latest_ts
+    ]
+    if not tick_entries:
+        tick_entries = market_entries[:1]
 
     m = max((e.get("magnitude", 0) or 0) for e in tick_entries)
     q = max((e.get("quality", 0) or 0) for e in tick_entries)

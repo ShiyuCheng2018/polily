@@ -7,19 +7,8 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static
-
-
-class TradeCreated(Message):
-    """Fired when a paper trade is successfully created."""
-
-    def __init__(self, trade_id: str, market_id: str, side: str):
-        super().__init__()
-        self.trade_id = trade_id
-        self.market_id = market_id
-        self.side = side
 
 
 class TradeDialog(ModalScreen[str | None]):
@@ -67,7 +56,7 @@ class TradeDialog(ModalScreen[str | None]):
     }
     """
 
-    BINDINGS = [("escape", "cancel", "取消")]
+    BINDINGS = [("escape", "dismiss", "取消")]
 
     def __init__(self, event_id: str, markets: list, service) -> None:
         super().__init__()
@@ -119,7 +108,10 @@ class TradeDialog(ModalScreen[str | None]):
                 # Update radio label
                 try:
                     radio_set = self.query_one("#market-radios", RadioSet)
-                    btn = radio_set._nodes[i]
+                    buttons = list(radio_set.query(RadioButton))
+                    btn = buttons[i] if i < len(buttons) else None
+                    if btn is None:
+                        continue
                     label = m.group_item_title or m.question[:30]
                     no = (m.no_price or round(1 - m.yes_price, 4)) * 100
                     btn.label = f"{label}  Y:{m.yes_price * 100:.1f}¢ N:{no:.1f}¢"
@@ -155,14 +147,14 @@ class TradeDialog(ModalScreen[str | None]):
                 resp = httpx.get(
                     "https://clob.polymarket.com/price",
                     params={"token_id": token_id, "side": "SELL"},
-                    timeout=5,
+                    timeout=2,
                 )
             else:
                 # Buying NO = 1 - bid
                 resp = httpx.get(
                     "https://clob.polymarket.com/price",
                     params={"token_id": token_id, "side": "BUY"},
-                    timeout=5,
+                    timeout=2,
                 )
             if resp.status_code == 200:
                 price = float(resp.json().get("price", 0))

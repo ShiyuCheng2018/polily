@@ -3,8 +3,8 @@
 Fetches 4 endpoints per token:
   /book      → depth (bids/asks)
   /midpoint  → yes_price
-  /price BUY → best_ask (user buy price)
-  /price SELL→ best_bid (user sell price)
+  /price BUY → best_bid (buy-side of order book)
+  /price SELL→ best_ask (sell-side of order book)
 
 Used by both poll (daemon/poll_job.py) and scan (scan/pipeline.py) paths.
 """
