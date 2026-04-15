@@ -114,7 +114,7 @@ class ScanLogView(Widget):
     DEFAULT_CSS = """
     ScanLogView { height: 1fr; }
     ScanLogView #log-title { padding: 1 0 0 0; text-style: bold; }
-    ScanLogView #url-row { height: 3; padding: 0 1; }
+    ScanLogView #url-row { height: auto; padding: 1 1; margin: 1 0; }
     ScanLogView #url-input { width: 1fr; }
     ScanLogView #score-btn { width: 10; min-width: 10; }
     ScanLogView .empty-msg { text-align: center; color: $text-muted; padding: 4; }
