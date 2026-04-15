@@ -167,7 +167,13 @@ class MarketDetailView(Widget):
             self.notify("无可交易市场")
             return
         from scanner.tui.views.trade_dialog import TradeDialog
-        self.app.push_screen(TradeDialog(self.event_id, markets, self.service))
+
+        def _on_dismiss(trade_id: str | None) -> None:
+            if trade_id:
+                self.screen.refresh_sidebar_counts()
+                self.refresh_data()
+
+        self.app.push_screen(TradeDialog(self.event_id, markets, self.service), _on_dismiss)
 
     def action_toggle_monitor(self) -> None:
         monitor = self._detail.get("monitor") if self._detail else None
