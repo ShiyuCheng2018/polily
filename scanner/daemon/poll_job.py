@@ -381,6 +381,9 @@ def _run_intelligence_layer(db: PolilyDB) -> None:
                     db=db,
                 )
 
+            # --- Event-level trigger: check if AI analysis should fire ---
+            _check_event_trigger(event_id, active_markets, mc, db)
+
             # --- Event-level metrics for negRisk events with 2+ sub-markets ---
             if event.neg_risk and len(active_markets) > 1:
                 prices = {
@@ -437,6 +440,119 @@ def _run_intelligence_layer(db: PolilyDB) -> None:
 
     # Batch commit all movement_log entries
     db.conn.commit()
+
+
+def _check_event_trigger(
+    event_id: str,
+    active_markets: list,
+    mc,
+    db: PolilyDB,
+) -> None:
+    """Check if event-level movement should trigger AI analysis.
+
+    Aggregates max(M) and max(Q) across all sub-markets in the latest tick,
+    then checks: should_trigger AND cooldown AND daily limit.
+    If all pass, submits AI analysis to the ai executor.
+    """
+    from scanner.monitor.models import MovementResult
+    from scanner.monitor.store import get_event_latest, get_today_analysis_count
+
+    # Get latest movement entries for this event's markets
+    latest = get_event_latest(event_id, db)
+    if not latest:
+        return
+
+    # Aggregate: max M and Q across sub-markets in latest tick
+    # (get_event_latest returns the single most recent entry;
+    #  we need all entries from the latest tick)
+    recent = db.conn.execute(
+        """SELECT magnitude, quality, created_at FROM movement_log
+        WHERE event_id = ? AND market_id IS NOT NULL
+        ORDER BY created_at DESC LIMIT ?""",
+        (event_id, len(active_markets)),
+    ).fetchall()
+
+    if not recent:
+        return
+
+    max_m = max(r["magnitude"] for r in recent)
+    max_q = max(r["quality"] for r in recent)
+
+    # Check trigger threshold
+    agg = MovementResult(magnitude=max_m, quality=max_q)
+    if not agg.should_trigger(mc.magnitude_threshold, mc.quality_threshold):
+        return
+
+    # Check cooldown: last triggered analysis for this event
+    last_triggered = db.conn.execute(
+        """SELECT created_at FROM movement_log
+        WHERE event_id = ? AND triggered_analysis = 1
+        ORDER BY created_at DESC LIMIT 1""",
+        (event_id,),
+    ).fetchone()
+
+    if last_triggered:
+        from datetime import UTC, datetime
+        try:
+            last_dt = datetime.fromisoformat(last_triggered["created_at"])
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=UTC)
+            age = (datetime.now(UTC) - last_dt).total_seconds()
+            if age < agg.cooldown_seconds:
+                logger.debug(
+                    "Event %s trigger skipped: cooldown (%ds < %ds)",
+                    event_id, int(age), agg.cooldown_seconds,
+                )
+                return
+        except (ValueError, TypeError):
+            pass
+
+    # Check daily limit
+    today_count = get_today_analysis_count(event_id, db)
+    if today_count >= mc.daily_analysis_limit:
+        logger.debug(
+            "Event %s trigger skipped: daily limit (%d/%d)",
+            event_id, today_count, mc.daily_analysis_limit,
+        )
+        return
+
+    # --- Trigger AI analysis ---
+    logger.info(
+        "Movement trigger for event %s: M=%.0f Q=%.0f (%s)",
+        event_id, max_m, max_q, agg.label,
+    )
+
+    # Mark triggered in movement_log (the highest-scoring market entry)
+    db.conn.execute(
+        """UPDATE movement_log SET triggered_analysis = 1
+        WHERE event_id = ? AND market_id IS NOT NULL
+        AND id = (SELECT id FROM movement_log
+                  WHERE event_id = ? AND market_id IS NOT NULL
+                  ORDER BY created_at DESC LIMIT 1)""",
+        (event_id, event_id),
+    )
+
+    # Submit to ai executor
+    if _ctx and _ctx.scheduler:
+        try:
+            from scanner.daemon.recheck import recheck_event
+            from scanner.tui.service import ScanService
+
+            service = ScanService(db)
+            _ctx.scheduler.add_job(
+                recheck_event,
+                id=f"movement_trigger_{event_id}",
+                executor="ai",
+                replace_existing=True,
+                kwargs={
+                    "event_id": event_id,
+                    "db": db,
+                    "service": service,
+                    "trigger_source": "movement",
+                },
+            )
+        except Exception:
+            logger.exception("Failed to submit movement-triggered analysis for %s", event_id)
 
 
 # ---------------------------------------------------------------------------
