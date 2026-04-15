@@ -113,6 +113,8 @@ def global_poll(db: PolilyDB | None = None) -> None:
     err_count = 0
     err_by_type: dict[str, int] = {}
     closed_by_event: dict[str, list[str]] = {}
+    price_ok = 0  # markets with midpoint price
+    book_ok = 0   # markets with orderbook depth
 
     for market, result in zip(fetchable, results, strict=True):
         if isinstance(result, httpx.HTTPStatusError):
@@ -134,6 +136,10 @@ def global_poll(db: PolilyDB | None = None) -> None:
                 key = "timeout"
             err_by_type[key] = err_by_type.get(key, 0) + 1
             continue
+        if result.get("yes_price") is not None:
+            price_ok += 1
+        if result.get("bid_depth") and result.get("bid_depth") > 0:
+            book_ok += 1
         update_market_prices(market.market_id, db=db, **result)
 
     db.conn.commit()
@@ -189,6 +195,14 @@ def global_poll(db: PolilyDB | None = None) -> None:
     # score line
     if refresh_n:
         plog.info(f"           score   | {refresh_n} markets rescored {refresh_ms:.0f}ms")
+
+    # check line — data completeness
+    n_total = len(fetchable)
+    check_parts = [f"price: {price_ok}/{n_total}", f"book: {book_ok}/{n_total}", f"score: {refresh_n}/{n_total}"]
+    if underlying_prices:
+        bin_parts = [f"{sym.replace('USDT','')} ${p:,.0f}" for sym, p in underlying_prices.items()]
+        check_parts.append(f"binance: {' '.join(bin_parts)}")
+    plog.info(f"           check   | {' | '.join(check_parts)}")
 
     # result line
     result_parts = []

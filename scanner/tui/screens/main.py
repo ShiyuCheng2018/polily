@@ -85,24 +85,30 @@ class MainScreen(Screen):
         self._check_poll_heartbeat()
 
     def _check_poll_heartbeat(self) -> None:
-        """Check if poll daemon is alive; incrementally refresh current view."""
+        """Check if poll daemon process is alive via PID file."""
         try:
-            row = self.service.db.conn.execute(
-                "SELECT MAX(updated_at) as last FROM markets WHERE active = 1 AND closed = 0",
-            ).fetchone()
-            alive = False
-            if row and row["last"]:
-                last = datetime.fromisoformat(row["last"])
-                if last.tzinfo is None:
-                    last = last.replace(tzinfo=UTC)
-                alive = (datetime.now(UTC) - last).total_seconds() < 60
+            alive = self._is_daemon_alive()
             self.query_one("#sidebar", Sidebar).set_poll_status(alive)
 
-            # Incremental refresh if poll is active and TUI is idle
             if alive and not self._loading and not self._analyzing:
                 self._refresh_current_view()
         except Exception:
             pass
+
+    @staticmethod
+    def _is_daemon_alive() -> bool:
+        """Check if daemon process is running via PID file."""
+        import os
+        from pathlib import Path
+        pid_path = Path("data/scheduler.pid")
+        if not pid_path.exists():
+            return False
+        try:
+            pid = int(pid_path.read_text().strip())
+            os.kill(pid, 0)  # signal 0 = check if process exists
+            return True
+        except (ValueError, ProcessNotFoundError, PermissionError, OSError):
+            return False
 
     def _refresh_current_view(self) -> None:
         """Call refresh_data() on the current visible view if it supports it."""
@@ -353,7 +359,17 @@ class MainScreen(Screen):
         """Add event to monitoring from ScoreResultView."""
         self.service.toggle_monitor(message.event_id, enable=True)
         self.refresh_sidebar_counts()
+        self._ensure_daemon()
         self._navigate_to("monitor")
+
+    def _ensure_daemon(self) -> None:
+        """Auto-start daemon if not running."""
+        try:
+            from scanner.daemon.scheduler import ensure_daemon_running
+            if ensure_daemon_running():
+                self.notify("后台监控已自动启动")
+        except Exception:
+            pass
 
     def on_back_to_tasks(self, message: BackToTasks) -> None:
         self._navigate_to("tasks")

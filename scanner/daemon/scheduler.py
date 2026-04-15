@@ -191,14 +191,13 @@ def generate_launchd_plist(working_dir: str, python_path: str | None = None) -> 
     if python_path is None:
         python_path = sys.executable
 
-    log_path = f"{working_dir}/data/scheduler.log"
     plist = {
         "Label": PLIST_LABEL,
         "ProgramArguments": [python_path, "-m", "scanner.cli", "scheduler", "run"],
         "WorkingDirectory": working_dir,
         "KeepAlive": {"SuccessfulExit": False},
-        "StandardOutPath": log_path,
-        "StandardErrorPath": log_path,
+        "StandardOutPath": "/dev/null",
+        "StandardErrorPath": "/dev/null",
         "EnvironmentVariables": {
             "PATH": "/usr/local/bin:/usr/bin:/bin",
         },

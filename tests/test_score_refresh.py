@@ -56,7 +56,8 @@ def _make_score_breakdown(**overrides):
 
 
 def _seed_crypto_event(db, event_id="ev1", market_id="m1", yes_price=0.96,
-                       threshold=68000, end_date="2026-04-15T16:00:00+00:00"):
+                       threshold=68000, end_date="2026-04-15T16:00:00+00:00",
+                       monitored=True):
     """Seed a crypto event with one scored market."""
     upsert_event(EventRow(
         event_id=event_id,
@@ -101,6 +102,9 @@ def _seed_crypto_event(db, event_id="ev1", market_id="m1", yes_price=0.96,
         "UPDATE markets SET structure_score = 50.0, score_breakdown = ? WHERE market_id = ?",
         (bd, market_id),
     )
+    if monitored:
+        from scanner.core.monitor_store import upsert_event_monitor
+        upsert_event_monitor(event_id, auto_monitor=True, db=db)
     db.conn.commit()
 
 
@@ -263,6 +267,8 @@ class TestRefreshScores:
                 "commentary": {},
             }),),
         )
+        from scanner.core.monitor_store import upsert_event_monitor
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
         db.conn.commit()
 
         result = refresh_scores(db, {}, config=None)
@@ -306,6 +312,8 @@ class TestRefreshScores:
                 "UPDATE markets SET structure_score = 45.0, score_breakdown = ? WHERE market_id = ?",
                 (bd, f"m{i}"),
             )
+        from scanner.core.monitor_store import upsert_event_monitor
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
         db.conn.commit()
 
         result = refresh_scores(db, {"BTCUSDT": 69000.0}, config=None)
