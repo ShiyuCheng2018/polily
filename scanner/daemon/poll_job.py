@@ -249,12 +249,43 @@ def _run_intelligence_layer(db: PolilyDB) -> None:
                 continue
 
             # --- Per-sub-market signal computation ---
+            _MIN_HISTORY = 5  # minimum entries for meaningful signals
+            _STALE_SECONDS = 600  # 10 min — data older than this is stale
+
+            # Fetch once per event (not per market)
+            recent = get_event_movements(event_id, db, hours=6)
+
             for m in active_markets:
-                # Build price history from previous movement_log entries
-                recent = get_event_movements(event_id, db, hours=6)
                 market_entries = [
                     e for e in recent if e.get("market_id") == m.market_id
                 ]
+
+                # Guard: check data sufficiency and freshness
+                is_cold = len(market_entries) < _MIN_HISTORY
+                is_stale = False
+                if market_entries:
+                    from datetime import UTC, datetime
+                    latest_ts = market_entries[0].get("created_at", "")
+                    try:
+                        latest_dt = datetime.fromisoformat(latest_ts)
+                        if latest_dt.tzinfo is None:
+                            latest_dt = latest_dt.replace(tzinfo=UTC)
+                        age = (datetime.now(UTC) - latest_dt).total_seconds()
+                        is_stale = age > _STALE_SECONDS
+                    except (ValueError, TypeError):
+                        is_stale = True
+
+                if is_cold or is_stale:
+                    # Write noise entry — just record price, no signal computation
+                    append_movement(
+                        event_id=event_id, market_id=m.market_id,
+                        yes_price=m.yes_price, no_price=m.no_price,
+                        bid_depth=m.bid_depth or 0, ask_depth=m.ask_depth or 0,
+                        spread=m.spread, magnitude=0, quality=0, label="noise",
+                        db=db,
+                    )
+                    continue
+
                 price_history = [
                     e["yes_price"]
                     for e in reversed(market_entries)
