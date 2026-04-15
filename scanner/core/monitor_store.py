@@ -73,3 +73,8 @@ def update_next_check_at(
         (event_id, next_check_at, reason, now),
     )
     db.conn.commit()
+
+    # Notify daemon to reload check jobs from DB
+    if next_check_at:
+        from scanner.daemon.notify import notify_daemon
+        notify_daemon()
