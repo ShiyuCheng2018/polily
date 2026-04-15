@@ -96,5 +96,6 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 - `claude -p --output-format json` (CLI v2.1+) returns a **JSON array**: `[{"type":"system",...}, {"type":"assistant",...}, {"type":"result","result":"..."}]`. Find the `{"type":"result"}` element (last in array), then parse `result` field. Legacy mode uses `--bare`, tool mode does not.
 - TUI exit uses `os._exit(0)` because `claude -p` spawns Node.js subprocesses that survive normal shutdown.
 - `run_worker(self._do_scan, thread=True)` — pass function reference (no parentheses), not coroutine. All UI updates from worker must use `call_from_thread`.
-- Global poll runs every 10s on a dedicated single-thread executor. Movement detection is inline (no separate job). AI analysis is triggered on the ai executor (5 threads).
+- Global poll runs every 30s on a dedicated single-thread executor. Movement detection is inline (no separate job). AI analysis is triggered on the ai executor (5 threads).
 - Daemon writes PID to `data/scheduler.pid`. CLI `stop` reads PID and sends SIGTERM. `SIGUSR1` triggers job reload from DB.
+- **CLOB /book API 对 negRisk 市场盘口失真**（GitHub Issue #180）：返回原始 token 盘口 bid=0.01 ask=0.99，不反映 complement matching 的真实流动性。真实价格用 `/midpoint`，真实 spread 用 `/price?side=BUY` 和 `/price?side=SELL` 的差值。`/book` 的 depth 数据对 negRisk 市场不可靠。
