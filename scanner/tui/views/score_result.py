@@ -1,15 +1,18 @@
-"""ScoreResultView: scoring result page — steps + full event detail + action buttons."""
+"""ScoreResultView: scoring result page — steps + event detail + action buttons.
+
+Uses the same components as MarketDetailView but with different actions.
+"""
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Static
 
 from scanner.scan_log import ScanLogEntry
+from scanner.tui.components import EventHeader, EventKpiRow, SubMarketTable
 from scanner.tui.service import ScanService
-from scanner.tui.views.market_detail import MarketDetailView
 
 
 class BackToTasks(Message):
@@ -29,7 +32,7 @@ class AddToMonitorRequested(Message):
 
 
 class ScoreResultView(Widget):
-    """Scoring result: steps + full event detail (via MarketDetailView) + action buttons."""
+    """Scoring result: steps + event detail components + action buttons."""
 
     BINDINGS = [
         Binding("escape", "go_back", "返回"),
@@ -38,11 +41,10 @@ class ScoreResultView(Widget):
 
     DEFAULT_CSS = """
     ScoreResultView { height: 1fr; }
-    ScoreResultView #steps-section { height: auto; padding: 0 1; }
     ScoreResultView .section-title { text-style: bold; color: $primary; padding: 1 0 0 0; }
     ScoreResultView .step-row { padding: 0 0 0 2; }
-    ScoreResultView #detail-section { height: 1fr; }
-    ScoreResultView #action-section { height: auto; padding: 1 1; }
+    ScoreResultView #scroll-area { height: 1fr; }
+    ScoreResultView #action-bar { height: auto; dock: bottom; padding: 1 1; }
     ScoreResultView #action-row { height: 3; }
     ScoreResultView #action-row Button { margin: 0 1; }
     ScoreResultView .expired-msg { color: $error; padding: 1 2; }
@@ -57,11 +59,13 @@ class ScoreResultView(Widget):
         log = self._get_log_entry()
         detail = self.service.get_event_detail(self.event_id)
         event = detail["event"] if detail else None
+        markets = detail.get("markets", []) if detail else []
+        monitor = detail.get("monitor") if detail else None
         is_expired = self._is_expired(event)
         is_monitored = self._is_monitored()
 
-        # --- Steps ---
-        with Vertical(id="steps-section"):
+        with VerticalScroll(id="scroll-area"):
+            # --- Steps ---
             if log and log.steps:
                 yield Static(" 评分步骤", classes="section-title")
                 for step in log.steps:
@@ -74,14 +78,13 @@ class ScoreResultView(Widget):
                     }.get(step.status, step.status)
                     yield Static(f"  {status_label}  {step.name}{detail_text}     {elapsed_str}", classes="step-row")
 
-        # --- Full event detail (reuse MarketDetailView) ---
-        with Vertical(id="detail-section"):
-            yield MarketDetailView(
-                event_id=self.event_id, service=self.service,
-            )
+            # --- Event detail (same components as MarketDetailView) ---
+            yield EventHeader(event, monitor)
+            yield EventKpiRow(event, markets)
+            yield SubMarketTable(markets, event)
 
-        # --- Action buttons ---
-        with Vertical(id="action-section"):
+        # --- Action buttons (fixed at bottom, outside scroll) ---
+        with Vertical(id="action-bar"):
             if is_expired:
                 yield Static("  事件已过期", classes="expired-msg")
             else:

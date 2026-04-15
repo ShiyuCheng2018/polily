@@ -322,6 +322,8 @@ class TestCollectCryptoSymbols:
     def test_extracts_symbols_from_crypto_events(self, db):
         from scanner.daemon.poll_job import _collect_crypto_symbols
 
+        from scanner.core.monitor_store import upsert_event_monitor
+
         upsert_event(EventRow(
             event_id="ev1", title="Bitcoin above ___ on April 15?",
             market_type="crypto", updated_at="now",
@@ -334,6 +336,8 @@ class TestCollectCryptoSymbols:
             event_id="ev3", title="Will team X win?",
             market_type="sports", updated_at="now",
         ), db)
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
+        upsert_event_monitor("ev2", auto_monitor=True, db=db)
 
         symbols = _collect_crypto_symbols(db)
 

@@ -15,6 +15,7 @@ from scanner.core.event_store import (
     upsert_event,
     upsert_market,
 )
+from scanner.core.monitor_store import upsert_event_monitor
 from scanner.daemon.poll_job import _fetch_midpoint, _fetch_single_market, global_poll
 
 
@@ -25,7 +26,7 @@ def db(tmp_path):
     db.close()
 
 
-def _seed(db, event_id="ev1", market_id="m1", token="tok1", **market_kw):
+def _seed(db, event_id="ev1", market_id="m1", token="tok1", monitored=True, **market_kw):
     upsert_event(EventRow(event_id=event_id, title="E", updated_at="now"), db)
     defaults = dict(
         market_id=market_id,
@@ -37,6 +38,8 @@ def _seed(db, event_id="ev1", market_id="m1", token="tok1", **market_kw):
     )
     defaults.update(market_kw)
     upsert_market(MarketRow(**defaults), db)
+    if monitored:
+        upsert_event_monitor(event_id, auto_monitor=True, db=db)
 
 
 class TestGlobalPollPriceLayer:
@@ -92,24 +95,17 @@ class TestGlobalPollPriceLayer:
         upsert_event(EventRow(event_id="ev1", title="E", updated_at="now"), db)
         upsert_market(
             MarketRow(
-                market_id="m1",
-                event_id="ev1",
-                question="Q1",
-                clob_token_id_yes="t1",
-                updated_at="now",
-            ),
-            db,
+                market_id="m1", event_id="ev1", question="Q1",
+                clob_token_id_yes="t1", updated_at="now",
+            ), db,
         )
         upsert_market(
             MarketRow(
-                market_id="m2",
-                event_id="ev1",
-                question="Q2",
-                clob_token_id_yes="t2",
-                updated_at="now",
-            ),
-            db,
+                market_id="m2", event_id="ev1", question="Q2",
+                clob_token_id_yes="t2", updated_at="now",
+            ), db,
         )
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
 
         with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
             mock_fetch.side_effect = httpx.HTTPStatusError(
@@ -160,24 +156,17 @@ class TestGlobalPollPriceLayer:
         upsert_event(EventRow(event_id="ev1", title="E", updated_at="now"), db)
         upsert_market(
             MarketRow(
-                market_id="m1",
-                event_id="ev1",
-                question="Q1",
-                clob_token_id_yes="t1",
-                updated_at="now",
-            ),
-            db,
+                market_id="m1", event_id="ev1", question="Q1",
+                clob_token_id_yes="t1", updated_at="now",
+            ), db,
         )
         upsert_market(
             MarketRow(
-                market_id="m2",
-                event_id="ev1",
-                question="Q2",
-                clob_token_id_yes="t2",
-                updated_at="now",
-            ),
-            db,
+                market_id="m2", event_id="ev1", question="Q2",
+                clob_token_id_yes="t2", updated_at="now",
+            ), db,
         )
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
 
         def _side_effect(client, market):
             if market.market_id == "m1":
@@ -227,14 +216,11 @@ class TestGlobalPollPriceLayer:
         )
         upsert_market(
             MarketRow(
-                market_id="m2",
-                event_id="ev1",
-                question="Q2",
-                clob_token_id_yes="t2",
-                updated_at="now",
-            ),
-            db,
+                market_id="m2", event_id="ev1", question="Q2",
+                clob_token_id_yes="t2", updated_at="now",
+            ), db,
         )
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
 
         call_count = 0
 
@@ -419,3 +405,45 @@ class TestWideSpreandIntegration:
 
         market = get_market("m1", db)
         assert market.yes_price == 0.929
+
+
+class TestPollOnlyMonitoredEvents:
+    """Poll should only fetch markets from monitored events."""
+
+    def test_only_monitored_markets_fetched(self, db):
+        """Markets from non-monitored events should NOT be fetched."""
+        # ev1 monitored, ev2 not
+        _seed(db, "ev1", "m1", token="t1")
+        _seed(db, "ev2", "m2", token="t2", monitored=False)
+
+        call_count = 0
+
+        def _side_effect(client, market):
+            nonlocal call_count
+            call_count += 1
+            return {
+                "yes_price": 0.50, "no_price": 0.50,
+                "best_bid": 0.49, "best_ask": 0.51, "spread": 0.02,
+                "last_trade_price": 0.50,
+                "bid_depth": 100.0, "ask_depth": 100.0,
+                "book_bids": "[]", "book_asks": "[]",
+            }
+
+        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+            mock_fetch.side_effect = _side_effect
+            global_poll(db)
+
+        assert call_count == 1  # only ev1's market
+        m1 = get_market("m1", db)
+        m2 = get_market("m2", db)
+        assert m1.yes_price == 0.50  # updated
+        assert m2.yes_price is None  # NOT updated
+
+    def test_no_monitored_events_is_noop(self, db):
+        """If no events are monitored, poll should not fetch anything."""
+        _seed(db, "ev1", "m1", token="t1", monitored=False)
+
+        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+            global_poll(db)
+
+        mock_fetch.assert_not_called()

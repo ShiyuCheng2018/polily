@@ -78,7 +78,7 @@ def append_movement(
             snapshot,
         ),
     )
-    db.conn.commit()
+    # Note: caller is responsible for commit (batch commit in poll_job)
 
 
 def get_event_movements(event_id: str, db: PolilyDB, hours: int = 6) -> list[dict]:

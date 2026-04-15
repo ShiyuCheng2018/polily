@@ -20,7 +20,6 @@ import httpx
 
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import (
-    get_active_markets,
     get_event_markets,
     mark_market_closed,
     update_market_prices,
@@ -90,7 +89,7 @@ def global_poll(db: PolilyDB | None = None) -> None:
     _poll_count += 1
     warn = False
 
-    markets = get_active_markets(db)
+    markets = _get_monitored_markets(db)
     fetchable = [m for m in markets if m.clob_token_id_yes]
 
     if not fetchable:
@@ -379,20 +378,38 @@ def _run_intelligence_layer(db: PolilyDB) -> None:
             logger.exception("Intelligence layer failed for event %s", event_id)
             continue
 
+    # Batch commit all movement_log entries
+    db.conn.commit()
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _collect_crypto_symbols(db: PolilyDB) -> set[str]:
-    """Collect unique Binance symbols needed for crypto events.
+def _get_monitored_markets(db: PolilyDB) -> list:
+    """Get active markets only from monitored events."""
+    rows = db.conn.execute(
+        """SELECT m.* FROM markets m
+        JOIN event_monitors em ON m.event_id = em.event_id
+        WHERE m.active = 1 AND m.closed = 0
+        AND em.auto_monitor = 1
+        ORDER BY m.market_id""",
+    ).fetchall()
+    from scanner.core.event_store import MarketRow
+    return [MarketRow.model_validate(dict(r)) for r in rows]
 
-    Reads event titles, extracts crypto asset pairs, converts to Binance format.
+
+def _collect_crypto_symbols(db: PolilyDB) -> set[str]:
+    """Collect unique Binance symbols needed for monitored crypto events.
+
     Returns e.g. {"BTCUSDT", "ETHUSDT"}.
     """
     rows = db.conn.execute(
-        "SELECT DISTINCT title FROM events WHERE market_type = 'crypto' AND closed = 0",
+        """SELECT DISTINCT e.title FROM events e
+        JOIN event_monitors em ON e.event_id = em.event_id
+        WHERE e.market_type = 'crypto' AND e.closed = 0
+        AND em.auto_monitor = 1""",
     ).fetchall()
     symbols = set()
     for row in rows:

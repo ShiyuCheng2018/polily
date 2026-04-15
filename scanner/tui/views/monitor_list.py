@@ -37,7 +37,9 @@ class MonitorListView(Widget):
     def on_mount(self):
         table = self.query_one("#monitor-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("事件", "子市场", "状态", "下次检查")
+        table.add_columns(
+            ("事件", "title"), ("子市场", "count"), ("状态", "status"), ("下次检查", "next_check"),
+        )
         self._load_data(table)
 
     def _load_data(self, table):
@@ -91,3 +93,27 @@ class MonitorListView(Widget):
         self.service.toggle_monitor(e["event"].event_id, enable=False)
         self.notify(f"关闭监控: {e['event'].title[:30]}")
         self.screen.refresh_sidebar_counts()
+
+    def refresh_data(self) -> None:
+        """Incremental update: refresh monitored events data in-place."""
+        try:
+            table = self.query_one("#monitor-table", DataTable)
+        except Exception:
+            return
+
+        events = self.service.get_all_events()
+        fresh = {e["event"].event_id: e for e in events if e["is_monitored"]}
+
+        for e in self._monitored:
+            eid = e["event"].event_id
+            new = fresh.get(eid)
+            if not new:
+                continue
+            nc = new.get("next_check_at")
+            next_check = nc[:16] if nc else "-"
+            try:
+                table.update_cell(eid, "next_check", next_check)
+            except Exception:
+                pass
+
+        self._monitored = [e for e in events if e["is_monitored"]]
