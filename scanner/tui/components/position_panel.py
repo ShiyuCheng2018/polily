@@ -1,23 +1,23 @@
 """PositionPanel: paper trade positions with visual P&L cards."""
 
 from textual.app import ComposeResult
+from textual.containers import Vertical
 from textual.widget import Widget
 from textual.widgets import Static
 
 from scanner.pnl import calc_unrealized_pnl
+from scanner.tui.widgets.cards import DashPanel
 
 
 class PositionPanel(Widget):
     """Shows paper trade positions with price bars and P&L."""
 
     DEFAULT_CSS = """
-    PositionPanel { height: auto; padding: 0 1; }
-    PositionPanel .pos-title { text-style: bold; padding: 1 0 0 0; }
-    PositionPanel .pos-card { margin: 1 0; padding: 1 2; border: round $primary-lighten-2; }
-    PositionPanel .pos-card-name { text-style: bold; }
+    PositionPanel { height: auto; }
+    PositionPanel DashPanel { width: 1fr; margin: 0 1; height: auto; }
+    PositionPanel .pos-card { border: tall $accent; padding: 0 1; margin: 0 0 1 0; height: auto; }
     PositionPanel .pos-row { padding: 0; }
-    PositionPanel .pos-summary { padding: 1 0 0 0; border-top: solid $primary-lighten-3; margin: 1 0 0 0; }
-    PositionPanel .pos-empty { color: $text-muted; padding: 1 0; }
+    PositionPanel .pos-summary { padding: 0 0 0 1; text-style: bold; }
     """
 
     def __init__(self, trades: list, markets: list, movements: list | None = None):
@@ -27,105 +27,61 @@ class PositionPanel(Widget):
         self._movements = movements or []
 
     def compose(self) -> ComposeResult:
-        yield Static("持仓", classes="pos-title")
+        panel = DashPanel(id="panel-position")
+        panel.border_title = "持仓"
+        with panel:
+            if not self._trades:
+                yield Static("[dim]无持仓 — 按 t 建仓[/dim]", classes="pos-row")
+                return
 
-        if not self._trades:
-            yield Static("[dim]无持仓 — 按 t 建仓[/dim]", classes="pos-empty")
-            return
+            markets_by_id = {m.market_id: m for m in self._markets if hasattr(m, "market_id")}
+            total_cost = 0.0
+            total_value = 0.0
+            total_pnl = 0.0
 
-        markets_by_id = {m.market_id: m for m in self._markets if hasattr(m, "market_id")}
-        total_size = 0.0
-        total_pnl = 0.0
+            for i, t in enumerate(self._trades):
+                side = t.get("side", "?")
+                entry = t.get("entry_price", 0)
+                size = t.get("position_size_usd", 0)
+                title = (t.get("title") or "?")[:25]
+                market_id = t.get("market_id", "")
+                shares = size / entry if entry > 0 else 0
 
-        for t in self._trades:
-            side = t.get("side", "?")
-            entry = t.get("entry_price", 0)
-            size = t.get("position_size_usd", 0)
-            title = (t.get("title") or "?")[:25]
-            market_id = t.get("market_id", "")
-            shares = size / entry if entry > 0 else 0
+                total_cost += size
 
-            total_size += size
+                mr = markets_by_id.get(market_id)
+                current_yes = mr.yes_price if mr and mr.yes_price is not None else None
+                current_price = None
+                pnl = 0.0
+                pnl_pct = 0.0
 
-            # Current price
-            mr = markets_by_id.get(market_id)
-            current_yes = mr.yes_price if mr and mr.yes_price is not None else None
-            current_price = None
-            pnl = 0.0
-            pnl_pct = 0.0
+                if current_yes is not None and entry > 0:
+                    current_price = current_yes if side == "yes" else round(1 - current_yes, 4)
+                    pnl_data = calc_unrealized_pnl(side, entry, current_yes, size)
+                    pnl = pnl_data["pnl"]
+                    pnl_pct = pnl / size * 100 if size > 0 else 0
+                    total_value += shares * current_price
+                    total_pnl += pnl
 
-            if current_yes is not None and entry > 0:
-                current_price = current_yes if side == "yes" else round(1 - current_yes, 4)
-                pnl_data = calc_unrealized_pnl(side, entry, current_yes, size)
-                pnl = pnl_data["pnl"]
-                pnl_pct = pnl / size * 100 if size > 0 else 0
-                total_pnl += pnl
+                side_display = side.upper()
 
-            # Build card
-            with Static(classes="pos-card") as card:
-                pass
+                pnl_str = ""
+                if current_price is not None:
+                    color = "green" if pnl >= 0 else "red"
+                    sign = "+" if pnl >= 0 else ""
+                    pnl_str = f"  |  入场 @ {entry * 100:.1f}¢  [{color}]{sign}${pnl:.2f} ({sign}{pnl_pct:.1f}%)[/{color}]"
 
-            yield Static(f"[bold]{title}[/bold]", classes="pos-card-name")
+                with Vertical(classes="pos-card"):
+                    yield Static(
+                        f"[bold]{title}[/]  {side_display} @ {current_price * 100:.1f}¢  ${size:.0f} ({shares:.0f}股){pnl_str}" if current_price is not None
+                        else f"[bold]{title}[/]  {side_display} @ {entry * 100:.1f}¢  ${size:.0f} ({shares:.0f}股)",
+                        classes="pos-row",
+                    )
 
-            # Line 1: side + entry + size
-            side_display = side.upper()
-            yield Static(
-                f"  {side_display} @ {entry * 100:.1f}¢    仓位 ${size:.0f}    {shares:.0f} 股",
-                classes="pos-row",
-            )
-
-            # Line 2: price bar
-            if current_price is not None:
-                bar = _price_bar(entry, current_price)
+            if len(self._trades) > 0:
+                pnl_color = "green" if total_pnl >= 0 else "red"
+                pnl_sign = "+" if total_pnl >= 0 else ""
                 yield Static(
-                    f"  现价 {current_price * 100:.1f}¢  {bar}  入场 {entry * 100:.1f}¢",
-                    classes="pos-row",
+                    f"合计 ${total_value:.2f}  [{pnl_color}]{pnl_sign}${total_pnl:.2f}[/{pnl_color}]",
+                    classes="pos-summary",
                 )
-
-            # Line 3: P&L
-            if current_price is not None:
-                color = "green" if pnl >= 0 else "red"
-                sign = "+" if pnl >= 0 else ""
-                yield Static(
-                    f"  [{color}]浮盈 {sign}${pnl:.2f} ({sign}{pnl_pct:.1f}%)[/{color}]",
-                    classes="pos-row",
-                )
-
-            yield Static("")
-
-        # Summary
-        if len(self._trades) > 0:
-            pnl_color = "green" if total_pnl >= 0 else "red"
-            pnl_sign = "+" if total_pnl >= 0 else ""
-            yield Static(
-                f"合计  持仓 ${total_size:.0f}  [{pnl_color}]浮盈 {pnl_sign}${total_pnl:.2f}[/{pnl_color}]",
-                classes="pos-summary",
-            )
-
-
-def _price_bar(entry: float, current: float, width: int = 20) -> str:
-    """Visual bar showing current price relative to entry.
-
-    Entry is the midpoint of the bar. Green fill if profitable, red if not.
-    """
-    if entry <= 0:
-        return "░" * width
-
-    ratio = current / entry
-    # Clamp to 0.5x - 1.5x range for display
-    normalized = max(0.0, min(1.0, (ratio - 0.5) / 1.0))
-    fill = int(normalized * width)
-    entry_pos = int(0.5 * width)  # entry is at the middle
-
-    bar_chars = []
-    for i in range(width):
-        if i < fill and i < entry_pos:
-            bar_chars.append("[red]█[/]")
-        elif i < fill:
-            bar_chars.append("[green]█[/]")
-        elif i == entry_pos:
-            bar_chars.append("│")
-        else:
-            bar_chars.append("░")
-
-    return "".join(bar_chars)

@@ -50,7 +50,8 @@ class PaperStatusView(Widget):
         table.cursor_type = "row"
         table.add_columns(
             ("事件", "title"), ("方向", "side"), ("入场价", "entry"),
-            ("现价", "现价"), ("P&L", "P&L"), ("金额", "amount"),
+            ("现价", "现价"), ("金额", "amount"), ("价值", "value"),
+            ("P&L", "P&L"),
         )
 
         if not self._trades:
@@ -82,6 +83,8 @@ class PaperStatusView(Widget):
 
             yes_price = self._get_market_price(t["market_id"])
 
+            shares = size / entry if entry > 0 else 0
+
             if yes_price is not None and entry > 0:
                 pnl_data = calc_unrealized_pnl(side, entry, yes_price, size)
                 cur = yes_price if side == "yes" else round(1 - yes_price, 3)
@@ -89,7 +92,8 @@ class PaperStatusView(Widget):
                 pnl_pct = pnl_data["pnl_pct"]
                 value = pnl_data["current_value"]
 
-                cur_str = f"${cur:.2f}"
+                cur_str = f"{cur * 100:.1f}¢"
+                value_str = f"${value:.2f}"
 
                 if pnl_val > 0:
                     pnl_str = f"[green]+${pnl_val:.2f} (+{pnl_pct:.1f}%)[/green]"
@@ -104,18 +108,20 @@ class PaperStatusView(Widget):
             else:
                 cur_str = "?"
                 pnl_str = "-"
+                value_str = "?"
                 total_cost += size
 
-            entry_str = f"${entry:.2f}"
-            amount_str = f"${size:.0f}"
+            entry_str = f"{entry * 100:.1f}¢"
+            amount_str = f"${size:.0f}({shares:.0f}股)"
 
             table.add_row(
                 title,
                 side.upper(),
                 entry_str,
                 cur_str,
-                pnl_str,
                 amount_str,
+                value_str,
+                pnl_str,
                 key=t["id"],
             )
 
@@ -166,8 +172,10 @@ class PaperStatusView(Widget):
                 cur = yes_price if side == "yes" else round(1 - yes_price, 3)
                 pnl_val = pnl_data["pnl"]
                 pnl_pct = pnl_data["pnl_pct"]
+                value = pnl_data["current_value"]
 
-                cur_str = f"${cur:.2f}"
+                cur_str = f"{cur * 100:.1f}¢"
+                value_str = f"${value:.2f}"
                 if pnl_val > 0:
                     pnl_str = f"[green]+${pnl_val:.2f} (+{pnl_pct:.1f}%)[/green]"
                 elif pnl_val < 0:
@@ -175,15 +183,17 @@ class PaperStatusView(Widget):
                 else:
                     pnl_str = "$0.00"
 
-                total_value += pnl_data["current_value"]
+                total_value += value
                 total_pnl += pnl_val
             else:
                 cur_str = "?"
                 pnl_str = "-"
+                value_str = "?"
             total_cost += size
 
             try:
                 table.update_cell(t["id"], "现价", cur_str)
+                table.update_cell(t["id"], "value", value_str)
                 table.update_cell(t["id"], "P&L", pnl_str)
             except Exception:
                 continue
