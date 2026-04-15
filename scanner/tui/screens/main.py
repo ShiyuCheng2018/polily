@@ -14,15 +14,23 @@ from scanner.tui.views.market_detail import (
     BackToList,
     CancelAnalysisRequested,
     MarketDetailView,
+    RescoreEventRequested,
     SwitchVersionRequested,
 )
-from scanner.tui.views.market_list import MarketListView, ViewDetailRequested
 from scanner.tui.views.monitor_list import MonitorListView, ViewMonitorDetail
+from scanner.tui.views.score_result import (
+    AddToMonitorRequested,
+    BackToTasks,
+    ScoreResultView,
+    ScoreViewRescore,
+)
 from scanner.tui.views.notification_list import NotificationListView
 from scanner.tui.views.paper_status import PaperStatusView, ViewTradeDetail
 from scanner.tui.views.scan_log import (
+    AddEventRequested,
     BackToScanLog,
     OpenMarketFromLog,
+    RescoreRequested,
     ScanLogDetailView,
     ScanLogView,
     StepInfo,
@@ -37,17 +45,15 @@ class MainScreen(Screen):
     BINDINGS = [
         Binding("0", "show_tasks", show=False),
         Binding("r", "refresh", show=False),
-        Binding("s", "new_scan", show=False),
-        Binding("1", "show_research", show=False),
-        Binding("2", "show_monitor", show=False),
-        Binding("3", "show_paper", show=False),
-        Binding("4", "show_history", show=False),
-        Binding("5", "show_notifications", show=False),
+        Binding("1", "show_monitor", show=False),
+        Binding("2", "show_paper", show=False),
+        Binding("3", "show_history", show=False),
+        Binding("4", "show_notifications", show=False),
         Binding("up", "menu_prev", show=False),
         Binding("down", "menu_next", show=False),
     ]
 
-    MENU_ORDER = ["tasks", "research", "monitor", "paper", "history", "notifications"]
+    MENU_ORDER = ["tasks", "monitor", "paper", "history", "notifications"]
 
     def __init__(self, service: ScanService):
         super().__init__()
@@ -69,38 +75,42 @@ class MainScreen(Screen):
     def on_mount(self) -> None:
         sidebar = self.query_one("#sidebar", Sidebar)
         sidebar.set_active_menu("tasks")
-        research = len(self.service.get_research_events())
         monitor = self.service.get_monitor_count()
         paper = len(self.service.get_open_trades())
         notif_count = self.service.get_unread_notification_count()
         history = self.service.get_history_count()
-        sidebar.update_counts(research, monitor, paper, notif_count, history)
-        if research or monitor:
-            self.query_one("#status-bar", Static).update(
-                f"上次扫描: 研{research} 监{monitor} ({self.service.total_scanned} 市场)"
-            )
+        sidebar.update_counts(monitor, paper, notif_count, history)
+        # Poll heartbeat: check every 5s
+        self.set_interval(5, self._check_poll_heartbeat)
+        self._check_poll_heartbeat()
 
-    def _start_scan(self):
-        if self._loading:
-            return
-        self._loading = True
-        self.query_one("#status-bar", Static).update("扫描中...")
-        # B5 fix: rebuild ScanLogView with live progress support
-        if self._current_menu == "tasks":
-            self._navigate_to("tasks")
-        self.run_worker(self._do_scan, name="scan", thread=True, exclusive=True)
-
-    async def _do_scan(self):
-        """Worker thread: only data fetching, NO direct UI operations."""
-        self.service.on_progress = lambda steps: self.app.call_from_thread(
-            self._update_progress, steps
-        )
+    def _check_poll_heartbeat(self) -> None:
+        """Check if poll daemon is alive; incrementally refresh current view."""
         try:
-            await self.service.fetch_and_scan()
-        except Exception as e:
-            self.app.call_from_thread(self._on_scan_failed, str(e))
-            return
-        self.app.call_from_thread(self._on_scan_complete)
+            row = self.service.db.conn.execute(
+                "SELECT MAX(updated_at) as last FROM markets WHERE active = 1 AND closed = 0",
+            ).fetchone()
+            alive = False
+            if row and row["last"]:
+                last = datetime.fromisoformat(row["last"])
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=UTC)
+                alive = (datetime.now(UTC) - last).total_seconds() < 60
+            self.query_one("#sidebar", Sidebar).set_poll_status(alive)
+
+            # Incremental refresh if poll is active and TUI is idle
+            if alive and not self._loading and not self._analyzing:
+                self._refresh_current_view()
+        except Exception:
+            pass
+
+    def _refresh_current_view(self) -> None:
+        """Call refresh_data() on the current visible view if it supports it."""
+        content = self.query_one("#content-area")
+        for child in content.children:
+            if hasattr(child, "refresh_data"):
+                child.refresh_data()
+                break
 
     def _update_progress(self, steps: list[StepInfo]):
         """Main thread: update live progress if ScanLogView is visible."""
@@ -114,32 +124,47 @@ class MainScreen(Screen):
             if latest.status == "running":
                 self.query_one("#status-bar", Static).update(f"{latest.name}...")
 
-    def _on_scan_complete(self):
-        """Main thread: update status, do NOT auto-navigate."""
-        self._loading = False
-        total = self.service.total_scanned
-        research = len(self.service.get_research_events())
-        monitor = self.service.get_monitor_count()
-        paper = len(self.service.get_open_trades())
+    # --- Add event by URL ---
 
-        status_parts = [f"扫描完成: 研{research} 监{monitor} ({total} 市场)"]
-        self.query_one("#status-bar", Static).update(" | ".join(status_parts))
-        sidebar = self.query_one("#sidebar", Sidebar)
-        notif_count = self.service.get_unread_notification_count()
-        history = self.service.get_history_count()
-        sidebar.update_counts(research, monitor, paper, notif_count, history)
-        if research:
-            sidebar.mark_new_data("research")
-        if monitor:
-            sidebar.mark_new_data("monitor")
-
+    def on_add_event_requested(self, message: AddEventRequested) -> None:
+        if self._loading:
+            return
+        self._loading = True
+        self._add_url = message.url
+        self.query_one("#status-bar", Static).update("获取事件...")
         if self._current_menu == "tasks":
             self._navigate_to("tasks")
+        self.run_worker(self._do_add_event, name="add_event", thread=True, exclusive=True)
 
-    def _on_scan_failed(self, error: str):
+    async def _do_add_event(self):
+        self.service.on_progress = lambda steps: self.app.call_from_thread(
+            self._update_progress, steps
+        )
+        try:
+            result = await self.service.add_event_by_url(self._add_url)
+        except Exception as e:
+            self.app.call_from_thread(self._on_add_failed, str(e))
+            return
+        if result is None:
+            self.app.call_from_thread(self._on_add_failed, "事件未找到或链接无效")
+            return
+        self.app.call_from_thread(self._on_add_complete, result)
+
+    def _on_add_complete(self, result):
         self._loading = False
-        error_short = error[:80] if len(error) > 80 else error
-        self.query_one("#status-bar", Static).update(f"扫描失败: {error_short}")
+        event = result["event"]
+        score = result["event_score"].total
+        self.query_one("#status-bar", Static).update(
+            f"评分完成: {event.title[:30]} ({score:.0f}分)"
+        )
+        self._switch_view(
+            ScoreResultView(event_id=event.event_id, service=self.service)
+        )
+        self.refresh_sidebar_counts()
+
+    def _on_add_failed(self, error: str):
+        self._loading = False
+        self.query_one("#status-bar", Static).update(f"添加失败: {error[:60]}")
         if self._current_menu == "tasks":
             self._navigate_to("tasks")
 
@@ -168,22 +193,16 @@ class MainScreen(Screen):
                 view.focus()
 
     def refresh_sidebar_counts(self):
-        research = len(self.service.get_research_events())
         monitor = self.service.get_monitor_count()
         paper = len(self.service.get_open_trades())
         notif_count = self.service.get_unread_notification_count()
         history = self.service.get_history_count()
-        self.query_one("#sidebar", Sidebar).update_counts(research, monitor, paper, notif_count, history)
+        self.query_one("#sidebar", Sidebar).update_counts(monitor, paper, notif_count, history)
 
     # --- Message handlers ---
 
     def on_menu_selected(self, message: MenuSelected) -> None:
         self._navigate_to(message.menu_id)
-
-    def on_view_detail_requested(self, message: ViewDetailRequested) -> None:
-        self._switch_view(
-            MarketDetailView(event_id=message.event_id, service=self.service)
-        )
 
     def on_switch_version_requested(self, message: SwitchVersionRequested) -> None:
         is_analyzing = self._analyzing and self._analyzing_event_id == message.event_id
@@ -309,10 +328,42 @@ class MainScreen(Screen):
         self._cancel_analysis()
 
     def on_open_market_from_log(self, message: OpenMarketFromLog) -> None:
-        """Navigate to event detail from a log entry."""
+        """Navigate to score result page from a log entry."""
         self._switch_view(
-            MarketDetailView(event_id=message.event_id, service=self.service)
+            ScoreResultView(event_id=message.event_id, service=self.service)
         )
+
+    def on_rescore_requested(self, message: RescoreRequested) -> None:
+        """Re-score an event by its event_id (looks up slug from DB)."""
+        from scanner.core.event_store import get_event
+        event = get_event(message.event_id, self.service.db)
+        if event and event.slug:
+            url = f"https://polymarket.com/event/{event.slug}"
+            self.on_add_event_requested(AddEventRequested(url))
+
+    def on_rescore_event_requested(self, message: RescoreEventRequested) -> None:
+        """Re-score event from MarketDetailView button."""
+        self._rescore_by_event_id(message.event_id)
+
+    def on_score_view_rescore(self, message: ScoreViewRescore) -> None:
+        """Re-score event from ScoreResultView button."""
+        self._rescore_by_event_id(message.event_id)
+
+    def on_add_to_monitor_requested(self, message: AddToMonitorRequested) -> None:
+        """Add event to monitoring from ScoreResultView."""
+        self.service.toggle_monitor(message.event_id, enable=True)
+        self.refresh_sidebar_counts()
+        self._navigate_to("monitor")
+
+    def on_back_to_tasks(self, message: BackToTasks) -> None:
+        self._navigate_to("tasks")
+
+    def _rescore_by_event_id(self, event_id: str) -> None:
+        from scanner.core.event_store import get_event
+        event = get_event(event_id, self.service.db)
+        if event and event.slug:
+            url = f"https://polymarket.com/event/{event.slug}"
+            self.on_add_event_requested(AddEventRequested(url))
 
     def on_view_monitor_detail(self, message: ViewMonitorDetail) -> None:
         """Navigate to event detail from monitor list."""
@@ -337,9 +388,6 @@ class MainScreen(Screen):
             logs = self.service.get_scan_logs()
             current_steps = list(self.service._steps) if self._loading else None
             self._switch_view(ScanLogView(logs, current_steps), "tasks")
-        elif menu_id == "research":
-            events = self.service.get_research_events()
-            self._switch_view(MarketListView(events=events, service=self.service, title="研究队列"), "research")
         elif menu_id == "monitor":
             self._switch_view(MonitorListView(service=self.service), "monitor")
         elif menu_id == "paper":
@@ -354,9 +402,6 @@ class MainScreen(Screen):
     def action_show_tasks(self) -> None:
         self._navigate_to("tasks")
 
-    def action_show_research(self) -> None:
-        self._navigate_to("research")
-
     def action_show_monitor(self) -> None:
         self._navigate_to("monitor")
 
@@ -370,7 +415,6 @@ class MainScreen(Screen):
         self._navigate_to("notifications")
 
     def action_refresh(self) -> None:
-        # If viewing a market detail, rebuild it in-place (don't jump to list)
         content = self.query_one("#content-area")
         for child in content.children:
             if isinstance(child, MarketDetailView):
@@ -379,9 +423,6 @@ class MainScreen(Screen):
                 ))
                 return
         self._navigate_to(self._current_menu)
-
-    def action_new_scan(self) -> None:
-        self._start_scan()
 
     def action_menu_prev(self) -> None:
         idx = self.MENU_ORDER.index(self._current_menu) if self._current_menu in self.MENU_ORDER else 0

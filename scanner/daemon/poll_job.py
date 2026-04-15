@@ -2,8 +2,9 @@
 
 Architecture:
   - ONE global poll function, registered as IntervalTrigger in daemon
-  - Step 1 (price layer): asyncio.gather all CLOB book+trades -> update markets table
-  - Step 2 (intelligence layer): for monitored events -> compute signals (Task 3.2)
+  - Step 1 (price layer): fetch CLOB + Binance concurrently -> update markets table
+  - Step 2 (score refresh): recalculate mispricing + scores for scored markets
+  - Step 3 (intelligence layer): for monitored events -> compute signals
 
 Module-level _ctx pattern (PollerContext) for db/config/scheduler access.
 """
@@ -24,10 +25,30 @@ from scanner.core.event_store import (
     mark_market_closed,
     update_market_prices,
 )
+from scanner.price_feeds import extract_crypto_asset
 
 logger = logging.getLogger(__name__)
 
 _SEMAPHORE_LIMIT = 100
+_poll_count = 0
+_poll_log: logging.Logger | None = None
+
+
+def _get_poll_log() -> logging.Logger:
+    """Lazy-init a dedicated file logger for poll.log."""
+    global _poll_log
+    if _poll_log is not None:
+        return _poll_log
+    import os
+    log_dir = os.path.join(os.getcwd(), "data")
+    os.makedirs(log_dir, exist_ok=True)
+    _poll_log = logging.getLogger("polily.poll")
+    _poll_log.propagate = False
+    handler = logging.FileHandler(os.path.join(log_dir, "poll.log"))
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    _poll_log.addHandler(handler)
+    _poll_log.setLevel(logging.INFO)
+    return _poll_log
 
 
 @dataclass(frozen=True)
@@ -50,29 +71,45 @@ def init_poller(db: PolilyDB, config: Any = None, scheduler: Any = None) -> None
 
 
 def global_poll(db: PolilyDB | None = None) -> None:
-    """One poll cycle: fetch all active markets, update prices.
+    """One poll cycle: fetch all active markets, update prices, refresh scores.
 
     If *db* is passed directly (for testing), uses it.
     Otherwise reads from module-level _ctx.
     """
+    import time as _time
+
+    global _poll_count
+
     if db is None:
         if _ctx is None:
             logger.error("global_poll called before init_poller")
             return
         db = _ctx.db
 
+    t_start = _time.monotonic()
+    _poll_count += 1
+    warn = False
+
     markets = get_active_markets(db)
-    # Filter to markets with CLOB tokens (cannot fetch without one)
     fetchable = [m for m in markets if m.clob_token_id_yes]
 
     if not fetchable:
         return
 
-    # Fetch all concurrently via asyncio.gather + Semaphore
-    results = asyncio.run(_fetch_all(fetchable))
+    # --- Step 1: Fetch CLOB + Binance concurrently ---
+    crypto_symbols = _collect_crypto_symbols(db)
 
-    # Process results ---------------------------------------------------------
-    closed_by_event: dict[str, list[str]] = {}  # event_id -> [closed market_ids]
+    t_fetch = _time.monotonic()
+    results, underlying_prices = asyncio.run(
+        _fetch_all(fetchable, crypto_symbols),
+    )
+    clob_elapsed = _time.monotonic() - t_fetch
+
+    # Process results
+    closed_count = 0
+    err_count = 0
+    err_by_type: dict[str, int] = {}
+    closed_by_event: dict[str, list[str]] = {}
 
     for market, result in zip(fetchable, results, strict=True):
         if isinstance(result, httpx.HTTPStatusError):
@@ -81,24 +118,24 @@ def global_poll(db: PolilyDB | None = None) -> None:
                 closed_by_event.setdefault(market.event_id, []).append(
                     market.market_id,
                 )
-                logger.info("Market %s 404 -- marked closed", market.market_id)
+                closed_count += 1
             else:
-                logger.warning(
-                    "Poll error %s for %s",
-                    result.response.status_code,
-                    market.market_id,
-                )
+                err_count += 1
+                key = str(result.response.status_code)
+                err_by_type[key] = err_by_type.get(key, 0) + 1
             continue
         if isinstance(result, Exception):
-            logger.warning("Poll failed for %s: %s", market.market_id, result)
+            err_count += 1
+            key = type(result).__name__
+            if "timeout" in str(result).lower() or "Timeout" in type(result).__name__:
+                key = "timeout"
+            err_by_type[key] = err_by_type.get(key, 0) + 1
             continue
-
-        # Update prices in markets table
         update_market_prices(market.market_id, db=db, **result)
 
-    db.conn.commit()  # Single batch commit for all price updates
+    db.conn.commit()
 
-    # Check if any events need closing (all sub-markets closed) ---------------
+    # Close events where all sub-markets are gone
     for event_id in closed_by_event:
         all_markets = get_event_markets(event_id, db)
         if all(m.closed for m in all_markets):
@@ -106,20 +143,73 @@ def global_poll(db: PolilyDB | None = None) -> None:
                 "UPDATE events SET closed=1, updated_at=? WHERE event_id=?",
                 (datetime.now(UTC).isoformat(), event_id),
             )
-            logger.info("Event %s closed -- all sub-markets closed", event_id)
+    db.conn.commit()
 
-    db.conn.commit()  # Batch commit for event close updates
+    # --- Step 2: Refresh scores ---
+    refresh_ms = 0
+    refresh_n = 0
+    try:
+        from scanner.daemon.score_refresh import refresh_scores
 
-    # Step 2: Intelligence layer — compute signals for monitored events
+        config = _ctx.config if _ctx else None
+        t_refresh = _time.monotonic()
+        result = refresh_scores(db, underlying_prices, config)
+        refresh_ms = (_time.monotonic() - t_refresh) * 1000
+        refresh_n = result.markets_refreshed
+    except Exception:
+        logger.exception("Score refresh failed")
+        warn = True
+
+    # --- Step 3: Intelligence layer ---
     _run_intelligence_layer(db)
+
+    # --- Log ---
+    total = _time.monotonic() - t_start
+    if total > 30:
+        warn = True
+
+    plog = _get_poll_log()
+    ts = datetime.now().strftime("%H:%M:%S")
+    plog.info(f"── poll #{_poll_count} {'─' * 50}")
+
+    # fetch line
+    n_book = sum(1 for m in fetchable if m.spread is None or m.spread < 0.50)
+    n_mid_only = len(fetchable) - n_book
+    fetch_parts = [f"clob/book+mid {n_book} + mid-only {n_mid_only} = {len(fetchable)} markets {clob_elapsed:.1f}s"]
+    if crypto_symbols:
+        bin_status = f"binance/ticker {len(underlying_prices)}/{len(crypto_symbols)}"
+        if len(underlying_prices) < len(crypto_symbols):
+            bin_status += " failed"
+        fetch_parts.append(bin_status)
+    plog.info(f"  {ts} fetch   | {' | '.join(fetch_parts)}")
+
+    # score line
+    if refresh_n:
+        plog.info(f"           score   | {refresh_n} markets rescored {refresh_ms:.0f}ms")
+
+    # result line
+    result_parts = []
+    if closed_count:
+        result_parts.append(f"{closed_count} closed")
+    if err_count:
+        result_parts.append(f"{err_count} errors")
+    result_parts.append(f"total {total:.1f}s")
+    if warn:
+        result_parts.append("[!]")
+    plog.info(f"           result  | {' | '.join(result_parts)}")
+
+    # errors detail line (only when errors exist)
+    if err_by_type:
+        err_details = " | ".join(f"{k}: {v} markets" for k, v in sorted(err_by_type.items()))
+        plog.info(f"           errors  | {err_details}")
 
 
 def _run_intelligence_layer(db: PolilyDB) -> None:
-    """Step 2: compute M/Q signals for every monitored event.
+    """Step 3: compute M/Q signals for every monitored event.
 
-    Reads fresh prices from the markets table (just updated by Step 1),
-    computes per-sub-market movement signals, and for negRisk events
-    also writes event-level metrics.  No AI trigger yet (stubbed).
+    Only runs for events with auto_monitor=1. Reads fresh prices from
+    the markets table (just updated by Step 1), computes per-sub-market
+    movement signals, and for negRisk events also writes event-level metrics.
     """
     from scanner.core.config import MovementConfig
     from scanner.core.event_store import get_event, get_event_markets
@@ -291,31 +381,126 @@ def _run_intelligence_layer(db: PolilyDB) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Async fetch helpers
+# Helpers
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_all(markets: list) -> list:
-    """Fetch book + trades for all markets concurrently."""
+def _collect_crypto_symbols(db: PolilyDB) -> set[str]:
+    """Collect unique Binance symbols needed for crypto events.
+
+    Reads event titles, extracts crypto asset pairs, converts to Binance format.
+    Returns e.g. {"BTCUSDT", "ETHUSDT"}.
+    """
+    rows = db.conn.execute(
+        "SELECT DISTINCT title FROM events WHERE market_type = 'crypto' AND closed = 0",
+    ).fetchall()
+    symbols = set()
+    for row in rows:
+        pair = extract_crypto_asset(row["title"])
+        if pair:
+            symbols.add(pair.replace("/", ""))  # BTC/USDT → BTCUSDT
+    return symbols
+
+
+# ---------------------------------------------------------------------------
+# Async fetch
+# ---------------------------------------------------------------------------
+
+
+async def _fetch_all(markets: list, crypto_symbols: set[str] | None = None) -> tuple[list, dict[str, float]]:
+    """Fetch CLOB books + midpoints + Binance tickers concurrently.
+
+    For each market, fetches /book and /midpoint as a single unit.
+    All markets + Binance run concurrently under a shared semaphore.
+
+    Returns (results, underlying_prices).
+    results: list parallel to markets (dict | Exception).
+    underlying_prices: {"BTCUSDT": 71035.0, ...} — empty if no crypto.
+    """
     sem = asyncio.Semaphore(_SEMAPHORE_LIMIT)
 
-    async def _bounded_fetch(client: httpx.AsyncClient, market):
+    async def _fetch_book_and_mid(client: httpx.AsyncClient, market):
+        """Fetch /book + /midpoint concurrently for one market."""
         async with sem:
-            return await _fetch_single_market(client, market)
+            book_result, mid = await asyncio.gather(
+                _fetch_single_market(client, market),
+                _fetch_midpoint(client, market.clob_token_id_yes),
+            )
+            if mid is not None:
+                book_result["yes_price"] = mid
+                book_result["no_price"] = round(1 - mid, 4)
+                book_result["last_trade_price"] = mid
+            return book_result
+
+    async def _fetch_mid_only(client: httpx.AsyncClient, market):
+        """Fetch only /midpoint for wide-spread markets (skip book)."""
+        async with sem:
+            mid = await _fetch_midpoint(client, market.clob_token_id_yes)
+            if mid is not None:
+                return {
+                    "yes_price": mid,
+                    "no_price": round(1 - mid, 4),
+                    "last_trade_price": mid,
+                }
+            return {}  # no update
 
     async with httpx.AsyncClient(timeout=15) as client:
-        tasks = [_bounded_fetch(client, m) for m in markets]
-        return await asyncio.gather(*tasks, return_exceptions=True)
+        # Split: narrow spread → book+midpoint, wide spread → midpoint only
+        tasks = []
+        for m in markets:
+            if m.spread is not None and m.spread >= 0.50:
+                tasks.append(_fetch_mid_only(client, m))
+            else:
+                tasks.append(_fetch_book_and_mid(client, m))
+
+        binance_task = None
+        if crypto_symbols:
+            binance_task = asyncio.ensure_future(
+                _fetch_binance_tickers(client, crypto_symbols),
+            )
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        underlying: dict[str, float] = {}
+        if binance_task is not None:
+            try:
+                underlying = await binance_task
+            except Exception as e:
+                logger.debug("Binance ticker fetch failed: %s", e)
+
+        return results, underlying
+
+
+async def _fetch_binance_tickers(
+    client: httpx.AsyncClient,
+    symbols: set[str],
+) -> dict[str, float]:
+    """Fetch current prices from Binance for a set of symbols.
+
+    Returns {"BTCUSDT": 71035.0, "ETHUSDT": 2198.0, ...}.
+    """
+    if not symbols:
+        return {}
+    # Binance requires compact JSON (no spaces): ["BTCUSDT","ETHUSDT"]
+    symbols_json = json.dumps(sorted(symbols), separators=(",", ":"))
+    resp = await client.get(
+        "https://api.binance.com/api/v3/ticker/price",
+        params={"symbols": symbols_json},
+    )
+    resp.raise_for_status()
+    return {item["symbol"]: float(item["price"]) for item in resp.json()}
 
 
 async def _fetch_single_market(client: httpx.AsyncClient, market) -> dict:
-    """Fetch book + trades for one market. Returns price summary dict.
+    """Fetch order book for one market. Returns price summary dict.
+
+    Only fetches /book for depth data. yes_price is set later from
+    the batch /midpoint fetch (see _fetch_all).
 
     Raises httpx.HTTPStatusError on 404 etc. so caller can handle it.
     """
     token_id = market.clob_token_id_yes
 
-    # --- Fetch order book ---
     book_resp = await client.get(
         "https://clob.polymarket.com/book",
         params={"token_id": token_id},
@@ -328,34 +513,14 @@ async def _fetch_single_market(client: httpx.AsyncClient, market) -> dict:
 
     best_bid = float(bids[0]["price"]) if bids else None
     best_ask = float(asks[0]["price"]) if asks else None
-    yes_price = (best_bid + best_ask) / 2 if best_bid and best_ask else None
-    no_price = round(1 - yes_price, 4) if yes_price else None
     spread = round(best_ask - best_bid, 4) if best_bid and best_ask else None
     bid_depth = sum(float(b["size"]) for b in bids)
     ask_depth = sum(float(a["size"]) for a in asks)
-    last_trade = book.get("last_trade_price")
-
-    # --- Fetch recent trades (optional, don't fail the poll) ---
-    trades_data: list[dict] = []
-    if market.condition_id:
-        try:
-            trades_resp = await client.get(
-                "https://data-api.polymarket.com/trades",
-                params={"market": market.condition_id, "limit": 50},
-            )
-            if trades_resp.status_code == 200:
-                raw = trades_resp.json()
-                trades_data = raw if isinstance(raw, list) else raw.get("data", [])
-        except Exception:
-            pass  # trades are optional
 
     return {
-        "yes_price": yes_price,
-        "no_price": no_price,
         "best_bid": best_bid,
         "best_ask": best_ask,
         "spread": spread,
-        "last_trade_price": float(last_trade) if last_trade else None,
         "bid_depth": bid_depth,
         "ask_depth": ask_depth,
         "book_bids": json.dumps(
@@ -364,15 +529,19 @@ async def _fetch_single_market(client: httpx.AsyncClient, market) -> dict:
         "book_asks": json.dumps(
             [{"price": float(a["price"]), "size": float(a["size"])} for a in asks],
         ),
-        "recent_trades": json.dumps(
-            [
-                {
-                    "price": float(t.get("price", 0)),
-                    "size": float(t.get("size", 0)),
-                    "side": t.get("side", ""),
-                    "timestamp": str(t.get("timestamp", "")),
-                }
-                for t in trades_data[:50]
-            ],
-        ),
     }
+
+
+async def _fetch_midpoint(client: httpx.AsyncClient, token_id: str) -> float | None:
+    """Fetch /midpoint for a single token. Returns YES price or None."""
+    try:
+        resp = await client.get(
+            "https://clob.polymarket.com/midpoint",
+            params={"token_id": token_id},
+        )
+        if resp.status_code == 200:
+            mid = resp.json().get("mid")
+            return float(mid) if mid is not None else None
+    except Exception:
+        pass
+    return None

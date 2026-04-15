@@ -48,7 +48,10 @@ class PaperStatusView(Widget):
 
         table = self.query_one("#portfolio-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("事件", "方向", "入场价", "现价", "P&L", "金额")
+        table.add_columns(
+            ("事件", "title"), ("方向", "side"), ("入场价", "entry"),
+            ("现价", "现价"), ("P&L", "P&L"), ("金额", "amount"),
+        )
 
         if not self._trades:
             self.query_one("#portfolio-summary", Static).update(
@@ -138,6 +141,64 @@ class PaperStatusView(Widget):
             if t["id"] == trade_id:
                 self.post_message(ViewTradeDetail(t["event_id"]))
                 return
+
+    def refresh_data(self) -> None:
+        """Incremental update: refresh current price and P&L for open trades."""
+        if not self._trades:
+            return
+        try:
+            table = self.query_one("#portfolio-table", DataTable)
+        except Exception:
+            return
+
+        total_value = 0.0
+        total_pnl = 0.0
+        total_cost = 0.0
+
+        for t in self._trades:
+            side = t["side"]
+            entry = t["entry_price"]
+            size = t["position_size_usd"]
+            yes_price = self._get_market_price(t["market_id"])
+
+            if yes_price is not None and entry > 0:
+                pnl_data = calc_unrealized_pnl(side, entry, yes_price, size)
+                cur = yes_price if side == "yes" else round(1 - yes_price, 3)
+                pnl_val = pnl_data["pnl"]
+                pnl_pct = pnl_data["pnl_pct"]
+
+                cur_str = f"${cur:.2f}"
+                if pnl_val > 0:
+                    pnl_str = f"[green]+${pnl_val:.2f} (+{pnl_pct:.1f}%)[/green]"
+                elif pnl_val < 0:
+                    pnl_str = f"[red]-${abs(pnl_val):.2f} ({pnl_pct:.1f}%)[/red]"
+                else:
+                    pnl_str = "$0.00"
+
+                total_value += pnl_data["current_value"]
+                total_pnl += pnl_val
+            else:
+                cur_str = "?"
+                pnl_str = "-"
+            total_cost += size
+
+            try:
+                table.update_cell(t["id"], "现价", cur_str)
+                table.update_cell(t["id"], "P&L", pnl_str)
+            except Exception:
+                continue
+
+        # Update summary
+        import contextlib
+        pnl_pct_total = total_pnl / total_cost * 100 if total_cost > 0 else 0
+        pnl_color = "green" if total_pnl >= 0 else "red"
+        with contextlib.suppress(Exception):
+            self.query_one("#portfolio-summary", Static).update(
+                f" 总计: {len(self._trades)} | "
+                f"持仓价值: ${total_value:.2f} | "
+                f"浮动盈亏: [{pnl_color}]{'+' if total_pnl >= 0 else ''}"
+                f"${total_pnl:.2f} ({pnl_pct_total:+.1f}%)[/{pnl_color}]"
+            )
 
     def _format_entry_time(self, marked_at: str) -> str:
         """Format entry time as 'MM-DD (Xd)'."""

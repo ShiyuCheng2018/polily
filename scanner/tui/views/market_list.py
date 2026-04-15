@@ -65,7 +65,10 @@ class MarketListView(Widget):
             return
         table = self.query_one("#market-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("事件", "评分", "概况", "交易量", "结算", "类型", "状态")
+        table.add_columns(
+            ("事件", "title"), ("评分", "score"), ("概况", "summary"),
+            ("交易量", "volume"), ("结算", "countdown"), ("类型", "type"), ("状态", "status"),
+        )
         self._rebuild_table()
 
     def _rebuild_table(self) -> None:
@@ -254,3 +257,46 @@ class MarketListView(Widget):
                 webbrowser.open(f"https://polymarket.com/event/{slug}")
             except Exception:
                 self.notify("无法打开浏览器", severity="warning")
+
+    def refresh_data(self) -> None:
+        """Incremental update: re-read DB, update changed cells in-place."""
+        from scanner.core.event_store import get_event_markets
+
+        try:
+            table = self.query_one("#market-table", DataTable)
+        except Exception:
+            return
+
+        # Re-fetch events from DB
+        fresh = self.service.get_research_events()
+        fresh_by_id = {e["event"].event_id: e for e in fresh}
+
+        for e in self.events:
+            eid = e["event"].event_id
+            new = fresh_by_id.get(eid)
+            if not new:
+                continue
+            new_ev = new["event"]
+            # Update event row: score + volume
+            score = f"{new_ev.structure_score:.0f}" if new_ev.structure_score else "-"
+            try:
+                table.update_cell(f"ev_{eid}", "score", score)
+                table.update_cell(f"ev_{eid}", "volume", _fmt_volume(new_ev.volume))
+            except Exception:
+                pass
+
+            # Update expanded sub-market rows: price bars
+            if eid in self._expanded:
+                markets = get_event_markets(eid, self.service.db)
+                for m in markets:
+                    if m.closed:
+                        continue
+                    price = m.yes_price or 0
+                    bar_len = int(price * 20)
+                    bar = f"{'█' * bar_len}{'░' * (20 - bar_len)} {price:.0%}"
+                    try:
+                        table.update_cell(f"sub_{m.market_id}", "summary", bar)
+                    except Exception:
+                        pass
+
+        self.events = fresh

@@ -39,12 +39,14 @@ class WatchScheduler:
 
     def start(self):
         """Start the scheduler and register the global poll job."""
+        # Suppress noisy APScheduler "max instances reached" warnings
+        logging.getLogger("apscheduler.executors").setLevel(logging.ERROR)
         self.scheduler.start()
         # Register the single global poll job on the poll executor
         self.scheduler.add_job(
             global_poll,
             "interval",
-            seconds=10,
+            seconds=30,
             id="global_poll",
             executor="poll",
             max_instances=1,
@@ -214,10 +216,16 @@ def run_daemon(db, config=None) -> None:
     # Initialize poller context before starting scheduler
     init_poller(db=db, config=config)
 
+    # Count active markets for startup message
+    active = db.conn.execute(
+        "SELECT COUNT(*) FROM markets WHERE active = 1 AND closed = 0",
+    ).fetchone()[0]
+
     scheduler = WatchScheduler(db, config=config)
     scheduler.start()
     restored = scheduler.restore_check_jobs()
 
+    print(f"Polily daemon started — {active} markets, poll every 30s. Ctrl+C to stop.")
     logger.info("Daemon started with %d check jobs", restored)
 
     # Write PID file for SIGUSR1 notification
@@ -230,7 +238,10 @@ def run_daemon(db, config=None) -> None:
     def handle_shutdown(signum, frame):
         logger.info("Received signal %d, shutting down", signum)
         pid_path.unlink(missing_ok=True)
-        scheduler.shutdown()
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:
+            pass
         sys.exit(0)
 
     _reload_requested = False

@@ -93,13 +93,14 @@ def load_scan_logs(db, limit: int = 100) -> list[ScanLogEntry]:
     return result
 
 
-def create_log_entry() -> ScanLogEntry:
+def create_log_entry(log_type: str = "scan") -> ScanLogEntry:
     """Create a new running log entry with current timestamp."""
     now = datetime.now(UTC)
     return ScanLogEntry(
         scan_id=now.strftime("%Y%m%d_%H%M%S"),
         started_at=now.isoformat(),
         status="running",
+        type=log_type,
     )
 
 

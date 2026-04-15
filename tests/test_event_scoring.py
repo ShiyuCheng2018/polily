@@ -1,8 +1,9 @@
-"""Tests for event-level quality scoring (5 dimensions)."""
+"""Tests for event-level quality scoring (6 dimensions)."""
 
 from datetime import UTC, datetime, timedelta
 
 from scanner.scan.event_scoring import EventQualityScore, compute_event_quality_score
+from scanner.scan.scoring import compute_structure_score
 from tests.conftest import make_event, make_market
 
 
@@ -135,3 +136,77 @@ class TestConsistency:
         s_fair = compute_event_quality_score(ev, fair)
         s_inflated = compute_event_quality_score(ev, inflated)
         assert s_fair.consistency >= s_inflated.consistency
+
+
+class TestBestMarketQuality:
+    """New dimension: best sub-market tradability score."""
+
+    def test_score_object_has_field(self):
+        """EventQualityScore should have best_market_quality field."""
+        ev = make_event(event_id="ev1", volume=100000)
+        mkts = _make_markets()
+        score = compute_event_quality_score(ev, mkts)
+        assert hasattr(score, "best_market_quality")
+
+    def test_tradeable_markets_score_higher(self):
+        """Event with at least one good sub-market should score higher."""
+        ev = make_event(event_id="ev1", volume=500000,
+                       resolution_source="https://official.com",
+                       description="Resolves based on official data from authority.")
+        # Good: tight spread, deep book
+        good = _make_markets(
+            yes_prices=[0.50, 0.30, 0.20],
+            bid_depths=[50000, 40000, 30000],
+            spreads=[0.01, 0.02, 0.03],
+            resolution_days=7,
+        )
+        # Bad: wide spread, shallow book (all sub-markets untradeable)
+        bad = _make_markets(
+            yes_prices=[0.50, 0.30, 0.20],
+            bid_depths=[100, 50, 30],
+            spreads=[0.50, 0.60, 0.70],
+            resolution_days=7,
+        )
+        s_good = compute_event_quality_score(ev, good)
+        s_bad = compute_event_quality_score(ev, bad)
+        assert s_good.best_market_quality > s_bad.best_market_quality
+        assert s_good.total > s_bad.total
+
+    def test_one_good_market_is_enough(self):
+        """Even if most sub-markets are bad, one good one should lift the score."""
+        ev = make_event(event_id="ev1", volume=100000)
+        # 1 good + 2 terrible
+        mixed = _make_markets(
+            yes_prices=[0.50, 0.95, 0.02],
+            bid_depths=[50000, 50, 30],
+            spreads=[0.02, 0.90, 0.95],
+            resolution_days=7,
+        )
+        # All terrible
+        all_bad = _make_markets(
+            yes_prices=[0.50, 0.95, 0.02],
+            bid_depths=[50, 50, 30],
+            spreads=[0.90, 0.90, 0.95],
+            resolution_days=7,
+        )
+        s_mixed = compute_event_quality_score(ev, mixed)
+        s_bad = compute_event_quality_score(ev, all_bad)
+        assert s_mixed.best_market_quality > s_bad.best_market_quality
+
+    def test_untradeable_event_total_capped(self):
+        """If best sub-market score < 25, event total should be significantly lower."""
+        ev = make_event(event_id="ev1", volume=500000,
+                       resolution_source="https://official.com",
+                       description="Resolves based on official data.")
+        # All wide spread, extreme prices → all sub-market scores very low
+        untradeable = _make_markets(
+            yes_prices=[0.99, 0.005, 0.005],
+            bid_depths=[50, 30, 20],
+            spreads=[0.95, 0.95, 0.95],
+            resolution_days=7,
+        )
+        score = compute_event_quality_score(ev, untradeable)
+        # best_market_quality should be near zero
+        assert score.best_market_quality < 5
+        # Total should be dragged down despite good event-level metrics
+        assert score.total < 60

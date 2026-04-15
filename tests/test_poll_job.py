@@ -1,6 +1,7 @@
 """Tests for global poll job — price layer."""
+import asyncio
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -14,7 +15,7 @@ from scanner.core.event_store import (
     upsert_event,
     upsert_market,
 )
-from scanner.daemon.poll_job import global_poll
+from scanner.daemon.poll_job import _fetch_midpoint, _fetch_single_market, global_poll
 
 
 @pytest.fixture
@@ -274,12 +275,11 @@ class TestGlobalPollPriceLayer:
         mock_fetch.assert_not_called()
 
     def test_book_data_stored_as_json(self, db):
-        """book_bids, book_asks, recent_trades should be stored as JSON strings."""
+        """book_bids, book_asks should be stored as JSON strings."""
         _seed(db)
 
         bids = [{"price": 0.54, "size": 500}]
         asks = [{"price": 0.56, "size": 400}]
-        trades = [{"price": 0.55, "size": 100, "side": "BUY"}]
 
         with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
             mock_fetch.return_value = {
@@ -293,11 +293,129 @@ class TestGlobalPollPriceLayer:
                 "ask_depth": 400.0,
                 "book_bids": json.dumps(bids),
                 "book_asks": json.dumps(asks),
-                "recent_trades": json.dumps(trades),
             }
             global_poll(db)
 
         market = get_market("m1", db)
         assert json.loads(market.book_bids) == bids
         assert json.loads(market.book_asks) == asks
-        assert json.loads(market.recent_trades) == trades
+
+    def test_no_trades_request_in_price_layer(self, db):
+        """Price layer should only fetch /book, not /trades."""
+        _seed(db)
+
+        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+            mock_fetch.return_value = {
+                "yes_price": 0.55,
+                "no_price": 0.45,
+                "best_bid": 0.54,
+                "best_ask": 0.56,
+                "spread": 0.02,
+                "last_trade_price": 0.55,
+                "bid_depth": 500.0,
+                "ask_depth": 400.0,
+                "book_bids": "[]",
+                "book_asks": "[]",
+            }
+            global_poll(db)
+
+        # recent_trades should not be set by price layer
+        market = get_market("m1", db)
+        # The return dict has no recent_trades key → field stays at old value (None)
+        assert "recent_trades" not in mock_fetch.return_value
+
+
+class TestFetchSingleMarket:
+    """Tests for _fetch_single_market — the actual CLOB fetch logic."""
+
+    def _make_market(self, token="tok1", condition_id="0x123"):
+        m = MagicMock()
+        m.clob_token_id_yes = token
+        m.condition_id = condition_id
+        return m
+
+    @pytest.mark.asyncio
+    async def test_book_only_no_trades(self):
+        """_fetch_single_market should only call /book, not /trades or /midpoint."""
+        book_response = MagicMock()
+        book_response.json.return_value = {
+            "bids": [{"price": "0.54", "size": "500"}],
+            "asks": [{"price": "0.56", "size": "400"}],
+        }
+        book_response.raise_for_status = MagicMock()
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.get.return_value = book_response
+
+        result = await _fetch_single_market(client, self._make_market())
+
+        assert client.get.call_count == 1
+        assert "book" in client.get.call_args[0][0]
+        assert "yes_price" not in result  # price comes from midpoint batch
+        assert "recent_trades" not in result
+
+    @pytest.mark.asyncio
+    async def test_book_returns_depth_data(self):
+        """_fetch_single_market should return orderbook depth."""
+        book_response = MagicMock()
+        book_response.json.return_value = {
+            "bids": [{"price": "0.54", "size": "500"}, {"price": "0.53", "size": "300"}],
+            "asks": [{"price": "0.56", "size": "400"}],
+        }
+        book_response.raise_for_status = MagicMock()
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.get.return_value = book_response
+
+        result = await _fetch_single_market(client, self._make_market())
+        assert result["bid_depth"] == 800.0
+        assert result["ask_depth"] == 400.0
+        assert result["spread"] == 0.02
+
+
+class TestFetchMidpoint:
+    @pytest.mark.asyncio
+    async def test_returns_midpoint_price(self):
+        mid_response = MagicMock()
+        mid_response.json.return_value = {"mid": "0.548"}
+        mid_response.status_code = 200
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.get.return_value = mid_response
+
+        result = await _fetch_midpoint(client, "token123")
+        assert result == pytest.approx(0.548)
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_failure(self):
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.get.side_effect = Exception("timeout")
+
+        result = await _fetch_midpoint(client, "token123")
+        assert result is None
+
+
+class TestWideSpreandIntegration:
+    """Integration test for wide spread handling through global_poll."""
+
+    def test_wide_spread_gets_correct_price_via_midpoint(self, db):
+        """Wide spread markets should get correct price from /midpoint."""
+        _seed(db)
+
+        with patch("scanner.daemon.poll_job._fetch_single_market") as mock_fetch:
+            mock_fetch.return_value = {
+                "yes_price": 0.929,  # from /midpoint, not (0.001+0.999)/2
+                "no_price": 0.071,
+                "best_bid": 0.001,
+                "best_ask": 0.999,
+                "spread": 0.998,
+                "last_trade_price": 0.929,
+                "bid_depth": 1000.0,
+                "ask_depth": 500.0,
+                "book_bids": "[]",
+                "book_asks": "[]",
+            }
+            global_poll(db)
+
+        market = get_market("m1", db)
+        assert market.yes_price == 0.929

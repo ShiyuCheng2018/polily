@@ -1,14 +1,15 @@
-"""Event-level quality scoring — 5 dimensions.
+"""Event-level quality scoring — 6 dimensions.
 
-Determines if an event is worth researching. Uses event-level aggregates,
-not individual sub-market quality.
+Determines if an event is worth researching. Uses event-level aggregates
+plus best sub-market tradability.
 
 Dimensions (total 100):
-  1. Information Value (20)  — entropy, leader margin
-  2. Liquidity Aggregate (25) — volume, min depth, coverage ratio
-  3. Resolution Quality (15) — resolution source, description quality
-  4. Consistency (10) — overround, pricing efficiency
-  5. Time Window (30) — 1-7 days sweet spot, steep decay beyond
+  1. Information Value (20)       — entropy, leader margin
+  2. Liquidity Aggregate (20)     — volume, min depth, coverage ratio
+  3. Resolution Quality (15)      — resolution source, description quality
+  4. Consistency (10)             — overround, pricing efficiency
+  5. Time Window (20)             — 1-7 days sweet spot, steep decay beyond
+  6. Best Market Quality (15)     — best sub-market structure score
 """
 
 from __future__ import annotations
@@ -25,14 +26,15 @@ if TYPE_CHECKING:
 
 @dataclass
 class EventQualityScore:
-    """Event-level quality score with 5 dimensions."""
+    """Event-level quality score with 6 dimensions."""
 
-    information_value: float = 0.0    # 0-20
-    liquidity_aggregate: float = 0.0  # 0-25
-    resolution_quality: float = 0.0   # 0-15
-    consistency: float = 0.0          # 0-10
-    time_window: float = 0.0          # 0-30
-    total: float = 0.0                # 0-100
+    information_value: float = 0.0       # 0-20
+    liquidity_aggregate: float = 0.0     # 0-20
+    resolution_quality: float = 0.0      # 0-15
+    consistency: float = 0.0             # 0-10
+    time_window: float = 0.0             # 0-20
+    best_market_quality: float = 0.0     # 0-15
+    total: float = 0.0                   # 0-100
 
 
 def compute_event_quality_score(
@@ -50,6 +52,7 @@ def compute_event_quality_score(
     res = _score_resolution_quality(event)
     con = _score_consistency(active, neg_risk=neg_risk)
     time = _score_time_window(active)
+    bmq = _score_best_market_quality(active)
 
     return EventQualityScore(
         information_value=info,
@@ -57,7 +60,8 @@ def compute_event_quality_score(
         resolution_quality=res,
         consistency=con,
         time_window=time,
-        total=round(info + liq + res + con + time, 2),
+        best_market_quality=bmq,
+        total=round(info + liq + res + con + time + bmq, 2),
     )
 
 
@@ -166,7 +170,7 @@ def _score_liquidity_aggregate(event: EventRow, markets: list[Market]) -> float:
 
     # Combine: volume 40% + min_depth 35% + coverage 25%
     raw = vol_score * 0.40 + depth_score * 0.35 + coverage * 0.25
-    return round(min(raw * 25, 25), 2)
+    return round(min(raw * 20, 20), 2)
 
 
 # ---------------------------------------------------------------------------
@@ -274,4 +278,25 @@ def _score_time_window(markets: list[Market]) -> float:
     else:
         score = 0.0   # > 60 days (shouldn't reach here, filtered at gate)
 
-    return round(score * 30, 2)
+    return round(score * 20, 2)
+
+
+# ---------------------------------------------------------------------------
+# Dimension 6: Best Market Quality (0-15)
+# Uses the best sub-market's structure score to ensure at least one
+# sub-market is actually tradeable. An event with great fundamentals
+# but no tradeable sub-market should score low.
+# ---------------------------------------------------------------------------
+
+def _score_best_market_quality(markets: list[Market]) -> float:
+    """Best sub-market structure score, normalized to 0-15."""
+    from scanner.scan.scoring import compute_structure_score
+
+    best = 0.0
+    for m in markets:
+        score = compute_structure_score(m)
+        if score.total > best:
+            best = score.total
+
+    # Normalize: 0 → 0, 50 → 7.5, 100 → 15
+    return round(min(best / 100 * 15, 15), 2)

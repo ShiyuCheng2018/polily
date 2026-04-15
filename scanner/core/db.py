@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (
 CREATE TABLE IF NOT EXISTS scan_logs (
     scan_id             TEXT PRIMARY KEY,
     type                TEXT NOT NULL DEFAULT 'scan'
-                        CHECK(type IN ('scan','analyze')),
+                        CHECK(type IN ('scan','analyze','add_event')),
     event_id            TEXT,
     market_title        TEXT,
     started_at          TEXT NOT NULL,

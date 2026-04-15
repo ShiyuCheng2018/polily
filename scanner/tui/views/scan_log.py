@@ -7,10 +7,10 @@ from datetime import datetime
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import DataTable, Static
+from textual.widgets import Button, DataTable, Input, Static
 
 from scanner.scan_log import ScanLogEntry
 
@@ -99,6 +99,13 @@ class BackToScanLog(Message):
     pass
 
 
+class AddEventRequested(Message):
+    """User submitted a Polymarket URL to add."""
+    def __init__(self, url: str):
+        super().__init__()
+        self.url = url
+
+
 # --- List View ---
 
 class ScanLogView(Widget):
@@ -107,6 +114,9 @@ class ScanLogView(Widget):
     DEFAULT_CSS = """
     ScanLogView { height: 1fr; }
     ScanLogView #log-title { padding: 1 0 0 0; text-style: bold; }
+    ScanLogView #url-row { height: 3; padding: 0 1; }
+    ScanLogView #url-input { width: 1fr; }
+    ScanLogView #score-btn { width: 10; min-width: 10; }
     ScanLogView .empty-msg { text-align: center; color: $text-muted; padding: 4; }
     ScanLogView #live-section { padding: 1 0 1 0; }
     ScanLogView #log-table { height: auto; max-height: 60%; }
@@ -121,15 +131,18 @@ class ScanLogView(Widget):
 
     def compose(self) -> ComposeResult:
         yield Static(" 任务记录", id="log-title")
+        with Horizontal(id="url-row"):
+            yield Input(placeholder="粘贴 Polymarket 链接...", id="url-input")
+            yield Button("评分", id="score-btn", variant="primary")
 
-        # Live progress section (only if scanning)
+        # Live progress section
         if self._current_steps is not None:
             with Vertical(id="live-section"):
-                yield Static("\n   [dim]--- 当前扫描 ---[/dim]\n")
+                yield Static("\n   [dim]--- 进行中 ---[/dim]\n")
                 yield LiveProgress()
 
         if not self._logs and self._current_steps is None:
-            yield Static(" 还没有扫描记录。按 s 开始扫描。", classes="empty-msg")
+            yield Static(" 粘贴 Polymarket 事件链接开始评分。", classes="empty-msg")
         elif self._logs:
             if self._current_steps is not None:
                 yield Static("  [dim]--- 历史记录 ---[/dim]")
@@ -155,7 +168,11 @@ class ScanLogView(Widget):
                 log.status, log.status
             )
             if log.type == "analyze":
-                type_label = "分析"
+                type_label = "AI 分析"
+                title_short = (log.market_title or "?")[:25]
+                result = title_short
+            elif log.type == "add_event":
+                type_label = "评分"
                 title_short = (log.market_title or "?")[:25]
                 result = title_short
             else:
@@ -164,25 +181,53 @@ class ScanLogView(Widget):
                 result = f"{total} 事件"
             table.add_row(type_label, started, elapsed, result, status_text, key=log.scan_id)
 
+    def _submit_url(self) -> None:
+        try:
+            inp = self.query_one("#url-input", Input)
+        except Exception:
+            return
+        url = inp.value.strip()
+        if url:
+            self.post_message(AddEventRequested(url))
+            inp.value = ""
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._submit_url()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "score-btn":
+            self._submit_url()
+
     def update_live_progress(self, steps: list[StepInfo]):
         with contextlib.suppress(Exception):
             self.query_one(LiveProgress).set_steps(steps)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Enter on a row — open detail view."""
+        """Enter on a row — open detail view. add_event goes directly to event detail."""
         try:
             table = self.query_one("#log-table", DataTable)
             row_idx = table.cursor_row
         except Exception:
             return
         if row_idx < len(self._reversed_logs):
-            self.post_message(ViewScanLogDetail(self._reversed_logs[row_idx]))
+            log = self._reversed_logs[row_idx]
+            if log.type == "add_event" and log.event_id:
+                self.post_message(OpenMarketFromLog(log.event_id))
+            else:
+                self.post_message(ViewScanLogDetail(log))
 
 
 # --- Detail View ---
 
 class OpenMarketFromLog(Message):
     """Request to open event detail from a log entry."""
+    def __init__(self, event_id: str):
+        super().__init__()
+        self.event_id = event_id
+
+
+class RescoreRequested(Message):
+    """Request to re-score an event from log detail."""
     def __init__(self, event_id: str):
         super().__init__()
         self.event_id = event_id
@@ -286,16 +331,20 @@ class ScanLogDetailView(Widget):
     def compose(self) -> ComposeResult:
         log = self.log_entry
         is_analyze = log.type == "analyze"
+        is_add_event = log.type == "add_event"
         status_text = {"completed": "完成", "failed": "失败", "running": "进行中"}.get(
             log.status, log.status
         )
 
         with VerticalScroll():
             if is_analyze:
-                yield Static(f" [bold]分析任务 {log.scan_id}[/bold]", classes="section-title")
-                yield Static(f"  市场: {log.market_title or '?'}", classes="detail-row")
+                yield Static(f" [bold]AI 分析 {log.scan_id}[/bold]", classes="section-title")
+                yield Static(f"  事件: {log.market_title or '?'}", classes="detail-row")
                 if log.event_id:
-                    yield Static("  [dim]按 Enter 打开市场详情[/dim]", classes="detail-row")
+                    yield Static("  [dim]按 Enter 打开事件详情[/dim]", classes="detail-row")
+            elif is_add_event:
+                yield Static(f" [bold]评分任务 {log.scan_id}[/bold]", classes="section-title")
+                yield Static(f"  事件: {log.market_title or '?'}", classes="detail-row")
             else:
                 yield Static(f" [bold]扫描任务 {log.scan_id}[/bold]", classes="section-title")
 
@@ -309,21 +358,26 @@ class ScanLogDetailView(Widget):
             if log.error:
                 yield Static(f"  [red]错误: {log.error}[/red]", classes="detail-row")
 
-            # Results — different for scan vs analyze
+            # Results — different by type
             if is_analyze:
                 yield Static(" 分析目标", classes="section-title")
-                yield Static(f"  市场: {log.market_title or '?'}", classes="detail-row")
+                yield Static(f"  事件: {log.market_title or '?'}", classes="detail-row")
                 yield Static(f"  ID:   {log.event_id or '?'}", classes="detail-row")
-            else:
-                yield Static(" 扫描结果", classes="section-title")
-                # Query rich stats from DB if available
+            elif is_add_event:
+                yield Static(" 评分结果", classes="section-title")
                 stats = self._get_scan_stats()
                 if stats:
-                    yield Static(f"  研究事件: {stats['research_events']} 事件 / {stats['research_markets']} 市场", classes="detail-row")
+                    yield Static(f"  事件数: {stats['research_events']} 事件 / {stats['research_markets']} 市场", classes="detail-row")
                     yield Static(f"  类型分布: {stats['type_summary']}", classes="detail-row")
                     yield Static(f"  评分区间: {stats['score_min']:.0f} ~ {stats['score_max']:.0f}", classes="detail-row")
                     yield Static(f"  最近过期: {stats['earliest_end']}", classes="detail-row")
                     yield Static(f"  最晚过期: {stats['latest_end']}", classes="detail-row")
+            else:
+                yield Static(" 扫描结果", classes="section-title")
+                stats = self._get_scan_stats()
+                if stats:
+                    yield Static(f"  事件数: {stats['research_events']} 事件 / {stats['research_markets']} 市场", classes="detail-row")
+                    yield Static(f"  类型分布: {stats['type_summary']}", classes="detail-row")
                 else:
                     yield Static(f"  事件总数: {log.research_count + log.watchlist_count}", classes="detail-row")
 
@@ -341,8 +395,13 @@ class ScanLogDetailView(Widget):
                     yield Static(f"  {status_label}  {step.name}{detail}     {elapsed_str}", classes="step-row")
 
             yield Static("")
-            if is_analyze and log.event_id:
-                yield Static("  [dim]Enter 打开市场 | Esc 返回列表[/dim]")
+            # Action buttons
+            if is_add_event and log.event_id:
+                yield Button("重新评分", id="rescore-btn", variant="primary")
+                yield Static("")
+                yield Static("  [dim]Esc 返回列表[/dim]")
+            elif is_analyze and log.event_id:
+                yield Static("  [dim]Enter 打开事件 | Esc 返回列表[/dim]")
             else:
                 yield Static("  [dim]Esc 返回列表[/dim]")
 
@@ -350,5 +409,9 @@ class ScanLogDetailView(Widget):
         self.post_message(BackToScanLog())
 
     def action_open_market(self) -> None:
-        if self.log_entry.type == "analyze" and self.log_entry.event_id:
+        if self.log_entry.event_id:
             self.post_message(OpenMarketFromLog(self.log_entry.event_id))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "rescore-btn" and self.log_entry.event_id:
+            self.post_message(RescoreRequested(self.log_entry.event_id))

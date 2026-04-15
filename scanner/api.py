@@ -258,6 +258,18 @@ class PolymarketClient:
 
         return all_events[:max_events]
 
+    async def fetch_event_by_slug(self, slug: str) -> dict | None:
+        """Fetch a single event by slug from Gamma API."""
+        try:
+            response = await self._get(
+                f"{GAMMA_BASE}/events",
+                params={"slug": slug},
+            )
+            data = response.json()
+            return data[0] if data else None
+        except Exception:
+            return None
+
     async def fetch_single_market(self, market_id: str) -> Market | None:
         """Fetch a single market by condition_id from Gamma API."""
         try:

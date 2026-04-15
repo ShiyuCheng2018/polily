@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-import os
+
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from scanner.agents.narrative_writer import NarrativeWriterAgent
 from scanner.analysis_store import AnalysisVersion, append_analysis, get_event_analyses
-from scanner.api import PolymarketClient, parse_gamma_event
+
 from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import (
@@ -26,7 +26,6 @@ from scanner.core.paper_store import get_resolved_trades as _get_resolved_trades
 from scanner.core.paper_store import get_trade_stats as _get_trade_stats
 from scanner.daemon.auto_monitor import toggle_auto_monitor
 from scanner.monitor.store import get_event_movements
-from scanner.scan.pipeline import run_scan_pipeline
 from scanner.scan_log import (
     ScanLogEntry,
     ScanStepRecord,
@@ -73,44 +72,49 @@ class ScanService:
         return ScannerConfig()
 
     # ------------------------------------------------------------------
-    # Scan
+    # ------------------------------------------------------------------
+    # Add single event
     # ------------------------------------------------------------------
 
-    async def fetch_and_scan(self) -> None:
-        """Run full pipeline: fetch events -> filter -> persist filtered to DB -> score -> tier."""
+    async def add_event_by_url(self, url: str) -> dict | None:
+        """Add a single event by Polymarket URL. Fetch, score, persist, log."""
+        from scanner.scan.pipeline import fetch_and_score_event
+        from scanner.url_parser import parse_polymarket_url
+
+        slug = parse_polymarket_url(url)
+        if not slug:
+            return None
+
         self._steps = []
-        self._current_log = create_log_entry()
+        self._current_log = create_log_entry(log_type="add_event")
         self._persist_log(self._current_log)
 
-        self._step_start("获取事件")
-        event_rows, markets = await self._fetch_events()
-        self._step_done(f"{len(event_rows)} 事件 / {len(markets)} 市场")
-
-        self.total_scanned = len(markets)
-        if not markets:
-            self._finish_log("completed")
-            return
-
-        # Pipeline now handles: filter → persist only eligible → score → tier
-        os.environ["POLILY_TUI"] = "1"
         try:
-            run_scan_pipeline(
-                markets,
-                self.config,
-                db=self.db,
-                event_rows=event_rows,
+            result = await fetch_and_score_event(
+                slug, config=self.config, db=self.db,
                 progress_cb=self._on_pipeline_progress,
             )
         except Exception as e:
             self._finish_log("failed", error=str(e))
             raise
-        finally:
-            os.environ.pop("POLILY_TUI", None)
 
-        if self.config.archiving.enabled and self._current_log:
-            self.last_scan_id = self._current_log.scan_id
+        if result is None:
+            self._finish_log("failed", error="事件未找到")
+            return None
+
+        event_id = result["event"].event_id
+        self._current_log.market_title = result["event"].title[:60]
+        self._current_log.event_id = event_id
+
+        # Upsert: remove old add_event record for this event
+        self.db.conn.execute(
+            "DELETE FROM scan_logs WHERE type = 'add_event' AND event_id = ? AND scan_id != ?",
+            (event_id, self._current_log.scan_id),
+        )
+        self.db.conn.commit()
 
         self._finish_log("completed")
+        return result
 
     # ------------------------------------------------------------------
     # Analysis
@@ -211,12 +215,6 @@ class ScanService:
     # ------------------------------------------------------------------
     # Event reads
     # ------------------------------------------------------------------
-
-    def get_research_events(self) -> list[dict]:
-        """Return all quality-gated events, sorted by score desc."""
-        return self._query_events(
-            "WHERE e.closed = 0 AND e.structure_score IS NOT NULL"
-        )
 
     def get_all_events(self) -> list[dict]:
         """Return all non-closed events, sorted by score desc."""
@@ -378,23 +376,6 @@ class ScanService:
     # Internal: fetch + persist
     # ------------------------------------------------------------------
 
-    async def _fetch_events(self) -> tuple[list[EventRow], list]:
-        """Fetch events from Gamma API, returning (EventRow list, Market list)."""
-        client = PolymarketClient(self.config.api)
-        try:
-            events_data = await client.fetch_all_events(
-                max_events=self.config.scanner.max_markets_to_fetch // 2,
-            )
-            all_event_rows: list[EventRow] = []
-            all_markets = []
-            for event_data in events_data:
-                event_row, market_list = parse_gamma_event(event_data)
-                all_event_rows.append(event_row)
-                all_markets.extend(market_list)
-            return all_event_rows, all_markets
-        finally:
-            await client.close()
-
     def _persist_log(self, entry: ScanLogEntry) -> None:
         save_scan_log(entry, self.db)
 
@@ -446,24 +427,10 @@ class ScanService:
     def _finish_log(self, status: str, error: str | None = None) -> None:
         if not self._current_log:
             return
-        # Count from DB after pipeline updated tiers
-        research = self.db.conn.execute(
-            "SELECT COUNT(*) FROM events WHERE tier = 'research' AND closed = 0",
-        ).fetchone()[0]
-        watchlist = self.db.conn.execute(
-            "SELECT COUNT(*) FROM events WHERE tier = 'watchlist' AND closed = 0",
-        ).fetchone()[0]
-        filtered = self.db.conn.execute(
-            "SELECT COUNT(*) FROM events WHERE tier = 'filtered' AND closed = 0",
-        ).fetchone()[0]
         finish_log_entry(
             self._current_log,
             status,
             self._steps_to_records(),
-            total_markets=self.total_scanned,
-            research_count=research,
-            watchlist_count=watchlist,
-            filtered_count=filtered,
             error=error,
         )
         self._persist_log(self._current_log)

@@ -60,35 +60,6 @@ def _seed(db, event_id="ev1", market_id="m1", **event_kw):
     ), db)
 
 
-class TestGetResearchEvents:
-    def test_returns_quality_gated_events(self, db, service):
-        _seed(db, "ev1", "m1", structure_score=80)
-        _seed(db, "ev2", "m2", structure_score=60)
-        _seed(db, "ev3", "m3")  # no score → not in results
-        events = service.get_research_events()
-        event_ids = [e["event"].event_id for e in events]
-        assert "ev1" in event_ids
-        assert "ev2" in event_ids
-        assert "ev3" not in event_ids
-
-    def test_sorted_by_score(self, db, service):
-        _seed(db, "ev1", "m1", tier="research", structure_score=70)
-        _seed(db, "ev2", "m2", tier="research", structure_score=90)
-        events = service.get_research_events()
-        assert events[0]["event"].event_id == "ev2"  # higher score first
-
-    def test_includes_summary_fields(self, db, service):
-        _seed(db, "ev1", "m1", tier="research", structure_score=80)
-        upsert_event_monitor("ev1", auto_monitor=True, db=db)
-        events = service.get_research_events()
-        e = events[0]
-        assert "event" in e
-        assert "market_count" in e
-        assert "is_monitored" in e
-        assert e["is_monitored"] is True
-        assert "has_position" in e
-
-
 class TestGetAllEvents:
     def test_returns_all_tiers(self, db, service):
         _seed(db, "ev1", "m1", tier="research", structure_score=80)

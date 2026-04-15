@@ -41,6 +41,12 @@ class CancelAnalysisRequested(Message):
     pass
 
 
+class RescoreEventRequested(Message):
+    def __init__(self, event_id: str):
+        super().__init__()
+        self.event_id = event_id
+
+
 class SwitchVersionRequested(Message):
     def __init__(self, event_id: str, version_idx: int):
         super().__init__()
@@ -83,9 +89,7 @@ class MarketDetailView(Widget):
         Binding("escape", "go_back", "返回"),
         Binding("backspace", "go_back", show=False),
         Binding("a", "analyze", "AI分析"),
-        Binding("p", "mark_pass", "PASS"),
         Binding("m", "toggle_monitor", "监控"),
-        Binding("t", "trade", "交易"),
         Binding("v", "switch_version", "版本"),
         Binding("o", "open_link", "链接"),
     ]
@@ -359,8 +363,11 @@ class MarketDetailView(Widget):
 
             # --- Footer ---
             yield Static("")
+            from textual.widgets import Button
+            yield Button("重新评分", id="rescore-btn", variant="default")
+            yield Static("")
             yield Static(
-                "[dim]Esc 返回 | a 分析 | p PASS | m 监控 | t 交易 | v 版本 | o 链接[/dim]",
+                "[dim]Esc 返回 | a 分析 | m 监控 | v 版本 | o 链接[/dim]",
                 id="footer-hint",
             )
 
@@ -796,3 +803,8 @@ class MarketDetailView(Widget):
                 self.notify("无法打开浏览器", severity="warning")
         else:
             self.notify("无链接信息", severity="warning")
+
+    def on_button_pressed(self, event) -> None:
+        from textual.widgets import Button
+        if isinstance(event, Button.Pressed) and event.button.id == "rescore-btn":
+            self.post_message(RescoreEventRequested(self.event_id))

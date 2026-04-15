@@ -1,12 +1,15 @@
 """Event and market persistence — SQLite-backed."""
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from scanner.core.db import PolilyDB
+    from scanner.core.models import Market
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +232,104 @@ def get_active_markets(db: PolilyDB) -> list[MarketRow]:
         "SELECT * FROM markets WHERE active = 1 AND closed = 0 ORDER BY market_id",
     )
     return [_row_to_market(row) for row in cur.fetchall()]
+
+
+def market_row_to_model(
+    row: MarketRow,
+    *,
+    market_type: str | None = None,
+) -> Market:
+    """Convert a MarketRow (DB) to a Market (domain model).
+
+    Handles field name mapping (best_bid → best_bid_yes, etc.),
+    book JSON deserialization, and end_date → resolution_time conversion.
+    """
+    from scanner.core.models import BookLevel, Market as MarketModel
+
+    bids = None
+    if row.book_bids:
+        try:
+            bids = [BookLevel(price=b["price"], size=b["size"]) for b in json.loads(row.book_bids)]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+
+    asks = None
+    if row.book_asks:
+        try:
+            asks = [BookLevel(price=a["price"], size=a["size"]) for a in json.loads(row.book_asks)]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+
+    resolution_time = None
+    if row.end_date:
+        try:
+            resolution_time = datetime.fromisoformat(row.end_date)
+            if resolution_time.tzinfo is None:
+                resolution_time = resolution_time.replace(tzinfo=UTC)
+        except ValueError:
+            pass
+
+    return MarketModel(
+        market_id=row.market_id,
+        event_id=row.event_id,
+        title=row.question,
+        description=row.description or "",
+        outcomes=json.loads(row.outcomes) if row.outcomes else ["Yes", "No"],
+        group_item_title=row.group_item_title,
+        group_item_threshold=row.group_item_threshold,
+        condition_id=row.condition_id,
+        question_id=row.question_id,
+        clob_token_id_yes=row.clob_token_id_yes,
+        clob_token_id_no=row.clob_token_id_no,
+        neg_risk=row.neg_risk,
+        resolution_source=row.resolution_source,
+        yes_price=row.yes_price,
+        no_price=row.no_price,
+        best_bid_yes=row.best_bid,
+        best_ask_yes=row.best_ask,
+        spread_yes=row.spread,
+        volume=row.volume,
+        book_depth_bids=bids,
+        book_depth_asks=asks,
+        resolution_time=resolution_time,
+        data_fetched_at=datetime.now(UTC),
+        market_type=market_type,
+    )
+
+
+def market_model_to_row(m: Market, event_id: str) -> MarketRow:
+    """Convert a Market (domain model) to MarketRow (DB row).
+
+    Symmetric with market_row_to_model().
+    """
+    return MarketRow(
+        market_id=m.market_id,
+        event_id=event_id,
+        question=m.title,
+        slug=m.market_slug,
+        description=m.description,
+        group_item_title=m.group_item_title,
+        group_item_threshold=m.group_item_threshold,
+        outcomes=json.dumps(m.outcomes),
+        condition_id=m.condition_id,
+        question_id=m.question_id,
+        clob_token_id_yes=m.clob_token_id_yes,
+        clob_token_id_no=m.clob_token_id_no,
+        neg_risk=m.neg_risk,
+        resolution_source=m.resolution_source,
+        end_date=m.resolution_time.isoformat() if m.resolution_time else None,
+        volume=m.volume,
+        yes_price=m.yes_price,
+        no_price=m.no_price,
+        best_bid=m.best_bid_yes,
+        best_ask=m.best_ask_yes,
+        spread=m.spread_yes,
+        bid_depth=m.total_bid_depth_usd,
+        ask_depth=m.total_ask_depth_usd,
+        book_bids=json.dumps([{"price": b.price, "size": b.size} for b in m.book_depth_bids]) if m.book_depth_bids else None,
+        book_asks=json.dumps([{"price": a.price, "size": a.size} for a in m.book_depth_asks]) if m.book_depth_asks else None,
+        updated_at=datetime.now(UTC).isoformat(),
+    )
 
 
 def update_market_prices(

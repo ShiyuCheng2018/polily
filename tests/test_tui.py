@@ -149,33 +149,6 @@ class TestTUIRefreshAndScan:
             assert screen._loading is False
             assert app.is_running
 
-    @pytest.mark.asyncio
-    async def test_scan_debounce_while_loading(self):
-        """_start_scan returns immediately when _loading is True."""
-        app = PolilyApp(service=_mock_service())
-        async with app.run_test(size=(120, 40)):
-            screen = app.screen
-            screen._loading = True
-            # Direct call — _start_scan should bail out immediately
-            screen._start_scan()
-            assert screen._loading is True
-
-    @pytest.mark.asyncio
-    async def test_scan_complete_does_not_auto_navigate(self):
-        """Scan complete should NOT auto-navigate to research."""
-        app = PolilyApp(service=_mock_service())
-        async with app.run_test(size=(120, 40)) as pilot:
-            screen = app.screen
-            screen.service = app.service
-            screen._current_menu = "paper"
-            screen._loading = True
-
-            screen._on_scan_complete()
-            await pilot.pause()
-            # Should stay on paper, not jump to research
-            assert screen._current_menu == "paper"
-
-
 class TestTUIQuit:
     @pytest.mark.asyncio
     async def test_quit(self):
