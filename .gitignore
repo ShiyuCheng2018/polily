@@ -39,3 +39,4 @@ htmlcov/
 .claude/
 *.db-shm
 *.db-wal
+docs/internal/
