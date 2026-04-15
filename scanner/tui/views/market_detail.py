@@ -67,6 +67,7 @@ class MarketDetailView(Widget):
         Binding("escape", "go_back", "返回"),
         Binding("backspace", "go_back", show=False),
         Binding("a", "analyze", "AI分析"),
+        Binding("t", "trade", "建仓"),
         Binding("m", "toggle_monitor", "监控"),
         Binding("v", "switch_version", "版本"),
         Binding("o", "open_link", "链接"),
@@ -159,6 +160,14 @@ class MarketDetailView(Widget):
             return
         self._analyzing = True
         self.post_message(AnalyzeRequested(self.event_id))
+
+    def action_trade(self) -> None:
+        markets = self._detail.get("markets", []) if self._detail else []
+        if not markets:
+            self.notify("无可交易市场")
+            return
+        from scanner.tui.views.trade_dialog import TradeDialog
+        self.app.push_screen(TradeDialog(self.event_id, markets, self.service))
 
     def action_toggle_monitor(self) -> None:
         monitor = self._detail.get("monitor") if self._detail else None
