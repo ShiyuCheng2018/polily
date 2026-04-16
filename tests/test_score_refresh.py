@@ -135,7 +135,7 @@ class TestMarketRowToModel:
         assert m.total_bid_depth_usd > 0
 
     def test_resolution_time(self, db):
-        _seed_crypto_event(db, end_date="2026-04-15T16:00:00+00:00")
+        _seed_crypto_event(db, end_date="2027-12-31T16:00:00+00:00")
         mr = get_market("m1", db)
         m = market_row_to_model(mr, market_type="crypto")
 

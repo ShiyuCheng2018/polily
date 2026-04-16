@@ -48,9 +48,9 @@ def test_movement_result_should_trigger():
 
 
 def test_movement_result_cooldown_seconds():
-    assert MovementResult(magnitude=75.0, quality=50.0).cooldown_seconds == 1800  # 30min
-    assert MovementResult(magnitude=85.0, quality=50.0).cooldown_seconds == 600   # 10min
-    assert MovementResult(magnitude=95.0, quality=50.0).cooldown_seconds == 180   # 3min
+    assert MovementResult(magnitude=75.0, quality=50.0).cooldown_seconds == 3600  # 60min
+    assert MovementResult(magnitude=85.0, quality=50.0).cooldown_seconds == 1800  # 30min
+    assert MovementResult(magnitude=95.0, quality=50.0).cooldown_seconds == 1200  # 20min
 
 
 class TestMovementDataGuard:

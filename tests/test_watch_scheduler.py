@@ -54,7 +54,8 @@ class TestCheckJobRestore:
     def test_restores_check_jobs_from_db(self, db):
         _seed_event(db, "ev1")
         upsert_event_monitor("ev1", auto_monitor=True, db=db)
-        update_next_check_at("ev1", "2026-04-12T14:00:00", "CPI release", db)
+        future = (datetime.now(UTC) + timedelta(days=3)).isoformat()
+        update_next_check_at("ev1", future, "CPI release", db)
 
         with patch("scanner.daemon.scheduler.global_poll"):
             ws = WatchScheduler(db)
@@ -79,7 +80,8 @@ class TestCheckJobRestore:
             assert count == 0
             ws.shutdown()
 
-    def test_overdue_check_jobs_rescheduled_near_future(self, db):
+    def test_overdue_check_jobs_skipped(self, db):
+        """Overdue check jobs should be skipped, not rescheduled."""
         _seed_event(db, "ev1")
         upsert_event_monitor("ev1", auto_monitor=True, db=db)
         past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
@@ -89,11 +91,9 @@ class TestCheckJobRestore:
             ws = WatchScheduler(db)
             ws.start()
             count = ws.restore_check_jobs()
-            assert count == 1
+            assert count == 0  # skipped, not restored
             job = ws.scheduler.get_job("check_ev1")
-            assert job is not None
-            # Should be scheduled in the near future, not in the past
-            assert job.next_run_time > datetime.now(UTC) - timedelta(seconds=1)
+            assert job is None
             ws.shutdown()
 
 
@@ -155,8 +155,13 @@ class TestExecuteCheck:
 
         upsert_event(EventRow(event_id="ev1", title="E", updated_at="now"), db)
 
-        with patch("scanner.daemon.recheck.recheck_event") as mock_recheck:
+        with patch("scanner.daemon.recheck.recheck_event") as mock_recheck, \
+             patch("scanner.tui.service.ScanService"):
             mock_recheck.return_value = MagicMock(closed=False, next_check_at=None)
             _execute_check(event_id="ev1", db=db, config=None, watch_scheduler=None)
 
-        mock_recheck.assert_called_once_with("ev1", db=db, trigger_source="scheduled")
+        mock_recheck.assert_called_once()
+        args, kwargs = mock_recheck.call_args
+        assert args[0] == "ev1"
+        assert kwargs["trigger_source"] == "scheduled"
+        assert kwargs.get("service") is not None
