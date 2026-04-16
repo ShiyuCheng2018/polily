@@ -67,7 +67,7 @@ class MarketDetailView(Widget):
         Binding("escape", "go_back", "返回"),
         Binding("backspace", "go_back", show=False),
         Binding("a", "analyze", "AI分析"),
-        Binding("t", "trade", "建仓"),
+        Binding("t", "trade", "交易"),
         Binding("m", "toggle_monitor", "监控"),
         Binding("v", "switch_version", "版本"),
         Binding("o", "open_link", "链接"),
