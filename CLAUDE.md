@@ -99,3 +99,17 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 - Global poll runs every 30s on a dedicated single-thread executor. Movement detection is inline (no separate job). AI analysis is triggered on the ai executor (5 threads).
 - Daemon writes PID to `data/scheduler.pid`. CLI `stop` reads PID and sends SIGTERM. `SIGUSR1` triggers job reload from DB.
 - **CLOB /book API 对 negRisk 市场盘口失真**（GitHub Issue #180）：返回原始 token 盘口 bid=0.01 ask=0.99，不反映 complement matching 的真实流动性。真实价格用 `/midpoint`，真实 spread 用 `/price?side=BUY` 和 `/price?side=SELL` 的差值。`/book` 的 depth 数据对 negRisk 市场不可靠。
+
+## Release Process
+
+Polily 是开源项目，发版需规范。始终用 `gh release create`（自动创建 tag + release 页面），不要单独 `git tag`。
+
+| 阶段 | 分支 | 命令 | GitHub 标记 |
+|------|------|------|------------|
+| 抢先体验 | dev | `gh release create v0.6.0-beta.1 --target dev --prerelease` | Pre-release |
+| 正式发版 | master | `gh release create v0.6.0 --target master` | Latest |
+
+**发版节奏：**
+1. dev 上功能完成 → 发 `vX.Y.0-beta.N` (prerelease)
+2. 收集反馈、修 bug → 发 `vX.Y.0-beta.N+1` (prerelease)
+3. 稳定后 merge 到 master → 发 `vX.Y.0` (latest)
