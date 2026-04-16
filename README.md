@@ -1,21 +1,31 @@
-# Polily — Polymarket Decision Copilot
+# Polily — A Polymarket Monitoring Agent That Actually Works
 
-Finds structure, shows direction lean, sizes your risk. You pull the trigger.
+Paste a Polymarket event URL and Polily decides **whether it's worth your time, scores the structure, hunts mispricing, watches for moves, and tracks paper PnL**. A monitoring agent built for small accounts.
 
-Scans 8000+ Polymarket markets, scores tradability, detects crypto mispricing, and provides AI-powered analysis — all in an interactive terminal UI.
+## Why You Need It
 
-## What It Does
+Polymarket is unfriendly to small accounts:
 
-- **Scans** 8000+ markets, filters noise, scores structure quality (0-100)
-- **Detects** crypto mispricing via log-normal vol model (Binance/ccxt)
-- **Analyzes** markets with 5 AI agents (Claude CLI) — narratives, risk flags, research checklists
-- **Tracks** paper trades with friction-adjusted PnL and graduation assessment
+- **Spread and thin liquidity quietly eat your PnL** — if you don't price them in before clicking, you're already behind
+- **A good story doesn't make a good market** — narratives are seductive; structure is what the numbers say
+- **Watching markets is expensive** — refreshing pages by hand doesn't scale past two or three events
 
-## What It Does NOT Do
+## Who It's For
 
-- Give definitive trade signals — shows conditional lean, not "buy this"
-- Auto-execute trades
-- Replace your judgment
+- Wallet of $50–$500 — can't afford to be the exit liquidity
+- Has an edge in at least one of crypto / macro / tech, and **finds events on their own**
+- Willing to spend 5–10 minutes a day following a few events, but won't watch them by hand
+
+> For events you bring in, Polily judges whether they're worth your money and time. Once added to monitoring, it watches the price, runs mispricing checks, and surfaces meaningful moves.
+
+## What It Does For You
+
+1. **Paste a URL → instant dossier + value check** — pulls the full event + child markets, scores 0–100 across spread / depth / objectivity / time / friction, surfaces hidden costs, and tells you whether the event is worth following
+2. **Mispricing detection** — for crypto threshold markets, compares against a log-normal vol model fed by live Binance data and flags probabilities that look mis-priced
+3. **Background watching + move alerts** — a daemon polls prices for everything in your watchlist; meaningful moves trigger AI analysis and notifications
+4. **Paper trading** — PnL computed against real friction, so you can rehearse for a while before putting real money on the line
+
+> A high structure score ≠ YES will win. It measures *whether the market is tradeable*, not *whether you should buy* — keep the two separate.
 
 ## Quick Start
 
@@ -24,79 +34,57 @@ git clone https://github.com/ShiyuCheng2018/polily.git && cd polily
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Interactive TUI (recommended)
-polily
-
-# CLI scan
-polily scan
-
-# Match your view to markets
-polily match "BTC will hit 70k"
+polily   # launches the TUI; everything happens inside it
 ```
+
+In the TUI, paste a Polymarket event URL (looks like `https://polymarket.com/event/...`) into the **Tasks** pane. Polily fetches and scores it; from there you can add it to monitoring or open a paper trade.
 
 ### Requirements
 
 - Python 3.11+
-- [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) (optional, for AI features): `npm install -g @anthropic-ai/claude-code && claude login`
-- Without Claude CLI, everything works in rule-based mode (`--no-ai`)
+- [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) (optional, used for AI analysis): `npm install -g @anthropic-ai/claude-code && claude login`
+- Without Claude CLI, Polily still runs — AI components fall back to rule-based mode
 
 ## TUI Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `s` | Start scan |
-| `0/1/2/3` | Task log / Research / Watchlist / Paper trades |
-| `Enter` | Open detail |
-| `Esc` | Go back |
-| `a` | AI deep analysis (in detail view) |
-| `< >` | Switch analysis versions |
-| `y/n` | Paper trade YES/NO |
-| `o` | Open in browser |
+| `0` | Tasks log |
+| `1` | Watchlist |
+| `2` | Paper trades |
+| `3` | History |
+| `4` | Notifications |
+| `r` | Refresh |
+| `↑ / ↓` | Navigate menu |
 | `q` | Quit |
 
-## CLI Commands
+## Background Scheduler
+
+Price polling, movement detection, and AI analysis run inside a daemon:
 
 ```bash
-polily                     # Interactive TUI
-polily scan                # CLI scan (--brief, --verbose, --lean, --no-ai)
-polily match "..."         # Opinion matching
-polily daily               # Daily briefing + auto-resolve
-polily backtest            # Directional backtest
-polily mark --rank 1 -s yes  # Paper trade
-polily paper-report        # Performance + graduation
-polily export trades       # Export to CSV
+polily scheduler run        # foreground (typically launched by launchd)
+polily scheduler status     # status
+polily scheduler restart    # restart
+polily scheduler stop       # stop
+polily reset                # wipe DB / logs for a clean restart
 ```
 
-## AI Agents
+## Current Limitations
 
-5 agents via `claude -p` CLI (included in Claude subscription, no extra cost):
-
-| Agent | Purpose |
-|-------|---------|
-| MarketAnalyst | Objectivity scoring, catalyst extraction |
-| NarrativeWriter | Analysis narrative, risk flags, research checklist |
-| BriefingAnalyst | Daily delta interpretation |
-| CrossDomainInsight | Event x market cross-domain analysis |
-| ReviewAnalyst | Paper trading performance coaching |
-
-AI is optional. Disable with `polily scan --no-ai` or `ai.enabled: false` in config.
-
-## Limitations
-
-- Mispricing detection only works for crypto threshold markets
-- AI quality depends on Claude CLI availability
-- TUI exit uses `os._exit(0)` due to Claude CLI subprocess cleanup
-- Good market structure ≠ good trade — the copilot sizes risk, you make the call
+- Mispricing detection currently only covers crypto threshold markets
+- AI analysis requires Claude CLI; otherwise it falls back to rule-based mode
+- Data comes from Polymarket public APIs — real-time freshness is bounded by them
 
 ## Development
 
 ```bash
-pytest tests/ -q              # 339 tests
-ruff check scanner/ tests/    # Lint
-pyright scanner/              # Type check
+pytest tests/ -q              # ~620 tests
+ruff check scanner/ tests/    # lint
+pyright scanner/              # type check
 ```
 
-See [docs/architecture.md](docs/architecture.md) for detailed design and [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+See [docs/architecture.md](docs/architecture.md) for design details and [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ## License
 
