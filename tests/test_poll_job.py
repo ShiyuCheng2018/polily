@@ -288,7 +288,8 @@ class TestGlobalPollPriceLayer:
         """fetch_clob_market_data returns price/book data, not trades (trades come from Data API separately)."""
         _seed(db)
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch, \
+             patch("scanner.daemon.poll_job._fetch_trades_batch") as mock_trades:
             mock_fetch.return_value = {
                 "yes_price": 0.55,
                 "no_price": 0.45,
@@ -301,10 +302,12 @@ class TestGlobalPollPriceLayer:
                 "book_bids": "[]",
                 "book_asks": "[]",
             }
+            mock_trades.return_value = {}  # no trades fetched
             global_poll(db)
 
-        # CLOB fetch result has no recent_trades key — trades come from _fetch_trades_batch
-        assert "recent_trades" not in mock_fetch.return_value
+        # CLOB fetch does not set recent_trades — trades come from _fetch_trades_batch separately
+        market = get_market("m1", db)
+        assert market.recent_trades is None
 
 
 class TestWideSpreadIntegration:

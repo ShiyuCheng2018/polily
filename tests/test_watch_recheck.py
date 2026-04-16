@@ -164,4 +164,6 @@ class TestRecheckWithAI:
 
         result = recheck_event("ev1", db=db, service=mock_service, trigger_source="movement")
 
-        assert result.closed is False  # didn't crash, returned gracefully
+        assert result.closed is False
+        assert result.next_check_at is None  # failure should not set schedule
+        assert result.trigger_source == "movement"

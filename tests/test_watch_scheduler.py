@@ -215,3 +215,6 @@ class TestExecuteCheck:
             )
             # Should not crash even with next_check_at but no scheduler
             _execute_check(event_id="ev1", db=db, config=None, watch_scheduler=None)
+
+        # AI analysis should still run even without scheduler
+        mock_recheck.assert_called_once()
