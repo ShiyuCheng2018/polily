@@ -15,9 +15,9 @@ class PositionPanel(Widget):
     DEFAULT_CSS = """
     PositionPanel { height: auto; }
     PositionPanel DashPanel { width: 1fr; margin: 0 1; height: auto; }
-    PositionPanel .pos-card { border: tall $accent; padding: 0 1; margin: 0 0 1 0; height: auto; }
-    PositionPanel .pos-row { padding: 0; }
-    PositionPanel .pos-summary { padding: 0 0 0 1; text-style: bold; }
+    PositionPanel .pos-card { border: tall $accent; padding: 0 1; margin: 1 1; height: auto; }
+    PositionPanel .pos-row { padding: 0 0 0 1; }
+    PositionPanel .pos-summary { padding: 1 0 0 1; text-style: bold; }
     """
 
     def __init__(self, trades: list, markets: list, movements: list | None = None):

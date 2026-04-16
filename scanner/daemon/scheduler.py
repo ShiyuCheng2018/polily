@@ -86,6 +86,19 @@ class WatchScheduler:
             self.schedule_check(eid, run_at=check_at)
             count += 1
         logger.info("Restored %d check jobs from DB", count)
+
+        # Write to poll.log for visibility
+        from scanner.daemon.poll_job import _get_poll_log
+        plog = _get_poll_log()
+        jobs = self.scheduler.get_jobs()
+        check_jobs = [j for j in jobs if j.id.startswith("check_")]
+        if check_jobs:
+            for j in check_jobs:
+                eid = j.id.replace("check_", "")
+                plog.info(f"  scheduled  | {eid} → {j.next_run_time}")
+        else:
+            plog.info("  scheduled  | no check jobs")
+
         return count
 
     def schedule_check(self, event_id: str, run_at: datetime) -> None:
@@ -278,6 +291,9 @@ def run_daemon(db, config=None) -> None:
             signal.pause()
             if _reload_requested:
                 _reload_requested = False
+                from scanner.daemon.poll_job import _get_poll_log
+                plog = _get_poll_log()
+                plog.info("── reload (SIGUSR1) ──────────────────────────────")
                 logger.info("Reloading check jobs from DB (SIGUSR1)")
                 scheduler.restore_check_jobs()
     except AttributeError:
