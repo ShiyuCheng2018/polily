@@ -9,6 +9,7 @@ def add_notification(
     *,
     title: str,
     body: str,
+    event_id: str | None = None,
     market_id: str | None = None,
     trigger_source: str | None = None,
     action_result: str | None = None,
@@ -16,9 +17,9 @@ def add_notification(
     """Persist a notification to SQLite."""
     db.conn.execute(
         """INSERT INTO notifications
-        (created_at, market_id, title, body, trigger_source, action_result)
-        VALUES (?, ?, ?, ?, ?, ?)""",
-        (datetime.now(UTC).isoformat(), market_id, title, body,
+        (created_at, event_id, market_id, title, body, trigger_source, action_result)
+        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (datetime.now(UTC).isoformat(), event_id, market_id, title, body,
          trigger_source, action_result),
     )
     db.conn.commit()

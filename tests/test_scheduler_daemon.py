@@ -3,7 +3,7 @@
 import plistlib
 import sys
 
-from scanner.watch_scheduler import generate_launchd_plist
+from scanner.daemon.scheduler import generate_launchd_plist
 
 
 def test_generate_plist_structure():
@@ -38,7 +38,7 @@ def test_generate_plist_log_paths():
     plist = plistlib.loads(plist_bytes)
     assert "StandardOutPath" in plist
     assert "StandardErrorPath" in plist
-    assert "scheduler" in plist["StandardOutPath"]
+    assert plist["StandardOutPath"] == "/dev/null"
 
 
 def test_plist_uses_current_python():

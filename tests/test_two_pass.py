@@ -1,32 +1,40 @@
 """Tests for two-pass scan: metadata fetch → filter → order book fetch → score."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+import json
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scanner.api import parse_clob_book
-from scanner.config import ScannerConfig
-from scanner.models import BookLevel
-from scanner.pipeline import enrich_with_orderbook
+from scanner.core.config import ScannerConfig
+from scanner.core.models import BookLevel
+from scanner.scan.pipeline import enrich_with_orderbook
 from tests.conftest import make_market
 
-SAMPLE_BOOK = {
-    "bids": [
-        {"price": "0.54", "size": "1500"},
-        {"price": "0.53", "size": "2200"},
-        {"price": "0.52", "size": "900"},
-    ],
-    "asks": [
-        {"price": "0.56", "size": "1300"},
-        {"price": "0.57", "size": "1800"},
-        {"price": "0.58", "size": "600"},
-    ],
-}
 
-STALE_BOOK = {
-    "bids": [{"price": "0.01", "size": "100"}],
-    "asks": [{"price": "0.99", "size": "100"}],
-}
+def _clob_result(**overrides):
+    """Build a realistic fetch_clob_market_data return dict."""
+    base = {
+        "yes_price": 0.55,
+        "no_price": 0.45,
+        "last_trade_price": 0.55,
+        "best_bid": 0.54,
+        "best_ask": 0.56,
+        "spread": 0.02,
+        "bid_depth": 4600.0,
+        "ask_depth": 3700.0,
+        "book_bids": json.dumps([
+            {"price": 0.54, "size": 1500},
+            {"price": 0.53, "size": 2200},
+            {"price": 0.52, "size": 900},
+        ]),
+        "book_asks": json.dumps([
+            {"price": 0.56, "size": 1300},
+            {"price": 0.57, "size": 1800},
+            {"price": 0.58, "size": 600},
+        ]),
+    }
+    base.update(overrides)
+    return base
 
 
 class TestEnrichWithOrderbook:
@@ -38,17 +46,9 @@ class TestEnrichWithOrderbook:
             book_depth_bids=None,
             book_depth_asks=None,
         )
-        # Need clobTokenIds-like data; we'll mock the token lookup
-        mock_response = MagicMock()
-        mock_response.json.return_value = SAMPLE_BOOK
-        mock_response.raise_for_status = MagicMock()
 
-        with patch("scanner.pipeline.PolymarketClient") as MockClient:
-            client_instance = AsyncMock()
-            client_instance.fetch_book.return_value = parse_clob_book(SAMPLE_BOOK)
-            client_instance.close = AsyncMock()
-            MockClient.return_value = client_instance
-
+        with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = _clob_result()
             config = ScannerConfig()
             enriched = await enrich_with_orderbook([market], config)
 
@@ -60,34 +60,57 @@ class TestEnrichWithOrderbook:
             assert m.total_bid_depth_usd > 0
 
     @pytest.mark.asyncio
-    async def test_stale_book_clears_depth(self):
-        """If book is stale (bid=0.01, ask=0.99), depth should be set to None."""
-        market = make_market(market_id="m-stale", clob_token_id_yes="tok-stale", book_depth_bids=None, book_depth_asks=None)
+    async def test_sets_real_bid_ask_from_price_endpoint(self):
+        """enrich should set best_bid_yes/best_ask_yes from /price data."""
+        market = make_market(
+            market_id="m1",
+            clob_token_id_yes="tok-yes-123",
+            best_bid_yes=None,
+            best_ask_yes=None,
+        )
 
-        with patch("scanner.pipeline.PolymarketClient") as MockClient:
-            client_instance = AsyncMock()
-            client_instance.fetch_book.return_value = parse_clob_book(STALE_BOOK)
-            client_instance.close = AsyncMock()
-            MockClient.return_value = client_instance
-
+        with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = _clob_result(best_bid=0.54, best_ask=0.56, spread=0.02)
             config = ScannerConfig()
             enriched = await enrich_with_orderbook([market], config)
 
             m = enriched[0]
-            # Stale book should result in None depth (flagged)
-            assert m.book_depth_bids is None or len(m.book_depth_bids) == 0
+            assert m.best_bid_yes == 0.54
+            assert m.best_ask_yes == 0.56
+            assert m.spread_yes == 0.02
+
+    @pytest.mark.asyncio
+    async def test_neg_risk_book_depth_still_stored(self):
+        """negRisk markets with bid=0.01 in /book should still store depth (not cleared)."""
+        market = make_market(market_id="m-neg", clob_token_id_yes="tok-neg",
+                            book_depth_bids=None, book_depth_asks=None)
+
+        with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = _clob_result(
+                best_bid=0.54,    # from /price (correct)
+                best_ask=0.56,    # from /price (correct)
+                spread=0.02,
+                book_bids=json.dumps([{"price": 0.01, "size": 100}]),  # /book raw (negRisk)
+                book_asks=json.dumps([{"price": 0.99, "size": 100}]),
+            )
+            config = ScannerConfig()
+            enriched = await enrich_with_orderbook([market], config)
+
+            m = enriched[0]
+            # Depth is stored (not cleared — no more stale book detection)
+            assert m.book_depth_bids is not None
+            assert len(m.book_depth_bids) == 1
+            # But bid/ask come from /price, not /book
+            assert m.best_bid_yes == 0.54
+            assert m.best_ask_yes == 0.56
 
     @pytest.mark.asyncio
     async def test_fetch_failure_keeps_market(self):
-        """If book fetch fails, market should still be returned with None depth."""
-        market = make_market(market_id="m-fail", clob_token_id_yes="tok-fail", book_depth_bids=None, book_depth_asks=None)
+        market = make_market(market_id="m-fail", clob_token_id_yes="tok-fail",
+                            book_depth_bids=None, book_depth_asks=None)
 
-        with patch("scanner.pipeline.PolymarketClient") as MockClient:
-            client_instance = AsyncMock()
-            client_instance.fetch_book.side_effect = Exception("API error")
-            client_instance.close = AsyncMock()
-            MockClient.return_value = client_instance
-
+        with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.side_effect = Exception("API error")
             config = ScannerConfig()
             enriched = await enrich_with_orderbook([market], config)
 
@@ -95,39 +118,26 @@ class TestEnrichWithOrderbook:
             assert enriched[0].book_depth_bids is None
 
     @pytest.mark.asyncio
-    async def test_fetches_all_markets(self):
-        """Fetch books for all passed markets."""
+    async def test_fetches_all_markets_concurrently(self):
         markets = [
-            make_market(market_id=f"m{i}", clob_token_id_yes=f"tok-{i}", book_depth_bids=None, book_depth_asks=None)
+            make_market(market_id=f"m{i}", clob_token_id_yes=f"tok-{i}",
+                       book_depth_bids=None, book_depth_asks=None)
             for i in range(10)
         ]
 
-        fetch_count = 0
-
-        async def mock_fetch_book(token_id):
-            nonlocal fetch_count
-            fetch_count += 1
-            return parse_clob_book(SAMPLE_BOOK)
-
-        with patch("scanner.pipeline.PolymarketClient") as MockClient:
-            client_instance = AsyncMock()
-            client_instance.fetch_book = mock_fetch_book
-            client_instance.close = AsyncMock()
-            MockClient.return_value = client_instance
-
+        with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = _clob_result()
             config = ScannerConfig()
             enriched = await enrich_with_orderbook(markets, config)
 
-            assert fetch_count == 10  # all markets fetched
+            assert mock_fetch.call_count == 10
             assert enriched[0].book_depth_bids is not None
             assert enriched[9].book_depth_bids is not None
 
 
 class TestOrderBookIntegrationWithScoring:
     def test_market_with_depth_scores_higher_liquidity(self):
-        """Market with real depth data should score higher on liquidity than one without."""
-        from scanner.config import ScoringWeights
-        from scanner.scoring import compute_structure_score
+        from scanner.scan.scoring import compute_structure_score
 
         m_with_depth = make_market(
             best_bid_yes=0.54, best_ask_yes=0.56,
@@ -139,18 +149,17 @@ class TestOrderBookIntegrationWithScoring:
             book_depth_bids=None, book_depth_asks=None,
         )
 
-        s1 = compute_structure_score(m_with_depth, ScoringWeights())
-        s2 = compute_structure_score(m_no_depth, ScoringWeights())
+        s1 = compute_structure_score(m_with_depth)
+        s2 = compute_structure_score(m_no_depth)
 
         assert s1.liquidity_structure > s2.liquidity_structure
 
     def test_depth_filter_rejects_shallow_book(self):
-        """Market with very thin depth should be rejected by depth filter."""
-        from scanner.config import FiltersConfig, HeuristicsConfig
-        from scanner.filters import apply_hard_filters
+        from scanner.core.config import FiltersConfig, HeuristicsConfig
+        from scanner.scan.filters import apply_hard_filters
 
         m = make_market(
-            book_depth_bids=[BookLevel(price=0.54, size=30)],  # $30 total, below $100 min
+            book_depth_bids=[BookLevel(price=0.54, size=30)],
             book_depth_asks=[BookLevel(price=0.56, size=30)],
         )
         result = apply_hard_filters(

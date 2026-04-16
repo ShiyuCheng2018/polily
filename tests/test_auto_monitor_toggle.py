@@ -1,124 +1,70 @@
-from unittest.mock import patch
+"""Tests for event-level auto_monitor toggle."""
+import json
 
-from scanner.auto_monitor import toggle_auto_monitor
-from scanner.config import ScannerConfig
-from scanner.db import PolilyDB
-from scanner.market_state import MarketState, get_market_state, set_market_state
+import pytest
+
+from scanner.core.db import PolilyDB
+from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from scanner.core.monitor_store import get_active_monitors, get_event_monitor
+from scanner.daemon.auto_monitor import toggle_auto_monitor
 
 
-def test_enable_registers_poll_job(tmp_path):
+@pytest.fixture
+def db(tmp_path):
     db = PolilyDB(tmp_path / "test.db")
-    config = ScannerConfig()
-
-    state = MarketState(
-        status="watch",
-        updated_at="2026-04-01T00:00:00",
-        title="BTC above $100K?",
-        auto_monitor=False,
-        next_check_at="2026-04-02T00:00:00",
-        market_type="crypto",
-        clob_token_id_yes="tok_1",
-    )
-    set_market_state("m1", state, db)
-
-    with patch("scanner.auto_monitor.register_poll_job") as mock_register, \
-         patch("scanner.auto_monitor.remove_poll_job") as mock_remove:
-        mock_register.return_value = {"job_id": "poll_m1", "interval_seconds": 10,
-                                       "market_id": "m1", "market_type": "crypto"}
-        toggle_auto_monitor("m1", enable=True, db=db, config=config)
-
-        mock_register.assert_called_once()
-        mock_remove.assert_not_called()
-
-    # Verify state was updated
-    updated = get_market_state("m1", db)
-    assert updated.auto_monitor is True
+    yield db
     db.close()
 
 
-def test_disable_removes_poll_job(tmp_path):
-    db = PolilyDB(tmp_path / "test.db")
-    config = ScannerConfig()
-
-    state = MarketState(
-        status="watch",
-        updated_at="2026-04-01T00:00:00",
-        title="BTC above $100K?",
-        auto_monitor=True,
-        market_type="crypto",
-        clob_token_id_yes="tok_1",
-    )
-    set_market_state("m1", state, db)
-
-    with patch("scanner.auto_monitor.register_poll_job") as mock_register, \
-         patch("scanner.auto_monitor.remove_poll_job") as mock_remove:
-        mock_remove.return_value = True
-        toggle_auto_monitor("m1", enable=False, db=db, config=config)
-
-        mock_remove.assert_called_once_with("m1")
-        mock_register.assert_not_called()
-
-    updated = get_market_state("m1", db)
-    assert updated.auto_monitor is False
-    db.close()
+def _seed(db, event_id="ev1"):
+    upsert_event(EventRow(event_id=event_id, title="Test Event", updated_at="now"), db)
+    upsert_market(MarketRow(
+        market_id="m1", event_id=event_id, question="Q",
+        yes_price=0.55, no_price=0.45, updated_at="now",
+    ), db)
 
 
-def test_enable_on_buy_yes_works(tmp_path):
-    """auto_monitor should work on buy_yes status."""
-    db = PolilyDB(tmp_path / "test.db")
-    config = ScannerConfig()
+class TestToggleAutoMonitor:
+    def test_enable_creates_monitor(self, db):
+        _seed(db)
+        toggle_auto_monitor("ev1", enable=True, db=db)
+        monitor = get_event_monitor("ev1", db)
+        assert monitor is not None
+        assert monitor["auto_monitor"] == 1
 
-    state = MarketState(
-        status="buy_yes",
-        updated_at="2026-04-01T00:00:00",
-        title="BTC above $100K?",
-        auto_monitor=False,
-        market_type="crypto",
-        clob_token_id_yes="tok_1",
-    )
-    set_market_state("m1", state, db)
+    def test_enable_records_price_snapshot(self, db):
+        _seed(db)
+        toggle_auto_monitor("ev1", enable=True, db=db)
+        monitor = get_event_monitor("ev1", db)
+        assert monitor["price_snapshot"] is not None
+        snapshot = json.loads(monitor["price_snapshot"])
+        assert "m1" in snapshot
+        assert snapshot["m1"]["yes"] == 0.55
 
-    with patch("scanner.auto_monitor.register_poll_job") as mock_register:
-        mock_register.return_value = {"job_id": "poll_m1", "interval_seconds": 10,
-                                       "market_id": "m1", "market_type": "crypto"}
-        toggle_auto_monitor("m1", enable=True, db=db, config=config)
-        mock_register.assert_called_once()
+    def test_disable_clears_auto_monitor(self, db):
+        _seed(db)
+        toggle_auto_monitor("ev1", enable=True, db=db)
+        toggle_auto_monitor("ev1", enable=False, db=db)
+        monitor = get_event_monitor("ev1", db)
+        assert monitor["auto_monitor"] == 0
 
-    updated = get_market_state("m1", db)
-    assert updated.auto_monitor is True
-    db.close()
+    def test_enable_appears_in_active_monitors(self, db):
+        _seed(db, "ev1")
+        _seed(db, "ev2")
+        toggle_auto_monitor("ev1", enable=True, db=db)
+        active = get_active_monitors(db)
+        assert "ev1" in active
+        assert "ev2" not in active
 
+    def test_toggle_nonexistent_event_is_noop(self, db):
+        """Should not raise for nonexistent event."""
+        toggle_auto_monitor("nonexistent", enable=True, db=db)
+        # Just no monitor created (event doesn't exist for FK)
+        # or silently fails — either way no crash
 
-def test_enable_on_pass_rejected(tmp_path):
-    """auto_monitor should be rejected for pass status."""
-    db = PolilyDB(tmp_path / "test.db")
-    config = ScannerConfig()
-
-    state = MarketState(
-        status="pass",
-        updated_at="2026-04-01T00:00:00",
-        title="Some market",
-    )
-    set_market_state("m1", state, db)
-
-    with patch("scanner.auto_monitor.register_poll_job") as mock_register:
-        toggle_auto_monitor("m1", enable=True, db=db, config=config)
-        mock_register.assert_not_called()
-    db.close()
-
-
-def test_enable_on_closed_rejected(tmp_path):
-    db = PolilyDB(tmp_path / "test.db")
-    config = ScannerConfig()
-
-    state = MarketState(
-        status="closed",
-        updated_at="2026-04-01T00:00:00",
-        title="Closed market",
-    )
-    set_market_state("m1", state, db)
-
-    with patch("scanner.auto_monitor.register_poll_job") as mock_register:
-        toggle_auto_monitor("m1", enable=True, db=db, config=config)
-        mock_register.assert_not_called()
-    db.close()
+    def test_double_enable_is_idempotent(self, db):
+        _seed(db)
+        toggle_auto_monitor("ev1", enable=True, db=db)
+        toggle_auto_monitor("ev1", enable=True, db=db)
+        active = get_active_monitors(db)
+        assert active.count("ev1") == 1

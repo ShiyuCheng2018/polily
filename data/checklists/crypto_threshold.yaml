@@ -1,8 +1,0 @@
-steps:
-  - "Read resolution rules — confirm exact price source and timestamp"
-  - "Check BTC/ETH chart — trend, support/resistance near threshold"
-  - "Check funding rates and open interest on major exchanges"
-  - "Check if any macro event before resolution could move price"
-  - "Compare your vol estimate with the scanner's model"
-  - "Ask: what do I know that market makers' bots don't?"
-  - "If still confident — $10-20 max via limit order"

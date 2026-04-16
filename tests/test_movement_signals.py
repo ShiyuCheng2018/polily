@@ -1,6 +1,6 @@
 import pytest
 
-from scanner.movement_signals import (
+from scanner.monitor.signals import (
     compute_book_imbalance,
     compute_cross_divergence,
     compute_fair_value_divergence,

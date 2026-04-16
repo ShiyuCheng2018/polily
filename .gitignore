@@ -16,15 +16,8 @@ build/
 *.swo
 .DS_Store
 
-# Runtime data (user-generated, not committed)
-data/scans/*.json
-data/paper_trades.db
-data/scan_logs.json
-data/analyses.json
-data/market_state.json
-data/cache/
-data/.onboarding_done
-outputs/
+# Runtime data (all user-generated, never committed)
+data/
 
 # Environment
 .env*
@@ -44,10 +37,6 @@ htmlcov/
 
 # Claude Code
 .claude/
-data/*.db
-data/*.db-shm
-data/*.db-wal
-data/*.log
 *.db-shm
 *.db-wal
-data/scheduler.pid
+docs/internal/

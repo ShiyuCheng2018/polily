@@ -17,7 +17,7 @@ CRYPTO_PAIRS = {
     "avax": "AVAX/USDT", "avalanche": "AVAX/USDT",
     "bnb": "BNB/USDT",
     "xrp": "XRP/USDT",
-    "ada": "ADA/USDT",
+    "ada": "ADA/USDT", "cardano": "ADA/USDT",
     "dot": "DOT/USDT",
     "link": "LINK/USDT",
 }
@@ -33,17 +33,34 @@ def extract_crypto_asset(title: str) -> str | None:
 
 
 def extract_threshold_price(title: str) -> float | None:
-    """Extract threshold price from title like '$88,000' or '88000'."""
-    match = re.search(r'\$?([\d,]+(?:\.\d+)?)', title)
-    if not match:
-        return None
-    try:
-        val = float(match.group(1).replace(",", ""))
-        if val < 100:
-            return None
-        return val
-    except ValueError:
-        return None
+    """Extract threshold price from title like '$88,000' or '$1.50'.
+
+    Only matches values preceded by '$' to avoid grabbing percentages or other numbers.
+    Falls back to bare numbers >= 100 (likely prices like '88000').
+    """
+    # Prefer explicit dollar amounts (handles $0.50, $1.50, $88,000)
+    dollar_match = re.search(r'\$([\d,]+(?:\.\d+)?)', title)
+    if dollar_match:
+        try:
+            val = float(dollar_match.group(1).replace(",", ""))
+            if val < 0.001:
+                return None
+            return val
+        except ValueError:
+            pass
+
+    # Fallback: bare large numbers (>= 100) — likely crypto prices like "88000"
+    # Skip if followed by '%' (percentage values like "3.5%")
+    bare_match = re.search(r'(?<!\$)([\d,]+(?:\.\d+)?)(?!\s*%)', title)
+    if bare_match:
+        try:
+            val = float(bare_match.group(1).replace(",", ""))
+            if val >= 100:
+                return val
+        except ValueError:
+            pass
+
+    return None
 
 
 def compute_realized_vol(prices: list[float], annualize_factor: float = 365.0) -> float:

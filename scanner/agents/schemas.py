@@ -4,18 +4,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-ActionLevel = Literal["BUY_YES", "BUY_NO", "WATCH", "PASS", "HOLD", "SELL", "REDUCE"]
-OpportunityType = Literal["instant_mispricing", "short_window", "slow_structure", "watch_only", "no_trade"]
-FrictionEdge = Literal["edge_exceeds", "roughly_equals", "friction_exceeds"]
-BiasDirection = Literal["YES", "NO", "NONE"]
-Strength = Literal["strong", "medium", "weak"]
-ResolutionRisk = Literal["low", "medium", "high"]
-ResolutionClarity = Literal["clear", "mostly_clear", "ambiguous", "unclear"]
+# --- Shared types ---
+
+AnalysisMode = Literal["discovery", "position_management"]
 Confidence = Literal["low", "medium", "high"]
 
+ThesisStatus = Literal["intact", "weakened", "broken"]
 
 
-# --- Schema types ---
+# --- Sub-schemas ---
 
 class TimeWindow(BaseModel):
     """Time urgency and optimal entry timing."""
@@ -31,7 +28,7 @@ class RiskFlag(BaseModel):
 
 
 class ResearchFinding(BaseModel):
-    """A finding from agent's own research (not a checklist for user)."""
+    """A finding from agent's own research."""
     finding: str  # "BTC 过去 24h 下跌 3.2%"
     source: str  # "Binance"
     impact: str  # "距离阈值更远，YES 概率下降"
@@ -43,7 +40,7 @@ class CryptoContext(BaseModel):
     buffer_pct: float | None = None
     daily_vol_pct: float | None = None
     buffer_conclusion: str = ""  # "thin" / "adequate" / "wide"
-    market_already_knows: str = ""  # gray auxiliary info
+    market_already_knows: str = ""
 
 
 class PositionAdvice(BaseModel):
@@ -57,75 +54,81 @@ class PositionAdvice(BaseModel):
     research_findings: list["ResearchFinding"] = []
 
 
+class Operation(BaseModel):
+    """A single trading operation recommendation."""
+    action: str  # BUY_YES, BUY_NO, SELL_YES, SELL_NO, REDUCE_YES, REDUCE_NO, HOLD
+    market_id: str | None = None
+    market_title: str | None = None
+    entry_price: float | None = None
+    position_size_usd: float | None = None
+    confidence: Confidence = "medium"  # agent 对这条操作的把握
+    reasoning: str = ""  # why this specific operation
+
+
+# --- Main output schema ---
+
 class NarrativeWriterOutput(BaseModel):
-    """Output from unified AI analysis — decision assistant mode."""
+    """Unified AI analysis output — modular structure with agent commentary."""
 
-    market_id: str
+    event_id: str
+    mode: AnalysisMode = "discovery"
 
-    # Decision
-    action: ActionLevel = "PASS"
-    bias: BiasDirection | None = "NONE"
-    strength: Strength | None = "weak"
-    confidence: Confidence = "low"
-    opportunity_type: OpportunityType | None = "no_trade"
+    # Modular content
+    operations: list[Operation] = []  # trading operations (can be empty for WATCH/PASS)
+    operations_commentary: str = ""   # agent's interpretation of operations
 
-    # Timing
-    time_window: TimeWindow = TimeWindow(urgency="normal", note="")
+    analysis: str = ""                # event-level logic (macro, fundamentals, timing)
+    analysis_commentary: str = ""     # agent's interpretation
 
-    # Why
-    why_now: str | None = ""
-    why_not_now: str | None = ""
-    friction_vs_edge: FrictionEdge | None = "friction_exceeds"
+    research_findings: list[ResearchFinding] = []  # 互联资讯 — agent 自由组织
+    research_commentary: str = ""     # agent's interpretation of research
 
-    # Risk
-    execution_risk: Confidence | None = "low"
     risk_flags: list[RiskFlag] = []
-    counterparty_note: str = ""
+    risk_commentary: str = ""         # agent's interpretation of risks
 
-    # Evidence (split into supporting vs invalidation)
-    supporting_findings: list[ResearchFinding] = []
-    invalidation_findings: list[ResearchFinding] = []
+    # Position mode
+    thesis_status: ThesisStatus | None = None
+    thesis_note: str | None = None
+    stop_loss: float | None = None
+    take_profit: float | None = None
+    alternative_market_id: str | None = None
+    alternative_note: str | None = None
 
-    # Scheduling — required for ALL actions
-    next_check_at: str | None = None      # ISO 8601 — when to recheck this market
-    next_check_reason: str = ""           # brief reason for this check time
-
-    # Recheck
-    recheck_conditions: list[str] = []
-
-    # Crypto-specific (optional)
-    crypto: CryptoContext | None = None
-
-    # Display
+    # Summary (final synthesis of ALL modules)
     summary: str = ""
-    one_line_verdict: str = ""
+
+    # Scheduling
+    time_window: TimeWindow = TimeWindow(urgency="normal", note="")
+    next_check_at: str | None = None
+    next_check_reason: str = ""
+
+    # Dev feedback
+    dev_feedback: str | None = None
 
     model_config = ConfigDict(extra="ignore")
 
     def semantic_errors(self) -> list[str]:
-        """Return list of semantic issues. Empty = OK. Used by retry logic."""
+        """Return list of semantic issues. Empty = OK."""
         errors = []
-        if self.action in ("BUY_YES", "BUY_NO"):
-            if not self.why_now or len((self.why_now or "").strip()) < 10:
-                errors.append("action=BUY requires substantive why_now")
-            if not self.supporting_findings:
-                errors.append("action=BUY requires at least 1 supporting_finding")
-        elif self.action in ("HOLD", "SELL", "REDUCE"):
-            if not self.why_now or len((self.why_now or "").strip()) < 10:
-                errors.append("action=HOLD/SELL/REDUCE requires substantive why_now")
-            if self.action == "SELL" and not self.invalidation_findings:
-                errors.append("action=SELL requires invalidation_findings (why thesis broke)")
-        elif self.action in ("WATCH", "PASS"):
-            if not self.why_not_now or len((self.why_not_now or "").strip()) < 10:
-                errors.append("action=WATCH/PASS requires substantive why_not_now")
-        if not self.next_check_at:
-            errors.append("next_check_at is required for all actions")
-        if not self.invalidation_findings:
-            errors.append("invalidation_findings must have at least 1 entry")
+
+        # If operations list is not empty, each operation must have action and reasoning
+        for i, op in enumerate(self.operations):
+            if not op.action:
+                errors.append(f"operation[{i}] missing action")
+            if not op.reasoning:
+                errors.append(f"operation[{i}] missing reasoning")
+
+        # If mode is position_management, thesis_status is required
+        if self.mode == "position_management":
+            if self.thesis_status is None:
+                errors.append("position mode requires thesis_status")
+
+        # summary must be non-empty
         if not self.summary or len(self.summary.strip()) < 5:
             errors.append("summary required")
-        if not self.one_line_verdict or len(self.one_line_verdict.strip()) < 5:
-            errors.append("one_line_verdict required")
+
+        # next_check_at is required
+        if not self.next_check_at:
+            errors.append("next_check_at is required")
+
         return errors
-
-

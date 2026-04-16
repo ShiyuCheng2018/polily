@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from scanner.models import BookLevel, Market
+from scanner.core.models import BookLevel, Market
 from tests.conftest import make_market
 
 
@@ -22,7 +22,7 @@ class TestMarket:
 
     def test_optional_fields_default_none(self):
         m = make_market()
-        assert m.event_id is None
+        assert m.event_id == "ev_test"
         assert m.description is None
         assert m.rules is None
         assert m.category is None
@@ -127,3 +127,43 @@ class TestMarket:
     def test_polymarket_url_no_slug_fallback(self):
         m = make_market(market_id="1515775", event_slug=None, market_slug=None)
         assert m.polymarket_url == "https://polymarket.com/event/1515775"
+
+
+class TestNewComputedFields:
+    def test_vamp_balanced_book(self):
+        m = make_market(best_bid_yes=0.54, best_ask_yes=0.56,
+                       book_depth_bids=[BookLevel(price=0.54, size=1000)],
+                       book_depth_asks=[BookLevel(price=0.56, size=1000)])
+        assert m.vamp is not None
+        assert abs(m.vamp - 0.55) < 0.01  # balanced -> same as mid
+
+    def test_vamp_imbalanced_book(self):
+        m = make_market(best_bid_yes=0.54, best_ask_yes=0.56,
+                       book_depth_bids=[BookLevel(price=0.54, size=100)],
+                       book_depth_asks=[BookLevel(price=0.56, size=900)])
+        # VAMP = (bid*ask_depth + ask*bid_depth) / total_depth
+        # More ask depth -> more weight on bid price -> VAMP < mid
+        assert m.vamp < 0.55
+
+    def test_obi_balanced(self):
+        m = make_market(book_depth_bids=[BookLevel(price=0.5, size=1000)],
+                       book_depth_asks=[BookLevel(price=0.6, size=1000)])
+        assert m.order_book_imbalance == 0.0
+
+    def test_obi_bid_heavy(self):
+        m = make_market(book_depth_bids=[BookLevel(price=0.5, size=900)],
+                       book_depth_asks=[BookLevel(price=0.6, size=100)])
+        assert m.order_book_imbalance > 0.5
+
+    def test_obi_none_when_no_depth(self):
+        m = make_market(book_depth_bids=None, book_depth_asks=None)
+        assert m.order_book_imbalance is None
+
+    def test_slippage_20usd(self):
+        m = make_market(book_depth_bids=[BookLevel(price=0.5, size=10000)])
+        assert m.slippage_20usd is not None
+        assert abs(m.slippage_20usd - 0.001) < 0.001  # 20/(2*10000) = 0.001
+
+    def test_slippage_none_when_no_depth(self):
+        m = make_market(book_depth_bids=None)
+        assert m.slippage_20usd is None

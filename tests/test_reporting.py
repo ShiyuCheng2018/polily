@@ -2,14 +2,14 @@
 
 import json
 
-from scanner.config import ScoringThresholds
-from scanner.mispricing import MispricingResult
-from scanner.reporting import (
+from scanner.core.config import ScoringThresholds
+from scanner.scan.mispricing import MispricingResult
+from scanner.scan.reporting import (
     ScoredCandidate,
     classify_tiers,
     render_candidate_json,
 )
-from scanner.scoring import ScoreBreakdown
+from scanner.scan.scoring import ScoreBreakdown
 from tests.conftest import make_market
 
 

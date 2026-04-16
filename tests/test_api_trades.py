@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from scanner.api import PolymarketClient, parse_data_api_trades, parse_gamma_event
-from scanner.config import ApiConfig
+from scanner.core.config import ApiConfig
 
 
 def test_parse_data_api_trades():
@@ -64,7 +64,7 @@ def test_parse_gamma_event_includes_condition_id():
             }
         ],
     }
-    markets = parse_gamma_event(event_data)
+    _event_row, markets = parse_gamma_event(event_data)
     assert len(markets) == 1
     assert markets[0].condition_id == "0xabc123condition"
     assert markets[0].clob_token_id_yes == "tok_yes"

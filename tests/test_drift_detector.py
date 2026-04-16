@@ -1,7 +1,7 @@
 """Tests for drift detection — rolling windows + CUSUM."""
 
 
-from scanner.drift_detector import CusumAccumulator, build_price_history, check_rolling_windows
+from scanner.monitor.drift import CusumAccumulator, build_price_history, check_rolling_windows
 
 
 class TestRollingWindows:
@@ -128,14 +128,17 @@ class TestCusum:
 
 class TestBuildPriceHistory:
     def test_builds_from_movement_log(self, tmp_path):
-        from scanner.db import PolilyDB
-        from scanner.movement import MovementResult
-        from scanner.movement_store import append_movement
+        from scanner.core.db import PolilyDB
+        from scanner.monitor.store import append_movement
 
         db = PolilyDB(tmp_path / "test.db")
         for price in [0.50, 0.51, 0.52]:
-            append_movement("m1", MovementResult(magnitude=10, quality=10),
-                           yes_price=price, prev_yes_price=price - 0.01, db=db)
+            append_movement(
+                event_id="ev1", market_id="m1",
+                yes_price=price, prev_yes_price=price - 0.01,
+                magnitude=10, quality=10, label="noise", db=db,
+            )
+        db.conn.commit()
 
         history = build_price_history("m1", db)
         assert len(history) == 3
@@ -143,7 +146,7 @@ class TestBuildPriceHistory:
         db.close()
 
     def test_empty_market(self, tmp_path):
-        from scanner.db import PolilyDB
+        from scanner.core.db import PolilyDB
 
         db = PolilyDB(tmp_path / "test.db")
         history = build_price_history("nonexistent", db)
@@ -154,7 +157,7 @@ class TestBuildPriceHistory:
         """Gradual 12% drift over 4 hours triggers rolling window."""
         from datetime import UTC, datetime, timedelta
 
-        from scanner.db import PolilyDB
+        from scanner.core.db import PolilyDB
 
         db = PolilyDB(tmp_path / "test.db")
         now = datetime.now(UTC)
@@ -163,8 +166,8 @@ class TestBuildPriceHistory:
             price = base + i * 0.006  # +0.6% per entry = ~14% total
             ts = (now - timedelta(minutes=240 - i * 10)).isoformat()
             db.conn.execute(
-                "INSERT INTO movement_log (market_id, created_at, yes_price, magnitude, quality, label, snapshot) VALUES (?, ?, ?, 10, 10, 'noise', '{}')",
-                ("m1", ts, price))
+                "INSERT INTO movement_log (event_id, market_id, created_at, yes_price, magnitude, quality, label, snapshot) VALUES (?, ?, ?, ?, 10, 10, 'noise', '{}')",
+                ("m1", "m1", ts, price))
         db.conn.commit()
 
         history = build_price_history("m1", db)

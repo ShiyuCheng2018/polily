@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from scanner.config import deep_merge, load_config
+from scanner.core.config import deep_merge, load_config
 
 
 class TestDeepMerge:
