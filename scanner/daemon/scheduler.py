@@ -7,10 +7,11 @@ Executors:
 Jobs are restored from event_monitors table on startup. No SQLAlchemy needed.
 """
 
+import contextlib
 import logging
 import signal
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from apscheduler.executors.pool import ThreadPoolExecutor
@@ -266,10 +267,8 @@ def run_daemon(db, config=None) -> None:
     def handle_shutdown(signum, frame):
         logger.info("Received signal %d, shutting down", signum)
         pid_path.unlink(missing_ok=True)
-        try:
+        with contextlib.suppress(Exception):
             scheduler.shutdown(wait=False)
-        except Exception:
-            pass
         sys.exit(0)
 
     _reload_requested = False

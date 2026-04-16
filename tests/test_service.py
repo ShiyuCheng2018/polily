@@ -8,7 +8,6 @@ import pytest
 from scanner.analysis_store import get_event_analyses
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, get_event, upsert_event, upsert_market
-from scanner.core.monitor_store import upsert_event_monitor
 from scanner.tui.service import ScanService
 
 

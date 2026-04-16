@@ -18,12 +18,6 @@ from scanner.tui.views.market_detail import (
     SwitchVersionRequested,
 )
 from scanner.tui.views.monitor_list import MonitorListView, ViewMonitorDetail
-from scanner.tui.views.score_result import (
-    AddToMonitorRequested,
-    BackToTasks,
-    ScoreResultView,
-    ScoreViewRescore,
-)
 from scanner.tui.views.notification_list import NotificationListView
 from scanner.tui.views.paper_status import PaperStatusView, ViewTradeDetail
 from scanner.tui.views.scan_log import (
@@ -35,6 +29,12 @@ from scanner.tui.views.scan_log import (
     ScanLogView,
     StepInfo,
     ViewScanLogDetail,
+)
+from scanner.tui.views.score_result import (
+    AddToMonitorRequested,
+    BackToTasks,
+    ScoreResultView,
+    ScoreViewRescore,
 )
 from scanner.tui.widgets.sidebar import MenuSelected, Sidebar
 
@@ -108,7 +108,7 @@ class MainScreen(Screen):
             pid = int(pid_path.read_text().strip())
             os.kill(pid, 0)  # signal 0 = check if process exists
             return True
-        except (ValueError, ProcessNotFoundError, PermissionError, OSError):
+        except (ValueError, ProcessLookupError, PermissionError, OSError):
             return False
 
     def _refresh_current_view(self) -> None:
@@ -263,7 +263,7 @@ class MainScreen(Screen):
 
             import time as _time
             _start = _time.time()
-            version = await self.service.analyze_event(
+            await self.service.analyze_event(
                 event_id,
                 on_heartbeat=_heartbeat,
             )

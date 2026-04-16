@@ -1,7 +1,7 @@
 """Tests for two-pass scan: metadata fetch → filter → order book fetch → score."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -80,7 +80,7 @@ class TestEnrichWithOrderbook:
             assert m.spread_yes == 0.02
 
     @pytest.mark.asyncio
-    async def test_negRisk_book_depth_still_stored(self):
+    async def test_neg_risk_book_depth_still_stored(self):
         """negRisk markets with bid=0.01 in /book should still store depth (not cleared)."""
         market = make_market(market_id="m-neg", clob_token_id_yes="tok-neg",
                             book_depth_bids=None, book_depth_asks=None)

@@ -4,17 +4,15 @@ net_edge bid_depth guard, and extended time_structure range."""
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-from scanner.core.models import BookLevel
+from scanner.core.models import BookLevel, Market
 from scanner.scan.scoring import (
     _DEFAULT_WEIGHTS,
     _TYPE_WEIGHTS,
     _score_net_edge,
     _score_objective_verifiability,
     _score_time_structure,
-    compute_structure_score,
 )
 from tests.conftest import make_market
-
 
 # ---------------------------------------------------------------------------
 # Weight totals must equal 100

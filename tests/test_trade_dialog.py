@@ -27,7 +27,7 @@ def _seed(db, event_id="ev1", market_id="m1", yes_price=0.55):
 class TestPaperTradeCreation:
     def test_create_yes_trade(self, db):
         _seed(db, yes_price=0.25)
-        trade_id = create_paper_trade(
+        create_paper_trade(
             event_id="ev1", market_id="m1",
             title="Will BTC reach $80K?",
             side="yes", entry_price=0.25,
@@ -42,7 +42,7 @@ class TestPaperTradeCreation:
 
     def test_create_no_trade(self, db):
         _seed(db, yes_price=0.25)
-        trade_id = create_paper_trade(
+        create_paper_trade(
             event_id="ev1", market_id="m1",
             title="Will BTC reach $80K?",
             side="no", entry_price=0.75,

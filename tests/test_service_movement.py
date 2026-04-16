@@ -6,7 +6,6 @@ from scanner.monitor.store import get_movement_summary
 def test_movement_summary_format(tmp_path):
     """Verify movement summary produces parseable context for AI."""
     from scanner.core.db import PolilyDB
-    from scanner.monitor.models import MovementResult
     from scanner.monitor.store import append_movement
 
     db = PolilyDB(tmp_path / "test.db")

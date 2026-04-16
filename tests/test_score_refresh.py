@@ -14,7 +14,7 @@ from scanner.core.event_store import (
     upsert_event,
     upsert_market,
 )
-from scanner.daemon.score_refresh import RefreshResult, refresh_scores
+from scanner.daemon.score_refresh import refresh_scores
 
 
 @pytest.fixture
@@ -327,9 +327,8 @@ class TestRefreshScores:
 
 class TestCollectCryptoSymbols:
     def test_extracts_symbols_from_crypto_events(self, db):
-        from scanner.daemon.poll_job import _collect_crypto_symbols
-
         from scanner.core.monitor_store import upsert_event_monitor
+        from scanner.daemon.poll_job import _collect_crypto_symbols
 
         upsert_event(EventRow(
             event_id="ev1", title="Bitcoin above ___ on April 15?",
@@ -367,8 +366,10 @@ class TestCollectCryptoSymbols:
 class TestFetchBinanceTickers:
     @pytest.mark.asyncio
     async def test_parses_response(self):
-        import httpx
         from unittest.mock import AsyncMock, MagicMock
+
+        import httpx
+
         from scanner.daemon.poll_job import _fetch_binance_tickers
 
         mock_resp = MagicMock()
@@ -388,8 +389,9 @@ class TestFetchBinanceTickers:
 
     @pytest.mark.asyncio
     async def test_empty_symbols_returns_empty(self):
-        from scanner.daemon.poll_job import _fetch_binance_tickers
         from unittest.mock import AsyncMock
+
+        from scanner.daemon.poll_job import _fetch_binance_tickers
 
         result = await _fetch_binance_tickers(AsyncMock(), set())
         assert result == {}

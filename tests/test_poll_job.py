@@ -313,7 +313,7 @@ class TestGlobalPollPriceLayer:
 class TestWideSpreadIntegration:
     """Integration test for wide spread handling through global_poll."""
 
-    def test_negRisk_gets_correct_bid_ask_from_price_endpoint(self, db):
+    def test_neg_risk_gets_correct_bid_ask_from_price_endpoint(self, db):
         """negRisk markets should get correct bid/ask from /price, not /book."""
         _seed(db)
 

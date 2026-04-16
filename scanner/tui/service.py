@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,7 +10,6 @@ from typing import TYPE_CHECKING
 
 from scanner.agents.narrative_writer import NarrativeWriterAgent
 from scanner.analysis_store import AnalysisVersion, append_analysis, get_event_analyses
-
 from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import (

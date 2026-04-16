@@ -1,8 +1,9 @@
 """Tests for scanner.core.clob — shared CLOB data fetching."""
 
-import pytest
-import httpx
 from unittest.mock import AsyncMock, MagicMock
+
+import httpx
+import pytest
 
 from scanner.core.clob import fetch_clob_market_data
 

@@ -129,7 +129,6 @@ class TestCusum:
 class TestBuildPriceHistory:
     def test_builds_from_movement_log(self, tmp_path):
         from scanner.core.db import PolilyDB
-        from scanner.monitor.models import MovementResult
         from scanner.monitor.store import append_movement
 
         db = PolilyDB(tmp_path / "test.db")

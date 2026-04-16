@@ -1,5 +1,6 @@
 """MarketListView: event-first research list with fold/expand + probability bars."""
 
+import contextlib
 from datetime import UTC, datetime
 
 from textual.app import ComposeResult
@@ -294,9 +295,7 @@ class MarketListView(Widget):
                     price = m.yes_price or 0
                     bar_len = int(price * 20)
                     bar = f"{'█' * bar_len}{'░' * (20 - bar_len)} {price:.0%}"
-                    try:
+                    with contextlib.suppress(Exception):
                         table.update_cell(f"sub_{m.market_id}", "summary", bar)
-                    except Exception:
-                        pass
 
         self.events = fresh

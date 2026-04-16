@@ -1,6 +1,5 @@
 """Tests for movement → AI trigger logic."""
 
-from datetime import UTC, datetime, timedelta
 
 import pytest
 

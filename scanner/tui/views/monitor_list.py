@@ -1,5 +1,7 @@
 """MonitorListView: shows events with active monitoring."""
 
+import contextlib
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.message import Message
@@ -119,9 +121,7 @@ class MonitorListView(Widget):
                 continue
             nc = new.get("next_check_at")
             next_check = nc[:16] if nc else "-"
-            try:
+            with contextlib.suppress(Exception):
                 table.update_cell(eid, "next_check", next_check)
-            except Exception:
-                pass
 
         self._monitored = [e for e in events if e["is_monitored"]]

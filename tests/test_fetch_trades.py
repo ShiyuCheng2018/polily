@@ -1,9 +1,9 @@
 """Tests for _fetch_trades_batch — Data API trades fetching."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
+import pytest
 
 from scanner.daemon.poll_job import _fetch_trades_batch
 

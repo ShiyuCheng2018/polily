@@ -1,5 +1,5 @@
 """Tests for recheck_event — event-level analysis trigger."""
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

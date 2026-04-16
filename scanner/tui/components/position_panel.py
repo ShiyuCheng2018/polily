@@ -39,7 +39,7 @@ class PositionPanel(Widget):
             total_value = 0.0
             total_pnl = 0.0
 
-            for i, t in enumerate(self._trades):
+            for _i, t in enumerate(self._trades):
                 side = t.get("side", "?")
                 entry = t.get("entry_price", 0)
                 size = t.get("position_size_usd", 0)

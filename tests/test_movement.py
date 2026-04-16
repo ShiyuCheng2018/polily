@@ -86,7 +86,7 @@ class TestMovementDataGuard:
 
         self._setup_monitored_event(db)
         # Add only 2 entries (less than threshold)
-        for i in range(2):
+        for _i in range(2):
             append_movement(event_id="ev1", market_id="m1",
                 yes_price=0.50, magnitude=0, quality=0, label="noise", db=db)
         db.conn.commit()

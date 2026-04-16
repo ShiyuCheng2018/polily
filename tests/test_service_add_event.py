@@ -1,11 +1,10 @@
 """Tests for ScanService.add_event_by_url."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from scanner.core.db import PolilyDB
-from scanner.core.event_store import get_event
 from scanner.tui.service import ScanService
 
 

@@ -13,7 +13,6 @@ from scanner.core.db import PolilyDB
 from scanner.core.event_store import (
     MarketRow,
     get_event,
-    get_event_markets,
     market_row_to_model,
 )
 from scanner.price_feeds import extract_crypto_asset, extract_threshold_price

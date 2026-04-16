@@ -1,6 +1,5 @@
 """Tests for scanner.scan.commentary module."""
 
-import pytest
 
 from scanner.scan.commentary import (
     _level_index,
@@ -10,7 +9,6 @@ from scanner.scan.commentary import (
     generate_commentary,
     get_dimension_phrase,
 )
-
 
 # ---------------------------------------------------------------------------
 # _normalize_pct

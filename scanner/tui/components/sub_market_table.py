@@ -72,7 +72,6 @@ class SubMarketTable(Widget):
                 self._add_breakdown_rows(table, mr)
 
     def _add_breakdown_rows(self, table: DataTable, mr) -> None:
-        total = mr.structure_score or 0
         bd = None
         if mr.score_breakdown:
             with contextlib.suppress(ValueError, TypeError):

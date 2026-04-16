@@ -1,6 +1,7 @@
 """Event and market persistence — SQLite-backed."""
 from __future__ import annotations
 
+import contextlib
 import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -244,21 +245,18 @@ def market_row_to_model(
     Handles field name mapping (best_bid → best_bid_yes, etc.),
     book JSON deserialization, and end_date → resolution_time conversion.
     """
-    from scanner.core.models import BookLevel, Market as MarketModel
+    from scanner.core.models import BookLevel
+    from scanner.core.models import Market as MarketModel
 
     bids = None
     if row.book_bids:
-        try:
+        with contextlib.suppress(json.JSONDecodeError, KeyError, TypeError):
             bids = [BookLevel(price=b["price"], size=b["size"]) for b in json.loads(row.book_bids)]
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
 
     asks = None
     if row.book_asks:
-        try:
+        with contextlib.suppress(json.JSONDecodeError, KeyError, TypeError):
             asks = [BookLevel(price=a["price"], size=a["size"]) for a in json.loads(row.book_asks)]
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
 
     resolution_time = None
     if row.end_date:

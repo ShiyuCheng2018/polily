@@ -3,7 +3,6 @@
 from datetime import UTC, datetime, timedelta
 
 from scanner.scan.event_scoring import EventQualityScore, compute_event_quality_score
-from scanner.scan.scoring import compute_structure_score
 from tests.conftest import make_event, make_market
 
 
