@@ -1,11 +1,12 @@
 """Structure Score: weighted 0-100 score measuring market tradability.
 
-5-dimension system:
-  1. Liquidity Structure (30) — spread + log-scale depth + bid/ask balance
-  2. Objective Verifiability (25) — resolution quality, baseline=0
-  3. Probability Space (20) — symmetric min(p, 1-p) linear
-  4. Time Structure (15) — sweet spot [1,5] days + catalyst proximity
-  5. Trading Friction (10) — pure friction 6-tier
+5-dimension system (weights are type-specific, see _TYPE_WEIGHTS / _DEFAULT_WEIGHTS):
+  1. Liquidity Structure — spread + log-scale depth + bid/ask balance
+  2. Objective Verifiability — resolution quality, baseline=0
+  3. Probability Space — symmetric min(p, 1-p) linear
+  4. Time Structure — sweet spot [1,5] days + catalyst proximity
+  5. Trading Friction — pure friction 6-tier
+  +  Net Edge (crypto only) — |deviation%| - round_trip_friction
 """
 
 from __future__ import annotations

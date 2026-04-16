@@ -58,8 +58,8 @@ async def fetch_clob_market_data(
         "yes_price": midpoint,
         "no_price": round(1 - midpoint, 4) if midpoint is not None else None,
         "last_trade_price": midpoint,
-        "best_bid": prices[0],   # /price SELL
-        "best_ask": prices[1],   # /price BUY
+        "best_bid": prices[0],   # /price BUY
+        "best_ask": prices[1],   # /price SELL
         "spread": (
             round(prices[1] - prices[0], 4)
             if prices[0] is not None and prices[1] is not None
