@@ -284,8 +284,8 @@ class TestGlobalPollPriceLayer:
         assert json.loads(market.book_bids) == bids
         assert json.loads(market.book_asks) == asks
 
-    def test_no_trades_request_in_price_layer(self, db):
-        """Price layer should only fetch /book, not /trades."""
+    def test_clob_fetch_does_not_include_trades(self, db):
+        """fetch_clob_market_data returns price/book data, not trades (trades come from Data API separately)."""
         _seed(db)
 
         with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
@@ -303,9 +303,7 @@ class TestGlobalPollPriceLayer:
             }
             global_poll(db)
 
-        # recent_trades should not be set by price layer
-        market = get_market("m1", db)
-        # The return dict has no recent_trades key → field stays at old value (None)
+        # CLOB fetch result has no recent_trades key — trades come from _fetch_trades_batch
         assert "recent_trades" not in mock_fetch.return_value
 
 

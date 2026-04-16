@@ -165,3 +165,53 @@ class TestExecuteCheck:
         assert args[0] == "ev1"
         assert kwargs["trigger_source"] == "scheduled"
         assert kwargs.get("service") is not None
+
+    def test_execute_check_reschedules_on_next_check_at(self, db):
+        """When recheck returns next_check_at, _execute_check should reschedule."""
+        from scanner.daemon.scheduler import _execute_check
+
+        upsert_event(EventRow(event_id="ev1", title="E", updated_at="now"), db)
+        mock_scheduler = MagicMock()
+
+        with patch("scanner.daemon.recheck.recheck_event") as mock_recheck, \
+             patch("scanner.tui.service.ScanService"):
+            mock_recheck.return_value = MagicMock(
+                closed=False,
+                next_check_at="2027-01-15T09:00:00+08:00",
+            )
+            _execute_check(event_id="ev1", db=db, config=None, watch_scheduler=mock_scheduler)
+
+        mock_scheduler.schedule_check.assert_called_once()
+        args, kwargs = mock_scheduler.schedule_check.call_args
+        assert args[0] == "ev1"
+        # Should parse the ISO datetime
+        assert args[1].year == 2027
+
+    def test_execute_check_no_reschedule_when_no_next_check(self, db):
+        """When recheck returns no next_check_at, should NOT reschedule."""
+        from scanner.daemon.scheduler import _execute_check
+
+        upsert_event(EventRow(event_id="ev1", title="E", updated_at="now"), db)
+        mock_scheduler = MagicMock()
+
+        with patch("scanner.daemon.recheck.recheck_event") as mock_recheck, \
+             patch("scanner.tui.service.ScanService"):
+            mock_recheck.return_value = MagicMock(closed=False, next_check_at=None)
+            _execute_check(event_id="ev1", db=db, config=None, watch_scheduler=mock_scheduler)
+
+        mock_scheduler.schedule_check.assert_not_called()
+
+    def test_execute_check_no_reschedule_when_no_scheduler(self, db):
+        """When watch_scheduler is None, should not crash."""
+        from scanner.daemon.scheduler import _execute_check
+
+        upsert_event(EventRow(event_id="ev1", title="E", updated_at="now"), db)
+
+        with patch("scanner.daemon.recheck.recheck_event") as mock_recheck, \
+             patch("scanner.tui.service.ScanService"):
+            mock_recheck.return_value = MagicMock(
+                closed=False,
+                next_check_at="2027-01-15T09:00:00+08:00",
+            )
+            # Should not crash even with next_check_at but no scheduler
+            _execute_check(event_id="ev1", db=db, config=None, watch_scheduler=None)

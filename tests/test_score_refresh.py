@@ -186,14 +186,13 @@ class TestRefreshScores:
 
     def test_refreshes_event_score(self, db):
         _seed_crypto_event(db)
-        old_event_score = get_event("ev1", db).structure_score
 
         result = refresh_scores(db, {"BTCUSDT": 69000.0}, config=None)
 
-        assert result.events_refreshed >= 1
+        assert result.events_refreshed == 1
         new_event = get_event("ev1", db)
-        # Event score recalculated
         assert new_event.structure_score is not None
+        assert new_event.structure_score > 0  # should be a real score, not just non-null
 
     def test_updates_mispricing_in_breakdown(self, db):
         _seed_crypto_event(db)

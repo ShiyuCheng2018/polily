@@ -73,7 +73,10 @@ class TestIntelligenceLayer:
         assert len(entries) >= 1
         assert entries[0]["event_id"] == "ev1"
         assert entries[0]["market_id"] == "m1"  # sub-market level entry
-        assert entries[0]["magnitude"] >= 0
+        # Cold start (< 5 entries): magnitude and quality forced to 0, label=noise
+        assert entries[0]["magnitude"] == 0
+        assert entries[0]["quality"] == 0
+        assert entries[0]["label"] == "noise"
 
     def test_skips_non_monitored_events(self, db):
         """Events without auto_monitor should not get signal computation."""
