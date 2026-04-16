@@ -86,19 +86,6 @@ class WatchScheduler:
             self.schedule_check(eid, run_at=check_at)
             count += 1
         logger.info("Restored %d check jobs from DB", count)
-
-        # Write to poll.log for visibility
-        from scanner.daemon.poll_job import _get_poll_log
-        plog = _get_poll_log()
-        jobs = self.scheduler.get_jobs()
-        check_jobs = [j for j in jobs if j.id.startswith("check_")]
-        if check_jobs:
-            for j in check_jobs:
-                eid = j.id.replace("check_", "")
-                plog.info(f"  scheduled  | {eid} → {j.next_run_time}")
-        else:
-            plog.info("  scheduled  | no check jobs")
-
         return count
 
     def schedule_check(self, event_id: str, run_at: datetime) -> None:
@@ -255,6 +242,16 @@ def run_daemon(db, config=None) -> None:
     scheduler = WatchScheduler(db, config=config)
     scheduler.start()
     restored = scheduler.restore_check_jobs()
+
+    # Log startup info to poll.log
+    from scanner.daemon.poll_job import _get_poll_log
+    plog = _get_poll_log()
+    plog.info(f"── daemon started ── {active} markets, {restored} check jobs ──")
+    jobs = scheduler.scheduler.get_jobs()
+    for j in jobs:
+        if j.id.startswith("check_"):
+            eid = j.id.replace("check_", "")
+            plog.info(f"  scheduled  | {eid} → {j.next_run_time}")
 
     print(f"Polily daemon started — {active} markets, poll every 30s. Ctrl+C to stop.")
     logger.info("Daemon started with %d check jobs", restored)
