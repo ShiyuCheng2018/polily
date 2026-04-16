@@ -1,8 +1,8 @@
 import pytest
 
-from scanner.config import MovementConfig
-from scanner.movement import MovementResult, MovementSignals
-from scanner.movement_scorer import compute_movement_score
+from scanner.core.config import MovementConfig
+from scanner.monitor.models import MovementResult, MovementSignals
+from scanner.monitor.scorer import compute_movement_score
 
 
 def test_all_zeros():

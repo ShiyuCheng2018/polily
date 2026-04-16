@@ -18,22 +18,22 @@ class PolilyApp(App):
         Binding("q", "quit", "退出"),
     ]
 
-    def __init__(self):
+    def __init__(self, service: ScanService | None = None):
         super().__init__()
-        self.service = ScanService()
+        self.service = service or ScanService()
 
     def on_mount(self) -> None:
         self._ensure_daemon()
         self.push_screen(MainScreen(self.service))
 
     def _ensure_daemon(self) -> None:
-        """Auto-start scheduler daemon if not running and there are auto-monitored markets."""
-        from scanner.market_state import get_auto_monitor_watches
-        watches = get_auto_monitor_watches(self.service.db)
-        if not watches:
+        """Auto-start scheduler daemon if not running and there are auto-monitored events."""
+        from scanner.core.monitor_store import get_active_monitors
+        monitors = get_active_monitors(self.service.db)
+        if not monitors:
             return
         try:
-            from scanner.watch_scheduler import ensure_daemon_running
+            from scanner.daemon.scheduler import ensure_daemon_running
             if ensure_daemon_running():
                 self.notify("后台监控已自动启动")
         except Exception:

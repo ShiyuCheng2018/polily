@@ -2,13 +2,12 @@
 
 import pytest
 
-from scanner.models import BookLevel
+from scanner.core.models import BookLevel
 from scanner.orderbook import (
     OrderBookAnalysis,
     analyze_book,
     compute_depth_imbalance,
     compute_slippage,
-    is_stale_book,
 )
 
 
@@ -84,21 +83,6 @@ class TestDepthImbalance:
         bids = [BookLevel(price=0.50, size=1000)]
         ratio = compute_depth_imbalance(bids, [])
         assert ratio is None
-
-
-class TestIsStaleBook:
-    def test_normal_book_not_stale(self):
-        bids = _sample_bids()
-        asks = _sample_asks()
-        assert is_stale_book(bids, asks) is False
-
-    def test_extreme_spread_is_stale(self):
-        bids = [BookLevel(price=0.01, size=100)]
-        asks = [BookLevel(price=0.99, size=100)]
-        assert is_stale_book(bids, asks) is True
-
-    def test_empty_book_is_stale(self):
-        assert is_stale_book([], []) is True
 
 
 class TestAnalyzeBook:

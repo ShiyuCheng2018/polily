@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass
 
-from scanner.models import Market
+from scanner.core.models import Market
 
 
 @dataclass

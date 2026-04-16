@@ -3,21 +3,110 @@
 import tempfile
 from pathlib import Path
 
-from scanner.db import PolilyDB
+import pytest
+
+from scanner.core.db import PolilyDB
 
 
-def test_db_creates_all_tables():
+@pytest.fixture
+def polily_db():
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "polily.db"
         db = PolilyDB(db_path)
-        tables = db.conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        ).fetchall()
-        table_names = sorted(r[0] for r in tables if not r[0].startswith("sqlite_"))
-        assert table_names == [
-            "analyses", "market_states", "movement_log", "notifications", "paper_trades", "scan_logs",
-        ]
+        yield db
         db.close()
+
+
+def test_v2_schema_tables(polily_db):
+    """v2 schema should have 8 tables."""
+    tables = polily_db.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+    ).fetchall()
+    names = [t[0] for t in tables]
+    assert "events" in names
+    assert "markets" in names
+    assert "event_monitors" in names
+    assert "analyses" in names
+    assert "movement_log" in names
+    assert "paper_trades" in names
+    assert "scan_logs" in names
+    assert "notifications" in names
+    assert "market_states" not in names
+
+
+def test_events_table_columns(polily_db):
+    row = polily_db.conn.execute("PRAGMA table_info(events)").fetchall()
+    cols = {r[1] for r in row}
+    assert "event_id" in cols
+    assert "structure_score" in cols
+    assert "tier" in cols
+    assert "user_status" in cols
+    assert "neg_risk" in cols
+    assert "neg_risk_market_id" in cols
+    assert "neg_risk_augmented" in cols
+    assert "market_type" in cols
+    assert "event_metadata" in cols
+
+
+def test_markets_table_columns(polily_db):
+    row = polily_db.conn.execute("PRAGMA table_info(markets)").fetchall()
+    cols = {r[1] for r in row}
+    assert "market_id" in cols
+    assert "event_id" in cols
+    assert "question" in cols
+    assert "group_item_title" in cols
+    assert "group_item_threshold" in cols
+    assert "condition_id" in cols
+    assert "clob_token_id_yes" in cols
+    assert "clob_token_id_no" in cols
+    assert "neg_risk" in cols
+    assert "neg_risk_request_id" in cols
+    assert "neg_risk_other" in cols
+    assert "book_bids" in cols
+    assert "book_asks" in cols
+    assert "recent_trades" in cols
+    assert "bid_depth" in cols
+    assert "ask_depth" in cols
+    assert "structure_score" in cols
+    assert "yes_price" in cols
+    assert "best_bid" in cols
+    assert "accepting_orders" in cols
+    assert "order_min_tick_size" in cols
+
+
+def test_event_monitors_columns(polily_db):
+    row = polily_db.conn.execute("PRAGMA table_info(event_monitors)").fetchall()
+    cols = {r[1] for r in row}
+    assert "event_id" in cols
+    assert "auto_monitor" in cols
+    assert "next_check_at" in cols
+    assert "next_check_reason" in cols
+    assert "price_snapshot" in cols
+    assert "notes" in cols
+    assert "poll_interval_s" not in cols
+
+
+def test_analyses_uses_event_id(polily_db):
+    row = polily_db.conn.execute("PRAGMA table_info(analyses)").fetchall()
+    cols = {r[1] for r in row}
+    assert "event_id" in cols
+    assert "market_id" not in cols
+    assert "prices_snapshot" in cols
+    assert "narrative_output" in cols
+
+
+def test_movement_log_has_event_id(polily_db):
+    row = polily_db.conn.execute("PRAGMA table_info(movement_log)").fetchall()
+    cols = {r[1] for r in row}
+    assert "event_id" in cols
+    assert "no_price" in cols
+
+
+def test_paper_trades_has_event_id(polily_db):
+    row = polily_db.conn.execute("PRAGMA table_info(paper_trades)").fetchall()
+    cols = {r[1] for r in row}
+    assert "event_id" in cols
+    assert "market_id" in cols
 
 
 def test_db_context_manager():
@@ -32,46 +121,6 @@ def test_db_creates_parent_dirs():
         db_path = Path(tmp) / "nested" / "dir" / "polily.db"
         with PolilyDB(db_path):
             assert db_path.exists()
-
-
-def test_db_creates_indexes():
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = Path(tmp) / "polily.db"
-        with PolilyDB(db_path) as db:
-            indexes = db.conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"
-            ).fetchall()
-            index_names = sorted(r[0] for r in indexes)
-            assert "idx_analyses_market" in index_names
-            assert "idx_states_monitor" in index_names
-            assert "idx_notifications_unread" in index_names
-
-
-def test_db_has_movement_log_table():
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = Path(tmp) / "polily.db"
-        db = PolilyDB(db_path)
-        cols = db.conn.execute("PRAGMA table_info(movement_log)").fetchall()
-        col_names = [c[1] for c in cols]
-        assert "market_id" in col_names
-        assert "magnitude" in col_names
-        assert "quality" in col_names
-        assert "label" in col_names
-        assert "snapshot" in col_names
-        assert "trade_volume" in col_names
-        db.close()
-
-
-def test_db_market_states_has_condition_id():
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = Path(tmp) / "polily.db"
-        db = PolilyDB(db_path)
-        cols = db.conn.execute("PRAGMA table_info(market_states)").fetchall()
-        col_names = [c[1] for c in cols]
-        assert "condition_id" in col_names
-        assert "market_type" in col_names
-        assert "clob_token_id_yes" in col_names
-        db.close()
 
 
 def test_db_wal_mode():

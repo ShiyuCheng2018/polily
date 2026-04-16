@@ -10,7 +10,9 @@ class MetricCard(Static):
     DEFAULT_CSS = """
     MetricCard {
         width: 1fr;
-        height: 5;
+        height: auto;
+        min-height: 5;
+        max-height: 8;
         border: round $accent;
         padding: 0 1;
         content-align: center middle;

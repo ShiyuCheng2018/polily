@@ -6,8 +6,8 @@ from pathlib import Path
 
 from scanner.agents.base import BaseAgent
 from scanner.agents.schemas import NarrativeWriterOutput, RiskFlag, TimeWindow
-from scanner.config import AgentConfig
-from scanner.reporting import ScoredCandidate
+from scanner.core.config import AgentConfig
+from scanner.scan.reporting import ScoredCandidate
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class NarrativeWriterAgent:
     """Decision advisor agent with autonomous research capabilities.
 
     Uses claude -p with --allowedTools to:
-    - Read polily.db for analysis history
+    - Read polily.db for all event/market/position data
     - Search the web for news and prices
     - Output structured decisions via StructuredOutput
     """
@@ -46,13 +46,15 @@ class NarrativeWriterAgent:
         """Cancel the currently running analysis."""
         self._agent.cancel()
 
-    async def generate(self, candidate: ScoredCandidate,
-                       include_bias: bool = False,
-                       on_heartbeat=None,
-                       extra_context: str | None = None) -> NarrativeWriterOutput:
+    async def generate(
+        self,
+        event_id: str,
+        has_position: bool = False,
+        position_summary: str | None = None,
+        on_heartbeat=None,
+    ) -> NarrativeWriterOutput:
         """Generate analysis with semantic validation + retry."""
-        prompt = self._build_prompt(candidate, include_bias=include_bias,
-                                    extra_context=extra_context)
+        prompt = self._build_prompt(event_id, has_position, position_summary)
 
         last_output = None
         for attempt in range(2):  # 1 initial + 1 retry
@@ -66,7 +68,7 @@ class NarrativeWriterAgent:
                     f"上次输出: {json.dumps(last_output.model_dump(), ensure_ascii=False, default=str)[:2000]}\n"
                     f"请重新生成完整 JSON。"
                 )
-                logger.info("Semantic retry for %s: %s", candidate.market.market_id, errors)
+                logger.info("Semantic retry for %s: %s", event_id, errors)
 
             raw = await self._agent.invoke(actual_prompt, on_heartbeat=on_heartbeat)
             try:
@@ -74,163 +76,86 @@ class NarrativeWriterAgent:
             except Exception as e:
                 from scanner.agents.base import _dump_debug
                 _dump_debug("schema_fail", f"{e}\n---raw---\n{raw}")
-                return narrative_fallback(candidate)
+                return narrative_fallback(event_id)
 
             errors = output.semantic_errors()
             if not errors:
+                _write_dev_feedback(event_id, output)
                 return output
             last_output = output
 
         # Retries exhausted — return last output (partial is better than fallback)
+        _write_dev_feedback(event_id, last_output)
         return last_output
 
-    def _build_prompt(self, candidate: ScoredCandidate, include_bias: bool = False,
-                      extra_context: str | None = None) -> str:
+    def _build_prompt(
+        self,
+        event_id: str,
+        has_position: bool = False,
+        position_summary: str | None = None,
+    ) -> str:
         """Build minimal prompt — agent reads DB and searches web on its own."""
-        m = candidate.market
-        s = candidate.score
-        mp = candidate.mispricing
+        mode = "position_management" if has_position else "discovery"
 
-        friction = m.round_trip_friction_pct if m.round_trip_friction_pct is not None else 0.04
-        edge = mp.deviation_pct if mp.deviation_pct is not None else 0
-        friction_ratio = (friction / edge * 100) if edge > 0 else None
+        from datetime import datetime
+        local_tz = datetime.now().astimezone().tzname()
+        local_now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
 
-        data = {
-            "market_id": m.market_id,
-            "title": m.title,
-            "description": m.description,
-            "market_type": m.market_type,
-            "tags": m.tags,
-            "yes_price": m.yes_price,
-            "no_price": m.no_price,
-            "spread_pct_yes": m.spread_pct_yes,
-            "round_trip_friction_pct": m.round_trip_friction_pct,
-            "friction_vs_edge": f"摩擦吃掉 {friction_ratio:.0f}% 潜在利润" if friction_ratio else "无可测量 edge",
-            "volume": m.volume,
-            "days_to_resolution": m.days_to_resolution,
-            "resolution_time": m.resolution_time.isoformat() if m.resolution_time else None,
-            "total_bid_depth_usd": m.total_bid_depth_usd,
-            "total_ask_depth_usd": m.total_ask_depth_usd,
-            "resolution_source": m.resolution_source,
-            "structure_score": s.total,
-            "mispricing_signal": mp.signal,
-            "mispricing_direction": mp.direction,
-            "mispricing_details": mp.details,
-            "theoretical_fair_value": mp.theoretical_fair_value,
-            "model_confidence": mp.model_confidence,
-        }
+        prompt = f"""分析事件 {event_id}。
 
-        prompt = f"""请分析市场 {m.market_id}。
-
-指令文件: scanner/agents/prompts/narrative_writer.md
+模式: {mode}
 数据库: data/polily.db
+Prompt 指令: scanner/agents/prompts/narrative_writer.md
+当前时间: {local_now}（用户时区 {local_tz}，分析文字里用本地时间）"""
 
-当前市场数据:
-{json.dumps(data, default=str, ensure_ascii=False)}"""
+        if has_position and position_summary:
+            prompt += f"\n\n用户当前持仓:\n{position_summary}"
+        elif not has_position:
+            prompt += "\n\n用户在此事件无持仓。判断这个事件值不值得做，不值得就直接 PASS，值得再说具体怎么做。"
 
-        if extra_context:
-            prompt += f"\n\n{extra_context}"
-
-        if include_bias:
-            prompt += "\n\n请额外输出 bias 字段（方向倾向的条件建议）。"
-        else:
-            prompt += "\n\nbias 字段设为 null。"
         return prompt
 
     def _fallback_from_prompt(self, prompt: str) -> dict:
-        from scanner.utils import extract_market_id_from_prompt
-        market_id = extract_market_id_from_prompt(prompt)
+        from scanner.utils import extract_event_id_from_prompt
+        event_id = extract_event_id_from_prompt(prompt)
         return NarrativeWriterOutput(
-            market_id=market_id,
-            action="PASS",
-            confidence="low",
+            event_id=event_id,
+            mode="discovery",
             summary="AI 分析不可用，请手动查看。",
             risk_flags=[RiskFlag(text="AI 不可用", severity="warning")],
-            one_line_verdict="AI 离线",
         ).model_dump()
 
 
-def narrative_fallback(candidate: ScoredCandidate) -> NarrativeWriterOutput:
+def _write_dev_feedback(event_id: str, output: NarrativeWriterOutput) -> None:
+    """Append agent feedback to data/logs/agent_feedback.log."""
+    feedback = output.dev_feedback
+    if not feedback:
+        return
+    try:
+        import os
+        from datetime import UTC, datetime
+        log_dir = os.path.join(os.getcwd(), "data", "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        with open(os.path.join(log_dir, "agent_feedback.log"), "a") as f:
+            ops_summary = ",".join(op.action for op in output.operations) or "none"
+            f.write(f"\n=== [{ts}] event={event_id} ops={ops_summary} ===\n")
+            f.write(f"{feedback}\n")
+    except Exception:
+        pass
+
+
+def narrative_fallback(event_id: str) -> NarrativeWriterOutput:
     """Rule-based fallback when AI agent is unavailable."""
-    m = candidate.market
-    mp = candidate.mispricing
-
-    friction = m.round_trip_friction_pct if m.round_trip_friction_pct is not None else 0.04
-    edge = mp.deviation_pct if mp.deviation_pct is not None else 0
-    friction_ratio = friction / edge if edge > 0 else float("inf")
-
-    if friction_ratio > 0.8:
-        action = "PASS"
-    elif friction_ratio > 0.5:
-        action = "WATCH"
-    elif edge > 0.05 and mp.direction == "underpriced":
-        action = "BUY_YES"
-    elif edge > 0.05 and mp.direction == "overpriced":
-        action = "BUY_NO"
-    else:
-        action = "WATCH"
-
-    if edge > 0 and friction < edge * 0.5:
-        fve = "edge_exceeds"
-    elif edge > 0 and friction < edge:
-        fve = "roughly_equals"
-    else:
-        fve = "friction_exceeds"
-
-    risks = []
-    if friction:
-        severity = "critical" if friction_ratio > 0.5 else "warning"
-        risks.append(RiskFlag(text=f"摩擦 ~{friction:.1%}，吃掉潜在利润", severity=severity))
-    if mp.signal == "none":
-        risks.append(RiskFlag(text="未检测到定价偏差", severity="warning"))
-
-    days = m.days_to_resolution
-    urgency = "urgent" if days and days < 1 else "normal" if days and days < 3 else "no_rush"
-
-    parts = [f"{'二元' if m.is_binary else '多选项'} {m.market_type or '市场'}"]
-    if days:
-        parts.append(f"{days:.1f} 天后结算")
-    summary = f"{', '.join(parts)}。"
-
-    why_not = ""
-    if action in ("PASS", "WATCH"):
-        if fve == "friction_exceeds":
-            why_not = f"摩擦 {friction:.1%} 大于可测量 edge"
-        elif mp.signal == "none":
-            why_not = "未检测到定价偏差，市场可能已有效定价"
-        else:
-            why_not = "当前价格没有明显优势"
-
-    recheck = []
-    if action == "WATCH":
-        if m.yes_price:
-            recheck.append(f"YES 回到 {m.yes_price * 0.85:.2f} 以下")
-        recheck.append("出现明确催化事件")
-
-    # Default next_check_at: 1 day from now, or resolution time if sooner
     from datetime import UTC, datetime, timedelta
-    default_check = datetime.now(UTC) + timedelta(days=1)
-    if m.resolution_time and m.resolution_time < default_check:
-        default_check = m.resolution_time - timedelta(hours=2)
-    next_check = default_check.isoformat()
+
+    next_check = (datetime.now(UTC) + timedelta(days=1)).isoformat()
 
     return NarrativeWriterOutput(
-        market_id=m.market_id,
-        action=action,
-        bias="NONE",
-        strength="weak",
-        confidence="low",
-        opportunity_type="no_trade" if action == "PASS" else "watch_only" if action == "WATCH" else "slow_structure",
-        time_window=TimeWindow(urgency=urgency, note=f"还剩 {days:.1f} 天" if days else ""),
-        why_now="" if action in ("PASS", "WATCH") else "规则检测到可能的 edge",
-        why_not_now=why_not,
-        friction_vs_edge=fve,
-        execution_risk="low",
-        risk_flags=risks,
-        counterparty_note=f"市场类型 '{m.market_type}'",
+        event_id=event_id,
+        mode="discovery",
+        summary="AI 分析不可用，建议手动查看事件详情后决定。",
+        risk_flags=[RiskFlag(text="AI 分析失败，结果不可靠", severity="warning")],
         next_check_at=next_check,
-        next_check_reason="规则回退默认检查时间",
-        recheck_conditions=recheck,
-        summary=summary,
-        one_line_verdict=f"{action}: {summary}",
+        next_check_reason="AI 失败后默认 24h 重试",
     )

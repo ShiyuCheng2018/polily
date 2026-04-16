@@ -1,8 +1,0 @@
-steps:
-  - "Read resolution rules — confirm exact data source and metric definition"
-  - "Check Bloomberg/Trading Economics consensus estimate"
-  - "Check leading indicators if available"
-  - "UNDERSTAND: repricing is INSTANT at data release — there is NO exit window"
-  - "Is market price close to consensus? If yes — no edge, skip"
-  - "Ask: do I have a non-consensus view with specific reasoning?"
-  - "If still confident — $10-15 max (binary outcome)"

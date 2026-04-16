@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from scanner.config import ScannerConfig
-    from scanner.mispricing import MispricingResult
-    from scanner.models import Market
+    from scanner.core.config import ScannerConfig
+    from scanner.core.models import Market
+    from scanner.scan.mispricing import MispricingResult
 
 
 @runtime_checkable

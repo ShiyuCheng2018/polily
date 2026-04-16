@@ -2,8 +2,8 @@
 
 from datetime import UTC, datetime
 
-from scanner.config import FiltersConfig, HeuristicsConfig
-from scanner.filters import apply_hard_filters
+from scanner.core.config import FiltersConfig, HeuristicsConfig
+from scanner.scan.filters import apply_hard_filters
 from tests.conftest import make_market
 
 
@@ -98,15 +98,17 @@ class TestVolumeFilter:
 
 
 class TestBinaryFilter:
+    """v0.5.0: binary filter removed — multi-outcome markets now pass through."""
+
     def test_pass_binary(self):
         m = make_market(outcomes=["Yes", "No"])
         result = apply_hard_filters([m], _default_filters(), _default_heuristics())
         assert len(result.passed) == 1
 
-    def test_reject_non_binary(self):
+    def test_multi_outcome_also_passes(self):
         m = make_market(outcomes=["A", "B", "C"])
         result = apply_hard_filters([m], _default_filters(), _default_heuristics())
-        assert len(result.passed) == 0
+        assert len(result.passed) == 1  # v0.5.0: no longer filtered
 
 
 class TestNoiseMarketFilter:

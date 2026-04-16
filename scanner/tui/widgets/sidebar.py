@@ -78,26 +78,32 @@ class Sidebar(Widget):
         yield Static("  [bold]Polily[/bold]", classes="sidebar-title")
         yield Static("")
         yield SidebarItem("任务记录", "tasks")
-        yield SidebarItem("研究队列", "research")
         yield SidebarItem("监控列表", "monitor")
         yield SidebarItem("持仓", "paper")
         yield SidebarItem("历史", "history")
         yield SidebarItem("通知", "notifications")
         yield Static("")
         yield Static("  [dim]快捷键[/dim]")
-        yield Static("  [dim]0-5  切换视图[/dim]")
-        yield Static("  [dim]s    新扫描[/dim]")
+        yield Static("  [dim]0-4  切换视图[/dim]")
         yield Static("  [dim]r    刷新[/dim]")
         yield Static("  [dim]q    退出[/dim]")
         yield Static("")
         yield Static("  [dim]其他见底栏[/dim]")
+        yield Static("")
+        yield Static("  [dim]POLL[/dim] --", id="poll-indicator")
 
-    def update_counts(self, research: int, monitor: int, paper: int,
+    def set_poll_status(self, alive: bool) -> None:
+        """Update poll indicator: green dot if alive, dim dot if not."""
+        indicator = self.query_one("#poll-indicator", Static)
+        if alive:
+            indicator.update("  [green]●[/] POLL")
+        else:
+            indicator.update("  [dim]○[/dim] [dim]POLL[/dim]")
+
+    def update_counts(self, monitor: int, paper: int,
                        notifications: int = 0, history: int = 0):
         for item in self.query(SidebarItem):
-            if item.menu_id == "research":
-                item.set_count(research)
-            elif item.menu_id == "monitor":
+            if item.menu_id == "monitor":
                 item.set_count(monitor)
             elif item.menu_id == "paper":
                 item.set_count(paper)

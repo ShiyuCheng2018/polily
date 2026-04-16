@@ -1,7 +1,0 @@
-steps:
-  - "Read resolution rules — confirm resolution source (AP? official body?)"
-  - "Check latest polls or expert forecasts"
-  - "Is market price close to poll average? If yes — no edge, skip"
-  - "Consider: political markets have higher resolution dispute risk"
-  - "Ask: what information do I have that polls don't capture?"
-  - "If still confident — $10-20 max"
