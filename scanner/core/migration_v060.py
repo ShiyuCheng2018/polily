@@ -47,6 +47,10 @@ def migrate_if_needed(db: PolilyDB, *, starting_balance: float = 100.0) -> None:
         return
 
     # Step 4: aggregate open paper_trades by (market_id, side).
+    # Filter guards:
+    # - entry_price > 0: prevents division-by-zero on corrupt rows
+    # - entry_price < 1: real trades always had 0 < price < 1 on Polymarket
+    # - position_size_usd > 0: rejects negative/zero cost basis entries
     rows = db.conn.execute("""
         SELECT market_id, side, event_id, MAX(title) AS title,
                SUM(position_size_usd / entry_price) AS shares,
@@ -54,41 +58,52 @@ def migrate_if_needed(db: PolilyDB, *, starting_balance: float = 100.0) -> None:
                SUM(position_size_usd) AS cost_basis,
                MIN(marked_at) AS opened_at
         FROM paper_trades
-        WHERE status = 'open' AND entry_price > 0
+        WHERE status = 'open'
+          AND entry_price > 0 AND entry_price < 1
+          AND position_size_usd > 0
         GROUP BY market_id, side
     """).fetchall()
 
-    for r in rows:
-        db.conn.execute(
-            """INSERT INTO positions
-            (market_id,side,event_id,shares,avg_cost,cost_basis,realized_pnl,title,opened_at,updated_at)
-            VALUES (?,?,?,?,?,?,0,?,?,?)""",
-            (
-                r["market_id"], r["side"], r["event_id"],
-                r["shares"], r["avg_cost"], r["cost_basis"],
-                r["title"] or "(migrated)", r["opened_at"] or now, now,
-            ),
-        )
+    # Step 5: write positions + bookmark atomically. `with db.conn:` commits on
+    # success, rolls back on exception — guards against partial aggregation if
+    # any single INSERT raises (UNIQUE conflict, FK violation, etc.).
+    with db.conn:
+        for r in rows:
+            db.conn.execute(
+                """INSERT INTO positions
+                (market_id,side,event_id,shares,avg_cost,cost_basis,realized_pnl,title,opened_at,updated_at)
+                VALUES (?,?,?,?,?,?,0,?,?,?)""",
+                (
+                    r["market_id"], r["side"], r["event_id"],
+                    r["shares"], r["avg_cost"], r["cost_basis"],
+                    r["title"] or "(migrated)", r["opened_at"] or now, now,
+                ),
+            )
 
-    # Step 5: bookmark. The count is informational — the bookmark's existence
-    # is the actual "migration already ran" signal.
-    n_resolved = db.conn.execute(
-        "SELECT COUNT(*) FROM paper_trades WHERE status='resolved'"
-    ).fetchone()[0]
-    notes = (
-        f"v0.6.0 wallet system initialized with ${starting_balance}. "
-        f"Aggregated {len(rows)} open positions from legacy paper_trades. "
-        f"{n_resolved} resolved paper_trades remain as read-only history."
-    )
-    db.conn.execute(
-        "INSERT INTO wallet_transactions (created_at,type,amount_usd,balance_after,notes) "
-        "VALUES (?,?,0,?,?)",
-        (now, "MIGRATION", starting_balance, notes),
-    )
-    db.conn.commit()
+        # Bookmark is the authoritative "migration ran" signal.
+        n_resolved = db.conn.execute(
+            "SELECT COUNT(*) FROM paper_trades WHERE status='resolved'"
+        ).fetchone()[0]
+        notes = (
+            f"v0.6.0 wallet system initialized with ${starting_balance}. "
+            f"Aggregated {len(rows)} open positions from legacy paper_trades. "
+            f"{n_resolved} resolved paper_trades remain as read-only history."
+        )
+        db.conn.execute(
+            "INSERT INTO wallet_transactions (created_at,type,amount_usd,balance_after,notes) "
+            "VALUES (?,?,0,?,?)",
+            (now, "MIGRATION", starting_balance, notes),
+        )
 
 
 def _ensure_wallet(db: PolilyDB, *, starting_balance: float, now: str) -> None:
+    """No-op if the wallet row already exists.
+
+    Starting-balance changes across runs do NOT propagate to the existing
+    wallet — otherwise a config edit would silently clobber real cash state.
+    To rebase on a new starting_balance, use `polily reset --wallet-only`
+    (Task 1.9), which explicitly wipes and re-seeds.
+    """
     row = db.conn.execute("SELECT id FROM wallet WHERE id=1").fetchone()
     if row is not None:
         return

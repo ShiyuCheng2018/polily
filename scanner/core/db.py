@@ -281,6 +281,8 @@ class PolilyDB:
         Idempotent — subsequent calls are cheap no-ops once the MIGRATION
         bookmark is present (for DBs that had legacy data).
         """
+        import warnings
+
         from scanner.core.config import ScannerConfig
         from scanner.core.migration_v060 import migrate_if_needed
         try:
@@ -295,7 +297,11 @@ class PolilyDB:
                 cfg = load_config(example)
             else:
                 cfg = ScannerConfig()
-        except Exception:
+        except Exception as e:
+            warnings.warn(
+                f"config load failed during v0.6.0 migration, using defaults: {e!r}",
+                stacklevel=2,
+            )
             cfg = ScannerConfig()
         migrate_if_needed(self, starting_balance=cfg.wallet.starting_balance)
 

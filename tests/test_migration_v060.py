@@ -127,6 +127,48 @@ def test_zero_entry_price_trade_ignored(tmp_path):
     assert db.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 0
 
 
+def test_negative_entry_price_trade_ignored(tmp_path):
+    """paper_trades schema has no CHECK on entry_price; defensive filter rejects negatives."""
+    db = PolilyDB(tmp_path / "t.db")
+    _seed_event_and_market(db)
+    db.conn.execute(
+        """INSERT INTO paper_trades
+           (id,event_id,market_id,title,side,entry_price,position_size_usd,status,marked_at)
+           VALUES ('t1','e1','m1','Q','yes',-0.5,10,'open','2026-01-01')""",
+    )
+    db.conn.commit()
+    migrate_if_needed(db, starting_balance=100.0)
+    assert db.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 0
+
+
+def test_entry_price_above_one_trade_ignored(tmp_path):
+    """Prices outside [0, 1] mean the row is corrupt — skip."""
+    db = PolilyDB(tmp_path / "t.db")
+    _seed_event_and_market(db)
+    db.conn.execute(
+        """INSERT INTO paper_trades
+           (id,event_id,market_id,title,side,entry_price,position_size_usd,status,marked_at)
+           VALUES ('t1','e1','m1','Q','yes',1.5,10,'open','2026-01-01')""",
+    )
+    db.conn.commit()
+    migrate_if_needed(db, starting_balance=100.0)
+    assert db.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 0
+
+
+def test_non_positive_size_trade_ignored(tmp_path):
+    """Zero or negative position_size_usd → corrupt, skip."""
+    db = PolilyDB(tmp_path / "t.db")
+    _seed_event_and_market(db)
+    db.conn.execute(
+        """INSERT INTO paper_trades
+           (id,event_id,market_id,title,side,entry_price,position_size_usd,status,marked_at)
+           VALUES ('t1','e1','m1','Q','yes',0.5,0,'open','2026-01-01')""",
+    )
+    db.conn.commit()
+    migrate_if_needed(db, starting_balance=100.0)
+    assert db.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 0
+
+
 # --- MIGRATION bookmark ---------------------------------------------------
 
 
