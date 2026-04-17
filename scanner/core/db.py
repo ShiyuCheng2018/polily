@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS events (
     structure_score     REAL,
     tier                TEXT,
     user_status         TEXT,
+    polymarket_category TEXT,
     active              INTEGER NOT NULL DEFAULT 1,
     closed              INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT,
@@ -70,6 +71,7 @@ CREATE TABLE IF NOT EXISTS markets (
     book_asks           TEXT,
     recent_trades       TEXT,
     accepting_orders    INTEGER NOT NULL DEFAULT 1,
+    resolved_outcome    TEXT CHECK(resolved_outcome IN ('yes','no','split','void')),
     active              INTEGER NOT NULL DEFAULT 1,
     closed              INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT,
@@ -180,6 +182,51 @@ CREATE TABLE IF NOT EXISTS notifications (
     read_at             TEXT
 );
 
+-- 9. Wallet (singleton)
+CREATE TABLE IF NOT EXISTS wallet (
+    id                  INTEGER PRIMARY KEY CHECK(id = 1),
+    cash_usd            REAL NOT NULL,
+    starting_balance    REAL NOT NULL,
+    topup_total         REAL NOT NULL DEFAULT 0.0,
+    withdraw_total      REAL NOT NULL DEFAULT 0.0,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+-- 10. Positions (aggregated)
+CREATE TABLE IF NOT EXISTS positions (
+    market_id           TEXT NOT NULL REFERENCES markets(market_id),
+    side                TEXT NOT NULL CHECK(side IN ('yes','no')),
+    event_id            TEXT NOT NULL REFERENCES events(event_id),
+    shares              REAL NOT NULL,
+    avg_cost            REAL NOT NULL,
+    cost_basis          REAL NOT NULL,
+    realized_pnl        REAL NOT NULL DEFAULT 0.0,
+    title               TEXT NOT NULL,
+    opened_at           TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    PRIMARY KEY (market_id, side)
+);
+
+-- 11. Wallet transactions (append-only ledger)
+CREATE TABLE IF NOT EXISTS wallet_transactions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at          TEXT NOT NULL,
+    type                TEXT NOT NULL CHECK(type IN (
+        'TOPUP','WITHDRAW','BUY','SELL','RESOLVE','FEE','MIGRATION'
+    )),
+    market_id           TEXT,
+    event_id            TEXT,
+    side                TEXT CHECK(side IN ('yes','no')),
+    shares              REAL,
+    price               REAL,
+    amount_usd          REAL NOT NULL,
+    fee_usd             REAL NOT NULL DEFAULT 0.0,
+    balance_after       REAL NOT NULL,
+    realized_pnl        REAL,
+    notes               TEXT
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_markets_event ON markets(event_id);
 CREATE INDEX IF NOT EXISTS idx_markets_condition ON markets(condition_id);
@@ -191,6 +238,10 @@ CREATE INDEX IF NOT EXISTS idx_movement_market ON movement_log(market_id, create
 CREATE INDEX IF NOT EXISTS idx_paper_trades_status ON paper_trades(status);
 CREATE INDEX IF NOT EXISTS idx_paper_trades_event ON paper_trades(event_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(is_read) WHERE is_read = 0;
+CREATE INDEX IF NOT EXISTS idx_positions_event ON positions(event_id);
+CREATE INDEX IF NOT EXISTS idx_wallet_tx_created ON wallet_transactions(created_at);
+CREATE INDEX IF NOT EXISTS idx_wallet_tx_event ON wallet_transactions(event_id);
+CREATE INDEX IF NOT EXISTS idx_wallet_tx_type ON wallet_transactions(type);
 """
 
 
