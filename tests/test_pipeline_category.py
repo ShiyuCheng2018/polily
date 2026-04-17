@@ -67,3 +67,18 @@ def test_parse_gamma_event_missing_category_is_none():
     }
     event_row, _markets = parse_gamma_event(gamma_payload)
     assert event_row.polymarket_category is None
+
+
+def test_parse_gamma_event_empty_string_category_normalized_to_none():
+    """Gamma occasionally returns "" for unclassified events — normalize so the
+    null-preservation path in upsert_event fires correctly."""
+    gamma_payload = {
+        "id": "e1",
+        "title": "Event",
+        "slug": "s",
+        "category": "",
+        "tags": [],
+        "markets": [],
+    }
+    event_row, _markets = parse_gamma_event(gamma_payload)
+    assert event_row.polymarket_category is None

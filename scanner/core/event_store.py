@@ -113,13 +113,21 @@ _EVENT_UPDATE_COLS = tuple(c for c in _EVENT_INSERT_COLS if c != "event_id")
 # Columns whose ON CONFLICT update should preserve the prior value when the
 # new row's value is NULL (Gamma occasionally omits a field we'd rather keep).
 _EVENT_COALESCE_ON_UPDATE = frozenset({"polymarket_category"})
+# Drift guard: COALESCE set must be a subset of UPDATE cols, else the
+# preservation logic silently goes missing when a column is removed.
+assert _EVENT_COALESCE_ON_UPDATE.issubset(_EVENT_UPDATE_COLS), (
+    "COALESCE cols must be a subset of UPDATE cols"
+)
 
 
 def upsert_event(event: EventRow, db: PolilyDB) -> None:
-    """Insert or update an event. Preserves user_status, structure_score, tier.
+    """Insert or update an event.
 
-    For columns in _EVENT_COALESCE_ON_UPDATE, a NULL in the new row does not
-    overwrite an existing value — guards against Gamma schema hiccups.
+    Preservation semantics:
+    - user_status / structure_score / tier — preserved by *exclusion*
+      (not in _EVENT_INSERT_COLS, so never touched on upsert).
+    - Columns in _EVENT_COALESCE_ON_UPDATE — preserved on NULL via
+      COALESCE(excluded.col, col); a non-NULL new value still overwrites.
     """
     placeholders = ", ".join("?" for _ in _EVENT_INSERT_COLS)
     conflict_parts: list[str] = []
