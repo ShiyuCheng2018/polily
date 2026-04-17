@@ -168,8 +168,10 @@ class MarketDetailView(Widget):
             return
         from scanner.tui.views.trade_dialog import TradeDialog
 
-        def _on_dismiss(trade_id: str | None) -> None:
-            if trade_id:
+        def _on_dismiss(payload: dict | None) -> None:
+            # Post-v0.6.0: payload is a dict from TradeDialog with action/side/shares/etc.
+            # Truthy on success (any completed buy/sell), None on cancel.
+            if payload:
                 self.screen.refresh_sidebar_counts()
                 self.refresh_data()
 
