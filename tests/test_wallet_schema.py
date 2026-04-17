@@ -69,11 +69,10 @@ def test_events_has_polymarket_category(db):
 
 
 def test_wallet_singleton_check(db):
-    db.conn.execute(
-        "INSERT INTO wallet (id,cash_usd,starting_balance,topup_total,withdraw_total,created_at,updated_at) "
-        "VALUES (1,100,100,0,0,'t','t')"
-    )
-    db.conn.commit()
+    # Auto-migration in PolilyDB.__init__ already inserted wallet at id=1,
+    # so we only need to verify id=2 is rejected by the CHECK(id=1) constraint.
+    existing = db.conn.execute("SELECT id FROM wallet WHERE id=1").fetchone()
+    assert existing is not None, "auto-migration should have created id=1"
     with pytest.raises(sqlite3.IntegrityError):
         db.conn.execute(
             "INSERT INTO wallet (id,cash_usd,starting_balance,topup_total,withdraw_total,created_at,updated_at) "

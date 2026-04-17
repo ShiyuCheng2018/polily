@@ -273,6 +273,31 @@ class PolilyDB:
     def _init_schema(self):
         self.conn.executescript(_SCHEMA)
         self.conn.commit()
+        self._run_v060_migration()
+
+    def _run_v060_migration(self):
+        """Auto-run the v0.6.0 migration on every PolilyDB instantiation.
+
+        Idempotent — subsequent calls are cheap no-ops once the MIGRATION
+        bookmark is present (for DBs that had legacy data).
+        """
+        from scanner.core.config import ScannerConfig
+        from scanner.core.migration_v060 import migrate_if_needed
+        try:
+            # Prefer the user's layered config if available; fall back to defaults
+            # so unit tests in arbitrary tmp dirs still work.
+            from scanner.core.config import load_config
+            minimal = Path("config.minimal.yaml")
+            example = Path("config.example.yaml")
+            if minimal.exists() and example.exists():
+                cfg = load_config(minimal, defaults_path=example)
+            elif example.exists():
+                cfg = load_config(example)
+            else:
+                cfg = ScannerConfig()
+        except Exception:
+            cfg = ScannerConfig()
+        migrate_if_needed(self, starting_balance=cfg.wallet.starting_balance)
 
     def close(self):
         self.conn.close()
