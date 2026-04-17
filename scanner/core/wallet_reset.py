@@ -22,7 +22,16 @@ if TYPE_CHECKING:
 
 
 def reset_wallet(db: PolilyDB, *, starting_balance: float) -> None:
-    """Wipe wallet-side state and re-seed the wallet at `starting_balance`."""
+    """Wipe wallet-side state and re-seed the wallet at `starting_balance`.
+
+    Concurrency: the PolilyDB connection is shared (check_same_thread=False)
+    across the poll (1-thread) and AI (5-thread) executors. Callers must
+    guarantee no concurrent writer is active on the same connection — the
+    CLI path achieves this by SIGTERMing the scheduler daemon first. A
+    future TUI caller (Task 3.3 WalletResetModal) needs to pause the poll
+    job or accept that concurrent writes during the DELETEs are a live
+    hazard.
+    """
     if starting_balance <= 0:
         raise ValueError(
             f"starting_balance must be positive, got {starting_balance}"

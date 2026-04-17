@@ -198,3 +198,67 @@ def test_cli_reset_wallet_only_end_to_end(tmp_path, monkeypatch):
     assert db2.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
     row = db2.conn.execute("SELECT cash_usd FROM wallet WHERE id=1").fetchone()
     assert row["cash_usd"] == 123.0
+
+
+def test_cli_reset_wallet_only_stops_daemon(tmp_path, monkeypatch):
+    """`reset --wallet-only` must stop the scheduler daemon before wiping — the
+    shared DB conn is otherwise racy against the poll/AI threads."""
+    from unittest.mock import MagicMock
+
+    from typer.testing import CliRunner
+
+    from scanner import cli
+
+    db_path = tmp_path / "polily.db"
+    PolilyDB(db_path).close()  # init schema + wallet singleton
+
+    fake_cfg = MagicMock()
+    fake_cfg.wallet.starting_balance = 100.0
+    fake_cfg.archiving.db_file = str(db_path)
+    monkeypatch.setattr(cli, "_load_user_config", lambda: fake_cfg)
+
+    stop_spy = MagicMock()
+    monkeypatch.setattr(cli, "_stop_daemon_if_running", stop_spy)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.app, ["reset", "--wallet-only", "-y"])
+    assert result.exit_code == 0, result.output
+    stop_spy.assert_called_once()
+
+
+def test_cli_reset_wallet_only_cancelled_does_nothing(tmp_path, monkeypatch):
+    """User answering 'n' to the confirm prompt must leave the DB untouched."""
+    from unittest.mock import MagicMock
+
+    from typer.testing import CliRunner
+
+    from scanner import cli
+
+    db_path = tmp_path / "polily.db"
+    db = PolilyDB(db_path)
+    _seed_event_and_market(db)
+    db.conn.execute(
+        """INSERT INTO positions
+           (market_id,side,event_id,shares,avg_cost,cost_basis,title,opened_at,updated_at)
+           VALUES ('m1','yes','e1',10,0.5,5,'Q','t','t')""",
+    )
+    db.conn.commit()
+    db.close()
+
+    fake_cfg = MagicMock()
+    fake_cfg.wallet.starting_balance = 100.0
+    fake_cfg.archiving.db_file = str(db_path)
+    monkeypatch.setattr(cli, "_load_user_config", lambda: fake_cfg)
+    stop_spy = MagicMock()
+    monkeypatch.setattr(cli, "_stop_daemon_if_running", stop_spy)
+
+    runner = CliRunner()
+    # Answer 'n' to the confirm prompt (no -y flag given).
+    result = runner.invoke(cli.app, ["reset", "--wallet-only"], input="n\n")
+    assert result.exit_code == 0
+    assert "Cancelled" in result.output
+    # Daemon must NOT be stopped if user cancelled.
+    stop_spy.assert_not_called()
+    # Positions still there.
+    db2 = PolilyDB(db_path)
+    assert db2.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 1
