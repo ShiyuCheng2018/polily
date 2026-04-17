@@ -1,12 +1,14 @@
-"""Global poll job -- fetches prices for ALL active markets every 10s.
+"""Global poll job -- fetches prices for ALL active markets every 30s.
 
 Architecture:
   - ONE global poll function, registered as IntervalTrigger in daemon
-  - Step 1 (price layer): fetch CLOB + Binance concurrently -> update markets table
-  - Step 2 (score refresh): recalculate mispricing + scores for scored markets
-  - Step 3 (intelligence layer): for monitored events -> compute signals
+  - Step 1   (price layer): fetch CLOB + Binance concurrently -> update markets table
+  - Step 1.5 (resolution): for markets closed this tick that the user holds,
+    fetch Gamma outcomePrices and settle via ResolutionHandler
+  - Step 2   (score refresh): recalculate mispricing + scores for scored markets
+  - Step 3   (intelligence layer): for monitored events -> compute signals
 
-Module-level _ctx pattern (PollerContext) for db/config/scheduler access.
+Module-level _ctx pattern (PollerContext) for db/config/scheduler/wallet access.
 """
 
 import asyncio
@@ -40,19 +42,36 @@ _SEMAPHORE_LIMIT = 100
 _poll_count = 0  # Safe: poll executor is single-threaded (APScheduler config)
 _poll_log: logging.Logger | None = None
 
+# Gamma API for post-close resolution checks.
+GAMMA_BASE_URL = "https://gamma-api.polymarket.com"
+# Tight timeout — same as TradeEngine live-price fetch. Resolution is
+# best-effort per tick; a miss now retries 30s later.
+_GAMMA_TIMEOUT = 2.0
+# Cap concurrent Gamma requests when many markets close in one tick (e.g.
+# end-of-week expiry batch) so we don't DoS the free public endpoint.
+_GAMMA_CONCURRENCY = 5
+
 
 async def _fetch_gamma_market(market_id: str) -> dict | None:
     """GET Gamma /markets/{market_id}; None on any failure.
 
-    Per-tick best-effort — we eat all exceptions and let the next tick retry.
+    Per-tick best-effort. Errors are split by kind:
+    - transient network/HTTP errors → WARN (expected at the free-tier edge)
+    - malformed/missing JSON → ERROR (schema drift → needs a human)
     """
     try:
         async with httpx.AsyncClient(timeout=_GAMMA_TIMEOUT) as client:
             r = await client.get(f"{GAMMA_BASE_URL}/markets/{market_id}")
             r.raise_for_status()
             return r.json()
-    except Exception as e:
-        logger.warning("gamma fetch failed for %s: %s", market_id, e)
+    except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as e:
+        logger.warning("gamma fetch failed for %s (transient): %s", market_id, e)
+        return None
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        logger.error(
+            "gamma response malformed for %s — possible schema drift: %s",
+            market_id, e, exc_info=True,
+        )
         return None
 
 
@@ -72,17 +91,23 @@ async def _run_resolution_pass(
 ) -> None:
     """Fan out resolution checks across all markets closed this tick.
 
-    Wrapped in a coroutine so `asyncio.run()` owns the event loop lifetime —
-    Python 3.14 disallows constructing coroutines before the loop exists.
+    Wrapped in a coroutine so `asyncio.run()` owns the event loop lifetime.
+    Pre-3.12 Python tolerated `asyncio.gather(*[coro_call(...)])` outside a
+    loop; 3.14 raises at `asyncio.events.get_event_loop()` because the
+    coroutines are constructed before `asyncio.run()` installs the loop.
+
+    Concurrency is capped via a semaphore to avoid hammering Gamma's free
+    public endpoint during end-of-week close storms.
     """
-    await asyncio.gather(
-        *[
-            _resolve_closed_market_if_position(
+    sem = asyncio.Semaphore(_GAMMA_CONCURRENCY)
+
+    async def _one(mid: str) -> None:
+        async with sem:
+            await _resolve_closed_market_if_position(
                 mid, db, wallet, positions, resolver,
             )
-            for mid in market_ids
-        ]
-    )
+
+    await asyncio.gather(*[_one(mid) for mid in market_ids])
 
 
 async def _resolve_closed_market_if_position(
@@ -146,13 +171,6 @@ class PollerContext:
 
 # Single reference (set once on daemon startup via init_poller)
 _ctx: PollerContext | None = None
-
-# Gamma API endpoint used for post-close resolution checks.
-GAMMA_BASE_URL = "https://gamma-api.polymarket.com"
-# Tight timeout — same as TradeEngine live-price fetch. Auto-resolution is
-# best-effort per tick; a miss this tick retries 30 s later.
-_GAMMA_TIMEOUT = 2.0
-
 
 def init_poller(
     db: PolilyDB,

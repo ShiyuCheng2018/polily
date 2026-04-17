@@ -20,6 +20,17 @@ from scanner.daemon import poll_job
 from scanner.daemon.resolution import ResolutionHandler
 
 
+@pytest.fixture(autouse=True)
+def _reset_poller_ctx():
+    """Prevent `_ctx` leaking between tests — test order could otherwise
+    yield stale WalletService/PositionManager references bound to closed
+    DBs (this whole file populates _ctx via init_poller in multiple tests).
+    """
+    poll_job._ctx = None
+    yield
+    poll_job._ctx = None
+
+
 @pytest.fixture
 def db(tmp_path):
     db = PolilyDB(tmp_path / "test.db")
