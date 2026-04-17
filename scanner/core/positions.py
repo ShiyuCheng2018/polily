@@ -69,7 +69,10 @@ class PositionManager:
         price: float,
         commit: bool = True,
     ) -> None:
-        """Buy or add. Weighted-average avg_cost update."""
+        """Buy or add. Weighted-average avg_cost update.
+
+        Caller owns rollback if commit=False.
+        """
         if shares <= 0:
             raise ValueError(f"shares must be positive, got {shares}")
         if not 0 < price < 1:
@@ -113,7 +116,10 @@ class PositionManager:
     ) -> float:
         """Sell or reduce. Returns realized P&L for this partial exit.
 
-        Row is deleted when shares fully closed.
+        Row is deleted when shares fully closed. Caller owns rollback if commit=False.
+
+        price is intentionally not range-validated: exits at 0.0 or 1.0 are legal
+        (post-resolution settlement path may hit extreme execution prices).
         """
         if shares <= 0:
             raise ValueError(f"shares must be positive, got {shares}")

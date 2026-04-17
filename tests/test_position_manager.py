@@ -238,3 +238,33 @@ def test_remove_partial_cost_basis_tracks_remaining(pm):
     pm.remove_shares(market_id="m1", side="yes", shares=4.0, price=0.7)
     p = pm.get_position("m1", "yes")
     assert p["cost_basis"] == pytest.approx(6 * 0.5)
+
+
+def test_full_close_rollback_restores_position(db):
+    """commit=False remove that fully closes the row must be fully revertible."""
+    pm = PositionManager(db)
+    pm.add_shares(
+        market_id="m1", side="yes", event_id="e1", title="Q", shares=10.0, price=0.5
+    )
+    pm.remove_shares(
+        market_id="m1", side="yes", shares=10.0, price=0.9, commit=False
+    )
+    # Position deleted in current txn.
+    assert pm.get_position("m1", "yes") is None
+    db.conn.rollback()
+    # Rollback brings the whole row back — shares AND realized_pnl.
+    p = pm.get_position("m1", "yes")
+    assert p is not None
+    assert p["shares"] == 10.0
+    assert p["realized_pnl"] == 0.0
+
+
+def test_epsilon_boundary_triggers_delete(pm):
+    """Residual shares below _SHARES_EPS (1e-9) should trigger DELETE, not UPDATE."""
+    pm.add_shares(
+        market_id="m1", side="yes", event_id="e1", title="Q", shares=10.0, price=0.5
+    )
+    pm.remove_shares(
+        market_id="m1", side="yes", shares=10.0 - 5e-10, price=0.6
+    )
+    assert pm.get_position("m1", "yes") is None
