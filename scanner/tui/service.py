@@ -19,7 +19,6 @@ from scanner.core.event_store import (
 )
 from scanner.core.monitor_store import get_event_monitor, update_next_check_at
 from scanner.core.paper_store import create_paper_trade as _create_paper_trade
-from scanner.core.paper_store import get_open_trades as _get_open_trades
 from scanner.core.paper_store import get_resolved_trades as _get_resolved_trades
 from scanner.core.paper_store import get_trade_stats as _get_trade_stats
 from scanner.core.positions import PositionManager
@@ -333,7 +332,25 @@ class ScanService:
         )
 
     def get_open_trades(self) -> list[dict]:
-        return _get_open_trades(self.db)
+        """Open positions in paper_trades dict shape (shim for legacy TUI views).
+
+        Source of truth is `positions` post-v0.6.0. Synthetic `id` preserves
+        the DataTable row_key logic in paper_status.py. Callers needing the
+        native position shape should use `get_all_positions` instead.
+        """
+        positions = self.positions.get_all_positions()
+        return [
+            {
+                "id": f"{p['market_id']}:{p['side']}",
+                "market_id": p["market_id"],
+                "event_id": p["event_id"],
+                "side": p["side"],
+                "title": p["title"],
+                "entry_price": p["avg_cost"],
+                "position_size_usd": p["cost_basis"],
+            }
+            for p in positions
+        ]
 
     def get_resolved_trades(self) -> list[dict]:
         return _get_resolved_trades(self.db)

@@ -109,14 +109,17 @@ class TestToggleMonitor:
 
 class TestPaperTrades:
     def test_create_and_get_trades(self, db, service):
+        """execute_buy creates a position surfaced by get_open_trades (post-v0.6.0)."""
         _seed(db, "ev1", "m1")
-        tid = service.create_paper_trade(
-            event_id="ev1", market_id="m1", title="Test",
-            side="yes", entry_price=0.55, position_size_usd=20,
-        )
-        assert tid is not None
+        with patch(
+            "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+            return_value=0.55,
+        ):
+            service.execute_buy(market_id="m1", side="yes", shares=10.0)
         trades = service.get_open_trades()
         assert len(trades) == 1
+        assert trades[0]["side"] == "yes"
+        assert trades[0]["entry_price"] == pytest.approx(0.55)
 
     def test_trade_stats(self, db, service):
         _seed(db, "ev1", "m1")
