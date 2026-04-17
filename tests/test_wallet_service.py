@@ -126,3 +126,67 @@ def test_list_transactions_filter_by_type(wallet):
     topups = wallet.list_transactions(tx_type="TOPUP")
     assert len(topups) == 2
     assert all(t["type"] == "TOPUP" for t in topups)
+
+
+# --- Input validation: boundaries (TUI/CLI callers) ---------------------
+
+
+def test_topup_rejects_non_positive(wallet):
+    with pytest.raises(ValueError, match="positive"):
+        wallet.topup(0)
+    with pytest.raises(ValueError, match="positive"):
+        wallet.topup(-50.0)
+
+
+def test_withdraw_rejects_non_positive(wallet):
+    with pytest.raises(ValueError, match="positive"):
+        wallet.withdraw(-1.0)
+
+
+def test_deduct_rejects_bad_tx_type(wallet):
+    with pytest.raises(ValueError, match="tx_type"):
+        wallet.deduct(10.0, tx_type="HACK")
+    # Also rejects SELL/RESOLVE (those belong to credit).
+    with pytest.raises(ValueError, match="tx_type"):
+        wallet.deduct(10.0, tx_type="SELL")
+    assert wallet.get_cash() == 100.0
+
+
+def test_credit_rejects_bad_tx_type(wallet):
+    with pytest.raises(ValueError, match="tx_type"):
+        wallet.credit(10.0, tx_type="BUY")
+    assert wallet.get_cash() == 100.0
+
+
+def test_credit_allows_zero_amount(wallet):
+    """Zero-value RESOLVE (losing side of market) is legal."""
+    wallet.credit(0.0, tx_type="RESOLVE", market_id="m1", realized_pnl=-5.0)
+    assert wallet.get_cash() == 100.0
+    tx = wallet.list_transactions(limit=1)[0]
+    assert tx["type"] == "RESOLVE"
+    assert tx["amount_usd"] == 0.0
+    assert tx["realized_pnl"] == -5.0
+
+
+# --- Atomicity happy-path (TradeEngine contract dependency) -------------
+
+
+def test_multiple_commit_false_ops_commit_together(tmp_path):
+    """Multiple commit=False writes must persist together on a single commit call."""
+    db = PolilyDB(tmp_path / "t.db")
+    svc = WalletService(db)
+    svc.initialize(starting_balance=100.0)
+    # TradeEngine-style: debit cost + debit fee, then one commit.
+    svc.deduct(10.0, tx_type="BUY", commit=False, market_id="m1", side="yes")
+    svc.deduct(0.36, tx_type="FEE", commit=False, market_id="m1", side="yes")
+    # Both visible on same connection before commit.
+    assert svc.get_cash() == pytest.approx(89.64)
+    db.conn.commit()
+    # After commit, state is durable — verify via fresh connection.
+    db2 = PolilyDB(tmp_path / "t.db")
+    assert db2.conn.execute("SELECT cash_usd FROM wallet WHERE id=1").fetchone()[
+        "cash_usd"
+    ] == pytest.approx(89.64)
+    assert (
+        db2.conn.execute("SELECT COUNT(*) FROM wallet_transactions").fetchone()[0] == 2
+    )

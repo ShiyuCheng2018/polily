@@ -5,7 +5,9 @@ also inserting a wallet_transactions row in the same transaction.
 
 Atomicity contract: write methods take `commit: bool = True`. Default keeps
 standalone usage transactional. TradeEngine passes `False` and wraps multiple
-calls in its own BEGIN/COMMIT.
+calls in its own BEGIN/COMMIT. When `commit=False`, the caller owns the open
+transaction and MUST call `db.conn.rollback()` on any failure path — otherwise
+a subsequent `commit=True` call will silently commit partial state.
 """
 
 from __future__ import annotations
@@ -17,7 +19,11 @@ if TYPE_CHECKING:
     from scanner.core.db import PolilyDB
 
 
-class InsufficientFunds(Exception):  # noqa: N818  (short name matches plan convention)
+_DEDUCT_TX_TYPES = ("BUY", "FEE")
+_CREDIT_TX_TYPES = ("SELL", "RESOLVE")
+
+
+class InsufficientFunds(Exception):  # noqa: N818  (plan-specified name; other domain exceptions in Task 1.5 follow same convention)
     """Raised when a debit would push cash below zero."""
 
 
@@ -76,7 +82,8 @@ class WalletService:
     def topup(
         self, amount: float, *, commit: bool = True, notes: str | None = None
     ) -> None:
-        assert amount > 0, "topup amount must be positive"
+        if amount <= 0:
+            raise ValueError(f"topup amount must be positive, got {amount}")
         now = datetime.now(UTC).isoformat()
         self.db.conn.execute(
             "UPDATE wallet SET cash_usd=cash_usd+?, topup_total=topup_total+?, updated_at=? WHERE id=1",
@@ -88,7 +95,8 @@ class WalletService:
             self.db.conn.commit()
 
     def withdraw(self, amount: float, *, commit: bool = True) -> None:
-        assert amount > 0, "withdraw amount must be positive"
+        if amount <= 0:
+            raise ValueError(f"withdraw amount must be positive, got {amount}")
         cash = self.get_cash()
         if amount > cash:
             raise InsufficientFunds(f"withdraw ${amount} exceeds cash ${cash}")
@@ -103,11 +111,15 @@ class WalletService:
             self.db.conn.commit()
 
     def deduct(
-        self, amount: float, *, tx_type: str, commit: bool = True, **tx_fields
+        self, amount: float, *, tx_type: str, commit: bool = True, **fields
     ) -> None:
         """Used for BUY and FEE. Raises InsufficientFunds before any write."""
-        assert amount > 0
-        assert tx_type in ("BUY", "FEE")
+        if amount <= 0:
+            raise ValueError(f"deduct amount must be positive, got {amount}")
+        if tx_type not in _DEDUCT_TX_TYPES:
+            raise ValueError(
+                f"deduct tx_type must be one of {_DEDUCT_TX_TYPES}, got {tx_type!r}"
+            )
         cash = self.get_cash()
         if amount > cash:
             raise InsufficientFunds(f"deduct ${amount} exceeds cash ${cash}")
@@ -117,27 +129,27 @@ class WalletService:
             (amount, now),
         )
         new_cash = self.get_cash()
-        self._insert_tx(
-            tx_type, amount_usd=-amount, balance_after=new_cash, **tx_fields
-        )
+        self._insert_tx(tx_type, amount_usd=-amount, balance_after=new_cash, **fields)
         if commit:
             self.db.conn.commit()
 
     def credit(
-        self, amount: float, *, tx_type: str, commit: bool = True, **tx_fields
+        self, amount: float, *, tx_type: str, commit: bool = True, **fields
     ) -> None:
-        """Used for SELL and RESOLVE."""
-        assert amount >= 0
-        assert tx_type in ("SELL", "RESOLVE")
+        """Used for SELL and RESOLVE. amount >= 0 (losing side of a RESOLVE credits $0)."""
+        if amount < 0:
+            raise ValueError(f"credit amount must be non-negative, got {amount}")
+        if tx_type not in _CREDIT_TX_TYPES:
+            raise ValueError(
+                f"credit tx_type must be one of {_CREDIT_TX_TYPES}, got {tx_type!r}"
+            )
         now = datetime.now(UTC).isoformat()
         self.db.conn.execute(
             "UPDATE wallet SET cash_usd=cash_usd+?, updated_at=? WHERE id=1",
             (amount, now),
         )
         new_cash = self.get_cash()
-        self._insert_tx(
-            tx_type, amount_usd=amount, balance_after=new_cash, **tx_fields
-        )
+        self._insert_tx(tx_type, amount_usd=amount, balance_after=new_cash, **fields)
         if commit:
             self.db.conn.commit()
 
