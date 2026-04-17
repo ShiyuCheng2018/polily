@@ -227,6 +227,13 @@ def global_poll(db: PolilyDB | None = None) -> None:
     if not fetchable:
         return
 
+    # Emit banner up front so mid-tick log lines (e.g. `resolved|` from
+    # Step 1.5) appear chronologically below the tick header they belong
+    # to, not above it. Pre-v0.6.0 had no mid-tick logging so the banner
+    # was written at the end as a summary header; that inverts reader
+    # expectations once auto-resolution joined the flow.
+    _get_poll_log().info(f"── poll #{_poll_count} {'─' * 50}")
+
     # --- Step 1: Fetch CLOB + Binance concurrently ---
     crypto_symbols = _collect_crypto_symbols(db)
 
@@ -335,7 +342,6 @@ def global_poll(db: PolilyDB | None = None) -> None:
 
     plog = _get_poll_log()
     ts = datetime.now().strftime("%H:%M:%S")
-    plog.info(f"── poll #{_poll_count} {'─' * 50}")
 
     # fetch line
     fetch_parts = [f"clob {len(fetchable)} markets {clob_elapsed:.1f}s"]

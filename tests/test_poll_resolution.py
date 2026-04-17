@@ -384,6 +384,53 @@ class TestGlobalPollResolutionIntegration:
 
         mock_gamma.assert_not_called()
 
+    def test_banner_precedes_resolved_and_summary_lines(self, db, services):
+        """Chronological ordering: `── poll #N ──` banner must be the FIRST
+        plog line in a tick, followed by mid-tick (`resolved|`) and end-of-
+        tick summary (`fetch|`, `check|`, `result|`) lines. Readers scanning
+        top-down otherwise mis-attribute resolved lines to the prior tick.
+        """
+        wallet, positions, resolver = services
+        _seed(db)
+        positions.add_shares(
+            market_id="m1", side="yes", event_id="e1", title="Q",
+            shares=10, price=0.5,
+        )
+        poll_job.init_poller(
+            db=db, wallet=wallet, positions=positions, resolver=resolver,
+        )
+
+        fake_log = MagicMock()
+        with (
+            patch.object(poll_job, "_get_poll_log", return_value=fake_log),
+            patch("scanner.core.clob.fetch_clob_market_data") as mock_clob,
+            patch.object(
+                poll_job,
+                "_fetch_gamma_market",
+                new=AsyncMock(return_value={"outcomePrices": '["1", "0"]'}),
+            ),
+        ):
+            mock_clob.side_effect = httpx.HTTPStatusError(
+                "Not Found",
+                request=MagicMock(),
+                response=MagicMock(status_code=404),
+            )
+            poll_job.global_poll(db)
+
+        emitted = [c.args[0] for c in fake_log.info.call_args_list if c.args]
+        # Locate indices by substring match.
+        banner_idx = next(i for i, s in enumerate(emitted) if s.startswith("── poll #"))
+        resolved_idx = next(i for i, s in enumerate(emitted) if "resolved|" in s)
+        fetch_idx = next(i for i, s in enumerate(emitted) if "fetch" in s and "|" in s)
+        result_idx = next(i for i, s in enumerate(emitted) if "result" in s and "|" in s)
+
+        assert banner_idx < resolved_idx, (
+            f"banner {banner_idx} must precede resolved {resolved_idx}; "
+            f"full log: {emitted}"
+        )
+        assert banner_idx < fetch_idx
+        assert banner_idx < result_idx
+
     def test_gamma_timeout_does_not_crash_poll(self, db, services):
         """A Gamma timeout must not propagate and halt the poll."""
         wallet, positions, resolver = services
