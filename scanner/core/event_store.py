@@ -38,6 +38,7 @@ class EventRow(BaseModel):
     competitive: float | None = None
     tags: str = "[]"
     market_type: str | None = None
+    polymarket_category: str | None = None  # Gamma "category" field — fee curve input
     event_metadata: str | None = None
     structure_score: float | None = None
     tier: str | None = None
@@ -101,7 +102,7 @@ _EVENT_INSERT_COLS = (
     "event_id", "title", "slug", "description", "resolution_source",
     "neg_risk", "neg_risk_market_id", "neg_risk_augmented", "market_count",
     "start_date", "end_date", "image", "volume", "liquidity", "open_interest",
-    "competitive", "tags", "market_type", "event_metadata",
+    "competitive", "tags", "market_type", "polymarket_category", "event_metadata",
     "active", "closed",
     "created_at", "updated_at",
 )
@@ -109,11 +110,25 @@ _EVENT_INSERT_COLS = (
 # On conflict, update these columns (NOT user_status, structure_score, tier).
 _EVENT_UPDATE_COLS = tuple(c for c in _EVENT_INSERT_COLS if c != "event_id")
 
+# Columns whose ON CONFLICT update should preserve the prior value when the
+# new row's value is NULL (Gamma occasionally omits a field we'd rather keep).
+_EVENT_COALESCE_ON_UPDATE = frozenset({"polymarket_category"})
+
 
 def upsert_event(event: EventRow, db: PolilyDB) -> None:
-    """Insert or update an event. Preserves user_status, structure_score, tier."""
+    """Insert or update an event. Preserves user_status, structure_score, tier.
+
+    For columns in _EVENT_COALESCE_ON_UPDATE, a NULL in the new row does not
+    overwrite an existing value — guards against Gamma schema hiccups.
+    """
     placeholders = ", ".join("?" for _ in _EVENT_INSERT_COLS)
-    conflict_set = ", ".join(f"{c}=excluded.{c}" for c in _EVENT_UPDATE_COLS)
+    conflict_parts: list[str] = []
+    for c in _EVENT_UPDATE_COLS:
+        if c in _EVENT_COALESCE_ON_UPDATE:
+            conflict_parts.append(f"{c}=COALESCE(excluded.{c}, {c})")
+        else:
+            conflict_parts.append(f"{c}=excluded.{c}")
+    conflict_set = ", ".join(conflict_parts)
     sql = f"""
         INSERT INTO events ({', '.join(_EVENT_INSERT_COLS)})
         VALUES ({placeholders})
@@ -129,7 +144,7 @@ _EVENT_ALL_COLS = (
     "event_id", "title", "slug", "description", "resolution_source",
     "neg_risk", "neg_risk_market_id", "neg_risk_augmented", "market_count",
     "start_date", "end_date", "image", "volume", "liquidity", "open_interest",
-    "competitive", "tags", "market_type", "event_metadata",
+    "competitive", "tags", "market_type", "polymarket_category", "event_metadata",
     "structure_score", "tier", "user_status",
     "active", "closed", "created_at", "updated_at",
 )

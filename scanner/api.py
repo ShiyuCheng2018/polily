@@ -83,6 +83,7 @@ def parse_gamma_event(event_data: dict) -> tuple[EventRow, list[Market]]:
         competitive=event_data.get("competitive"),
         tags=tags_json,
         market_type=classify_from_tags(tags),
+        polymarket_category=event_data.get("category"),
         event_metadata=event_metadata,
         updated_at=now.isoformat(),
     )
