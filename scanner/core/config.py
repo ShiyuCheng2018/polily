@@ -175,7 +175,6 @@ class PaperTradingConfig(BaseModel):
     enabled: bool = True
     default_position_size_usd: float = 20
     assumed_round_trip_friction_pct: float = 0.04
-    auto_resolve: bool = False
 
 
 class DisciplineConfig(BaseModel):

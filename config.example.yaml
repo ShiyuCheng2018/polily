@@ -218,8 +218,6 @@ paper_trading:
   default_position_size_usd: 20     # assumed notional for PnL calculations
   # Friction assumption for adjusted PnL
   assumed_round_trip_friction_pct: 0.04
-  # Auto-resolve: in v1 this is manual; set to true when API resolution query is implemented
-  auto_resolve: false
 
 # Risk discipline
 discipline:
