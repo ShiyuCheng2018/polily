@@ -184,7 +184,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 -- 9. Wallet (singleton)
 CREATE TABLE IF NOT EXISTS wallet (
-    id                  INTEGER PRIMARY KEY CHECK(id = 1),
+    id                  INTEGER PRIMARY KEY CHECK(id = 1),  -- enforces singleton: only id=1 ever exists
     cash_usd            REAL NOT NULL,
     starting_balance    REAL NOT NULL,
     topup_total         REAL NOT NULL DEFAULT 0.0,
@@ -194,13 +194,17 @@ CREATE TABLE IF NOT EXISTS wallet (
 );
 
 -- 10. Positions (aggregated)
+-- INVARIANT: Polily never hard-deletes events/markets (soft-close via closed=1).
+-- FK defaults to NO ACTION; if a future cleanup task deletes markets, positions
+-- inserts will raise IntegrityError — that is intentional, positions depend on
+-- their anchoring market/event for display and resolution context.
 CREATE TABLE IF NOT EXISTS positions (
     market_id           TEXT NOT NULL REFERENCES markets(market_id),
     side                TEXT NOT NULL CHECK(side IN ('yes','no')),
     event_id            TEXT NOT NULL REFERENCES events(event_id),
     shares              REAL NOT NULL,
     avg_cost            REAL NOT NULL,
-    cost_basis          REAL NOT NULL,
+    cost_basis          REAL NOT NULL,            -- = shares × avg_cost; PositionManager is the sole writer and must update together
     realized_pnl        REAL NOT NULL DEFAULT 0.0,
     title               TEXT NOT NULL,
     opened_at           TEXT NOT NULL,
@@ -209,12 +213,15 @@ CREATE TABLE IF NOT EXISTS positions (
 );
 
 -- 11. Wallet transactions (append-only ledger)
+-- INVARIANT: market_id and event_id are stored WITHOUT FK constraints — the ledger
+-- must survive market soft-close and any future hard-delete cleanup. Orphan lookups
+-- via LEFT JOIN are acceptable; this is an accounting record, not relational master data.
 CREATE TABLE IF NOT EXISTS wallet_transactions (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at          TEXT NOT NULL,
     type                TEXT NOT NULL CHECK(type IN (
         'TOPUP','WITHDRAW','BUY','SELL','RESOLVE','FEE','MIGRATION'
-    )),
+    )),                                              -- uppercase convention for ledger codes
     market_id           TEXT,
     event_id            TEXT,
     side                TEXT CHECK(side IN ('yes','no')),
@@ -223,7 +230,7 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
     amount_usd          REAL NOT NULL,
     fee_usd             REAL NOT NULL DEFAULT 0.0,
     balance_after       REAL NOT NULL,
-    realized_pnl        REAL,
+    realized_pnl        REAL,                        -- null for TOPUP/WITHDRAW/FEE/MIGRATION; set for SELL/RESOLVE
     notes               TEXT
 );
 
