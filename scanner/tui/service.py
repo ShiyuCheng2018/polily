@@ -22,6 +22,9 @@ from scanner.core.paper_store import create_paper_trade as _create_paper_trade
 from scanner.core.paper_store import get_open_trades as _get_open_trades
 from scanner.core.paper_store import get_resolved_trades as _get_resolved_trades
 from scanner.core.paper_store import get_trade_stats as _get_trade_stats
+from scanner.core.positions import PositionManager
+from scanner.core.trade_engine import TradeEngine
+from scanner.core.wallet import WalletService
 from scanner.daemon.auto_monitor import toggle_auto_monitor
 from scanner.monitor.store import get_event_movements
 from scanner.scan_log import (
@@ -50,6 +53,12 @@ class ScanService:
     ):
         self.config = config or self._load_default_config()
         self.db = db or PolilyDB(self.config.archiving.db_file)
+
+        # v0.6.0 wallet system: single dependency point for TUI views
+        # (wallet.py / trade_dialog.py / paper_status.py)
+        self.wallet = WalletService(self.db)
+        self.positions = PositionManager(self.db)
+        self.trade_engine = TradeEngine(self.db, self.wallet, self.positions)
 
         # Progress tracking for TUI
         self.on_progress: Callable[[list[StepInfo]], None] | None = None
@@ -331,6 +340,38 @@ class ScanService:
 
     def get_trade_stats(self) -> dict:
         return _get_trade_stats(self.db)
+
+    # ------------------------------------------------------------------
+    # Wallet / positions / trade proxies (v0.6.0)
+    # ------------------------------------------------------------------
+
+    def execute_buy(self, *, market_id: str, side: str, shares: float) -> dict:
+        return self.trade_engine.execute_buy(
+            market_id=market_id, side=side, shares=shares,
+        )
+
+    def execute_sell(self, *, market_id: str, side: str, shares: float) -> dict:
+        return self.trade_engine.execute_sell(
+            market_id=market_id, side=side, shares=shares,
+        )
+
+    def topup(self, amount: float) -> None:
+        self.wallet.topup(amount)
+
+    def withdraw(self, amount: float) -> None:
+        self.wallet.withdraw(amount)
+
+    def get_wallet_snapshot(self) -> dict:
+        return self.wallet.get_snapshot()
+
+    def get_wallet_transactions(self, limit: int = 100) -> list[dict]:
+        return self.wallet.list_transactions(limit=limit)
+
+    def get_all_positions(self) -> list[dict]:
+        return self.positions.get_all_positions()
+
+    def get_event_positions(self, event_id: str) -> list[dict]:
+        return self.positions.get_event_positions(event_id)
 
     # ------------------------------------------------------------------
     # User actions
