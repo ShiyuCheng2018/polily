@@ -14,7 +14,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -24,7 +24,13 @@ from scanner.core.event_store import (
     mark_market_closed,
     update_market_prices,
 )
+from scanner.daemon.resolution import derive_winner
 from scanner.price_feeds import extract_crypto_asset
+
+if TYPE_CHECKING:
+    from scanner.core.positions import PositionManager
+    from scanner.core.wallet import WalletService
+    from scanner.daemon.resolution import ResolutionHandler
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +39,74 @@ logger = logging.getLogger(__name__)
 _SEMAPHORE_LIMIT = 100
 _poll_count = 0  # Safe: poll executor is single-threaded (APScheduler config)
 _poll_log: logging.Logger | None = None
+
+
+async def _fetch_gamma_market(market_id: str) -> dict | None:
+    """GET Gamma /markets/{market_id}; None on any failure.
+
+    Per-tick best-effort — we eat all exceptions and let the next tick retry.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_GAMMA_TIMEOUT) as client:
+            r = await client.get(f"{GAMMA_BASE_URL}/markets/{market_id}")
+            r.raise_for_status()
+            return r.json()
+    except Exception as e:
+        logger.warning("gamma fetch failed for %s: %s", market_id, e)
+        return None
+
+
+def _has_positions(db: PolilyDB, market_id: str) -> bool:
+    row = db.conn.execute(
+        "SELECT 1 FROM positions WHERE market_id=? LIMIT 1", (market_id,)
+    ).fetchone()
+    return row is not None
+
+
+async def _run_resolution_pass(
+    market_ids: list[str],
+    db: PolilyDB,
+    wallet: "WalletService",
+    positions: "PositionManager",
+    resolver: "ResolutionHandler",
+) -> None:
+    """Fan out resolution checks across all markets closed this tick.
+
+    Wrapped in a coroutine so `asyncio.run()` owns the event loop lifetime —
+    Python 3.14 disallows constructing coroutines before the loop exists.
+    """
+    await asyncio.gather(
+        *[
+            _resolve_closed_market_if_position(
+                mid, db, wallet, positions, resolver,
+            )
+            for mid in market_ids
+        ]
+    )
+
+
+async def _resolve_closed_market_if_position(
+    market_id: str,
+    db: PolilyDB,
+    wallet: "WalletService",
+    positions: "PositionManager",
+    resolver: "ResolutionHandler",
+) -> None:
+    """Gated on user holding a position — zero-Gamma-request path for closed
+    markets the user doesn't care about (the vast majority)."""
+    if not _has_positions(db, market_id):
+        return
+    data = await _fetch_gamma_market(market_id)
+    if data is None:
+        return  # transient HTTP error or timeout — retry next tick
+    prices_raw = data.get("outcomePrices", "[]")
+    prices = (
+        json.loads(prices_raw) if isinstance(prices_raw, str) else (prices_raw or [])
+    )
+    winner = derive_winner(prices)
+    if winner is None:
+        return  # UMA dispute in progress or malformed response
+    resolver.resolve_market(market_id, winner)
 
 
 def _get_poll_log() -> logging.Logger:
@@ -56,9 +130,16 @@ def _get_poll_log() -> logging.Logger:
 
 @dataclass(frozen=True)
 class PollerContext:
-    """Immutable context -- swapped atomically to avoid thread-safety races."""
+    """Immutable context -- swapped atomically to avoid thread-safety races.
+
+    wallet/positions/resolver are required so that auto-resolution cannot be
+    silently disabled by a forgotten init_poller arg (user's money at stake).
+    """
 
     db: PolilyDB
+    wallet: "WalletService"
+    positions: "PositionManager"
+    resolver: "ResolutionHandler"
     config: Any = None
     scheduler: Any = None
 
@@ -66,11 +147,31 @@ class PollerContext:
 # Single reference (set once on daemon startup via init_poller)
 _ctx: PollerContext | None = None
 
+# Gamma API endpoint used for post-close resolution checks.
+GAMMA_BASE_URL = "https://gamma-api.polymarket.com"
+# Tight timeout — same as TradeEngine live-price fetch. Auto-resolution is
+# best-effort per tick; a miss this tick retries 30 s later.
+_GAMMA_TIMEOUT = 2.0
 
-def init_poller(db: PolilyDB, config: Any = None, scheduler: Any = None) -> None:
+
+def init_poller(
+    db: PolilyDB,
+    wallet: "WalletService",
+    positions: "PositionManager",
+    resolver: "ResolutionHandler",
+    config: Any = None,
+    scheduler: Any = None,
+) -> None:
     """Initialize module-level context."""
     global _ctx
-    _ctx = PollerContext(db=db, config=config, scheduler=scheduler)
+    _ctx = PollerContext(
+        db=db,
+        wallet=wallet,
+        positions=positions,
+        resolver=resolver,
+        config=config,
+        scheduler=scheduler,
+    )
 
 
 def global_poll(db: PolilyDB | None = None) -> None:
@@ -164,6 +265,23 @@ def global_poll(db: PolilyDB | None = None) -> None:
                 (datetime.now(UTC).isoformat(), event_id),
             )
     db.conn.commit()
+
+    # --- Step 1.5: Auto-resolve newly closed markets the user holds -----
+    # Only fires if init_poller supplied wallet/positions/resolver (test
+    # paths that invoke global_poll(db=...) directly skip resolution).
+    if closed_count > 0 and _ctx is not None:
+        closed_market_ids = [
+            mid for mids in closed_by_event.values() for mid in mids
+        ]
+        try:
+            asyncio.run(
+                _run_resolution_pass(
+                    closed_market_ids, db,
+                    _ctx.wallet, _ctx.positions, _ctx.resolver,
+                )
+            )
+        except Exception:
+            logger.exception("auto-resolution pass failed (will retry next tick)")
 
     # --- Step 2: Refresh scores ---
     refresh_ms = 0

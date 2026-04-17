@@ -232,8 +232,22 @@ def generate_launchd_plist(working_dir: str, python_path: str | None = None) -> 
 
 def run_daemon(db, config=None) -> None:
     """Daemon entry point: start scheduler, restore jobs, block until SIGTERM."""
-    # Initialize poller context before starting scheduler
-    init_poller(db=db, config=config)
+    from scanner.core.positions import PositionManager
+    from scanner.core.wallet import WalletService
+    from scanner.daemon.resolution import ResolutionHandler
+
+    # Wire wallet-system services into the poller so auto-resolution runs
+    # alongside price polling. Required for v0.6.0+.
+    wallet = WalletService(db)
+    positions = PositionManager(db)
+    resolver = ResolutionHandler(db, wallet, positions)
+    init_poller(
+        db=db,
+        wallet=wallet,
+        positions=positions,
+        resolver=resolver,
+        config=config,
+    )
 
     # Count active markets for startup message
     active = db.conn.execute(
