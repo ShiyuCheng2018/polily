@@ -219,3 +219,61 @@ def test_fetch_live_price_no_token_returns_db_price(setup):
     db, _, _, engine = setup
     market = {"clob_token_id_yes": None, "yes_price": 0.42}
     assert engine._fetch_live_price(market, "yes", buy_side=True) == 0.42
+
+
+# --- Guardrails (review-surfaced) --------------------------------------
+
+
+def test_execute_buy_rejects_missing_event(setup):
+    """Orphaned market (no parent event) must fail loudly, not with cryptic KeyError.
+
+    FK is enforced in production, so this situation only arises during migration
+    or manual recovery (PRAGMA foreign_keys = OFF). Defense in depth.
+    """
+    db, wallet, pm, engine = setup
+    db.conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        db.conn.execute("DELETE FROM events WHERE event_id='e1'")
+        db.conn.commit()
+        with _mock_price(0.5), pytest.raises(ValueError, match="event .* not found"):
+            engine.execute_buy(market_id="m1", side="yes", shares=10.0)
+    finally:
+        db.conn.execute("PRAGMA foreign_keys = ON")
+    # No side effects.
+    assert wallet.get_cash() == 100.0
+    assert len(wallet.list_transactions()) == 0
+
+
+def test_execute_buy_rejects_degenerate_price(setup):
+    """price = 0 (free shares) or price = 1 (max cost) is not a sane execution price."""
+    db, wallet, pm, engine = setup
+    for bad in (0.0, 1.0):
+        with _mock_price(bad), pytest.raises(ValueError, match="out of range"):
+            engine.execute_buy(market_id="m1", side="yes", shares=10.0)
+    assert wallet.get_cash() == 100.0
+
+
+def test_execute_sell_rejects_degenerate_price(setup):
+    """Post-resolution exit should go through ResolutionHandler, not execute_sell."""
+    db, wallet, pm, engine = setup
+    with _mock_price(0.5):
+        engine.execute_buy(market_id="m1", side="yes", shares=10.0)
+    for bad in (0.0, 1.0):
+        with _mock_price(bad), pytest.raises(ValueError, match="out of range"):
+            engine.execute_sell(market_id="m1", side="yes", shares=5.0)
+    # Position unchanged.
+    assert pm.get_position("m1", "yes")["shares"] == 10.0
+
+
+def test_execute_buy_invalid_side(setup):
+    db, wallet, pm, engine = setup
+    with pytest.raises(ValueError, match="side"):
+        engine.execute_buy(market_id="m1", side="maybe", shares=10.0)
+
+
+def test_execute_buy_non_positive_shares(setup):
+    db, wallet, pm, engine = setup
+    with pytest.raises(ValueError, match="shares"):
+        engine.execute_buy(market_id="m1", side="yes", shares=0)
+    with pytest.raises(ValueError, match="shares"):
+        engine.execute_buy(market_id="m1", side="yes", shares=-1.0)

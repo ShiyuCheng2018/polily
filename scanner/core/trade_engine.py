@@ -51,24 +51,60 @@ class TradeEngine:
             raise ValueError(f"shares must be positive, got {shares}")
         market, event = self._load_market_event(market_id)
         price = self._fetch_live_price(market, side, buy_side=True)
+        if not 0 < price < 1:
+            raise ValueError(
+                f"price {price} out of range (0, 1) — market may be near-resolved, refusing trade"
+            )
         cost = shares * price
         fee = calculate_taker_fee(shares, price, event.get("polymarket_category"))
 
-        # Pre-check total before opening the transaction — fail fast, no rollback needed.
+        # Advisory pre-check before BEGIN — fail fast without a rollback round-trip.
+        # The authoritative check lives inside wallet.deduct, which re-reads cash under
+        # the transaction and raises InsufficientFunds if the balance shifted.
         if self.wallet.get_cash() < cost + fee:
             raise InsufficientFunds(
                 f"need ${cost + fee:.4f} (cost ${cost:.4f} + fee ${fee:.4f}), "
                 f"have ${self.wallet.get_cash():.2f}"
             )
 
+        # All prior calls are read-only; safe to open an explicit BEGIN here.
+        self._atomic_buy(
+            market_id=market_id,
+            side=side,
+            shares=shares,
+            price=price,
+            cost=cost,
+            fee=fee,
+            event_id=event["event_id"],
+            title=market["question"][:40],
+        )
+        return {"price": price, "cost": cost, "fee": fee}
+
+    def _atomic_buy(
+        self,
+        *,
+        market_id: str,
+        side: str,
+        shares: float,
+        price: float,
+        cost: float,
+        fee: float,
+        event_id: str,
+        title: str,
+    ) -> None:
+        """Inner BUY transaction. Uses try/finally + flag so commit failures AND
+        BaseException (KeyboardInterrupt) both trigger rollback — the shared
+        check_same_thread=False connection makes leaked transactions process-wide.
+        """
+        committed = False
+        self.db.conn.execute("BEGIN")
         try:
-            self.db.conn.execute("BEGIN")
             self.wallet.deduct(
                 cost,
                 tx_type="BUY",
                 commit=False,
                 market_id=market_id,
-                event_id=event["event_id"],
+                event_id=event_id,
                 side=side,
                 shares=shares,
                 price=price,
@@ -79,25 +115,27 @@ class TradeEngine:
                     tx_type="FEE",
                     commit=False,
                     market_id=market_id,
-                    event_id=event["event_id"],
+                    event_id=event_id,
                     side=side,
                     notes=f"taker fee for BUY {shares}@{price}",
                 )
             self.positions.add_shares(
                 market_id=market_id,
                 side=side,
-                event_id=event["event_id"],
-                title=market["question"][:40],
+                event_id=event_id,
+                title=title,
                 shares=shares,
                 price=price,
                 commit=False,
             )
             self.db.conn.commit()
-        except Exception:
-            self.db.conn.rollback()
-            raise
-
-        return {"price": price, "cost": cost, "fee": fee}
+            committed = True
+        finally:
+            if not committed:
+                try:
+                    self.db.conn.rollback()
+                except Exception:
+                    logger.exception("rollback after BUY failure also failed")
 
     def execute_sell(self, *, market_id: str, side: str, shares: float) -> dict:
         """Sell `shares` of `side` at live price. Atomic: all writes commit together."""
@@ -107,19 +145,52 @@ class TradeEngine:
             raise ValueError(f"shares must be positive, got {shares}")
         market, event = self._load_market_event(market_id)
         price = self._fetch_live_price(market, side, buy_side=False)
+        if not 0 < price < 1:
+            raise ValueError(
+                f"price {price} out of range (0, 1) — market may be near-resolved, refusing trade"
+            )
         proceeds = shares * price
         fee = calculate_taker_fee(shares, price, event.get("polymarket_category"))
 
-        # Pre-check shares before opening the transaction (remove_shares would catch this
-        # too, but failing here keeps the error path cleaner — no BEGIN/rollback round-trip).
+        # Advisory pre-check before BEGIN. remove_shares re-validates under the
+        # transaction, so this is fail-fast only.
         pos = self.positions.get_position(market_id, side)
+        held = pos["shares"] if pos else 0
         if pos is None or pos["shares"] < shares:
-            raise InsufficientShares(
-                f"requested {shares} > held {pos['shares'] if pos else 0}"
-            )
+            raise InsufficientShares(f"requested {shares} > held {held}")
 
+        realized = self._atomic_sell(
+            market_id=market_id,
+            side=side,
+            shares=shares,
+            price=price,
+            proceeds=proceeds,
+            fee=fee,
+            event_id=event["event_id"],
+        )
+        return {
+            "price": price,
+            "proceeds": proceeds,
+            "fee": fee,
+            "realized_pnl": realized,
+        }
+
+    def _atomic_sell(
+        self,
+        *,
+        market_id: str,
+        side: str,
+        shares: float,
+        price: float,
+        proceeds: float,
+        fee: float,
+        event_id: str,
+    ) -> float:
+        """Inner SELL transaction. Same try/finally + flag pattern as BUY."""
+        committed = False
+        realized: float = 0.0
+        self.db.conn.execute("BEGIN")
         try:
-            self.db.conn.execute("BEGIN")
             realized = self.positions.remove_shares(
                 market_id=market_id,
                 side=side,
@@ -132,7 +203,7 @@ class TradeEngine:
                 tx_type="SELL",
                 commit=False,
                 market_id=market_id,
-                event_id=event["event_id"],
+                event_id=event_id,
                 side=side,
                 shares=shares,
                 price=price,
@@ -144,21 +215,19 @@ class TradeEngine:
                     tx_type="FEE",
                     commit=False,
                     market_id=market_id,
-                    event_id=event["event_id"],
+                    event_id=event_id,
                     side=side,
                     notes=f"taker fee for SELL {shares}@{price}",
                 )
             self.db.conn.commit()
-        except Exception:
-            self.db.conn.rollback()
-            raise
-
-        return {
-            "price": price,
-            "proceeds": proceeds,
-            "fee": fee,
-            "realized_pnl": realized,
-        }
+            committed = True
+        finally:
+            if not committed:
+                try:
+                    self.db.conn.rollback()
+                except Exception:
+                    logger.exception("rollback after SELL failure also failed")
+        return realized
 
     # ---- internals ----
     def _load_market_event(self, market_id: str) -> tuple[dict, dict]:
@@ -170,7 +239,13 @@ class TradeEngine:
         e = self.db.conn.execute(
             "SELECT * FROM events WHERE event_id=?", (m["event_id"],)
         ).fetchone()
-        return dict(m), dict(e or {})
+        if e is None:
+            # Orphaned market — cascade delete race or seed corruption. Fail loudly
+            # rather than let a KeyError on event["event_id"] mask the real cause.
+            raise ValueError(
+                f"event {m['event_id']} not found for market {market_id}"
+            )
+        return dict(m), dict(e)
 
     def _fetch_live_price(self, market: dict, side: str, buy_side: bool) -> float:
         """Return the execution price for `side` given buy/sell direction.
