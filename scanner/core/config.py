@@ -4,7 +4,7 @@ import copy
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -212,6 +212,15 @@ class ArchivingConfig(BaseModel):
     db_file: str = "./data/polily.db"
 
 
+class WalletConfig(BaseModel):
+    """Wallet starting balance for v0.6.0 paper trading system."""
+    starting_balance: float = Field(
+        default=100.0,
+        ge=1.0,
+        description="Initial cash when wallet is first created or reset.",
+    )
+
+
 class ExecutionHintsConfig(BaseModel):
     small_account_mode: bool = True
     default_trade_style: str = "research_candidate"
@@ -307,6 +316,7 @@ class ScannerConfig(BaseModel):
     discipline: DisciplineConfig = DisciplineConfig()
     reporting: ReportingConfig = ReportingConfig()
     archiving: ArchivingConfig = ArchivingConfig()
+    wallet: WalletConfig = Field(default_factory=WalletConfig)
     execution_hints: ExecutionHintsConfig = ExecutionHintsConfig()
     movement: MovementConfig = MovementConfig()
 

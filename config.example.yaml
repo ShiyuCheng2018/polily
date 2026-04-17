@@ -269,6 +269,10 @@ archiving:
   enabled: true
   db_file: "./data/polily.db"
 
+# Wallet (v0.6.0 paper trading system)
+wallet:
+  starting_balance: 100.0              # initial cash when wallet is first created or reset
+
 execution_hints:
   small_account_mode: true
   default_trade_style: "research_candidate"
