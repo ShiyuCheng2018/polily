@@ -121,11 +121,68 @@ def status(config_path: str = typer.Option(None, "--config", "-c")):
     typer.echo(f"Scheduler: RUNNING (PID {pid})")
 
 
+def _load_user_config():
+    """Layered config load used by reset paths. Isolated so tests can stub it."""
+    from scanner.core.config import ScannerConfig, load_config
+    minimal = Path("config.minimal.yaml")
+    example = Path("config.example.yaml")
+    if minimal.exists() and example.exists():
+        return load_config(minimal, defaults_path=example)
+    if example.exists():
+        return load_config(example)
+    return ScannerConfig()
+
+
+def _stop_daemon_if_running() -> None:
+    import time
+    pid = _read_pid()
+    if pid is not None and _pid_alive(pid):
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(1)
+
+
 @app.command()
 def reset(
     confirm: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+    wallet_only: bool = typer.Option(
+        False, "--wallet-only",
+        help="仅重置钱包 (保留 events/markets/analyses)。下次启动 auto-migration 会按 config 的 starting_balance 重新开始。",
+    ),
 ):
-    """Delete all generated data (DB, logs) for a clean start."""
+    """Delete all generated data (DB, logs) for a clean start.
+
+    Use --wallet-only to reset only the wallet-side state (positions, wallet,
+    wallet_transactions, open paper_trades) while keeping events, markets, and
+    analysis history.
+    """
+    from rich.console import Console
+    console = Console()
+
+    if wallet_only:
+        from scanner.core.db import PolilyDB
+        from scanner.core.wallet_reset import reset_wallet
+
+        cfg = _load_user_config()
+        target_balance = cfg.wallet.starting_balance
+
+        if not confirm and not typer.confirm(
+            f"Reset wallet to ${target_balance}? (events/markets preserved)"
+        ):
+            console.print("[dim]Cancelled[/dim]")
+            return
+
+        _stop_daemon_if_running()
+        db = PolilyDB(cfg.archiving.db_file)
+        try:
+            reset_wallet(db, starting_balance=target_balance)
+        finally:
+            db.close()
+        console.print(
+            f"[green]Wallet reset to ${target_balance}. "
+            f"Events / markets / analyses preserved.[/green]"
+        )
+        return
+
     targets = [
         ("data/polily.db", "Database"),
         ("data/polily.db-shm", "WAL shared memory"),
@@ -136,21 +193,17 @@ def reset(
     ]
 
     if not confirm:
-        from rich.console import Console
-        console = Console()
         console.print("[yellow]Will delete the following data:[/yellow]")
         for path, label in targets:
             exists = "Y" if Path(path).exists() else "-"
             console.print(f"  {exists} {path} ({label})")
         console.print()
+        console.print("[dim]💡 只想重置钱包？改用 polily reset --wallet-only[/dim]")
         if not typer.confirm("Confirm delete all data?"):
             console.print("[dim]Cancelled[/dim]")
             return
 
-    # Stop daemon first
-    pid = _read_pid()
-    if pid is not None and _pid_alive(pid):
-        os.kill(pid, signal.SIGTERM)
+    _stop_daemon_if_running()
 
     deleted = 0
     for path, _label in targets:
@@ -159,8 +212,7 @@ def reset(
             p.unlink()
             deleted += 1
 
-    from rich.console import Console
-    Console().print(f"[green]Deleted {deleted} files. Database will be recreated on next launch.[/green]")
+    console.print(f"[green]Deleted {deleted} files. Database will be recreated on next launch.[/green]")
 
 
 if __name__ == "__main__":
