@@ -67,51 +67,66 @@ class ResolutionHandler:
     def resolve_market(self, market_id: str, winner_side: str) -> None:
         """Settle every position on `market_id` against `winner_side`.
 
-        winner_side: 'yes' | 'no' | 'split'.
+        winner_side: 'yes' | 'no' | 'split'. Callers should skip when
+        `derive_winner` returned None (market still disputing) — this method
+        will ValueError on any other input.
+
+        Atomicity: the entire settlement (markets.resolved_outcome UPDATE +
+        every position's credit + DELETE) runs in a single transaction. A
+        crash mid-iteration rolls back all of it, so retrying on the next
+        poll tick cannot double-credit. `wallet.credit(commit=False)` defers
+        to this outer transaction's commit.
         """
         if winner_side not in _VALID_WINNERS:
             raise ValueError(
                 f"winner_side must be one of {_VALID_WINNERS}, got {winner_side!r}"
             )
 
-        # Persist the authoritative outcome on the market row first so the
-        # DB reflects resolution even when the user held no positions.
-        self.db.conn.execute(
-            "UPDATE markets SET resolved_outcome=? WHERE market_id=?",
-            (winner_side, market_id),
-        )
-        self.db.conn.commit()
-
-        rows = self.db.conn.execute(
-            "SELECT * FROM positions WHERE market_id=?", (market_id,)
-        ).fetchall()
-
-        for r in rows:
-            pos = dict(r)
-            payout_per_share = _payout_per_share(winner_side, pos["side"])
-            proceeds = pos["shares"] * payout_per_share
-            realized = proceeds - pos["cost_basis"]
-            notes = _resolve_notes(winner_side)
-
-            self.wallet.credit(
-                proceeds,
-                tx_type="RESOLVE",
-                market_id=market_id,
-                event_id=pos["event_id"],
-                side=pos["side"],
-                shares=pos["shares"],
-                price=payout_per_share,
-                realized_pnl=realized,
-                notes=notes,
+        with self.db.conn:
+            cur = self.db.conn.execute(
+                "UPDATE markets SET resolved_outcome=? WHERE market_id=?",
+                (winner_side, market_id),
             )
-            # Delete the position row directly — wallet.credit already
-            # committed the cash change, so atomicity concerns from the
-            # TradeEngine path don't apply here.
-            self.db.conn.execute(
-                "DELETE FROM positions WHERE market_id=? AND side=?",
-                (market_id, pos["side"]),
-            )
-        self.db.conn.commit()
+            if cur.rowcount == 0:
+                logger.warning(
+                    "resolve_market: no market row for %s; outcome not persisted",
+                    market_id,
+                )
+
+            rows = self.db.conn.execute(
+                "SELECT * FROM positions WHERE market_id=?", (market_id,)
+            ).fetchall()
+
+            credited_total = 0.0
+            for r in rows:
+                pos = dict(r)
+                payout_per_share = _payout_per_share(winner_side, pos["side"])
+                proceeds = pos["shares"] * payout_per_share
+                realized = proceeds - pos["cost_basis"]
+
+                self.wallet.credit(
+                    proceeds,
+                    tx_type="RESOLVE",
+                    commit=False,
+                    market_id=market_id,
+                    event_id=pos["event_id"],
+                    side=pos["side"],
+                    shares=pos["shares"],
+                    price=payout_per_share,
+                    realized_pnl=realized,
+                    notes=_resolve_notes(winner_side),
+                )
+                self.db.conn.execute(
+                    "DELETE FROM positions WHERE market_id=? AND side=?",
+                    (market_id, pos["side"]),
+                )
+                credited_total += proceeds
+
+            if rows:
+                logger.info(
+                    "resolved %s -> %s, settled %d positions, credited $%.2f",
+                    market_id, winner_side, len(rows), credited_total,
+                )
 
 
 def _payout_per_share(winner_side: str, position_side: str) -> float:

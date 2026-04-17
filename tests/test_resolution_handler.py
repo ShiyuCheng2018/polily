@@ -178,3 +178,72 @@ def test_resolve_rejects_invalid_winner(tmp_path):
     db, wallet, pm, rh = _setup(tmp_path)
     with pytest.raises(ValueError, match="winner_side"):
         rh.resolve_market("m1", "maybe")
+
+
+# --- Atomicity: partial-failure rollback --------------------------------
+
+
+def test_resolve_midflight_failure_rolls_back_all(tmp_path):
+    """If wallet.credit raises on the 2nd position, the 1st credit AND the
+    markets.resolved_outcome update must also roll back — no double-credit
+    on retry."""
+    from unittest.mock import patch
+
+    db = PolilyDB(tmp_path / "t.db")
+    db.conn.executescript("""
+        INSERT INTO events (event_id,title,updated_at) VALUES ('e1','E','t');
+        INSERT INTO markets (market_id,event_id,question,closed,updated_at)
+            VALUES ('m1','e1','Q',1,'t');
+    """)
+    db.conn.commit()
+    wallet = WalletService(db)
+    pm = PositionManager(db)
+    pm.add_shares(
+        market_id="m1", side="yes", event_id="e1", title="Q", shares=10, price=0.5
+    )
+    pm.add_shares(
+        market_id="m1", side="no", event_id="e1", title="Q", shares=5, price=0.4
+    )
+    cash_before = wallet.get_cash()
+    rh = ResolutionHandler(db, wallet, pm)
+
+    # First credit call succeeds; second raises.
+    original = wallet.credit
+    call_count = [0]
+
+    def flaky_credit(*args, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 2:
+            raise RuntimeError("simulated mid-resolution failure")
+        return original(*args, **kwargs)
+
+    with patch.object(wallet, "credit", side_effect=flaky_credit), pytest.raises(
+        RuntimeError
+    ):
+        rh.resolve_market("m1", "yes")
+
+    # Cash unchanged: the first credit was rolled back.
+    assert wallet.get_cash() == cash_before
+    # Both positions survive — retry has clean slate.
+    assert pm.get_position("m1", "yes") is not None
+    assert pm.get_position("m1", "no") is not None
+    # markets.resolved_outcome also rolled back (stays NULL).
+    outcome = db.conn.execute(
+        "SELECT resolved_outcome FROM markets WHERE market_id='m1'"
+    ).fetchone()["resolved_outcome"]
+    assert outcome is None
+    # No orphan RESOLVE ledger rows.
+    assert wallet.list_transactions(tx_type="RESOLVE") == []
+
+
+def test_resolve_unknown_market_logs_warning(tmp_path, caplog):
+    """UPDATE rows-affected=0 should log a warning but not raise."""
+    import logging as _logging
+
+    db = PolilyDB(tmp_path / "t.db")
+    wallet = WalletService(db)
+    pm = PositionManager(db)
+    rh = ResolutionHandler(db, wallet, pm)
+    with caplog.at_level(_logging.WARNING, logger="scanner.daemon.resolution"):
+        rh.resolve_market("nonexistent", "yes")
+    assert any("nonexistent" in rec.message for rec in caplog.records)
