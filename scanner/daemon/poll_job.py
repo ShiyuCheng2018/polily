@@ -131,7 +131,16 @@ async def _resolve_closed_market_if_position(
     winner = derive_winner(prices)
     if winner is None:
         return  # UMA dispute in progress or malformed response
-    resolver.resolve_market(market_id, winner)
+    n_settled, credited = resolver.resolve_market(market_id, winner)
+    # Operator-facing audit line (logger.info inside resolver goes to Python
+    # root logger which has no handler in daemon mode — poll.log is the only
+    # persistent trail). Skip when no positions settled to avoid noise.
+    if n_settled > 0:
+        _get_poll_log().info(
+            f"           resolved| {market_id} -> {winner} "
+            f"| {n_settled} position{'s' if n_settled != 1 else ''} "
+            f"credited ${credited:.2f}"
+        )
 
 
 def _get_poll_log() -> logging.Logger:

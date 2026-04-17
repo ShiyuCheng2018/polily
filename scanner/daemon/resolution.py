@@ -64,12 +64,17 @@ class ResolutionHandler:
         self.wallet = wallet
         self.positions = positions
 
-    def resolve_market(self, market_id: str, winner_side: str) -> None:
+    def resolve_market(
+        self, market_id: str, winner_side: str,
+    ) -> tuple[int, float]:
         """Settle every position on `market_id` against `winner_side`.
 
         winner_side: 'yes' | 'no' | 'split'. Callers should skip when
         `derive_winner` returned None (market still disputing) — this method
         will ValueError on any other input.
+
+        Returns (positions_settled, credited_total_usd). A no-op call (no
+        positions) returns (0, 0.0) so callers can suppress log noise.
 
         Atomicity: the entire settlement (markets.resolved_outcome UPDATE +
         every position's credit + DELETE) runs in a single transaction. A
@@ -127,6 +132,7 @@ class ResolutionHandler:
                     "resolved %s -> %s, settled %d positions, credited $%.2f",
                     market_id, winner_side, len(rows), credited_total,
                 )
+            return len(rows), credited_total
 
 
 def _payout_per_share(winner_side: str, position_side: str) -> float:

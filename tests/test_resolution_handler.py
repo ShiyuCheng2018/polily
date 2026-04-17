@@ -61,6 +61,33 @@ def test_derive_winner_malformed_input_returns_none():
     assert derive_winner(["1", "0", "0"]) is None  # too many
 
 
+# --- resolve_market return value (operator-log support) ---------------
+
+
+def test_resolve_market_returns_settled_count_and_credit(tmp_path):
+    """Caller (poll_job) needs these values to emit a poll.log audit line."""
+    db, wallet, pm, rh = _setup(tmp_path)
+    n, credited = rh.resolve_market("m1", "yes")
+    assert n == 1
+    assert credited == pytest.approx(20.0)  # 20 shares × $1 payout
+
+
+def test_resolve_market_returns_zero_when_no_positions(tmp_path):
+    """Idempotent second-call returns (0, 0.0) — lets caller suppress log noise."""
+    db, wallet, pm, rh = _setup(tmp_path)
+    rh.resolve_market("m1", "yes")  # settles
+    n, credited = rh.resolve_market("m1", "yes")  # second call — nothing left
+    assert n == 0
+    assert credited == 0.0
+
+
+def test_resolve_market_returns_split_credit(tmp_path):
+    db, wallet, pm, rh = _setup(tmp_path)
+    n, credited = rh.resolve_market("m1", "split")
+    assert n == 1
+    assert credited == pytest.approx(10.0)  # 20 shares × $0.5
+
+
 # --- resolve_market: happy / loss / split / idempotent ------------------
 
 

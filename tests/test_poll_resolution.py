@@ -106,6 +106,50 @@ async def test_helper_settles_when_position_and_gamma_yes_won(db, services):
 
 
 @pytest.mark.asyncio
+async def test_helper_writes_poll_log_audit_line_on_settlement(db, services):
+    """poll.log must carry a human-readable resolution line per settlement —
+    operator visibility for 'did auto-resolve fire for market X?' queries."""
+    wallet, positions, resolver = services
+    _seed(db)
+    positions.add_shares(
+        market_id="m1", side="yes", event_id="e1", title="Q", shares=10, price=0.5
+    )
+
+    # Patch the poll-log to capture calls without touching the real file.
+    fake_log = MagicMock()
+    with patch.object(poll_job, "_get_poll_log", return_value=fake_log), \
+         patch.object(
+             poll_job, "_fetch_gamma_market",
+             new=AsyncMock(return_value={"outcomePrices": '["1", "0"]'}),
+         ):
+        await poll_job._resolve_closed_market_if_position(
+            "m1", db, wallet, positions, resolver,
+        )
+
+    # At least one info() call mentioning the market_id, winner, and credit.
+    logged = " ".join(
+        call.args[0] if call.args else "" for call in fake_log.info.call_args_list
+    )
+    assert "m1" in logged
+    assert "yes" in logged
+    assert "$10.00" in logged
+
+
+@pytest.mark.asyncio
+async def test_helper_does_not_log_when_no_positions(db, services):
+    """Skip log noise when resolution is a no-op (zero positions settled)."""
+    wallet, positions, resolver = services
+    _seed(db)  # market but no positions
+
+    fake_log = MagicMock()
+    with patch.object(poll_job, "_get_poll_log", return_value=fake_log):
+        await poll_job._resolve_closed_market_if_position(
+            "m1", db, wallet, positions, resolver,
+        )
+    fake_log.info.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_helper_settles_with_unnormalized_decimal_strings(db, services):
     """Gamma sometimes returns ["1.0", "0.0"] — derive_winner must still classify."""
     wallet, positions, resolver = services
