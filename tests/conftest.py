@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -26,6 +27,31 @@ def _suppress_agent_debug_log(monkeypatch):
 def _suppress_daemon_notify(monkeypatch):
     """Prevent tests from sending SIGUSR1 to the running daemon."""
     monkeypatch.setattr("scanner.daemon.notify.notify_daemon", lambda: False)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_poll_log(monkeypatch):
+    """Prevent tests from polluting prod data/poll.log + leaking tick state.
+
+    `scanner.daemon.poll_job` owns two module-level singletons:
+      - `_poll_log` — a FileHandler-backed logger hard-coded to
+        `<project_root>/data/poll.log`
+      - `_poll_count` — monotonic tick counter
+
+    Without this fixture, every integration test that exercises
+    `global_poll()` or `_resolve_closed_market_if_position()` appends to
+    the developer's live log and carries tick numbers across tests.
+    Tests that need to assert on log content override this by calling
+    `patch.object(poll_job, '_get_poll_log', return_value=...)` within
+    the test body — patch.object stacks on top of monkeypatch.
+    """
+    from scanner.daemon import poll_job
+    poll_job._poll_log = None
+    poll_job._poll_count = 0
+    monkeypatch.setattr(poll_job, "_get_poll_log", lambda: MagicMock())
+    yield
+    poll_job._poll_log = None
+    poll_job._poll_count = 0
 
 
 @pytest.fixture
