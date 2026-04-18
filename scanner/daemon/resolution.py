@@ -31,13 +31,30 @@ _LOSS_THRESHOLD = 0.01
 _SPLIT_TOLERANCE = 0.01
 
 
-def derive_winner(outcome_prices: list[str]) -> str | None:
+def derive_winner(
+    outcome_prices: list[str],
+    *,
+    uma_statuses: list[str] | None = None,
+) -> str | None:
     """Given Gamma `outcomePrices` list, return 'yes' / 'no' / 'split' / None.
 
     Float-threshold comparison defends against Gamma's inconsistent string
     encodings ("1" vs "1.0" vs "1.00"). Returns None for unresolved, in-
     progress disputes, and malformed input.
+
+    UMA gate (`uma_statuses`): Gamma's `umaResolutionStatuses` is a history
+    array. During the 2+ hour challenge window, `outcomePrices` already
+    reflects the proposer's answer but can still flip if disputed. We only
+    honor `outcomePrices` when:
+      * `uma_statuses` is empty/None — non-UMA market (e.g. Crypto Up/Down
+        settled against a price feed); OR
+      * `uma_statuses[-1] == "resolved"` — UMA has reached the final
+        terminal state.
+    Any other state (`"proposed"`, `"disputed"`, unknown) → defer; the next
+    poll tick will retry once Gamma progresses.
     """
+    if uma_statuses and uma_statuses[-1] != "resolved":
+        return None
     if len(outcome_prices) != 2:
         return None
     try:

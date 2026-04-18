@@ -240,6 +240,110 @@ async def test_helper_handles_list_outcome_prices(db, services):
     assert positions.get_position("m1", "yes") is None
 
 
+# --- UMA resolution-status gate -----------------------------------------
+#
+# Follow-up from PR #29: Gamma sets outcomePrices=["1","0"] the moment the
+# UMA proposer proposes a result, even though the 2-hour challenge window
+# is still open. Gating on `umaResolutionStatuses` prevents phantom
+# RESOLVE rows if a dispute flips the outcome.
+
+
+@pytest.mark.asyncio
+async def test_helper_defers_when_uma_still_in_challenge_window(db, services):
+    """outcomePrices=['1','0'] but umaResolutionStatuses=['proposed'] →
+    UMA hasn't finalized. Position + cash must be untouched."""
+    wallet, positions, resolver = services
+    _seed(db)
+    positions.add_shares(
+        market_id="m1", side="yes", event_id="e1", title="Q", shares=10, price=0.5
+    )
+    cash_before = wallet.get_cash()
+
+    gamma_response = {
+        "outcomePrices": '["1", "0"]',
+        "umaResolutionStatuses": '["proposed"]',
+    }
+    with patch.object(
+        poll_job, "_fetch_gamma_market", new=AsyncMock(return_value=gamma_response)
+    ):
+        await poll_job._resolve_closed_market_if_position(
+            "m1", db, wallet, positions, resolver,
+        )
+
+    assert positions.get_position("m1", "yes") is not None
+    assert wallet.get_cash() == cash_before
+    assert wallet.list_transactions(tx_type="RESOLVE") == []
+
+
+@pytest.mark.asyncio
+async def test_helper_settles_when_uma_status_resolved(db, services):
+    """umaResolutionStatuses=['proposed','resolved'] → challenge window
+    closed. outcomePrices is now authoritative — settle."""
+    wallet, positions, resolver = services
+    _seed(db)
+    positions.add_shares(
+        market_id="m1", side="yes", event_id="e1", title="Q", shares=10, price=0.5
+    )
+
+    gamma_response = {
+        "outcomePrices": '["1", "0"]',
+        "umaResolutionStatuses": '["proposed", "resolved"]',
+    }
+    with patch.object(
+        poll_job, "_fetch_gamma_market", new=AsyncMock(return_value=gamma_response)
+    ):
+        await poll_job._resolve_closed_market_if_position(
+            "m1", db, wallet, positions, resolver,
+        )
+
+    assert positions.get_position("m1", "yes") is None
+
+
+@pytest.mark.asyncio
+async def test_helper_settles_when_uma_status_array_empty(db, services):
+    """POC showed many markets (crypto up/down) have umaResolutionStatuses='[]':
+    non-UMA markets where the price feed is authoritative."""
+    wallet, positions, resolver = services
+    _seed(db)
+    positions.add_shares(
+        market_id="m1", side="yes", event_id="e1", title="Q", shares=10, price=0.5
+    )
+
+    gamma_response = {
+        "outcomePrices": '["1", "0"]',
+        "umaResolutionStatuses": "[]",
+    }
+    with patch.object(
+        poll_job, "_fetch_gamma_market", new=AsyncMock(return_value=gamma_response)
+    ):
+        await poll_job._resolve_closed_market_if_position(
+            "m1", db, wallet, positions, resolver,
+        )
+
+    assert positions.get_position("m1", "yes") is None
+
+
+@pytest.mark.asyncio
+async def test_helper_settles_when_uma_field_absent_entirely(db, services):
+    """Older Gamma responses (or alternate market types) may omit the field.
+    Treat as non-UMA for backward compatibility — don't block settlement."""
+    wallet, positions, resolver = services
+    _seed(db)
+    positions.add_shares(
+        market_id="m1", side="yes", event_id="e1", title="Q", shares=10, price=0.5
+    )
+
+    gamma_response = {"outcomePrices": '["1", "0"]'}  # no uma field
+    with patch.object(
+        poll_job, "_fetch_gamma_market", new=AsyncMock(return_value=gamma_response)
+    ):
+        await poll_job._resolve_closed_market_if_position(
+            "m1", db, wallet, positions, resolver,
+        )
+
+    assert positions.get_position("m1", "yes") is None
+
+
 # --- _fetch_gamma_market (wraps httpx) ----------------------------------
 
 

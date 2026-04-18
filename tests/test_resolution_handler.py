@@ -61,6 +61,60 @@ def test_derive_winner_malformed_input_returns_none():
     assert derive_winner(["1", "0", "0"]) is None  # too many
 
 
+# --- derive_winner UMA resolution gate ----------------------------------
+#
+# Gamma returns `umaResolutionStatuses` as a history array. During the
+# 2+ hour UMA challenge window (last status == "proposed"), `outcomePrices`
+# reflects the proposer's guess — which can flip if disputed. Settling here
+# would write phantom RESOLVE rows to wallet_transactions.
+#
+# Gate:
+#   uma=[]                 → non-UMA market (price feed) → settle by price
+#   uma[-1]=="resolved"    → UMA final → settle by price
+#   uma[-1] in {"proposed","disputed", ...} → defer (next poll tick)
+
+
+@pytest.mark.parametrize(
+    "uma_statuses,outcome_prices,expected",
+    [
+        # Non-UMA markets (price feed authoritative; e.g. Crypto Up/Down).
+        ([], ["1", "0"], "yes"),
+        ([], ["0", "1"], "no"),
+        # UMA final state — last entry "resolved".
+        (["proposed", "resolved"], ["1", "0"], "yes"),
+        (["proposed", "resolved"], ["0", "1"], "no"),
+        (["proposed", "disputed", "resolved"], ["0", "1"], "no"),
+        # UMA still in challenge window — outcomePrices set but can flip.
+        (["proposed"], ["1", "0"], None),
+        (["proposed"], ["0", "1"], None),
+        # UMA dispute in progress.
+        (["disputed"], ["1", "0"], None),
+        (["proposed", "disputed"], ["1", "0"], None),
+        # Unknown terminal status — conservative defer.
+        (["unknown"], ["1", "0"], None),
+    ],
+)
+def test_derive_winner_gated_on_uma_status(uma_statuses, outcome_prices, expected):
+    assert (
+        derive_winner(outcome_prices, uma_statuses=uma_statuses) == expected
+    )
+
+
+def test_derive_winner_backward_compatible_without_uma_argument():
+    """Legacy single-arg callers keep working (price-only path).
+
+    The POC showed many markets have `umaResolutionStatuses=[]` — non-UMA
+    markets where the price feed is authoritative. Omitting the kwarg has
+    the same semantics so a caller that forgets it stays safe for the
+    non-UMA half of the universe; UMA markets will still get blocked
+    because the caller must provide the list to unlock them (see the
+    poll_job integration tests).
+    """
+    assert derive_winner(["1", "0"]) == "yes"
+    assert derive_winner(["0", "1"]) == "no"
+    assert derive_winner(["0.5", "0.5"]) == "split"
+
+
 # --- resolve_market return value (operator-log support) ---------------
 
 

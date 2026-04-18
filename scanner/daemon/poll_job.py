@@ -128,9 +128,19 @@ async def _resolve_closed_market_if_position(
     prices = (
         json.loads(prices_raw) if isinstance(prices_raw, str) else (prices_raw or [])
     )
-    winner = derive_winner(prices)
+    # Gamma's umaResolutionStatuses is a history array. During the UMA
+    # challenge window (last entry "proposed"), outcomePrices already
+    # reflects the proposer's guess but can still flip. Gate below.
+    uma_raw = data.get("umaResolutionStatuses", "[]")
+    try:
+        uma_statuses = (
+            json.loads(uma_raw) if isinstance(uma_raw, str) else (uma_raw or [])
+        )
+    except (ValueError, TypeError):
+        uma_statuses = []
+    winner = derive_winner(prices, uma_statuses=uma_statuses)
     if winner is None:
-        return  # UMA dispute in progress or malformed response
+        return  # UMA pre-finalization, dispute in progress, or malformed response
     n_settled, credited = resolver.resolve_market(market_id, winner)
     # Operator-facing audit line (logger.info inside resolver goes to Python
     # root logger which has no handler in daemon mode — poll.log is the only
