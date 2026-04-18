@@ -54,9 +54,11 @@ filters:
   preferred_min_days_to_resolution: 0.5
   preferred_max_days_to_resolution: 7
 
-  # Spread thresholds (tightened based on friction analysis)
-  max_spread_pct_yes: 0.04           # was 0.06 — 6% round-trip is too expensive
-  preferred_max_spread_pct_yes: 0.02
+  # Spread thresholds — applied to the best-side % (cheaper of YES vs NO),
+  # so a low-YES market with a tradeable NO side isn't rejected for YES-side
+  # math the user would never actually pay.
+  max_spread_pct: 0.04
+  preferred_max_spread_pct: 0.02
   max_round_trip_friction_pct: 0.08  # hard reject if estimated buy+sell friction exceeds this
 
   min_volume: 1000
@@ -218,8 +220,6 @@ paper_trading:
   default_position_size_usd: 20     # assumed notional for PnL calculations
   # Friction assumption for adjusted PnL
   assumed_round_trip_friction_pct: 0.04
-  # Auto-resolve: in v1 this is manual; set to true when API resolution query is implemented
-  auto_resolve: false
 
 # Risk discipline
 discipline:
@@ -268,6 +268,10 @@ reporting:
 archiving:
   enabled: true
   db_file: "./data/polily.db"
+
+# Wallet (v0.6.0 paper trading system)
+wallet:
+  starting_balance: 100.0              # initial cash when wallet is first created or reset
 
 execution_hints:
   small_account_mode: true

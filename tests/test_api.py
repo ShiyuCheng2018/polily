@@ -361,3 +361,61 @@ class TestParseGammaEventV2:
         # Sum of YES prices: 0.4 + 0.3 + 0.35 = 1.05
         assert markets[0].event_outcome_prices_sum is not None
         assert abs(markets[0].event_outcome_prices_sum - 1.05) < 0.001
+
+
+class TestGammaFeeParsing:
+    """Gamma's `feesEnabled` + `feeSchedule` must persist onto Market.
+
+    Covers the numeric-type inconsistency Gamma shows in practice (rates
+    sometimes come back as strings, schedule sometimes missing entirely).
+    """
+
+    def _minimal(self, **market_overrides) -> dict:
+        base = {
+            "id": "m1", "question": "Q", "outcomes": '["Yes","No"]',
+            "outcomePrices": '["0.5","0.5"]', "clobTokenIds": '["t1","t2"]',
+            "conditionId": "0x1", "acceptingOrders": True,
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-04-01T00:00:00Z",
+        }
+        base.update(market_overrides)
+        return {"id": "ev1", "title": "E", "tags": [], "markets": [base]}
+
+    def test_fees_enabled_with_numeric_rate(self):
+        event = self._minimal(
+            feesEnabled=True,
+            feeSchedule={"exponent": 1, "rate": 0.072, "takerOnly": True},
+        )
+        _, markets = parse_gamma_event(event)
+        assert markets[0].fees_enabled is True
+        assert markets[0].fee_rate == 0.072
+
+    def test_fees_enabled_with_string_rate(self):
+        """Gamma sometimes returns numeric fields as strings."""
+        event = self._minimal(
+            feesEnabled=True, feeSchedule={"rate": "0.03"},
+        )
+        _, markets = parse_gamma_event(event)
+        assert markets[0].fee_rate == 0.03
+
+    def test_fees_disabled_schedule_ignored(self):
+        """Majority case: feesEnabled=False, often no schedule either."""
+        event = self._minimal(feesEnabled=False, feeSchedule=None)
+        _, markets = parse_gamma_event(event)
+        assert markets[0].fees_enabled is False
+        assert markets[0].fee_rate is None
+
+    def test_missing_fee_fields_default_to_disabled(self):
+        """Older events without fee fields at all → safe default (disabled)."""
+        event = self._minimal()  # no feesEnabled, no feeSchedule
+        _, markets = parse_gamma_event(event)
+        assert markets[0].fees_enabled is False
+        assert markets[0].fee_rate is None
+
+    def test_malformed_rate_falls_back_to_none(self):
+        """feeSchedule.rate present but unparseable — don't crash, set None."""
+        event = self._minimal(
+            feesEnabled=True, feeSchedule={"rate": "not-a-number"},
+        )
+        _, markets = parse_gamma_event(event)
+        assert markets[0].fee_rate is None

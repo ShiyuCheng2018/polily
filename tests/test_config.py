@@ -43,7 +43,7 @@ class TestLoadConfig:
     def test_load_example_config(self):
         config = load_config(Path("config.example.yaml"))
         assert config is not None
-        assert config.filters.max_spread_pct_yes == 0.04
+        assert config.filters.max_spread_pct == 0.04
         assert config.scoring.weights.objective_verifiability == 25
 
     def test_load_minimal_config_merges_with_defaults(self):
@@ -52,7 +52,7 @@ class TestLoadConfig:
         assert config.discipline.account_size_usd == 150
         assert config.discipline.max_single_trade_usd == 20
         # inherits all other defaults from example
-        assert config.filters.max_spread_pct_yes == 0.04
+        assert config.filters.max_spread_pct == 0.04
         assert config.scoring.weights.objective_verifiability == 25
 
     def test_scoring_weights_sum_to_100(self):
@@ -81,7 +81,7 @@ class TestLoadConfig:
     def test_custom_yaml(self):
         yaml_content = """
 filters:
-  max_spread_pct_yes: 0.02
+  max_spread_pct: 0.02
 scoring:
   weights:
     liquidity_structure: 35
@@ -94,5 +94,5 @@ scoring:
             f.write(yaml_content)
             f.flush()
             config = load_config(Path(f.name), defaults_path=Path("config.example.yaml"))
-            assert config.filters.max_spread_pct_yes == 0.02
+            assert config.filters.max_spread_pct == 0.02
             assert config.scoring.weights.liquidity_structure == 35

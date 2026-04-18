@@ -172,10 +172,11 @@ def _check_market(
         if days > f.max_days_to_resolution:
             return f"Too far from resolution ({days:.1f}d > {f.max_days_to_resolution}d)"
 
-    # Spread check
-    spread_pct = m.spread_pct_yes
-    if spread_pct is not None and spread_pct > f.max_spread_pct_yes:
-        return f"Spread too wide ({spread_pct:.1%} > {f.max_spread_pct_yes:.1%})"
+    # Spread check — best-side %, so we don't reject a market the user would
+    # trade via the cheaper side (e.g. NO on a low-YES market).
+    spread_pct = m.spread_pct_best_side
+    if spread_pct is not None and spread_pct > f.max_spread_pct:
+        return f"Spread too wide ({spread_pct:.1%} > {f.max_spread_pct:.1%})"
 
     # Round-trip friction
     friction = m.round_trip_friction_pct

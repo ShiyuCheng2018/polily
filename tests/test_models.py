@@ -47,6 +47,28 @@ class TestMarket:
         assert m.spread_pct_yes is not None
         assert abs(m.spread_pct_yes - 0.03636) < 0.001
 
+    def test_spread_pct_best_side_symmetric(self):
+        """When YES ≈ 0.5, best side = YES side (marginally), same answer."""
+        m = make_market(best_bid_yes=0.54, best_ask_yes=0.56)
+        # spread=0.02, mid_yes=0.55, mid_no=0.45. 0.02/0.55 = 3.64% < 0.02/0.45.
+        assert abs(m.spread_pct_best_side - 0.03636) < 0.001
+
+    def test_spread_pct_best_side_low_yes_uses_no(self):
+        """YES=24.5¢: buying NO at 75.5¢ has 1/3 the % spread cost."""
+        m = make_market(best_bid_yes=0.24, best_ask_yes=0.25)
+        # spread=0.01, mid_yes=0.245 (4.08%), mid_no=0.755 (1.32%)
+        assert abs(m.spread_pct_best_side - 0.01324) < 0.001
+
+    def test_spread_pct_best_side_exact_half(self):
+        """Both sides identical at the midpoint."""
+        m = make_market(best_bid_yes=0.495, best_ask_yes=0.505)
+        # spread=0.01, mid=0.5 both sides → 2%
+        assert abs(m.spread_pct_best_side - 0.02) < 0.001
+
+    def test_spread_pct_best_side_none_without_book(self):
+        m = make_market(best_bid_yes=None, best_ask_yes=None)
+        assert m.spread_pct_best_side is None
+
     def test_days_to_resolution(self):
         m = make_market(
             resolution_time=datetime(2026, 3, 30, 0, 0, tzinfo=UTC),
@@ -86,11 +108,59 @@ class TestMarket:
         assert make_market(yes_price=0.10).is_mid_probability is False
         assert make_market(yes_price=0.90).is_mid_probability is False
 
-    def test_round_trip_friction_pct(self):
+    def test_round_trip_friction_pct_symmetric(self):
+        """Near 50¢ YES — both sides have similar % cost; YES used."""
         m = make_market(best_bid_yes=0.54, best_ask_yes=0.56)
-        # Estimated as 2 * spread_pct (buy in + sell out)
+        # spread_abs=0.02, mid_yes=0.55, mid_no=0.45
+        # spread_pct_yes = 0.02/0.55 ≈ 0.0364 (cheaper)
+        # spread_pct_no  = 0.02/0.45 ≈ 0.0444
+        # best-side round-trip = 2 × 0.0364 ≈ 0.0727
         assert m.round_trip_friction_pct is not None
-        assert m.round_trip_friction_pct > 0.05  # ~7.3% for this spread
+        assert abs(m.round_trip_friction_pct - 0.0727) < 0.002
+
+    def test_round_trip_friction_pct_low_yes_uses_no_side(self):
+        """Low YES (like Iran peace deal at 25¢): buying NO is way cheaper
+        than buying YES because NO's 75¢ mid dilutes the same absolute spread.
+        Bug this test locks in: old formula used YES-side only and flagged
+        everything below 0.5 as high-friction.
+        """
+        # Matches the Iran April 22 market: YES=0.24/0.25, NO=0.75/0.76, spread=0.01.
+        m = make_market(best_bid_yes=0.24, best_ask_yes=0.25)
+        # spread_abs=0.01, mid_yes=0.245, mid_no=0.755
+        # spread_pct_yes = 0.01/0.245 = 4.08% (worse)
+        # spread_pct_no  = 0.01/0.755 = 1.32% (better — the actionable side)
+        # round-trip = 2 × 1.32% = 2.65%
+        assert m.round_trip_friction_pct is not None
+        assert abs(m.round_trip_friction_pct - 0.0265) < 0.002
+        # Without the fix it would be ~0.0816.
+
+    def test_round_trip_friction_pct_high_yes_uses_yes_side(self):
+        """High YES (favorite at 75¢): buying YES is the cheaper side.
+        Mirrors the low-YES case by symmetry.
+        """
+        m = make_market(best_bid_yes=0.75, best_ask_yes=0.76)
+        # mid_yes=0.755, mid_no=0.245, spread=0.01
+        # spread_pct_yes = 1.32%; spread_pct_no = 4.08%; min=1.32%; round-trip=2.65%
+        assert m.round_trip_friction_pct is not None
+        assert abs(m.round_trip_friction_pct - 0.0265) < 0.002
+
+    def test_round_trip_friction_pct_exact_half(self):
+        """YES = 0.5 boundary — both sides identical by construction."""
+        m = make_market(best_bid_yes=0.495, best_ask_yes=0.505)
+        # mid=0.5, spread_abs=0.01, spread_pct_yes = spread_pct_no = 2%
+        # round-trip = 4%
+        assert m.round_trip_friction_pct is not None
+        assert abs(m.round_trip_friction_pct - 0.04) < 0.001
+
+    def test_round_trip_friction_pct_extreme_price_still_finite(self):
+        """At 1¢ YES, YES side is effectively untradeable (100% spread %),
+        but NO side at 99¢ has a sane spread %. Best-side keeps us honest.
+        """
+        m = make_market(best_bid_yes=0.005, best_ask_yes=0.015)
+        # spread_abs=0.01, mid_yes=0.01 → YES spread_pct = 100% (useless)
+        # mid_no=0.99 → NO spread_pct = 1.01% → round-trip ≈ 2.02%
+        assert m.round_trip_friction_pct is not None
+        assert m.round_trip_friction_pct < 0.03
 
     def test_book_depth_totals(self):
         bids = [BookLevel(price=0.54, size=500), BookLevel(price=0.53, size=800)]

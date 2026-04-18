@@ -5,6 +5,9 @@ discipline:
   account_size_usd: 150       # Your total account size
   max_single_trade_usd: 20    # Max per trade
 
+wallet:
+  starting_balance: 100.0     # Initial cash when wallet is first created or reset
+
 ai:
   enabled: true                # Use AI agents (uses Claude subscription quota)
   # Set to false for pure rule-based mode (no quota usage, faster, still useful)

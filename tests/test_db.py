@@ -28,10 +28,11 @@ def test_v2_schema_tables(polily_db):
     assert "event_monitors" in names
     assert "analyses" in names
     assert "movement_log" in names
-    assert "paper_trades" in names
     assert "scan_logs" in names
     assert "notifications" in names
     assert "market_states" not in names
+    # paper_trades dropped in v0.6.1 (replaced by positions + wallet_transactions)
+    assert "paper_trades" not in names
 
 
 def test_events_table_columns(polily_db):
@@ -100,13 +101,6 @@ def test_movement_log_has_event_id(polily_db):
     cols = {r[1] for r in row}
     assert "event_id" in cols
     assert "no_price" in cols
-
-
-def test_paper_trades_has_event_id(polily_db):
-    row = polily_db.conn.execute("PRAGMA table_info(paper_trades)").fetchall()
-    cols = {r[1] for r in row}
-    assert "event_id" in cols
-    assert "market_id" in cols
 
 
 def test_db_context_manager():
