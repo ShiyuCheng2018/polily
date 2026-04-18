@@ -93,9 +93,14 @@ class WalletView(Widget):
     WalletView #net-inflow-line { padding: 0 0 1 2; color: $text-muted; }
     WalletView #ledger-title { text-style: bold; padding: 1 0 0 0; }
     WalletView #wallet-table { height: 1fr; margin: 1 0; }
-    WalletView #action-row { height: auto; align: left middle; padding: 0 0 1 0; }
-    WalletView .hint { color: $text-muted; padding: 0 1 0 0; }
-    WalletView #reset-btn { dock: right; background: $error 20%; }
+    WalletView #action-row { height: 3; padding: 0; }
+    WalletView .hint { width: 1fr; padding: 1 1 0 0; color: $text-muted; }
+    WalletView #reset-btn {
+        width: 14;
+        background: $error 20%;
+        color: white;
+        text-style: bold;
+    }
     """
 
     BINDINGS = [
@@ -115,7 +120,8 @@ class WalletView(Widget):
         yield Static("── 交易流水 ──", id="ledger-title")
         yield DataTable(id="wallet-table")
         with Horizontal(id="action-row"):
-            yield Static("[dim][t] 充值   [w] 提现[/dim]", classes="hint")
+            # Escape the square brackets so Rich doesn't treat [t] / [w] as tags.
+            yield Static(r"[dim]\[t] 充值   \[w] 提现[/dim]", classes="hint")
             yield Button("重置钱包", id="reset-btn", variant="error")
 
     def on_mount(self) -> None:

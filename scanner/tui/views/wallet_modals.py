@@ -167,6 +167,10 @@ class WithdrawModal(ModalScreen[float | None]):
                 yield Button("确认", id="ok", variant="primary", classes="action-btn")
                 yield Button("取消", id="cancel", classes="action-btn")
 
+    def on_mount(self) -> None:
+        # Empty input on open → confirm must start disabled.
+        self._refresh_warn()
+
     def on_input_changed(self, event: Input.Changed) -> None:
         self._refresh_warn()
 
@@ -264,11 +268,12 @@ class WalletResetModal(ModalScreen[bool | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog-box"):
             yield Static("重置钱包", classes="title")
+            starting = self._service.config.wallet.starting_balance
             warn_lines = [
                 "⚠️  不可撤销！将清除：",
                 f"    · 所有持仓 (当前 {self._open_positions} 个)",
                 "    · 所有交易流水",
-                "    · 现金重置为初始 $100",
+                f"    · 现金重置为初始 ${starting:.2f}",
             ]
             yield Static("\n".join(warn_lines), classes="warn-block")
             if self._daemon_pid is not None:
