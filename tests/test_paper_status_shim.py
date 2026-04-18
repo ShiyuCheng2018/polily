@@ -12,7 +12,6 @@ import pytest
 
 from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
-from scanner.core.paper_store import create_paper_trade
 from scanner.tui.service import ScanService
 
 
@@ -41,12 +40,7 @@ def _mock_price(value: float):
 
 
 def test_get_open_trades_empty_when_no_positions(svc):
-    """Empty positions → empty result, even with legacy paper_trades rows present."""
-    # Seed legacy paper_trades row to prove it is NOT the source.
-    create_paper_trade(
-        event_id="e1", market_id="m1", title="legacy",
-        side="yes", entry_price=0.55, position_size_usd=20.0, db=svc.db,
-    )
+    """Empty positions → empty result."""
     assert svc.get_open_trades() == []
 
 

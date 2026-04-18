@@ -274,21 +274,23 @@ class PolilyDB:
     def _init_schema(self):
         self.conn.executescript(_SCHEMA)
         self.conn.commit()
-        self._run_v060_migration()
+        self._ensure_wallet_singleton()
 
-    def _run_v060_migration(self):
-        """Auto-run the v0.6.0 migration on every PolilyDB instantiation.
-
-        Idempotent — subsequent calls are cheap no-ops once the MIGRATION
-        bookmark is present (for DBs that had legacy data).
+    def _ensure_wallet_singleton(self):
+        """Seed the wallet row on fresh DBs so downstream code can assume
+        `wallet` is non-empty. Idempotent — no-op when the row already
+        exists; a config change to `starting_balance` does NOT rebase an
+        existing wallet (use `polily reset --wallet-only` for that).
         """
+        row = self.conn.execute("SELECT id FROM wallet WHERE id=1").fetchone()
+        if row is not None:
+            return
+
         import warnings
+        from datetime import UTC, datetime
 
         from scanner.core.config import ScannerConfig
-        from scanner.core.migration_v060 import migrate_if_needed
         try:
-            # Prefer the user's layered config if available; fall back to defaults
-            # so unit tests in arbitrary tmp dirs still work.
             from scanner.core.config import load_config
             minimal = Path("config.minimal.yaml")
             example = Path("config.example.yaml")
@@ -300,11 +302,19 @@ class PolilyDB:
                 cfg = ScannerConfig()
         except Exception as e:
             warnings.warn(
-                f"config load failed during v0.6.0 migration, using defaults: {e!r}",
+                f"config load failed during wallet seed, using defaults: {e!r}",
                 stacklevel=2,
             )
             cfg = ScannerConfig()
-        migrate_if_needed(self, starting_balance=cfg.wallet.starting_balance)
+
+        now = datetime.now(UTC).isoformat()
+        starting = cfg.wallet.starting_balance
+        self.conn.execute(
+            "INSERT INTO wallet (id,cash_usd,starting_balance,topup_total,"
+            "withdraw_total,created_at,updated_at) VALUES (1,?,?,0,0,?,?)",
+            (starting, starting, now, now),
+        )
+        self.conn.commit()
 
     def close(self):
         self.conn.close()

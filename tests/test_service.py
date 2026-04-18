@@ -146,20 +146,6 @@ class TestComputePositionContext:
         assert "$5" in summary    # cost_basis ≈ 5
         assert "m1" in summary
 
-    def test_ignores_legacy_paper_trades_rows(self, db, service):
-        """paper_trades row on the same event must not produce a summary —
-        positions is the source of truth. Guards against silent v0.5.x leak."""
-        from scanner.core.paper_store import create_paper_trade
-        _seed(db, "ev1", "m1")
-        create_paper_trade(
-            event_id="ev1", market_id="m1", title="legacy",
-            side="yes", entry_price=0.55, position_size_usd=20.0, db=db,
-        )
-        has_pos, summary = service._compute_position_context("ev1")
-        assert has_pos is False
-        assert summary is None
-
-
 class TestPassEvent:
     def test_pass_sets_user_status(self, db, service):
         _seed(db, "ev1", "m1")

@@ -132,7 +132,7 @@ async def test_wallet_view_ledger_shows_buy_then_fee_rows(tmp_path):
         view = host.screen.query_one(WalletView)
         from textual.widgets import DataTable
         table = view.query_one("#wallet-table", DataTable)
-        # BUY + FEE = 2 rows (no MIGRATION on fresh-DB path; see migration_v060).
+        # BUY + FEE = 2 rows (fresh DB has no pre-existing ledger entries).
         assert table.row_count == 2
 
 

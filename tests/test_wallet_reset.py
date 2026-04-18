@@ -4,7 +4,6 @@ events/markets/analyses."""
 import pytest
 
 from scanner.core.db import PolilyDB
-from scanner.core.migration_v060 import migrate_if_needed
 from scanner.core.wallet_reset import reset_wallet
 
 
@@ -37,42 +36,19 @@ def test_reset_wipes_positions(tmp_path):
     assert db.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 0
 
 
-def test_reset_wipes_wallet_transactions_including_bookmark(tmp_path):
+def test_reset_wipes_wallet_transactions(tmp_path):
+    """All ledger rows cleared — no bookmark protection needed now that
+    migration is gone."""
     db = PolilyDB(tmp_path / "t.db")
     _seed_event_and_market(db)
     db.conn.execute(
-        """INSERT INTO paper_trades
-           (id,event_id,market_id,title,side,entry_price,position_size_usd,status,marked_at)
-           VALUES ('t1','e1','m1','Q','yes',0.5,10,'open','2026-01-01')""",
+        "INSERT INTO wallet_transactions (created_at,type,amount_usd,balance_after) "
+        "VALUES (?,?,?,?)",
+        ("2026-01-01", "TOPUP", 50.0, 150.0),
     )
     db.conn.commit()
-    # Migrate to plant the MIGRATION bookmark + a position.
-    migrate_if_needed(db, starting_balance=100.0)
-    assert db.conn.execute(
-        "SELECT COUNT(*) FROM wallet_transactions WHERE type='MIGRATION'"
-    ).fetchone()[0] == 1
     reset_wallet(db, starting_balance=100.0)
     assert db.conn.execute("SELECT COUNT(*) FROM wallet_transactions").fetchone()[0] == 0
-
-
-def test_reset_deletes_open_paper_trades_keeps_resolved(tmp_path):
-    """Critical contract for re-migration safety: open wiped, resolved preserved."""
-    db = PolilyDB(tmp_path / "t.db")
-    _seed_event_and_market(db)
-    db.conn.executescript("""
-        INSERT INTO paper_trades
-          (id,event_id,market_id,title,side,entry_price,position_size_usd,status,marked_at)
-          VALUES ('t1','e1','m1','Q','yes',0.5,10,'open','2026-01-01');
-        INSERT INTO paper_trades
-          (id,event_id,market_id,title,side,entry_price,position_size_usd,status,
-           marked_at,resolved_at,resolved_result)
-          VALUES ('t2','e1','m1','Q','no',0.4,8,'resolved',
-                  '2025-12-01','2025-12-02','no');
-    """)
-    db.conn.commit()
-    reset_wallet(db, starting_balance=100.0)
-    remaining = db.conn.execute("SELECT id, status FROM paper_trades").fetchall()
-    assert [(r["id"], r["status"]) for r in remaining] == [("t2", "resolved")]
 
 
 def test_reset_preserves_events_markets(tmp_path):
@@ -112,33 +88,6 @@ def test_reset_rejects_non_positive_balance(tmp_path):
         reset_wallet(db, starting_balance=0)
     with pytest.raises(ValueError, match="starting_balance"):
         reset_wallet(db, starting_balance=-10.0)
-
-
-# --- Integration with migration (deferred from Task 1.8) -----------------
-
-
-def test_migration_not_rerun_after_wallet_reset(tmp_path):
-    """After reset, re-migration must NOT re-aggregate legacy trades
-    (because reset wiped the open paper_trades too).
-    """
-    db = PolilyDB(tmp_path / "t.db")
-    _seed_event_and_market(db)
-    db.conn.execute(
-        """INSERT INTO paper_trades
-           (id,event_id,market_id,title,side,entry_price,position_size_usd,status,marked_at)
-           VALUES ('t1','e1','m1','Q','yes',0.5,10,'open','2026-01-01')""",
-    )
-    db.conn.commit()
-    migrate_if_needed(db, starting_balance=100.0)
-    assert db.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 1
-
-    reset_wallet(db, starting_balance=100.0)
-    assert db.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 0
-
-    # Re-run migration. bookmark is gone (reset deleted it), but open
-    # paper_trades are also gone (reset deleted them) — so no positions recreated.
-    migrate_if_needed(db, starting_balance=100.0)
-    assert db.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 0
 
 
 def test_post_reset_polilydb_reopen_has_clean_wallet(tmp_path):
