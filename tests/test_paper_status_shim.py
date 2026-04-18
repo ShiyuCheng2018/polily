@@ -135,3 +135,55 @@ def test_shares_roundtrip_after_partial_sell(svc):
     assert derived_shares == pytest.approx(15.0)
     # avg_cost preserved on sell
     assert t["entry_price"] == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
+async def test_paper_status_refresh_data_picks_up_new_positions(svc, tmp_path):
+    """Regression: refresh_data must re-query positions.
+
+    Bug: refresh_data used a cached self._trades set at mount. If a position
+    was deleted by auto-resolution (or added by a future path that keeps the
+    view mounted), the heartbeat-triggered refresh would iterate stale rows.
+    """
+    from textual.app import App
+    from textual.screen import Screen
+    from textual.widgets import DataTable
+
+    from scanner.tui.views.paper_status import PaperStatusView
+
+    # Seed one position so on_mount has something to show.
+    with _mock_price(0.5):
+        svc.execute_buy(market_id="m1", side="yes", shares=10.0)
+
+    class _HostScreen(Screen):
+        def __init__(self, view):
+            super().__init__()
+            self._view = view
+
+        def compose(self):
+            yield self._view
+
+    class _Host(App):
+        def __init__(self, service):
+            super().__init__()
+            self._service = service
+
+        def on_mount(self):
+            self.push_screen(_HostScreen(PaperStatusView(self._service)))
+
+    host = _Host(svc)
+    async with host.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        view = host.screen.query_one(PaperStatusView)
+        assert len(view._trades) == 1  # seeded position
+
+        # Close the position behind the view's back (simulates resolution).
+        svc.db.conn.execute("DELETE FROM positions")
+        svc.db.conn.commit()
+
+        # refresh_data must re-read and see the deletion.
+        view.refresh_data()
+        await pilot.pause()
+        assert view._trades == []
+        table = view.query_one("#portfolio-table", DataTable)
+        assert table.row_count == 0

@@ -119,8 +119,8 @@ class TestTUIDetailView:
             screen = app.screen
             screen.service = app.service
             screen._loading = False
-            # Navigate to research first
-            screen._navigate_to("research")
+            # Navigate to tasks first (the default "research"-era label before v0.5).
+            screen._navigate_to("tasks")
             await pilot.pause()
 
             await pilot.press("enter")
