@@ -138,10 +138,30 @@ class Market(BaseModel):
     @computed_field
     @property
     def round_trip_friction_pct(self) -> float | None:
-        spc = self.spread_pct_yes
-        if spc is not None:
-            return spc * 2  # buy spread + sell spread estimate
-        return None
+        """Round-trip cost on the *best-side-to-trade*.
+
+        The absolute $0.01 spread means very different percentages on a 25¢
+        YES vs a 75¢ YES market — same book, but buying NO at 76¢ has ~1.3%
+        cost while buying YES at 25¢ has ~4% cost. A single market-level
+        friction number should reflect the side a rational trader would
+        actually use, so we take the cheaper side.
+
+        Formula: 2 × spread_abs / max(mid_yes, mid_no).
+        """
+        if (
+            self.best_bid_yes is None
+            or self.best_ask_yes is None
+            or self.mid_price_yes is None
+            or self.mid_price_yes <= 0
+        ):
+            return None
+        spread_abs = self.best_ask_yes - self.best_bid_yes
+        mid_yes = self.mid_price_yes
+        mid_no = 1 - mid_yes
+        best_side_mid = max(mid_yes, mid_no)
+        if best_side_mid <= 0:
+            return None
+        return (spread_abs / best_side_mid) * 2
 
     @computed_field
     @property
