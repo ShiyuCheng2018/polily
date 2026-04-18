@@ -74,13 +74,11 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `scanner/core/config.py` | All Pydantic config models |
 | `scanner/core/models.py` | Market, BookLevel, Trade models |
 | `scanner/core/event_store.py` | EventRow, MarketRow, upsert/query |
-| `scanner/core/paper_store.py` | Paper trade CRUD + P&L (legacy, read-only post-v0.6.0) |
 | `scanner/core/monitor_store.py` | Event monitor state (auto_monitor, next_check_at) |
 | `scanner/core/wallet.py` | WalletService — cash + ledger + atomicity contract (commit=False) |
 | `scanner/core/positions.py` | PositionManager — aggregated (market_id, side) positions, weighted-avg cost |
 | `scanner/core/trade_engine.py` | TradeEngine — atomic buy/sell (wallet + position + fee in one BEGIN/COMMIT) |
 | `scanner/core/fees.py` | Polymarket category-based taker fee curve |
-| `scanner/core/migration_v060.py` | Auto-migration from v0.5.x paper_trades → v0.6.0 positions |
 | `scanner/core/wallet_reset.py` | Hard reset util (requires no concurrent writer — see docstring) |
 | `scanner/scan/pipeline.py` | **Single-event** orchestrator: fetch → filter → score → mispricing → AI → tier |
 | `scanner/scan/scoring.py` | Structure score (5-dimension) |
@@ -123,7 +121,7 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 - Global poll runs every **30s** on a dedicated single-thread executor. Movement detection is inline (no separate job). AI analysis is triggered on the ai executor (5 threads).
 - Daemon writes PID to `data/scheduler.pid`. CLI `stop` reads PID and sends SIGTERM. `SIGUSR1` triggers job reload from DB.
 - **CLOB /book API returns distorted books for negRisk markets** (GitHub Issue #180): returns the raw token book with bid=0.01 / ask=0.99, which does not reflect the real liquidity provided by complement matching. Use `/midpoint` for the true price and the difference between `/price?side=BUY` and `/price?side=SELL` for the true spread. `/book` depth data is unreliable for negRisk markets.
-- **`paper_trades` is read-only legacy after v0.6.0.** New code writes only to `positions` and `wallet_transactions`. The migration in `scanner/core/migration_v060.py` aggregates existing open `paper_trades` into `positions` on first launch; resolved trades stay as historical record. If you find yourself about to `INSERT INTO paper_trades`, stop — route through `TradeEngine.execute_buy/sell` instead.
+- **`paper_trades` no longer exists.** Dropped in v0.6.1 — `positions` + `wallet_transactions` are the only trade-state tables. On DB init, `PolilyDB._init_schema` executes `DROP TABLE IF EXISTS paper_trades` so old installs auto-clean. All writes go through `TradeEngine.execute_buy/sell`; history reads go through `ScanService.get_realized_history` (SELL + RESOLVE ledger rows).
 - **`wallet.credit(commit=False)` defers the cash write to the outer transaction.** `ResolutionHandler.resolve_market` wraps one BEGIN around the credit + position delete + ledger insert, so passing `commit=True` would split them and re-credit on retry. Any new "bulk close" code path must preserve this contract (see `scanner/core/wallet.py:113-154`).
 - **`reset_wallet` has no built-in writer lock.** The CLI path stops the scheduler daemon first; the TUI `WalletResetModal` sends SIGTERM + 1s grace before calling reset (on a worker thread so the event loop doesn't freeze). Any new caller MUST guarantee no concurrent writer — otherwise DELETE races with a mid-flight poll INSERT.
 - **`cumulative_realized_pnl` on the wallet snapshot is derived**, not stored: `SUM(wallet_transactions.realized_pnl) WHERE realized_pnl IS NOT NULL`. Goes to 0 automatically after reset (wallet_transactions is cleared). Don't try to mirror it into a stored column.

@@ -215,13 +215,13 @@ class ScanService:
                    COUNT(DISTINCT mk.market_id) AS market_count,
                    COALESCE(em.auto_monitor, 0) AS is_monitored,
                    em.next_check_at AS next_check_at,
-                   COUNT(DISTINCT pt.id) AS position_count,
+                   COUNT(DISTINCT ps.market_id || '/' || ps.side) AS position_count,
                    leader.group_item_title AS leader_title,
                    leader.yes_price AS leader_price
             FROM events e
             LEFT JOIN markets mk ON mk.event_id = e.event_id
             LEFT JOIN event_monitors em ON em.event_id = e.event_id
-            LEFT JOIN paper_trades pt ON pt.event_id = e.event_id AND pt.status = 'open'
+            LEFT JOIN positions ps ON ps.event_id = e.event_id
             LEFT JOIN (
                 SELECT m1.event_id, m1.group_item_title, m1.yes_price
                 FROM markets m1

@@ -146,14 +146,13 @@ def reset(
     confirm: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
     wallet_only: bool = typer.Option(
         False, "--wallet-only",
-        help="仅重置钱包 (保留 events/markets/analyses)。下次启动 auto-migration 会按 config 的 starting_balance 重新开始。",
+        help="仅重置钱包 (保留 events/markets/analyses)。钱包按 config 的 starting_balance 重新开始。",
     ),
 ):
     """Delete all generated data (DB, logs) for a clean start.
 
     Use --wallet-only to reset only the wallet-side state (positions, wallet,
-    wallet_transactions, open paper_trades) while keeping events, markets, and
-    analysis history.
+    wallet_transactions) while keeping events, markets, and analysis history.
     """
     from rich.console import Console
     console = Console()

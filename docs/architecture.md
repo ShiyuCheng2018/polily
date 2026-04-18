@@ -25,7 +25,9 @@ All state in `data/polily.db`. No JSON files, no scan archives.
 | **event_monitors** | Monitor state — auto_monitor flag, next_check_at, next_check_reason |
 | **analyses** | Versioned AI analysis — trigger_source, narrative_output, mispricing_signal |
 | **movement_log** | Per-tick movement records — magnitude, quality, label, snapshot |
-| **paper_trades** | Simulated positions — entry/exit price, P&L, friction |
+| **positions** | Active exposure aggregated by (market_id, side) — weighted-avg cost, cost basis |
+| **wallet** | Cash singleton — balance, starting_balance, topup/withdraw totals |
+| **wallet_transactions** | Append-only ledger — BUY/SELL/FEE/RESOLVE/TOPUP/WITHDRAW with realized_pnl |
 | **scan_logs** | Audit trail — scan type, status, counts, errors |
 | **notifications** | Event alerts with read state |
 

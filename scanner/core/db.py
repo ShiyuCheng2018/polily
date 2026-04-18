@@ -128,28 +128,7 @@ CREATE TABLE IF NOT EXISTS movement_log (
     snapshot            TEXT NOT NULL DEFAULT '{}'
 );
 
--- 6. Paper trades
-CREATE TABLE IF NOT EXISTS paper_trades (
-    id                  TEXT PRIMARY KEY,
-    event_id            TEXT NOT NULL REFERENCES events(event_id),
-    market_id           TEXT NOT NULL REFERENCES markets(market_id),
-    title               TEXT NOT NULL,
-    side                TEXT NOT NULL CHECK(side IN ('yes','no')),
-    entry_price         REAL NOT NULL,
-    position_size_usd   REAL NOT NULL,
-    structure_score     REAL,
-    mispricing_signal   TEXT,
-    scan_id             TEXT,
-    status              TEXT NOT NULL DEFAULT 'open'
-                        CHECK(status IN ('open','resolved')),
-    resolved_result     TEXT CHECK(resolved_result IN ('yes','no')),
-    paper_pnl           REAL,
-    friction_adjusted_pnl REAL,
-    marked_at           TEXT NOT NULL,
-    resolved_at         TEXT
-);
-
--- 7. Scan logs
+-- 6. Scan logs
 CREATE TABLE IF NOT EXISTS scan_logs (
     scan_id             TEXT PRIMARY KEY,
     type                TEXT NOT NULL DEFAULT 'scan'
@@ -243,8 +222,6 @@ CREATE INDEX IF NOT EXISTS idx_event_monitors_active ON event_monitors(auto_moni
 CREATE INDEX IF NOT EXISTS idx_analyses_event ON analyses(event_id);
 CREATE INDEX IF NOT EXISTS idx_movement_event ON movement_log(event_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_movement_market ON movement_log(market_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_paper_trades_status ON paper_trades(status);
-CREATE INDEX IF NOT EXISTS idx_paper_trades_event ON paper_trades(event_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(is_read) WHERE is_read = 0;
 CREATE INDEX IF NOT EXISTS idx_positions_event ON positions(event_id);
 CREATE INDEX IF NOT EXISTS idx_wallet_tx_created ON wallet_transactions(created_at);
@@ -273,6 +250,9 @@ class PolilyDB:
 
     def _init_schema(self):
         self.conn.executescript(_SCHEMA)
+        # Drop the legacy paper_trades table on databases that were
+        # upgraded from <= v0.6.0. Idempotent — no-op on fresh DBs.
+        self.conn.execute("DROP TABLE IF EXISTS paper_trades")
         self.conn.commit()
         self._ensure_wallet_singleton()
 

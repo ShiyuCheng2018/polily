@@ -51,11 +51,13 @@ def section_table_structure(conn: sqlite3.Connection):
         "events",
         "markets",
         "event_monitors",
-        "paper_trades",
         "notifications",
         "scan_logs",
         "analyses",
         "movement_log",
+        "positions",
+        "wallet",
+        "wallet_transactions",
     }
     present = set(tables)
     missing = expected - present
@@ -559,16 +561,27 @@ def section_other_tables(conn: sqlite3.Connection):
         ).fetchone()[0]
         print(f"  触发分析: {triggered}/{total_mvt}")
 
-    # paper_trades
-    print("\n  --- paper_trades ---")
-    total_pt = conn.execute("SELECT count(*) FROM paper_trades").fetchone()[0]
-    print(f"  总记录: {total_pt}")
-    if total_pt > 0:
-        status_dist = conn.execute(
-            "SELECT status, count(*) as cnt FROM paper_trades GROUP BY status ORDER BY cnt DESC"
+    # positions (v0.6.0)
+    print("\n  --- positions ---")
+    total_pos = conn.execute("SELECT count(*) FROM positions").fetchone()[0]
+    print(f"  活跃持仓: {total_pos}")
+    if total_pos > 0:
+        side_dist = conn.execute(
+            "SELECT side, count(*) as cnt FROM positions GROUP BY side ORDER BY cnt DESC"
         ).fetchall()
-        for r in status_dist:
-            print(f"    status={r['status']:<15s} {r['cnt']:>5d}")
+        for r in side_dist:
+            print(f"    side={r['side']:<5s} {r['cnt']:>5d}")
+
+    # wallet_transactions (v0.6.0 ledger)
+    print("\n  --- wallet_transactions ---")
+    total_tx = conn.execute("SELECT count(*) FROM wallet_transactions").fetchone()[0]
+    print(f"  总记录: {total_tx}")
+    if total_tx > 0:
+        type_dist = conn.execute(
+            "SELECT type, count(*) as cnt FROM wallet_transactions GROUP BY type ORDER BY cnt DESC"
+        ).fetchall()
+        for r in type_dist:
+            print(f"    type={r['type']:<10s} {r['cnt']:>5d}")
 
     # notifications
     print("\n  --- notifications ---")
