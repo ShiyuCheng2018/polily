@@ -54,9 +54,11 @@ filters:
   preferred_min_days_to_resolution: 0.5
   preferred_max_days_to_resolution: 7
 
-  # Spread thresholds (tightened based on friction analysis)
-  max_spread_pct_yes: 0.04           # was 0.06 — 6% round-trip is too expensive
-  preferred_max_spread_pct_yes: 0.02
+  # Spread thresholds — applied to the best-side % (cheaper of YES vs NO),
+  # so a low-YES market with a tradeable NO side isn't rejected for YES-side
+  # math the user would never actually pay.
+  max_spread_pct: 0.04
+  preferred_max_spread_pct: 0.02
   max_round_trip_friction_pct: 0.08  # hard reject if estimated buy+sell friction exceeds this
 
   min_volume: 1000

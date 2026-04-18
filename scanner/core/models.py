@@ -103,6 +103,31 @@ class Market(BaseModel):
 
     @computed_field
     @property
+    def spread_pct_best_side(self) -> float | None:
+        """Spread % on the cheaper-to-trade side (YES or NO).
+
+        Same absolute spread on both sides of a binary market, but the % cost
+        is `spread_abs / mid_side`. For a 25¢ YES / 75¢ NO market with a 1¢
+        spread, YES costs 4% while NO costs 1.3%. Scoring and filter logic
+        should reflect the side a rational trader would actually use.
+
+        Formula: `spread_abs / max(mid_yes, mid_no)`.
+        """
+        if (
+            self.best_bid_yes is None
+            or self.best_ask_yes is None
+            or self.mid_price_yes is None
+        ):
+            return None
+        spread_abs = self.best_ask_yes - self.best_bid_yes
+        mid_yes = self.mid_price_yes
+        best_mid = max(mid_yes, 1 - mid_yes)
+        if best_mid <= 0:
+            return None
+        return spread_abs / best_mid
+
+    @computed_field
+    @property
     def days_to_resolution(self) -> float | None:
         if self.resolution_time is None:
             return None

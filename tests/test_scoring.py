@@ -81,6 +81,22 @@ class TestStructureScore:
         s_wide = compute_structure_score(m_wide)
         assert s_tight.liquidity_structure > s_wide.liquidity_structure
 
+    def test_low_yes_market_not_penalized_for_yes_side_spread_pct(self):
+        """A 25¢ YES market with 1¢ spread has 4.08% on YES side but only
+        1.32% on NO side. Liquidity scoring must use the best side or it
+        unfairly penalizes every market below 50¢ YES.
+        """
+        # Low-YES market with a real 1¢ spread (tight).
+        m_low_yes = make_market(best_bid_yes=0.24, best_ask_yes=0.25)
+        # Symmetric 50¢ market with the same 1¢ spread.
+        m_mid = make_market(best_bid_yes=0.495, best_ask_yes=0.505)
+        s_low = compute_structure_score(m_low_yes)
+        s_mid = compute_structure_score(m_mid)
+        # Both should land in the same spread tier on the liquidity dimension.
+        # (They won't be exactly equal because yes_price also shifts other
+        #  dimensions, but the spread component alone should be comparable.)
+        assert s_low.liquidity_structure >= s_mid.liquidity_structure - 0.5
+
     def test_deeper_book_scores_higher(self):
         m_deep = make_market(
             book_depth_bids=[BookLevel(price=0.54, size=5000), BookLevel(price=0.53, size=5000)],

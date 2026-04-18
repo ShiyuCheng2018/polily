@@ -75,8 +75,11 @@ class FiltersConfig(BaseModel):
     preferred_min_days_to_resolution: float = 0.5
     preferred_max_days_to_resolution: float = 7
 
-    max_spread_pct_yes: float = 0.04
-    preferred_max_spread_pct_yes: float = 0.02
+    # Spread threshold applies to the best-side % (cheaper of YES vs NO), so
+    # a low-YES market with a tradeable NO side isn't rejected for YES-side
+    # math the user never actually pays.
+    max_spread_pct: float = 0.04
+    preferred_max_spread_pct: float = 0.02
     max_round_trip_friction_pct: float = 0.08
 
     min_volume: float = 1000

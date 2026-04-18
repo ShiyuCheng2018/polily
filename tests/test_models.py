@@ -47,6 +47,28 @@ class TestMarket:
         assert m.spread_pct_yes is not None
         assert abs(m.spread_pct_yes - 0.03636) < 0.001
 
+    def test_spread_pct_best_side_symmetric(self):
+        """When YES ≈ 0.5, best side = YES side (marginally), same answer."""
+        m = make_market(best_bid_yes=0.54, best_ask_yes=0.56)
+        # spread=0.02, mid_yes=0.55, mid_no=0.45. 0.02/0.55 = 3.64% < 0.02/0.45.
+        assert abs(m.spread_pct_best_side - 0.03636) < 0.001
+
+    def test_spread_pct_best_side_low_yes_uses_no(self):
+        """YES=24.5¢: buying NO at 75.5¢ has 1/3 the % spread cost."""
+        m = make_market(best_bid_yes=0.24, best_ask_yes=0.25)
+        # spread=0.01, mid_yes=0.245 (4.08%), mid_no=0.755 (1.32%)
+        assert abs(m.spread_pct_best_side - 0.01324) < 0.001
+
+    def test_spread_pct_best_side_exact_half(self):
+        """Both sides identical at the midpoint."""
+        m = make_market(best_bid_yes=0.495, best_ask_yes=0.505)
+        # spread=0.01, mid=0.5 both sides → 2%
+        assert abs(m.spread_pct_best_side - 0.02) < 0.001
+
+    def test_spread_pct_best_side_none_without_book(self):
+        m = make_market(best_bid_yes=None, best_ask_yes=None)
+        assert m.spread_pct_best_side is None
+
     def test_days_to_resolution(self):
         m = make_market(
             resolution_time=datetime(2026, 3, 30, 0, 0, tzinfo=UTC),
