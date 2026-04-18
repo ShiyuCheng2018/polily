@@ -63,9 +63,47 @@ def test_wallet_transactions_append_only_shape(db):
     assert required <= cols
 
 
-def test_events_has_polymarket_category(db):
-    cols = {r[1] for r in db.conn.execute("PRAGMA table_info(events)")}
-    assert "polymarket_category" in cols
+def test_markets_has_fees_enabled_and_fee_rate(db):
+    """Task: v0.6.0 beta.2 — fees come from market.feesEnabled + feeSchedule.rate."""
+    cols = {r[1] for r in db.conn.execute("PRAGMA table_info(markets)")}
+    assert "fees_enabled" in cols
+    assert "fee_rate" in cols
+
+
+def test_markets_fee_fields_round_trip(db):
+    """upsert_market → get_market must round-trip the new fee columns."""
+    from scanner.core.event_store import (
+        EventRow,
+        MarketRow,
+        get_market,
+        upsert_event,
+        upsert_market,
+    )
+
+    upsert_event(EventRow(event_id="e1", title="E", updated_at="t"), db)
+    upsert_market(
+        MarketRow(
+            market_id="m1", event_id="e1", question="Q",
+            fees_enabled=1, fee_rate=0.072, updated_at="t",
+        ),
+        db,
+    )
+    got = get_market("m1", db)
+    assert got is not None
+    assert got.fees_enabled == 1
+    assert got.fee_rate == 0.072
+
+    # Re-upsert with fees off — must overwrite, not coalesce.
+    upsert_market(
+        MarketRow(
+            market_id="m1", event_id="e1", question="Q",
+            fees_enabled=0, fee_rate=None, updated_at="t2",
+        ),
+        db,
+    )
+    got = get_market("m1", db)
+    assert got.fees_enabled == 0
+    assert got.fee_rate is None
 
 
 def test_wallet_singleton_check(db):

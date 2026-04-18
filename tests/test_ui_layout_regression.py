@@ -34,7 +34,7 @@ _REALISTIC_SIZE = (100, 30)  # typical laptop terminal
 def _seed(tmp_path, *, buy_yes: bool = False, buy_no: bool = False) -> ScanService:
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(
-        EventRow(event_id="e1", title="T", polymarket_category="Crypto", updated_at="t"),
+        EventRow(event_id="e1", title="T", updated_at="t"),
         db,
     )
     upsert_market(

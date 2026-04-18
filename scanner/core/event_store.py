@@ -38,7 +38,6 @@ class EventRow(BaseModel):
     competitive: float | None = None
     tags: str = "[]"
     market_type: str | None = None
-    polymarket_category: str | None = None  # Gamma "category" field — fee curve input
     event_metadata: str | None = None
     structure_score: float | None = None
     tier: str | None = None
@@ -104,7 +103,7 @@ _EVENT_INSERT_COLS = (
     "event_id", "title", "slug", "description", "resolution_source",
     "neg_risk", "neg_risk_market_id", "neg_risk_augmented", "market_count",
     "start_date", "end_date", "image", "volume", "liquidity", "open_interest",
-    "competitive", "tags", "market_type", "polymarket_category", "event_metadata",
+    "competitive", "tags", "market_type", "event_metadata",
     "active", "closed",
     "created_at", "updated_at",
 )
@@ -112,33 +111,15 @@ _EVENT_INSERT_COLS = (
 # On conflict, update these columns (NOT user_status, structure_score, tier).
 _EVENT_UPDATE_COLS = tuple(c for c in _EVENT_INSERT_COLS if c != "event_id")
 
-# Columns whose ON CONFLICT update should preserve the prior value when the
-# new row's value is NULL (Gamma occasionally omits a field we'd rather keep).
-_EVENT_COALESCE_ON_UPDATE = frozenset({"polymarket_category"})
-# Drift guard: COALESCE set must be a subset of UPDATE cols, else the
-# preservation logic silently goes missing when a column is removed.
-assert _EVENT_COALESCE_ON_UPDATE.issubset(_EVENT_UPDATE_COLS), (
-    "COALESCE cols must be a subset of UPDATE cols"
-)
-
 
 def upsert_event(event: EventRow, db: PolilyDB) -> None:
     """Insert or update an event.
 
-    Preservation semantics:
-    - user_status / structure_score / tier — preserved by *exclusion*
-      (not in _EVENT_INSERT_COLS, so never touched on upsert).
-    - Columns in _EVENT_COALESCE_ON_UPDATE — preserved on NULL via
-      COALESCE(excluded.col, col); a non-NULL new value still overwrites.
+    user_status / structure_score / tier are preserved by *exclusion* — they
+    are not in _EVENT_INSERT_COLS, so upsert never touches them.
     """
     placeholders = ", ".join("?" for _ in _EVENT_INSERT_COLS)
-    conflict_parts: list[str] = []
-    for c in _EVENT_UPDATE_COLS:
-        if c in _EVENT_COALESCE_ON_UPDATE:
-            conflict_parts.append(f"{c}=COALESCE(excluded.{c}, {c})")
-        else:
-            conflict_parts.append(f"{c}=excluded.{c}")
-    conflict_set = ", ".join(conflict_parts)
+    conflict_set = ", ".join(f"{c}=excluded.{c}" for c in _EVENT_UPDATE_COLS)
     sql = f"""
         INSERT INTO events ({', '.join(_EVENT_INSERT_COLS)})
         VALUES ({placeholders})
@@ -154,7 +135,7 @@ _EVENT_ALL_COLS = (
     "event_id", "title", "slug", "description", "resolution_source",
     "neg_risk", "neg_risk_market_id", "neg_risk_augmented", "market_count",
     "start_date", "end_date", "image", "volume", "liquidity", "open_interest",
-    "competitive", "tags", "market_type", "polymarket_category", "event_metadata",
+    "competitive", "tags", "market_type", "event_metadata",
     "structure_score", "tier", "user_status",
     "active", "closed", "created_at", "updated_at",
 )

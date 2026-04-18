@@ -25,7 +25,6 @@ from scanner.tui.views.trade_dialog import TradeDialog
 def _seed(
     tmp_path,
     *,
-    category: str = "Crypto",
     fees_enabled: int = 1,
     fee_rate: float | None = 0.072,
 ):
@@ -34,10 +33,7 @@ def _seed(
     """
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(
-        EventRow(
-            event_id="e1", title="BTC April",
-            polymarket_category=category, updated_at="now",
-        ),
+        EventRow(event_id="e1", title="BTC April", updated_at="now"),
         db,
     )
     upsert_market(

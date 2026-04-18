@@ -24,10 +24,7 @@ from scanner.tui.views.wallet_modals import TopupModal, WalletResetModal, Withdr
 def _seed(tmp_path) -> ScanService:
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(
-        EventRow(
-            event_id="e1", title="BTC April",
-            polymarket_category="Crypto", updated_at="now",
-        ),
+        EventRow(event_id="e1", title="BTC April", updated_at="now"),
         db,
     )
     upsert_market(

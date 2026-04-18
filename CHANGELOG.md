@@ -27,9 +27,11 @@ auto-resolve when Polymarket publishes outcomes.
   Trade Dialog (Buy tab + Sell tab). Execute paths are atomic —
   `TradeEngine` opens one BEGIN per operation covering wallet debit, fee
   debit, and position mutation, with rollback on any failure.
-- **Polymarket-accurate taker fees**: per-category curve
-  (Crypto 7.2% ×p×(1−p), Sports 3%, …, Geopolitics / World Events 0%).
-  Paper P&L now matches what you'd pay live.
+- **Polymarket-accurate taker fees**: driven by each market's own
+  `feesEnabled` gate + `feeSchedule.rate` coefficient as returned by Gamma.
+  Most markets (Politics / Sports majors / Geopolitics) have fees disabled;
+  short-term crypto / sports markets use `crypto_fees_v2` / `sports_fees_v2`
+  schedules (rate 0.072 / 0.03 around the 0.5 peak).
 - **Auto resolution**: `poll_job` detects closed markets with positions,
   fetches `outcomePrices` from Gamma, and settles through
   `ResolutionHandler` in one transaction — cash credited, position row
@@ -83,16 +85,17 @@ Migration is automatic for end users — these affect only callers of
 
 ### Known Limitations
 
-- Positions migrated from pre-v0.6.0 `paper_trades` inherit the event's
-  `polymarket_category`. If the event was added before v0.6.0 and
-  `polymarket_category` was never populated, the first sell will use the
-  default 0.05 fee rate even for Crypto events (which should be 0.072).
-  Workaround: re-add the event via URL to refresh the category before
-  selling.
+- Markets seeded before the beta that added `fees_enabled` / `fee_rate`
+  columns will have both values as default (disabled, no rate) until the
+  event is re-scanned. Re-adding the event URL refreshes the row with
+  Gamma's current schedule.
 - `WalletResetModal` sends SIGTERM to the scheduler daemon and waits 1
   second before clearing wallet tables. If a poll tick is mid-resolution
   at that moment, the race is serialized by SQLite but error reporting
   is raw. Future hardening will pause the scheduler explicitly.
+- `feeSchedule.exponent` is assumed to be 1 (matches all observed crypto /
+  sports schedules). Non-linear curves, if Polymarket ships any, will
+  require a formula update.
 
 [Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.0...HEAD
 [0.6.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.0

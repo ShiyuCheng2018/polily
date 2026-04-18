@@ -19,8 +19,8 @@ from scanner.core.wallet_reset import reset_wallet
 def _seed_crypto_market(db: PolilyDB) -> None:
     """Crypto short-term market (crypto_fees_v2, rate 0.072) — fees_enabled."""
     db.conn.executescript("""
-        INSERT INTO events (event_id,title,polymarket_category,updated_at)
-            VALUES ('e1','BTC above 100k end of week?','Crypto','t');
+        INSERT INTO events (event_id,title,updated_at)
+            VALUES ('e1','BTC above 100k end of week?','t');
         INSERT INTO markets
             (market_id,event_id,question,clob_token_id_yes,clob_token_id_no,yes_price,fees_enabled,fee_rate,updated_at)
             VALUES ('m1','e1','BTC > 100k','tok_yes','tok_no',0.5,1,0.072,'t');
@@ -169,16 +169,16 @@ def test_insufficient_cash_rollback_preserves_all_state_e2e(tmp_path):
     assert pm.get_position("m1", "yes")["shares"] == good_shares
 
 
-def test_geopolitics_zero_fee_e2e(tmp_path):
-    """Non-Crypto category (Geopolitics, fee=0) writes no FEE row, cash reflects
+def test_fees_disabled_market_writes_no_fee_row_e2e(tmp_path):
+    """Common Polymarket case (fees_enabled=0): no FEE row, cash reflects
     bare cost/proceeds."""
     db = PolilyDB(tmp_path / "t.db")
     db.conn.executescript("""
-        INSERT INTO events (event_id,title,polymarket_category,updated_at)
-            VALUES ('e1','Trump wins 2028','Geopolitics','t');
+        INSERT INTO events (event_id,title,updated_at)
+            VALUES ('e1','Trump wins 2028','t');
         INSERT INTO markets
-            (market_id,event_id,question,clob_token_id_yes,yes_price,updated_at)
-            VALUES ('m1','e1','Q','tok','0.4','t');
+            (market_id,event_id,question,clob_token_id_yes,yes_price,fees_enabled,fee_rate,updated_at)
+            VALUES ('m1','e1','Q','tok','0.4',0,NULL,'t');
     """)
     db.conn.commit()
     wallet, pm, engine = _services(db)

@@ -18,8 +18,8 @@ def setup(tmp_path):
     """
     db = PolilyDB(tmp_path / "t.db")
     db.conn.executescript("""
-        INSERT INTO events (event_id,title,polymarket_category,updated_at)
-            VALUES ('e1','E','Crypto','t');
+        INSERT INTO events (event_id,title,updated_at)
+            VALUES ('e1','E','t');
         INSERT INTO markets (market_id,event_id,question,clob_token_id_yes,clob_token_id_no,yes_price,fees_enabled,fee_rate,updated_at)
             VALUES ('m1','e1','Q','tok_yes','tok_no',0.5,1,0.072,'t');
     """)
@@ -37,8 +37,8 @@ def fees_off_setup(tmp_path):
     Polymarket case (Politics / Sports majors / Geopolitics)."""
     db = PolilyDB(tmp_path / "t.db")
     db.conn.executescript("""
-        INSERT INTO events (event_id,title,polymarket_category,updated_at)
-            VALUES ('e1','E','Politics','t');
+        INSERT INTO events (event_id,title,updated_at)
+            VALUES ('e1','E-fees-off','t');
         INSERT INTO markets (market_id,event_id,question,clob_token_id_yes,clob_token_id_no,yes_price,fees_enabled,fee_rate,updated_at)
             VALUES ('m1','e1','Q','tok_yes','tok_no',0.5,0,NULL,'t');
     """)
