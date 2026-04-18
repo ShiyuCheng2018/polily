@@ -43,6 +43,66 @@ def test_withdraw_over_cash_raises(wallet):
         wallet.withdraw(200.0)
 
 
+def test_cumulative_realized_pnl_empty(wallet):
+    """Fresh wallet has 0 cumulative realized P&L."""
+    assert wallet.get_cumulative_realized_pnl() == 0.0
+    assert wallet.get_snapshot()["cumulative_realized_pnl"] == 0.0
+
+
+def test_cumulative_realized_pnl_sums_sell_and_resolve(wallet):
+    """SUM(realized_pnl) over SELL + RESOLVE tx types."""
+    # A winning SELL
+    wallet.credit(
+        3.0,
+        tx_type="SELL",
+        market_id="m1", event_id="e1", side="yes",
+        shares=5.0, price=0.6,
+        realized_pnl=0.5,  # (0.6 - 0.5) × 5
+    )
+    # A losing RESOLVE (losing side gets $0 credit but negative realized_pnl)
+    wallet.credit(
+        0.0,
+        tx_type="RESOLVE",
+        market_id="m2", event_id="e2", side="no",
+        shares=10.0, price=0.0,
+        realized_pnl=-4.0,  # -avg_cost × shares
+    )
+    # A winning RESOLVE
+    wallet.credit(
+        10.0,
+        tx_type="RESOLVE",
+        market_id="m3", event_id="e3", side="yes",
+        shares=10.0, price=1.0,
+        realized_pnl=5.5,  # (1.0 - 0.45) × 10
+    )
+
+    assert wallet.get_cumulative_realized_pnl() == pytest.approx(0.5 + (-4.0) + 5.5)
+    assert wallet.get_snapshot()["cumulative_realized_pnl"] == pytest.approx(2.0)
+
+
+def test_cumulative_realized_pnl_ignores_non_realizing_types(wallet):
+    """TOPUP / WITHDRAW / BUY / FEE / MIGRATION do not contribute."""
+    wallet.topup(20.0)
+    wallet.withdraw(5.0)
+    wallet.deduct(
+        1.0, tx_type="FEE",
+        market_id="m1", event_id="e1", side="yes",
+    )
+    wallet.deduct(
+        10.0, tx_type="BUY",
+        market_id="m1", event_id="e1", side="yes",
+        shares=20.0, price=0.5,
+    )
+    # Also a real SELL so we know the sum isn't always 0.
+    wallet.credit(
+        6.0, tx_type="SELL",
+        market_id="m1", event_id="e1", side="yes",
+        shares=10.0, price=0.6,
+        realized_pnl=1.0,
+    )
+    assert wallet.get_cumulative_realized_pnl() == pytest.approx(1.0)
+
+
 def test_deduct_for_trade_records_type(wallet):
     wallet.deduct(
         10.0,

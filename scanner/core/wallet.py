@@ -58,7 +58,26 @@ class WalletService:
 
     def get_snapshot(self) -> dict:
         row = self.db.conn.execute("SELECT * FROM wallet WHERE id=1").fetchone()
-        return dict(row) if row else {}
+        if not row:
+            return {}
+        snap = dict(row)
+        # cumulative_realized_pnl is derived (not a stored column) so it stays
+        # consistent with wallet_transactions even after reset_wallet.
+        snap["cumulative_realized_pnl"] = self.get_cumulative_realized_pnl()
+        return snap
+
+    def get_cumulative_realized_pnl(self) -> float:
+        """Sum of `realized_pnl` across SELL + RESOLVE rows.
+
+        SELL writes `(price - avg_cost) × shares`; RESOLVE writes the same
+        closing formula with price ∈ {0, 1}. TOPUP/WITHDRAW/BUY/FEE/MIGRATION
+        all leave realized_pnl NULL and are excluded here via IS NOT NULL.
+        """
+        row = self.db.conn.execute(
+            "SELECT COALESCE(SUM(realized_pnl), 0.0) AS total "
+            "FROM wallet_transactions WHERE realized_pnl IS NOT NULL"
+        ).fetchone()
+        return row["total"] if row else 0.0
 
     def get_equity(self, positions_market_value: float) -> float:
         return self.get_cash() + positions_market_value
