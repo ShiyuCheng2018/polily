@@ -65,8 +65,8 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 
 | File | Role |
 |------|------|
-| `scanner/__init__.py` | Public API surface (v0.5.0) |
-| `scanner/cli.py` | CLI: TUI launch + `scheduler` subcommands + `reset` |
+| `scanner/__init__.py` | Public API surface (v0.6.0) |
+| `scanner/cli.py` | CLI: TUI launch + `scheduler` subcommands + `reset` (`--wallet-only`) |
 | `scanner/url_parser.py` | Polymarket URL → event slug |
 | `scanner/scan_log.py` | Scan log entries (per-event run history) |
 | `scanner/analysis_store.py` | NarrativeWriter analysis versions per event |
@@ -74,8 +74,14 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `scanner/core/config.py` | All Pydantic config models |
 | `scanner/core/models.py` | Market, BookLevel, Trade models |
 | `scanner/core/event_store.py` | EventRow, MarketRow, upsert/query |
-| `scanner/core/paper_store.py` | Paper trade CRUD + P&L |
+| `scanner/core/paper_store.py` | Paper trade CRUD + P&L (legacy, read-only post-v0.6.0) |
 | `scanner/core/monitor_store.py` | Event monitor state (auto_monitor, next_check_at) |
+| `scanner/core/wallet.py` | WalletService — cash + ledger + atomicity contract (commit=False) |
+| `scanner/core/positions.py` | PositionManager — aggregated (market_id, side) positions, weighted-avg cost |
+| `scanner/core/trade_engine.py` | TradeEngine — atomic buy/sell (wallet + position + fee in one BEGIN/COMMIT) |
+| `scanner/core/fees.py` | Polymarket category-based taker fee curve |
+| `scanner/core/migration_v060.py` | Auto-migration from v0.5.x paper_trades → v0.6.0 positions |
+| `scanner/core/wallet_reset.py` | Hard reset util (requires no concurrent writer — see docstring) |
 | `scanner/scan/pipeline.py` | **Single-event** orchestrator: fetch → filter → score → mispricing → AI → tier |
 | `scanner/scan/scoring.py` | Structure score (5-dimension) |
 | `scanner/scan/event_scoring.py` | Event-level aggregation + tier assignment |
@@ -89,7 +95,8 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `scanner/monitor/store.py` | Movement records storage |
 | `scanner/monitor/event_metrics.py` | Per-event movement metrics |
 | `scanner/daemon/scheduler.py` | APScheduler daemon: dual executor + launchd |
-| `scanner/daemon/poll_job.py` | Global poll job (30s) — fetch prices for monitored markets |
+| `scanner/daemon/poll_job.py` | Global poll job (30s) — fetch prices + auto-resolution pass for monitored markets |
+| `scanner/daemon/resolution.py` | ResolutionHandler — atomic per-market settle on Gamma outcomePrices |
 | `scanner/daemon/recheck.py` | Scheduled event recheck (AI analysis) |
 | `scanner/daemon/auto_monitor.py` | Auto-monitor toggle logic |
 | `scanner/daemon/score_refresh.py` | Periodic structure-score refresh |
@@ -99,9 +106,12 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `scanner/agents/schemas.py` | Pydantic schemas for agent I/O |
 | `scanner/agents/prompts/` | Markdown prompt files for agents |
 | `scanner/tui/app.py` | Textual TUI entry point |
-| `scanner/tui/screens/main.py` | Main screen: sidebar + content + worker |
-| `scanner/tui/service.py` | `ScanService` — bridge between TUI views and backend |
-| `scanner/tui/views/` | Per-pane views (scan_log, monitor_list, paper_status, market_detail, notification_list, history) |
+| `scanner/tui/screens/main.py` | Main screen: sidebar + content + worker (menu: tasks/monitor/paper/wallet/history/notifications) |
+| `scanner/tui/service.py` | `ScanService` — bridge between TUI views and backend; owns wallet/positions/trade_engine |
+| `scanner/tui/views/` | Per-pane views (scan_log, monitor_list, paper_status, market_detail, wallet, notification_list, history) |
+| `scanner/tui/views/trade_dialog.py` | Modal with Buy/Sell tabs — calls TradeEngine.execute_buy/sell |
+| `scanner/tui/views/wallet.py` | WalletView — balance + transactions ledger + topup/withdraw/reset |
+| `scanner/tui/views/wallet_modals.py` | TopupModal / WithdrawModal / WalletResetModal |
 
 ## Common Pitfalls
 
@@ -113,6 +123,10 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 - Global poll runs every **30s** on a dedicated single-thread executor. Movement detection is inline (no separate job). AI analysis is triggered on the ai executor (5 threads).
 - Daemon writes PID to `data/scheduler.pid`. CLI `stop` reads PID and sends SIGTERM. `SIGUSR1` triggers job reload from DB.
 - **CLOB /book API returns distorted books for negRisk markets** (GitHub Issue #180): returns the raw token book with bid=0.01 / ask=0.99, which does not reflect the real liquidity provided by complement matching. Use `/midpoint` for the true price and the difference between `/price?side=BUY` and `/price?side=SELL` for the true spread. `/book` depth data is unreliable for negRisk markets.
+- **`paper_trades` is read-only legacy after v0.6.0.** New code writes only to `positions` and `wallet_transactions`. The migration in `scanner/core/migration_v060.py` aggregates existing open `paper_trades` into `positions` on first launch; resolved trades stay as historical record. If you find yourself about to `INSERT INTO paper_trades`, stop — route through `TradeEngine.execute_buy/sell` instead.
+- **`wallet.credit(commit=False)` defers the cash write to the outer transaction.** `ResolutionHandler.resolve_market` wraps one BEGIN around the credit + position delete + ledger insert, so passing `commit=True` would split them and re-credit on retry. Any new "bulk close" code path must preserve this contract (see `scanner/core/wallet.py:113-154`).
+- **`reset_wallet` has no built-in writer lock.** The CLI path stops the scheduler daemon first; the TUI `WalletResetModal` sends SIGTERM + 1s grace before calling reset (on a worker thread so the event loop doesn't freeze). Any new caller MUST guarantee no concurrent writer — otherwise DELETE races with a mid-flight poll INSERT.
+- **`cumulative_realized_pnl` on the wallet snapshot is derived**, not stored: `SUM(wallet_transactions.realized_pnl) WHERE realized_pnl IS NOT NULL`. Goes to 0 automatically after reset (wallet_transactions is cleared). Don't try to mirror it into a stored column.
 
 ## Release Process
 
