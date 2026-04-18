@@ -130,7 +130,7 @@ class WalletService:
             self.db.conn.commit()
 
     def deduct(
-        self, amount: float, *, tx_type: str, commit: bool = True, **fields
+        self, amount: float, *, tx_type: str, commit: bool = True, **fields: object,
     ) -> None:
         """Used for BUY and FEE. Raises InsufficientFunds before any write."""
         if amount <= 0:
@@ -153,7 +153,7 @@ class WalletService:
             self.db.conn.commit()
 
     def credit(
-        self, amount: float, *, tx_type: str, commit: bool = True, **fields
+        self, amount: float, *, tx_type: str, commit: bool = True, **fields: object,
     ) -> None:
         """Used for SELL and RESOLVE. amount >= 0 (losing side of a RESOLVE credits $0)."""
         if amount < 0:
@@ -180,7 +180,7 @@ class WalletService:
         amount_usd: float,
         balance_after: float,
         fee_usd: float = 0.0,
-        **fields,
+        **fields: object,
     ) -> None:
         now = datetime.now(UTC).isoformat()
         self.db.conn.execute(

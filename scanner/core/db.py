@@ -233,7 +233,7 @@ CREATE INDEX IF NOT EXISTS idx_wallet_tx_type ON wallet_transactions(type);
 class PolilyDB:
     """Unified SQLite database. Use as context manager."""
 
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
@@ -242,13 +242,13 @@ class PolilyDB:
         self.conn.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
 
-    def __enter__(self):
+    def __enter__(self) -> "PolilyDB":
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def _init_schema(self):
+    def _init_schema(self) -> None:
         self.conn.executescript(_SCHEMA)
         # Drop the legacy paper_trades table on databases that were
         # upgraded from <= v0.6.0. Idempotent — no-op on fresh DBs.
@@ -256,7 +256,7 @@ class PolilyDB:
         self.conn.commit()
         self._ensure_wallet_singleton()
 
-    def _ensure_wallet_singleton(self):
+    def _ensure_wallet_singleton(self) -> None:
         """Seed the wallet row on fresh DBs so downstream code can assume
         `wallet` is non-empty. Idempotent — no-op when the row already
         exists; a config change to `starting_balance` does NOT rebase an
@@ -296,5 +296,5 @@ class PolilyDB:
         )
         self.conn.commit()
 
-    def close(self):
+    def close(self) -> None:
         self.conn.close()

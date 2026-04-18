@@ -46,7 +46,7 @@ class ScanService:
         self,
         config: ScannerConfig | None = None,
         db: PolilyDB | None = None,
-    ):
+    ) -> None:
         self.config = config or self._load_default_config()
         self.db = db or PolilyDB(self.config.archiving.db_file)
 
@@ -127,7 +127,7 @@ class ScanService:
         self,
         event_id: str,
         trigger_source: str = "manual",
-        on_heartbeat=None,
+        on_heartbeat: Callable[[float, str], None] | None = None,
     ) -> AnalysisVersion:
         """Run AI analysis on an event. Agent reads DB autonomously."""
         event = get_event(event_id, self.db)
