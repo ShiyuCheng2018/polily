@@ -204,6 +204,53 @@ def ensure_daemon_running() -> bool:
     return True
 
 
+def restart_daemon() -> bool:
+    """Stop the running daemon (if any) + start fresh via launchd.
+
+    Always boots a new Python process, so code changes since the last
+    daemon start take effect. TUI calls this on mount so the user picks
+    up the latest code just by reopening the app.
+
+    Returns True if a daemon is running after the call (success).
+    """
+    import os
+    import signal as _signal
+    import subprocess
+    import time
+
+    pid_path = Path("data/scheduler.pid")
+    if pid_path.exists():
+        try:
+            pid = int(pid_path.read_text().strip())
+            try:
+                os.kill(pid, 0)  # check alive
+                os.kill(pid, _signal.SIGTERM)
+                # Brief wait for graceful shutdown (APScheduler flushes pending
+                # writes on SIGTERM). If it doesn't exit, launchctl unload below
+                # will force the issue.
+                time.sleep(1.0)
+            except (ProcessLookupError, PermissionError):
+                pass  # stale PID, continue to launchctl unload
+        except (ValueError, OSError):
+            pass  # malformed PID file; ignore
+
+    # Hard unload any registered service state so the next load is fresh.
+    subprocess.run(
+        ["launchctl", "unload", str(PLIST_PATH)],
+        capture_output=True,
+    )
+
+    # Now boot the new process.
+    working_dir = str(Path.cwd())
+    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
+    plist_bytes = generate_launchd_plist(working_dir=working_dir)
+    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PLIST_PATH.write_bytes(plist_bytes)
+    subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+    logger.info("Restarted scheduler daemon via launchd")
+    return True
+
+
 def generate_launchd_plist(working_dir: str, python_path: str | None = None) -> bytes:
     """Generate a macOS launchd plist for the scheduler daemon."""
     import plistlib

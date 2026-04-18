@@ -1,10 +1,10 @@
-"""Regression guard for test-run pollution of data/poll.log.
+"""Regression guard for test-run pollution of prod poll logs.
 
-`scanner.daemon.poll_job._get_poll_log()` is a module-level singleton
-hard-coded to write `<project_root>/data/poll.log`. Without isolation,
-every integration test that calls `global_poll()` or
-`_resolve_closed_market_if_position()` appends to the developer's live
-poll log, making post-run diagnostics messy.
+`scanner.daemon.poll_job._get_poll_log()` lazily builds a logger backed
+by `<project_root>/data/logs/poll-v<version>-<timestamp>.log`. Without
+isolation, every integration test that calls `global_poll()` or
+`_resolve_closed_market_if_position()` would create junk log files in
+the developer's data/logs directory.
 
 These tests assert the `_isolate_poll_log` autouse fixture (in
 conftest.py) renders `_get_poll_log()` a silent no-op during tests.
@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 from scanner.daemon import poll_job
 
-PROD_LOG = Path(__file__).resolve().parent.parent / "data" / "poll.log"
+PROD_LOG_DIR = Path(__file__).resolve().parent.parent / "data" / "logs"
 
 
 def test_get_poll_log_returns_mock_during_tests():
@@ -28,14 +28,22 @@ def test_get_poll_log_returns_mock_during_tests():
     )
 
 
-def test_emitting_plog_does_not_touch_prod_log_file():
-    """Even a direct info() call from a test must not reach disk."""
-    size_before = PROD_LOG.stat().st_size if PROD_LOG.exists() else 0
+def test_emitting_plog_does_not_touch_prod_log_dir():
+    """Even a direct info() call from a test must not create files in
+    data/logs/ or grow any existing ones.
+    """
+    # Snapshot prod log dir: names + sizes.
+    def _snapshot() -> dict[str, int]:
+        if not PROD_LOG_DIR.exists():
+            return {}
+        return {p.name: p.stat().st_size for p in PROD_LOG_DIR.iterdir() if p.is_file()}
+
+    before = _snapshot()
     poll_job._get_poll_log().info("TEST POLLUTION SENTINEL")
-    size_after = PROD_LOG.stat().st_size if PROD_LOG.exists() else 0
-    assert size_before == size_after, (
-        f"plog.info() leaked {size_after - size_before} bytes into prod "
-        f"{PROD_LOG}; autouse fixture not suppressing writes."
+    after = _snapshot()
+    assert before == after, (
+        f"plog.info() leaked into prod {PROD_LOG_DIR}: before={before}, after={after}; "
+        "autouse fixture not suppressing writes."
     )
 
 

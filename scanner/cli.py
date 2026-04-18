@@ -188,15 +188,25 @@ def reset(
         ("data/polily.db-shm", "WAL shared memory"),
         ("data/polily.db-wal", "WAL log"),
         ("data/scheduler.pid", "Daemon PID"),
-        ("data/poll.log", "Poll log"),
+        ("data/poll.log", "Poll log (legacy path, pre-0.6.0)"),
         ("data/agent_debug.log", "Agent debug log"),
     ]
+    # Also clear rotated per-restart poll logs under data/logs/.
+    log_dir = Path("data/logs")
+    rotated_poll_logs = (
+        sorted(log_dir.glob("poll-v*.log")) if log_dir.exists() else []
+    )
 
     if not confirm:
         console.print("[yellow]Will delete the following data:[/yellow]")
         for path, label in targets:
             exists = "Y" if Path(path).exists() else "-"
             console.print(f"  {exists} {path} ({label})")
+        if rotated_poll_logs:
+            console.print(
+                f"  Y data/logs/poll-v*.log ({len(rotated_poll_logs)} rotated "
+                "poll logs)"
+            )
         console.print()
         console.print("[dim]💡 只想重置钱包？改用 polily reset --wallet-only[/dim]")
         if not typer.confirm("Confirm delete all data?"):
@@ -208,6 +218,10 @@ def reset(
     deleted = 0
     for path, _label in targets:
         p = Path(path)
+        if p.exists():
+            p.unlink()
+            deleted += 1
+    for p in rotated_poll_logs:
         if p.exists():
             p.unlink()
             deleted += 1

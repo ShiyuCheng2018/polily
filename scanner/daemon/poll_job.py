@@ -143,19 +143,35 @@ async def _resolve_closed_market_if_position(
         )
 
 
+def _build_poll_log_path(project_root: "Path | None" = None) -> "Path":  # noqa: F821
+    """Build the poll log path for this daemon instance.
+
+    Pattern: `data/logs/poll-v<version>-<YYYYMMDD-HHMMSS>.log`. Each daemon
+    restart gets a fresh file — callers keep the history. Directory is
+    created if missing.
+    """
+    from datetime import datetime
+    from pathlib import Path
+
+    from scanner import __version__
+
+    if project_root is None:
+        project_root = Path(__file__).resolve().parent.parent.parent
+    log_dir = project_root / "data" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return log_dir / f"poll-v{__version__}-{ts}.log"
+
+
 def _get_poll_log() -> logging.Logger:
-    """Lazy-init a dedicated file logger for poll.log."""
+    """Lazy-init a dedicated file logger for this daemon's poll log."""
     global _poll_log
     if _poll_log is not None:
         return _poll_log
-    from pathlib import Path
-    # Use project root (3 levels up from this file) to avoid cwd dependency
-    project_root = Path(__file__).resolve().parent.parent.parent
-    log_dir = str(project_root / "data")
-    Path(log_dir).mkdir(parents=True, exist_ok=True)
+    path = _build_poll_log_path()
     _poll_log = logging.getLogger("polily.poll")
     _poll_log.propagate = False
-    handler = logging.FileHandler(str(Path(log_dir) / "poll.log"))
+    handler = logging.FileHandler(str(path))
     handler.setFormatter(logging.Formatter("%(message)s"))
     _poll_log.addHandler(handler)
     _poll_log.setLevel(logging.INFO)
