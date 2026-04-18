@@ -254,8 +254,16 @@ async def test_withdraw_modal_confirm_deducts_cash(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_reset_modal_requires_reset_keyword(tmp_path):
-    """Ok button stays disabled until user types literal 'reset'."""
+async def test_reset_modal_requires_reset_keyword(tmp_path, monkeypatch):
+    """Ok button stays disabled until user types literal 'reset'.
+
+    Explicitly mock _daemon_pid → None so the test works when a real polily
+    scheduler is running on the developer's machine (otherwise the checkbox
+    gate kicks in and 'reset' alone isn't enough).
+    """
+    monkeypatch.setattr(
+        "scanner.tui.views.wallet_modals._daemon_pid", lambda: None,
+    )
     svc = _seed(tmp_path)
     # Seed a position so the warning reflects real state.
     with patch(
@@ -275,18 +283,21 @@ async def test_reset_modal_requires_reset_keyword(tmp_path):
         assert ok.disabled
         modal.query_one("#confirm-input", Input).value = "reset"
         await pilot.pause()
-        # Daemon not running in this test → no checkbox gate → should enable.
+        # No daemon → no checkbox gate → should enable.
         assert not ok.disabled
 
 
 @pytest.mark.asyncio
-async def test_reset_modal_confirm_clears_state(tmp_path):
+async def test_reset_modal_confirm_clears_state(tmp_path, monkeypatch):
     """Typed 'reset' → click Ok → positions + transactions wiped, cash restored.
 
     Reset runs on a worker thread so the UI doesn't freeze during SIGTERM+wait.
-    The test pilot-pauses long enough for the worker to finish (no daemon
-    here, so no actual 1s sleep — just atomic DB reset).
+    Force _daemon_pid → None so the test is stable when a developer has the
+    real scheduler running locally.
     """
+    monkeypatch.setattr(
+        "scanner.tui.views.wallet_modals._daemon_pid", lambda: None,
+    )
     svc = _seed(tmp_path)
     with patch(
         "scanner.core.trade_engine.TradeEngine._fetch_live_price",

@@ -64,7 +64,15 @@ def parse_gamma_event(event_data: dict) -> tuple[EventRow, list[Market]]:
     event_metadata_raw = event_data.get("eventMetadata")
     event_metadata = json.dumps(event_metadata_raw) if event_metadata_raw else None
 
-    from scanner.scan.tag_classifier import classify_from_tags
+    from scanner.scan.tag_classifier import classify_from_tags, infer_polymarket_category
+
+    # Gamma frequently omits the top-level `category` field on events; tags are
+    # present and reliable, so fall back to tag inference. Without this,
+    # Geopolitics events (0% taker fee) fall into the 0.05 default and users
+    # are overcharged. Gamma's explicit category always wins when present.
+    gamma_category = event_data.get("category") or None
+    polymarket_category = gamma_category or infer_polymarket_category(tags)
+
     event_row = EventRow(
         event_id=str(event_id or ""),
         title=event_data.get("title", ""),
@@ -83,7 +91,7 @@ def parse_gamma_event(event_data: dict) -> tuple[EventRow, list[Market]]:
         competitive=event_data.get("competitive"),
         tags=tags_json,
         market_type=classify_from_tags(tags),
-        polymarket_category=event_data.get("category") or None,  # empty "" → None
+        polymarket_category=polymarket_category,
         event_metadata=event_metadata,
         updated_at=now.isoformat(),
     )
