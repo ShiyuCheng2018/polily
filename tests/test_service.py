@@ -85,6 +85,34 @@ class TestGetEventDetail:
     def test_nonexistent_returns_none(self, db, service):
         assert service.get_event_detail("nonexistent") is None
 
+    def test_trades_reflects_v060_positions_not_legacy_paper_trades(self, db, service):
+        """Regression: after v0.6.0 the TUI MarketDetailView's 'trades' feed
+        must reflect the live `positions` table (TradeEngine.execute_buy only
+        writes there). Reading legacy `paper_trades` shows stale/empty data.
+
+        Test shape: buy through TradeEngine (mock live price), then confirm
+        get_event_detail exposes a PositionPanel-compatible row."""
+        from unittest.mock import patch as _patch
+        _seed(db, "ev1", "m1")
+        with _patch(
+            "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+            return_value=0.79,
+        ):
+            service.execute_buy(market_id="m1", side="no", shares=10.0)
+
+        detail = service.get_event_detail("ev1")
+        trades = detail["trades"]
+        assert len(trades) == 1, (
+            f"expected 1 trade row derived from positions, got {len(trades)}"
+        )
+        t = trades[0]
+        # PositionPanel reads: market_id, side, entry_price, position_size_usd, title.
+        assert t["market_id"] == "m1"
+        assert t["side"] == "no"
+        assert t["entry_price"] == pytest.approx(0.79)
+        assert t["position_size_usd"] == pytest.approx(7.90)  # 10 × 0.79
+        assert "title" in t
+
 
 class TestPassEvent:
     def test_pass_sets_user_status(self, db, service):

@@ -271,14 +271,30 @@ class ScanService:
         return results
 
     def get_event_detail(self, event_id: str) -> dict | None:
-        """Return full detail for an event: event, markets, analyses, trades, monitor, movements."""
+        """Return full detail for an event: event, markets, analyses, trades, monitor, movements.
+
+        `trades` is derived from the v0.6.0 `positions` table, reshaped into
+        the PositionPanel schema (market_id/side/title/entry_price/
+        position_size_usd). Previously this read the legacy `paper_trades`
+        table, which TradeEngine stopped writing in v0.6.0 — causing
+        MarketDetailView to show "无持仓" for live positions.
+        """
         event = get_event(event_id, self.db)
         if event is None:
             return None
         markets = get_event_markets(event_id, self.db)
         analyses = get_event_analyses(event_id, self.db)
-        from scanner.core.paper_store import get_event_open_trades
-        trades = get_event_open_trades(event_id, self.db)
+        _positions = self.positions.get_event_positions(event_id)
+        trades = [
+            {
+                "market_id": p["market_id"],
+                "side": p["side"],
+                "title": p.get("title") or "",
+                "entry_price": p["avg_cost"],
+                "position_size_usd": p["cost_basis"],
+            }
+            for p in _positions
+        ]
         monitor = get_event_monitor(event_id, self.db)
         movements = get_event_movements(event_id, self.db, hours=24)
         return {
@@ -357,6 +373,82 @@ class ScanService:
 
     def get_trade_stats(self) -> dict:
         return _get_trade_stats(self.db)
+
+    # ------------------------------------------------------------------
+    # Realized P&L history (v0.6.0 — sourced from wallet_transactions)
+    # ------------------------------------------------------------------
+
+    def get_realized_history(self) -> list[dict]:
+        """Return SELL + RESOLVE rows with matched FEE and market title.
+
+        Each returned dict carries the ledger fields plus:
+          * ``title`` — markets.question (for UI display)
+          * ``fee_usd`` — sum of FEE rows on the same (market_id, side)
+            within a 2-second window of the realize event (same txn id
+            neighbourhood in practice)
+
+        Ordered newest-first by created_at.
+        """
+        cur = self.db.conn.execute(
+            """
+            SELECT
+                w.id,
+                w.created_at,
+                w.type,
+                w.market_id,
+                w.event_id,
+                w.side,
+                w.shares,
+                w.price,
+                w.amount_usd,
+                w.realized_pnl,
+                COALESCE(m.question, '') AS title,
+                CASE WHEN w.type = 'SELL' THEN (
+                    SELECT COALESCE(SUM(-f.amount_usd), 0)
+                    FROM wallet_transactions f
+                    WHERE f.type = 'FEE'
+                      AND f.market_id = w.market_id
+                      AND f.side = w.side
+                      AND f.notes LIKE '%SELL%'
+                      AND ABS(julianday(f.created_at) - julianday(w.created_at))
+                          < 2.0 / 86400.0
+                ) ELSE 0 END AS fee_usd
+            FROM wallet_transactions w
+            LEFT JOIN markets m ON m.market_id = w.market_id
+            WHERE w.type IN ('SELL', 'RESOLVE')
+            ORDER BY w.id DESC
+            """,
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+    def get_realized_summary(self) -> dict:
+        """Aggregate for the history page header.
+
+        count — number of realize events (SELL + RESOLVE rows)
+        total_pnl — SUM(realized_pnl) over SELL + RESOLVE
+        total_fees — SUM(-amount_usd) over FEE rows (all-time scope: every
+            fee the user paid; matches the pattern shown inline per row)
+        """
+        row = self.db.conn.execute(
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE type IN ('SELL', 'RESOLVE')) AS count,
+                COALESCE(
+                    SUM(realized_pnl) FILTER (WHERE type IN ('SELL', 'RESOLVE')),
+                    0.0
+                ) AS total_pnl,
+                COALESCE(
+                    SUM(-amount_usd) FILTER (WHERE type = 'FEE'),
+                    0.0
+                ) AS total_fees
+            FROM wallet_transactions
+            """,
+        ).fetchone()
+        return {
+            "count": row["count"],
+            "total_pnl": row["total_pnl"],
+            "total_fees": row["total_fees"],
+        }
 
     # ------------------------------------------------------------------
     # Wallet / positions / trade proxies (v0.6.0)
