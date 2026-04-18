@@ -346,13 +346,35 @@ class WalletResetModal(ModalScreen[bool | None]):
         except Exception as e:
             self.app.call_from_thread(self._on_reset_failed, str(e))
             return
-        self.app.call_from_thread(self._on_reset_done)
 
-    def _on_reset_done(self) -> None:
+        # Auto-restart daemon after a clean reset so the user doesn't need
+        # to `polily scheduler restart` by hand. Mirror TUI on_mount rule:
+        # skip restart if no active monitors (nothing to watch anyway).
+        # Restart failure must NOT fail the whole flow — the DB reset is
+        # already committed; surface a warning via _on_reset_done.
+        restart_err: str | None = None
         if self._daemon_pid is not None:
+            from scanner.core.monitor_store import get_active_monitors
+            if get_active_monitors(self._service.db):
+                try:
+                    from scanner.daemon import scheduler as _sched
+                    _sched.restart_daemon()
+                except Exception as e:
+                    restart_err = str(e)
+
+        self.app.call_from_thread(self._on_reset_done, restart_err)
+
+    def _on_reset_done(self, restart_err: str | None = None) -> None:
+        if restart_err is not None:
+            # Reset committed, but auto-restart failed. User still needs to
+            # know a manual restart is required.
             self.notify(
-                "钱包已重置。daemon 已停止，请手动 polily scheduler restart 重新启用监控。",
+                f"钱包已重置。daemon 自动重启失败: {restart_err}\n"
+                "请手动执行 polily scheduler restart",
+                severity="warning",
             )
+        elif self._daemon_pid is not None:
+            self.notify("钱包已重置。后台监控已自动重启。")
         else:
             self.notify("钱包已重置。")
         self.dismiss(True)

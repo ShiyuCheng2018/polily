@@ -384,3 +384,145 @@ async def test_reset_modal_shows_daemon_warning_when_running(tmp_path, monkeypat
         checkbox.value = True
         await pilot.pause()
         assert not modal.query_one("#ok", Button).disabled
+
+
+# --- WalletResetModal: auto-restart daemon (follow-up hardening) -------
+
+
+def _prime_daemon_mocks(monkeypatch, pid: int = 99999) -> list[tuple]:
+    """Shared setup: daemon appears running, os.kill + sleep are neutralized,
+    caller gets back the kills list for assertions.
+    """
+    monkeypatch.setattr(
+        "scanner.tui.views.wallet_modals._daemon_pid", lambda: pid,
+    )
+    kills: list[tuple] = []
+    monkeypatch.setattr(
+        "scanner.tui.views.wallet_modals.os.kill",
+        lambda p, s: kills.append((p, s)),
+    )
+    monkeypatch.setattr(
+        "scanner.tui.views.wallet_modals.time.sleep", lambda _s: None,
+    )
+    return kills
+
+
+@pytest.mark.asyncio
+async def test_reset_modal_auto_restarts_daemon_when_monitors_exist(
+    tmp_path, monkeypatch,
+):
+    """Reset while daemon running + active monitor → restart_daemon called
+    automatically after reset succeeds. User shouldn't need to `polily
+    scheduler restart` by hand.
+    """
+    from scanner.core.monitor_store import upsert_event_monitor
+
+    svc = _seed(tmp_path)
+    upsert_event_monitor("e1", auto_monitor=True, db=svc.db)
+    _prime_daemon_mocks(monkeypatch)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "scanner.daemon.scheduler.restart_daemon",
+        lambda: calls.append("restart") or True,
+    )
+
+    host = _ModalHost(svc, WalletResetModal)
+    async with host.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        modal = host.screen
+        modal.query_one("#confirm-input", Input).value = "reset"
+        modal.query_one("#ack-daemon", Checkbox).value = True
+        await pilot.pause()
+        modal.query_one("#ok", Button).press()
+        for _ in range(20):
+            await pilot.pause()
+            if host.dismiss_result is not None:
+                break
+
+    assert host.dismiss_result is True
+    assert calls == ["restart"], (
+        f"restart_daemon should fire exactly once, got {calls}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_reset_modal_skips_restart_when_no_active_monitors(
+    tmp_path, monkeypatch,
+):
+    """Reset while daemon running + NO active monitors → don't start daemon
+    back up. Follows the same rule as TUI on_mount: no monitors = no daemon.
+    """
+    svc = _seed(tmp_path)
+    # Intentionally do NOT upsert an event monitor.
+    _prime_daemon_mocks(monkeypatch)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "scanner.daemon.scheduler.restart_daemon",
+        lambda: calls.append("restart") or True,
+    )
+
+    host = _ModalHost(svc, WalletResetModal)
+    async with host.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        modal = host.screen
+        modal.query_one("#confirm-input", Input).value = "reset"
+        modal.query_one("#ack-daemon", Checkbox).value = True
+        await pilot.pause()
+        modal.query_one("#ok", Button).press()
+        for _ in range(20):
+            await pilot.pause()
+            if host.dismiss_result is not None:
+                break
+
+    assert host.dismiss_result is True
+    assert calls == [], (
+        f"restart_daemon must be skipped when no active monitors, got {calls}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_reset_modal_restart_failure_still_dismisses_truthy(
+    tmp_path, monkeypatch,
+):
+    """If restart_daemon raises, wallet reset itself must still have
+    succeeded (dismiss=True + cash restored). We log a warning via notify
+    but don't fail the whole flow — the DB work is already committed.
+    """
+    from scanner.core.monitor_store import upsert_event_monitor
+
+    svc = _seed(tmp_path)
+    upsert_event_monitor("e1", auto_monitor=True, db=svc.db)
+    _prime_daemon_mocks(monkeypatch)
+
+    def _boom() -> bool:
+        raise RuntimeError("launchctl load failed")
+
+    monkeypatch.setattr(
+        "scanner.daemon.scheduler.restart_daemon", _boom,
+    )
+    # Buy something so the reset has state to clear + we can observe rollback.
+    with patch(
+        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        return_value=0.5,
+    ):
+        svc.execute_buy(market_id="m1", side="yes", shares=10.0)
+    assert svc.wallet.get_cash() != pytest.approx(100.0)
+
+    host = _ModalHost(svc, WalletResetModal)
+    async with host.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        modal = host.screen
+        modal.query_one("#confirm-input", Input).value = "reset"
+        modal.query_one("#ack-daemon", Checkbox).value = True
+        await pilot.pause()
+        modal.query_one("#ok", Button).press()
+        for _ in range(20):
+            await pilot.pause()
+            if host.dismiss_result is not None:
+                break
+
+    assert host.dismiss_result is True, (
+        "reset must still report success; restart is secondary"
+    )
+    assert svc.wallet.get_cash() == pytest.approx(100.0)
+    assert svc.positions.get_all_positions() == []
