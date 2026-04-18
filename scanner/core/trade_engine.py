@@ -56,7 +56,11 @@ class TradeEngine:
                 f"price {price} out of range (0, 1) — market may be near-resolved, refusing trade"
             )
         cost = shares * price
-        fee = calculate_taker_fee(shares, price, event.get("polymarket_category"))
+        fee = calculate_taker_fee(
+            shares=shares, price=price,
+            fees_enabled=bool(market.get("fees_enabled")),
+            fee_rate=market.get("fee_rate"),
+        )
 
         # Advisory pre-check before BEGIN — fail fast without a rollback round-trip.
         # The authoritative check lives inside wallet.deduct, which re-reads cash under
@@ -150,7 +154,11 @@ class TradeEngine:
                 f"price {price} out of range (0, 1) — market may be near-resolved, refusing trade"
             )
         proceeds = shares * price
-        fee = calculate_taker_fee(shares, price, event.get("polymarket_category"))
+        fee = calculate_taker_fee(
+            shares=shares, price=price,
+            fees_enabled=bool(market.get("fees_enabled")),
+            fee_rate=market.get("fee_rate"),
+        )
 
         # Advisory pre-check before BEGIN. remove_shares re-validates under the
         # transaction, so this is fail-fast only.

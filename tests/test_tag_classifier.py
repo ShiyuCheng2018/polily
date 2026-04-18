@@ -98,16 +98,14 @@ class TestInferPolymarketCategory:
         assert infer_polymarket_category(["Unknown", "Random"]) is None
         assert infer_polymarket_category([]) is None
 
-    def test_returned_category_is_a_valid_fee_curve_key(self):
-        """Every inferred category must be a key in CATEGORY_FEE_RATES so
-        calculate_taker_fee resolves to a concrete rate (not the 0.05 fallback).
+    def test_all_common_tags_map_to_a_category(self):
+        """Smoke: every tag in the priority table maps to a non-None category.
 
-        Uses actual tag strings Polymarket emits — "Tech" and "Mentions" are
-        our *output* category names, not input tags; we reach those via
-        "Technology"/"AI" and "Social Media"/"Twitter".
+        (Post-2026-04-18 refactor, fees are driven by market.feesEnabled +
+        feeSchedule.rate — not by category. This check only guarantees the
+        mapping table is internally consistent; category is now a display /
+        filter hint, no longer a fee driver.)
         """
-        from scanner.core.fees import CATEGORY_FEE_RATES
-
         sample_tags = [
             "Geopolitics", "World Events", "Crypto", "Bitcoin", "Ethereum",
             "Sports", "Soccer", "Basketball",
@@ -120,6 +118,3 @@ class TestInferPolymarketCategory:
         for t in sample_tags:
             cat = infer_polymarket_category([t])
             assert cat is not None, f"tag {t!r} should map to a category"
-            assert cat in CATEGORY_FEE_RATES, (
-                f"inferred category {cat!r} for tag {t!r} is not a fee-curve key"
-            )

@@ -129,6 +129,16 @@ def _parse_single_market(
     # Parse neg_risk_request_id: API returns "" for non-negRisk, normalize to None
     neg_risk_request_id = md.get("negRiskRequestID") or None
 
+    # Fee schedule — Gamma exposes market.feesEnabled + market.feeSchedule.rate.
+    # feesEnabled=False is the default and authoritative: if off, no fee at all.
+    fees_enabled = bool(md.get("feesEnabled", False))
+    fee_schedule = md.get("feeSchedule") or {}
+    fee_rate_raw = fee_schedule.get("rate") if isinstance(fee_schedule, dict) else None
+    try:
+        fee_rate = float(fee_rate_raw) if fee_rate_raw is not None else None
+    except (TypeError, ValueError):
+        fee_rate = None
+
     market = Market(
         market_id=md.get("id", ""),
         event_id=event_id,
@@ -163,6 +173,8 @@ def _parse_single_market(
         neg_risk_request_id=neg_risk_request_id,
         neg_risk_other=md.get("negRiskOther", False),
         accepting_orders=md.get("acceptingOrders", True),
+        fees_enabled=fees_enabled,
+        fee_rate=fee_rate,
     )
     return market
 

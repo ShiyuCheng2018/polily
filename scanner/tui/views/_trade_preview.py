@@ -12,7 +12,7 @@ from scanner.core.fees import calculate_taker_fee
 
 
 def compute_buy_preview(
-    *, amount_usd: float, price: float, category: str | None,
+    *, amount_usd: float, price: float, fees_enabled: bool, fee_rate: float | None,
 ) -> dict:
     """Buy preview: USD amount → shares + fee + to-win payout.
 
@@ -25,7 +25,10 @@ def compute_buy_preview(
         raise ValueError(f"price must be in (0, 1), got {price}")
 
     shares = amount_usd / price
-    fee = calculate_taker_fee(shares, price, category)
+    fee = calculate_taker_fee(
+        shares=shares, price=price,
+        fees_enabled=fees_enabled, fee_rate=fee_rate,
+    )
     return {
         "shares": shares,
         "to_win": shares,  # each winning share pays $1
@@ -35,7 +38,8 @@ def compute_buy_preview(
 
 
 def compute_sell_preview(
-    *, shares: float, price: float, category: str | None, avg_cost: float,
+    *, shares: float, price: float,
+    fees_enabled: bool, fee_rate: float | None, avg_cost: float,
 ) -> dict:
     """Sell preview: shares at exit price → proceeds + fee + realized P&L.
 
@@ -47,7 +51,10 @@ def compute_sell_preview(
         raise ValueError(f"shares must be positive, got {shares}")
 
     proceeds = shares * price
-    fee = calculate_taker_fee(shares, price, category)
+    fee = calculate_taker_fee(
+        shares=shares, price=price,
+        fees_enabled=fees_enabled, fee_rate=fee_rate,
+    )
     return {
         "proceeds": proceeds,
         "fee": fee,

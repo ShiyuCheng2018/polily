@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS markets (
     book_asks           TEXT,
     recent_trades       TEXT,
     accepting_orders    INTEGER NOT NULL DEFAULT 1,
+    fees_enabled        INTEGER NOT NULL DEFAULT 0,  -- Gamma market.feesEnabled; authoritative gate for taker fee
+    fee_rate            REAL,                        -- Gamma market.feeSchedule.rate (coefficient); NULL when no schedule
     resolved_outcome    TEXT CHECK(resolved_outcome IN ('yes','no','split','void')),
     active              INTEGER NOT NULL DEFAULT 1,
     closed              INTEGER NOT NULL DEFAULT 0,

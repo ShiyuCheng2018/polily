@@ -22,7 +22,16 @@ from scanner.tui.service import ScanService
 from scanner.tui.views.trade_dialog import TradeDialog
 
 
-def _seed(tmp_path, *, category: str = "Crypto"):
+def _seed(
+    tmp_path,
+    *,
+    category: str = "Crypto",
+    fees_enabled: int = 1,
+    fee_rate: float | None = 0.072,
+):
+    """Seed a crypto_fees_v2-style market by default so buy-flow tests
+    exercise the fee path. Callers override to test fees-off markets.
+    """
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(
         EventRow(
@@ -36,6 +45,7 @@ def _seed(tmp_path, *, category: str = "Crypto"):
             market_id="m1", event_id="e1", question="Will BTC reach $80K?",
             clob_token_id_yes="tok_yes", clob_token_id_no="tok_no",
             yes_price=0.50, no_price=0.50, updated_at="now",
+            fees_enabled=fees_enabled, fee_rate=fee_rate,
         ),
         db,
     )

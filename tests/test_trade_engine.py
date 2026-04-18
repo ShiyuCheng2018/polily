@@ -12,12 +12,35 @@ from scanner.core.wallet import InsufficientFunds, WalletService
 
 @pytest.fixture
 def setup(tmp_path):
+    """Seeded market has fees enabled (crypto_fees_v2 rate 0.072) so the
+    engine's fee arithmetic is exercised. Tests that want a fee-free market
+    can override via the `fees_off_setup` fixture below.
+    """
     db = PolilyDB(tmp_path / "t.db")
     db.conn.executescript("""
         INSERT INTO events (event_id,title,polymarket_category,updated_at)
             VALUES ('e1','E','Crypto','t');
-        INSERT INTO markets (market_id,event_id,question,clob_token_id_yes,clob_token_id_no,yes_price,updated_at)
-            VALUES ('m1','e1','Q','tok_yes','tok_no',0.5,'t');
+        INSERT INTO markets (market_id,event_id,question,clob_token_id_yes,clob_token_id_no,yes_price,fees_enabled,fee_rate,updated_at)
+            VALUES ('m1','e1','Q','tok_yes','tok_no',0.5,1,0.072,'t');
+    """)
+    db.conn.commit()
+    wallet = WalletService(db)
+    wallet.initialize(100.0)
+    pm = PositionManager(db)
+    engine = TradeEngine(db, wallet, pm)
+    return db, wallet, pm, engine
+
+
+@pytest.fixture
+def fees_off_setup(tmp_path):
+    """Variant where the seeded market has fees disabled — matches the common
+    Polymarket case (Politics / Sports majors / Geopolitics)."""
+    db = PolilyDB(tmp_path / "t.db")
+    db.conn.executescript("""
+        INSERT INTO events (event_id,title,polymarket_category,updated_at)
+            VALUES ('e1','E','Politics','t');
+        INSERT INTO markets (market_id,event_id,question,clob_token_id_yes,clob_token_id_no,yes_price,fees_enabled,fee_rate,updated_at)
+            VALUES ('m1','e1','Q','tok_yes','tok_no',0.5,0,NULL,'t');
     """)
     db.conn.commit()
     wallet = WalletService(db)
@@ -115,15 +138,11 @@ def test_execute_sell_more_than_held_raises_atomic(setup):
 # --- Fee semantics ------------------------------------------------------
 
 
-def test_geopolitics_zero_fee(setup):
-    db, wallet, pm, engine = setup
-    db.conn.execute(
-        "UPDATE events SET polymarket_category='Geopolitics' WHERE event_id='e1'"
-    )
-    db.conn.commit()
+def test_market_with_fees_disabled_charges_zero_fee(fees_off_setup):
+    """Polymarket's common case: market.feesEnabled=false → no fee row."""
+    db, wallet, pm, engine = fees_off_setup
     with _mock_price(0.5):
         engine.execute_buy(market_id="m1", side="yes", shares=20.0)
-    # cost 10, fee 0 — no FEE row written.
     assert wallet.get_cash() == pytest.approx(90.0)
     types = [t["type"] for t in wallet.list_transactions()]
     assert "FEE" not in types

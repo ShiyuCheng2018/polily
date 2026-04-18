@@ -73,6 +73,10 @@ class Market(BaseModel):
     neg_risk_other: bool = False               # catch-all "Other" outcome
     accepting_orders: bool = True              # whether orderbook is active
 
+    # Fee schedule (Gamma `feesEnabled` + `feeSchedule.rate`)
+    fees_enabled: bool = False
+    fee_rate: float | None = None
+
     # Order book depth
     book_depth_bids: list[BookLevel] | None = None
     book_depth_asks: list[BookLevel] | None = None

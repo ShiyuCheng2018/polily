@@ -17,12 +17,13 @@ from scanner.core.wallet_reset import reset_wallet
 
 
 def _seed_crypto_market(db: PolilyDB) -> None:
+    """Crypto short-term market (crypto_fees_v2, rate 0.072) — fees_enabled."""
     db.conn.executescript("""
         INSERT INTO events (event_id,title,polymarket_category,updated_at)
             VALUES ('e1','BTC above 100k end of week?','Crypto','t');
         INSERT INTO markets
-            (market_id,event_id,question,clob_token_id_yes,clob_token_id_no,yes_price,updated_at)
-            VALUES ('m1','e1','BTC > 100k','tok_yes','tok_no',0.5,'t');
+            (market_id,event_id,question,clob_token_id_yes,clob_token_id_no,yes_price,fees_enabled,fee_rate,updated_at)
+            VALUES ('m1','e1','BTC > 100k','tok_yes','tok_no',0.5,1,0.072,'t');
     """)
     db.conn.commit()
 

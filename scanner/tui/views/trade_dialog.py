@@ -35,7 +35,7 @@ from textual.widgets import (
     TabPane,
 )
 
-from scanner.core.event_store import get_event, get_event_markets
+from scanner.core.event_store import get_event_markets
 from scanner.tui.views._trade_preview import (
     compute_buy_preview,
     compute_sell_preview,
@@ -60,7 +60,6 @@ class BuyPane(Widget):
     def __init__(self) -> None:
         super().__init__()
         self._market = None
-        self._category: str | None = None
         self._cash: float = 0.0
         self._positions_here: list[dict] = []  # positions on currently-selected market
 
@@ -80,10 +79,9 @@ class BuyPane(Widget):
             yield Button("买 NO", id="btn-buy-no", variant="error", classes="trade-btn")
 
     def update_context(
-        self, *, market, category: str | None, cash: float, positions_here: list[dict],
+        self, *, market, cash: float, positions_here: list[dict],
     ) -> None:
         self._market = market
-        self._category = category
         self._cash = cash
         self._positions_here = positions_here
         self._refresh()
@@ -172,7 +170,9 @@ class BuyPane(Widget):
                 continue
             try:
                 p = compute_buy_preview(
-                    amount_usd=amount, price=price, category=self._category,
+                    amount_usd=amount, price=price,
+                    fees_enabled=bool(getattr(self._market, "fees_enabled", False)),
+                    fee_rate=getattr(self._market, "fee_rate", None),
                 )
             except ValueError:
                 continue
@@ -206,7 +206,9 @@ class BuyPane(Widget):
             return
         try:
             p = compute_buy_preview(
-                amount_usd=amount, price=price, category=self._category,
+                amount_usd=amount, price=price,
+                fees_enabled=bool(getattr(self._market, "fees_enabled", False)),
+                fee_rate=getattr(self._market, "fee_rate", None),
             )
         except ValueError as e:
             self.notify(f"无法执行: {e}")
@@ -231,7 +233,6 @@ class SellPane(Widget):
     def __init__(self) -> None:
         super().__init__()
         self._market = None
-        self._category: str | None = None
         self._positions_here: list[dict] = []
         self._selected_side: str | None = None
         self._positions_sig: tuple | None = None  # change-detection for _rebuild_radio
@@ -253,16 +254,15 @@ class SellPane(Widget):
             yield Button("卖出", id="btn-sell", variant="warning", classes="trade-btn")
 
     def update_context(
-        self, *, market, category: str | None, positions_here: list[dict],
+        self, *, market, positions_here: list[dict],
     ) -> None:
-        """Push new market/category/positions into the pane.
+        """Push new market/positions into the pane.
 
         Idempotent w.r.t. unchanged positions: skips radio rebuild when the
         position set is identical, which prevents the 3s periodic refresh
         from silently reverting the user's radio pick back to first side.
         """
         self._market = market
-        self._category = category
         self._positions_here = positions_here
 
         # Preserve user's selection if the side is still held.
@@ -418,7 +418,9 @@ class SellPane(Widget):
         try:
             p = compute_sell_preview(
                 shares=shares, price=price,
-                category=self._category, avg_cost=pos["avg_cost"],
+                fees_enabled=bool(getattr(self._market, "fees_enabled", False)),
+                fee_rate=getattr(self._market, "fee_rate", None),
+                avg_cost=pos["avg_cost"],
             )
         except ValueError:
             preview.update("[dim]输入无效[/dim]")
@@ -657,8 +659,6 @@ class TradeDialog(ModalScreen[dict | None]):
         market = self._selected_market()
         if market is None:
             return
-        event = get_event(self.event_id, self._service.db)
-        category = event.polymarket_category if event else None
         positions_here = [
             p for p in self._service.positions.get_event_positions(self.event_id)
             if p["market_id"] == market.market_id
@@ -667,11 +667,13 @@ class TradeDialog(ModalScreen[dict | None]):
         cash = 0.0
         with contextlib.suppress(Exception):
             cash = self._service.wallet.get_cash()
+        # Fee context (fees_enabled + fee_rate) lives on the market object itself;
+        # panes pull from self._market at preview time.
         self._buy_pane.update_context(
-            market=market, category=category, cash=cash, positions_here=positions_here,
+            market=market, cash=cash, positions_here=positions_here,
         )
         self._sell_pane.update_context(
-            market=market, category=category, positions_here=positions_here,
+            market=market, positions_here=positions_here,
         )
 
     def _refresh_prices_periodic(self) -> None:

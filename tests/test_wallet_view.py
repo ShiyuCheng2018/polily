@@ -35,6 +35,9 @@ def _seed(tmp_path) -> ScanService:
             market_id="m1", event_id="e1", question="Will BTC reach $80K?",
             clob_token_id_yes="tok_yes", clob_token_id_no="tok_no",
             yes_price=0.5, no_price=0.5, updated_at="now",
+            # Simulate a crypto_fees_v2 market so tests exercise the fee path;
+            # most real Polymarket markets have fees_enabled=False.
+            fees_enabled=1, fee_rate=0.072,
         ),
         db,
     )
