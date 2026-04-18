@@ -10,11 +10,13 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
-## [0.6.0] — 2026-04-18
+## [0.6.0] — 2026-04-19
 
 Wallet system — paper trading gets real. Buys and sells now settle against
 a single cash balance, positions aggregate across trades, and markets
 auto-resolve when Polymarket publishes outcomes.
+
+First shipped as `v0.6.0-beta.1` on 2026-04-19.
 
 ### Added
 
@@ -36,39 +38,93 @@ auto-resolve when Polymarket publishes outcomes.
   fetches `outcomePrices` from Gamma, and settles through
   `ResolutionHandler` in one transaction — cash credited, position row
   deleted, audit line logged.
+- **UMA resolution gate**: `derive_winner` now honors Gamma's
+  `umaResolutionStatuses` history array. Settlement only proceeds when the
+  array is empty (non-UMA markets like crypto price-feeds) or the last
+  entry is `"resolved"` (UMA final). During the 2+ hour challenge window
+  (last entry `"proposed"` or `"disputed"`), we defer to the next poll
+  tick — prevents phantom RESOLVE rows if a dispute flips the outcome.
+- **Realized-P&L history**: `HistoryView` rewritten to source from
+  `wallet_transactions` (SELL + RESOLVE rows), one row per realized event
+  in reverse chronological order. Joined FEE rows surface the real
+  per-sell friction instead of the legacy hardcoded 4% estimate.
+- **Auto-restart daemon after wallet reset**: `WalletResetModal` now
+  restarts the scheduler automatically once reset commits (skips restart
+  when no active monitors exist). Users no longer need to run
+  `polily scheduler restart` manually.
+- **Per-restart versioned poll logs**: daemon writes to
+  `data/logs/poll-v<version>-<YYYYMMDD-HHMMSS>.log`; every launch gets a
+  fresh file and older logs are retained for diffing behavior across
+  restarts.
+- **TUI always restarts the daemon on launch** (when monitored events
+  exist), so code changes since the last daemon start take effect without
+  a separate restart command.
 - **New TUI Wallet page** (menu `3`): balance panel (equity / cash /
   positions market value / realized / unrealized / ROI), recent
   transactions ledger, top-up / withdraw / reset actions.
 - **`polily reset --wallet-only`**: CLI flag to wipe wallet-side tables
   without losing events, markets, or AI analyses.
-- **Markets.resolved_outcome column**: structured per-market winner
+- **`markets.resolved_outcome` column**: structured per-market winner
   (`yes` / `no` / `invalid` / NULL), populated during resolution.
 
 ### Changed
 
 - **TUI menu renumber**: `钱包` inserted at slot `3`; `历史` shifted to `4`,
   `通知` to `5`.
-- **`paper_trades` is now read-only legacy**. All new writes go to
-  `positions` and `wallet_transactions`. Migration runs automatically on
-  first launch and aggregates existing open paper_trades into positions.
+- **`paper_trades` table dropped**. Reads moved to `positions` +
+  `wallet_transactions` across all call sites (HistoryView,
+  MarketDetailView, ScanService event detail / AI context builder). On
+  upgraded databases, `PolilyDB._init_schema` runs `DROP TABLE IF EXISTS
+  paper_trades` — idempotent, no-op on fresh installs.
 - **`narrative_writer.md` prompt**: now reads `wallet`, `positions`,
   `wallet_transactions` (was `paper_trades`). Adds "全方位管理" guidance
   so the agent can give position-sizing and correlation-risk advice
   based on the full wallet context.
+- **Fee arithmetic keyed on the market row**: `calculate_taker_fee` now
+  takes `fees_enabled` + `fee_rate` kwargs (was category-based guess).
+  Source of truth is each market's own Gamma response.
+- **Best-side spread across the scoring stack**: friction, liquidity
+  quality, value score, and the filter threshold all compute
+  `spread_abs / max(mid_yes, mid_no)` instead of `spread_abs / mid_yes`.
+  Reflects the cheaper trading direction on low-yes markets; previously
+  inflated friction 2-5x on events with YES below 30¢.
 
 ### Fixed
 
+- **MarketDetailView showed "无持仓" for live positions**: the event
+  detail page's position panel read the legacy `paper_trades` table,
+  which v0.6.0 TradeEngine had stopped writing to. Now sources from
+  `positions` via `get_event_detail`.
+- **`analyze_event` lost position context**: `has_position` check also
+  read legacy `paper_trades`, leaving the AI narrative agent in
+  `discovery` mode even when the user had live positions. Rewired to
+  read `positions`, and the agent now correctly enters
+  `position_management` mode with thesis tracking and stop/target
+  operators.
 - **Pre-existing agent bug**: `narrative_writer.md` had been SELECTing
   three non-existent columns from `paper_trades` (`exit_price`,
   `realized_pnl`, `created_at`). Agent silently swallowed the
   OperationalError and proceeded without trade history; fix migrates to
   the new schema and the history flows through correctly.
 
+### Removed
+
+- `scanner/core/paper_store.py` — every caller migrated to
+  `positions` / `wallet_transactions`.
+- `scanner/core/migration_v060.py` — one-shot migration shim is no longer
+  needed now that the source table is dropped.
+- `scanner/export.py` — orphan module with no callers.
+- `ScanService.create_paper_trade` / `get_resolved_trades` /
+  `get_trade_stats` — legacy bridges to `paper_store`.
+
 ### Breaking Changes (v0.5.x → v0.6.0)
 
 Migration is automatic for end users — these affect only callers of
 `scanner` as a library.
 
+- `paper_trades` table no longer exists. `DROP TABLE IF EXISTS` runs on
+  first launch of an upgraded DB; any external reader of the table must
+  switch to `positions` / `wallet_transactions`.
 - `ScanService.get_open_trades()` return shape changed. Rows are now
   keyed by the synthetic composite `{market_id}:{side}` and sourced from
   `positions` (one per aggregated position, not per trade). Shim
@@ -90,12 +146,13 @@ Migration is automatic for end users — these affect only callers of
   event is re-scanned. Re-adding the event URL refreshes the row with
   Gamma's current schedule.
 - `WalletResetModal` sends SIGTERM to the scheduler daemon and waits 1
-  second before clearing wallet tables. If a poll tick is mid-resolution
-  at that moment, the race is serialized by SQLite but error reporting
-  is raw. Future hardening will pause the scheduler explicitly.
+  second before clearing wallet tables, then auto-restarts on success.
+  If a poll tick is mid-resolution at that moment the race is serialized
+  by SQLite, but error reporting is raw. Plan is to harden with
+  `BEGIN EXCLUSIVE` or a poll-wait before stable.
 - `feeSchedule.exponent` is assumed to be 1 (matches all observed crypto /
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.0...HEAD
-[0.6.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.0
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.0-beta.1...HEAD
+[0.6.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.0-beta.1
