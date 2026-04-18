@@ -237,7 +237,7 @@ class SellPane(Widget):
         self._positions_sig: tuple | None = None  # change-detection for _rebuild_radio
 
     def compose(self) -> ComposeResult:
-        yield Static("持仓:", classes="field-label")
+        # No "持仓:" static label — the radio set is self-evident, saving a row.
         yield RadioSet(id="sell-side-radio")
         yield Static("", id="sell-empty-hint")
         with Horizontal(id="sell-pct-row"):
@@ -355,6 +355,7 @@ class SellPane(Widget):
 
     def _refresh_empty_state(self) -> None:
         hint = self.query_one("#sell-empty-hint", Static)
+        radio = self.query_one("#sell-side-radio", RadioSet)
         pct_row = self.query_one("#sell-pct-row", Horizontal)
         shares_row = self.query_one("#sell-shares-row", Horizontal)
         action_row = self.query_one("#sell-action-row", Horizontal)
@@ -363,6 +364,8 @@ class SellPane(Widget):
 
         if not self._positions_here:
             hint.update("[dim]该子市场暂无持仓。切到 '买入' tab 建仓。[/dim]")
+            hint.display = True
+            radio.display = False
             pct_row.display = False
             shares_row.display = False
             action_row.display = False
@@ -371,6 +374,8 @@ class SellPane(Widget):
             return
 
         hint.update("")
+        hint.display = False  # collapse empty hint row when we have positions
+        radio.display = True
         pct_row.display = True
         shares_row.display = True
         action_row.display = True
@@ -458,10 +463,10 @@ class TradeDialog(ModalScreen[dict | None]):
     TradeDialog #dialog-box {{
         width: {_DIALOG_WIDTH};
         height: auto;
-        max-height: 90%;
+        max-height: 100%;
         border: thick $primary;
         background: $surface;
-        padding: 1 2;
+        padding: 0 2;
     }}
     TradeDialog #dialog-header {{
         height: auto;
@@ -512,9 +517,38 @@ class TradeDialog(ModalScreen[dict | None]):
         height: auto;
         padding: 0 0 1 0;
     }}
+    TradeDialog #buy-amount-row, TradeDialog #sell-shares-row {{
+        height: auto;
+        padding: 0 0 1 0;
+    }}
     TradeDialog #sell-side-radio {{
         height: auto;
         max-height: 4;
+    }}
+    TradeDialog #sell-empty-hint {{
+        height: auto;
+        padding: 1 0;
+    }}
+    TradeDialog #btn-sell {{
+        min-width: 28;
+        height: 3;
+        color: white;
+        text-style: bold;
+    }}
+    /* TabbedContent inside an auto-height parent must itself be auto or
+       its inner ContentSwitcher collapses to zero (tab headers visible,
+       pane content invisible). Same for BuyPane / SellPane widgets. */
+    TradeDialog TabbedContent {{
+        height: auto;
+    }}
+    TradeDialog TabbedContent ContentSwitcher {{
+        height: auto;
+    }}
+    TradeDialog TabPane {{
+        height: auto;
+    }}
+    TradeDialog BuyPane, TradeDialog SellPane {{
+        height: auto;
     }}
     """
 

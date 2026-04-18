@@ -52,6 +52,7 @@ class TopupModal(ModalScreen[float | None]):
     }}
     TopupModal .title {{ text-style: bold; padding: 0 0 1 0; }}
     TopupModal .balance-line {{ padding: 0 0 1 0; color: $text-muted; }}
+    TopupModal .amount-row {{ height: auto; padding: 0 0 1 0; }}
     TopupModal #amount {{ width: 14; }}
     TopupModal #quick-row {{ height: auto; padding: 0 0 1 0; }}
     TopupModal .quick-btn {{ min-width: 7; margin: 0 1 0 0; }}
@@ -69,7 +70,7 @@ class TopupModal(ModalScreen[float | None]):
         with Vertical(id="dialog-box"):
             yield Static("充值", classes="title")
             yield Static(f"当前余额: ${cash:.2f}", classes="balance-line")
-            with Horizontal():
+            with Horizontal(classes="amount-row"):
                 yield Label("金额 $", classes="field-label")
                 yield Input(value="50", id="amount", type="number")
             with Horizontal(id="quick-row"):
@@ -133,6 +134,7 @@ class WithdrawModal(ModalScreen[float | None]):
     WithdrawModal .title {{ text-style: bold; padding: 0 0 1 0; }}
     WithdrawModal .balance-line {{ padding: 0 0 0 0; color: $text-muted; }}
     WithdrawModal .hint {{ padding: 0 0 1 0; color: $text-muted; }}
+    WithdrawModal .amount-row {{ height: auto; padding: 0 0 1 0; }}
     WithdrawModal #amount {{ width: 14; }}
     WithdrawModal #quick-row {{ height: auto; padding: 0 0 1 0; }}
     WithdrawModal .quick-btn {{ min-width: 7; margin: 0 1 0 0; }}
@@ -152,7 +154,7 @@ class WithdrawModal(ModalScreen[float | None]):
             yield Static("提现", classes="title")
             yield Static(f"可提现 (现金): ${self._cash:.2f}", classes="balance-line")
             yield Static("[dim]持仓市值不可提现[/dim]", classes="hint")
-            with Horizontal():
+            with Horizontal(classes="amount-row"):
                 yield Label("金额 $", classes="field-label")
                 yield Input(value="", id="amount", type="number")
             with Horizontal(id="quick-row"):
