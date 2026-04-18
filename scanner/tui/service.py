@@ -18,9 +18,6 @@ from scanner.core.event_store import (
     get_event_markets,
 )
 from scanner.core.monitor_store import get_event_monitor, update_next_check_at
-from scanner.core.paper_store import create_paper_trade as _create_paper_trade
-from scanner.core.paper_store import get_resolved_trades as _get_resolved_trades
-from scanner.core.paper_store import get_trade_stats as _get_trade_stats
 from scanner.core.positions import PositionManager
 from scanner.core.trade_engine import TradeEngine
 from scanner.core.wallet import WalletService
@@ -141,20 +138,7 @@ class ScanService:
         start_time = time.time()
 
         # Check if user has open positions in this event
-        from scanner.core.paper_store import get_event_open_trades
-        open_trades = get_event_open_trades(event_id, self.db)
-        has_position = len(open_trades) > 0
-        position_summary = None
-        if has_position:
-            lines = []
-            for t in open_trades:
-                side = t.get("side", "?").upper()
-                entry = t.get("entry_price", 0)
-                size = t.get("position_size_usd", 0)
-                mid = t.get("market_id", "?")
-                title = t.get("title", "")[:40]
-                lines.append(f"{side} @ {entry:.2f}  ${size:.0f}  {mid}  {title}")
-            position_summary = "\n".join(lines)
+        has_position, position_summary = self._compute_position_context(event_id)
 
         # Get existing analyses for version numbering
         existing = get_event_analyses(event_id, self.db)
@@ -323,29 +307,31 @@ class ScanService:
         return bool(mon and mon.get("auto_monitor"))
 
     # ------------------------------------------------------------------
-    # Paper trades
+    # Positions (v0.6.0) — legacy "paper trades" API name retained where
+    # TUI views read a shimmed dict shape.
     # ------------------------------------------------------------------
 
-    def create_paper_trade(
-        self,
-        *,
-        event_id: str,
-        market_id: str,
-        title: str,
-        side: str,
-        entry_price: float,
-        position_size_usd: float,
-    ) -> str:
-        """Create a paper trade. Returns trade ID."""
-        return _create_paper_trade(
-            event_id=event_id,
-            market_id=market_id,
-            title=title,
-            side=side,
-            entry_price=entry_price,
-            position_size_usd=position_size_usd,
-            db=self.db,
-        )
+    def _compute_position_context(
+        self, event_id: str,
+    ) -> tuple[bool, str | None]:
+        """Return (has_position, summary) for the NarrativeWriter prompt.
+
+        Sourced from `positions` (the v0.6.0 write target). Format keeps
+        the line layout the agent prompt expects so no prompt change is
+        needed: ``SIDE @ avg_cost  $cost_basis  market_id  title``.
+        """
+        rows = self.positions.get_event_positions(event_id)
+        if not rows:
+            return False, None
+        lines = []
+        for p in rows:
+            side = (p.get("side") or "?").upper()
+            entry = p.get("avg_cost") or 0
+            size = p.get("cost_basis") or 0
+            mid = p.get("market_id") or "?"
+            title = (p.get("title") or "")[:40]
+            lines.append(f"{side} @ {entry:.2f}  ${size:.0f}  {mid}  {title}")
+        return True, "\n".join(lines)
 
     def get_open_trades(self) -> list[dict]:
         """Open positions in paper_trades dict shape (shim for legacy TUI views).
@@ -367,12 +353,6 @@ class ScanService:
             }
             for p in positions
         ]
-
-    def get_resolved_trades(self) -> list[dict]:
-        return _get_resolved_trades(self.db)
-
-    def get_trade_stats(self) -> dict:
-        return _get_trade_stats(self.db)
 
     # ------------------------------------------------------------------
     # Realized P&L history (v0.6.0 — sourced from wallet_transactions)
@@ -521,7 +501,7 @@ class ScanService:
     # ------------------------------------------------------------------
 
     def get_history_count(self) -> int:
-        return len(self.get_resolved_trades())
+        return self.get_realized_summary()["count"]
 
     # ------------------------------------------------------------------
     # Internal: fetch + persist

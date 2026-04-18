@@ -114,6 +114,52 @@ class TestGetEventDetail:
         assert "title" in t
 
 
+class TestComputePositionContext:
+    """Regression: has_position + position_summary in analyze_event must
+    source from the v0.6.0 positions table (TradeEngine's sole write target),
+    not the legacy paper_trades table. Shape is shared with the AI
+    narrative-writer prompt, so fields must survive mapping:
+      avg_cost → entry_price line
+      cost_basis → size line
+    """
+
+    def test_no_positions_returns_false_none(self, db, service):
+        _seed(db, "ev1", "m1")
+        has_pos, summary = service._compute_position_context("ev1")
+        assert has_pos is False
+        assert summary is None
+
+    def test_positions_populate_summary_lines(self, db, service):
+        from unittest.mock import patch as _patch
+        _seed(db, "ev1", "m1")
+        with _patch(
+            "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+            return_value=0.50,
+        ):
+            service.execute_buy(market_id="m1", side="no", shares=10.0)
+
+        has_pos, summary = service._compute_position_context("ev1")
+        assert has_pos is True
+        assert summary is not None
+        assert "NO" in summary
+        assert "0.50" in summary  # avg_cost rendered
+        assert "$5" in summary    # cost_basis ≈ 5
+        assert "m1" in summary
+
+    def test_ignores_legacy_paper_trades_rows(self, db, service):
+        """paper_trades row on the same event must not produce a summary —
+        positions is the source of truth. Guards against silent v0.5.x leak."""
+        from scanner.core.paper_store import create_paper_trade
+        _seed(db, "ev1", "m1")
+        create_paper_trade(
+            event_id="ev1", market_id="m1", title="legacy",
+            side="yes", entry_price=0.55, position_size_usd=20.0, db=db,
+        )
+        has_pos, summary = service._compute_position_context("ev1")
+        assert has_pos is False
+        assert summary is None
+
+
 class TestPassEvent:
     def test_pass_sets_user_status(self, db, service):
         _seed(db, "ev1", "m1")
@@ -148,16 +194,6 @@ class TestPaperTrades:
         assert len(trades) == 1
         assert trades[0]["side"] == "yes"
         assert trades[0]["entry_price"] == pytest.approx(0.55)
-
-    def test_trade_stats(self, db, service):
-        _seed(db, "ev1", "m1")
-        service.create_paper_trade(
-            event_id="ev1", market_id="m1", title="Test",
-            side="yes", entry_price=0.5, position_size_usd=20,
-        )
-        stats = service.get_trade_stats()
-        assert stats["open"] == 1
-
 
 class TestAnalyzeEvent:
     def test_analyze_saves_to_db(self, db, service):
