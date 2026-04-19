@@ -74,7 +74,7 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `scanner/core/config.py` | All Pydantic config models |
 | `scanner/core/models.py` | Market, BookLevel, Trade models |
 | `scanner/core/event_store.py` | EventRow, MarketRow, upsert/query |
-| `scanner/core/monitor_store.py` | Event monitor state (auto_monitor, next_check_at) |
+| `scanner/core/monitor_store.py` | Event monitor state (v0.7.0: user-intent flag only — `auto_monitor` / `price_snapshot` / `notes`) |
 | `scanner/core/wallet.py` | WalletService — cash + ledger + atomicity contract (commit=False) |
 | `scanner/core/positions.py` | PositionManager — aggregated (market_id, side) positions, weighted-avg cost |
 | `scanner/core/trade_engine.py` | TradeEngine — atomic buy/sell (wallet + position + fee in one BEGIN/COMMIT) |
@@ -92,13 +92,12 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `scanner/monitor/drift.py` | CUSUM drift detector |
 | `scanner/monitor/store.py` | Movement records storage |
 | `scanner/monitor/event_metrics.py` | Per-event movement metrics |
-| `scanner/daemon/scheduler.py` | APScheduler daemon: dual executor + launchd |
-| `scanner/daemon/poll_job.py` | Global poll job (30s) — fetch prices + auto-resolution pass for monitored markets |
+| `scanner/daemon/scheduler.py` | APScheduler daemon: dual executor + launchd; wires scheduler into `_ctx` so `global_poll`'s Step 3.5 dispatcher can submit |
+| `scanner/daemon/poll_job.py` | Global poll job (30s): fetch prices → auto-resolution → score refresh → **Step 3.5 dispatcher (drain overdue `scan_logs` pending rows)** → intelligence layer |
 | `scanner/daemon/resolution.py` | ResolutionHandler — atomic per-market settle on Gamma outcomePrices |
-| `scanner/daemon/recheck.py` | Scheduled event recheck (AI analysis) |
 | `scanner/daemon/auto_monitor.py` | Auto-monitor toggle logic |
 | `scanner/daemon/score_refresh.py` | Periodic structure-score refresh |
-| `scanner/daemon/notify.py` | Notification dispatch |
+| `scanner/agents/narrator_registry.py` | In-process narrator cancel registry (scope: process-local; see docstring for cross-process limitation) |
 | `scanner/agents/base.py` | BaseAgent: claude CLI invoke + retry + JSON parsing |
 | `scanner/agents/narrative_writer.py` | NarrativeWriter agent (decision advisor) |
 | `scanner/agents/schemas.py` | Pydantic schemas for agent I/O |

@@ -28,7 +28,8 @@ All state in `data/polily.db`. No JSON files, no scan archives.
 |-------|------|
 | **events** | Parent entity — title, market_type, structure_score, tier, tags, neg_risk, closed |
 | **markets** | Child of event — yes_price, bid/ask, spread, depth, book data, score_breakdown |
-| **event_monitors** | Monitor state — auto_monitor flag, next_check_at, next_check_reason |
+| **event_monitors** | User-intent monitor state — auto_monitor flag, price_snapshot, notes (v0.7.0: scheduling moved to scan_logs) |
+| **scan_logs** | Unified task ledger — manual / scheduled / movement AI analyses + URL scoring. Lifecycle: pending → running → completed/failed/cancelled/superseded. Dispatcher reads overdue `status='pending'` every 30s |
 | **analyses** | Versioned AI analysis — trigger_source, narrative_output, mispricing_signal |
 | **movement_log** | Per-tick movement records — magnitude, quality, label, snapshot |
 | **positions** | Active exposure aggregated by (market_id, side) — weighted-avg cost, cost basis |
@@ -146,14 +147,15 @@ friction shown in the UI reflects the real fee amount, not an estimate.
 │                                              │
 │  poll executor (1 thread)                    │
 │    └─ global_poll  every 30s                 │
+│         └─ Step 3.5: dispatcher drains       │
+│            overdue scan_logs pending rows    │
 │                                              │
 │  ai executor (5 threads)                     │
-│    ├─ movement-triggered analysis            │
-│    └─ scheduled check (next_check_at)        │
+│    └─ _run_pending_analysis                  │
+│       (unified: scheduled/movement/manual)   │
 │                                              │
 │  Signals:                                    │
 │    SIGTERM → graceful shutdown               │
-│    SIGUSR1 → reload check jobs from DB       │
 │                                              │
 │  Lifecycle: launchd (macOS)                  │
 │    PID → data/scheduler.pid                  │
