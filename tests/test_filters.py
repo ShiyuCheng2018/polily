@@ -84,6 +84,26 @@ class TestSpreadFilter:
         result = apply_hard_filters([m], _default_filters(), _default_heuristics())
         assert len(result.passed) == 0
 
+    def test_pass_low_yes_market_with_tradeable_no_side(self):
+        """Iran-style: YES=24¢/25¢ (4% spread on YES side alone) but NO side
+        only has 1.3% spread. Filter must use best-side so the market isn't
+        rejected for something the user would never buy anyway.
+
+        Pre-fix this would fail: spread_pct_yes=4.08% exceeds the 4% default
+        threshold, so the whole market was dropped from scoring.
+        """
+        m = make_market(best_bid_yes=0.24, best_ask_yes=0.25)
+        result = apply_hard_filters([m], _default_filters(), _default_heuristics())
+        assert len(result.passed) == 1
+
+    def test_reject_when_both_sides_wide(self):
+        """Genuinely wide market (both YES% and NO% over threshold) still rejected."""
+        # YES=0.10/0.30 → spread_abs=0.20, mid_yes=0.20, mid_no=0.80
+        # YES% = 100%, NO% = 25%. Best side (NO) = 25% > 4% default → reject.
+        m = make_market(best_bid_yes=0.10, best_ask_yes=0.30)
+        result = apply_hard_filters([m], _default_filters(), _default_heuristics())
+        assert len(result.passed) == 0
+
 
 class TestVolumeFilter:
     def test_pass_sufficient_volume(self):

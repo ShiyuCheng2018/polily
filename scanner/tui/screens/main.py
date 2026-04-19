@@ -47,13 +47,14 @@ class MainScreen(Screen):
         Binding("r", "refresh", show=False),
         Binding("1", "show_monitor", show=False),
         Binding("2", "show_paper", show=False),
-        Binding("3", "show_history", show=False),
-        Binding("4", "show_notifications", show=False),
+        Binding("3", "show_wallet", show=False),
+        Binding("4", "show_history", show=False),
+        Binding("5", "show_notifications", show=False),
         Binding("up", "menu_prev", show=False),
         Binding("down", "menu_next", show=False),
     ]
 
-    MENU_ORDER = ["tasks", "monitor", "paper", "history", "notifications"]
+    MENU_ORDER = ["tasks", "monitor", "paper", "wallet", "history", "notifications"]
 
     def __init__(self, service: ScanService):
         super().__init__()
@@ -410,6 +411,9 @@ class MainScreen(Screen):
             self._switch_view(MonitorListView(service=self.service), "monitor")
         elif menu_id == "paper":
             self._switch_view(PaperStatusView(self.service), "paper")
+        elif menu_id == "wallet":
+            from scanner.tui.views.wallet import WalletView
+            self._switch_view(WalletView(self.service), "wallet")
         elif menu_id == "history":
             from scanner.tui.views.history import HistoryView
             self._switch_view(HistoryView(self.service), "history")
@@ -425,6 +429,9 @@ class MainScreen(Screen):
 
     def action_show_paper(self) -> None:
         self._navigate_to("paper")
+
+    def action_show_wallet(self) -> None:
+        self._navigate_to("wallet")
 
     def action_show_history(self) -> None:
         self._navigate_to("history")

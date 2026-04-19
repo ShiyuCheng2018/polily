@@ -131,8 +131,9 @@ def _score_net_edge(market: Market, mispricing: object) -> float:
 def _score_liquidity_structure(m: Market) -> float:
     score = 0.0
 
-    # Spread component (40%)
-    spread = m.spread_pct_yes
+    # Spread component (40%) — best-side % so low-YES markets aren't penalized
+    # for a cost the user would never pay (they'd buy NO instead).
+    spread = m.spread_pct_best_side
     if spread is not None:
         if spread <= 0.01:
             score += 0.40
@@ -420,9 +421,9 @@ def compute_three_scores(
         elif 7.0 < days <= 14.0:
             struct_value += max(0, 10 - (days - 7) / 7 * 10)
 
-    # 5. Spread tightness (max 15) — continuous
+    # 5. Spread tightness (max 15) — continuous, on the best tradeable side.
     #    0%→15, 1%→12, 2%→9, 3%→6, 5%→0
-    spread = market.spread_pct_yes
+    spread = market.spread_pct_best_side
     if spread is not None:
         struct_value += max(0, min(15, (1 - spread / 0.05) * 15))
 

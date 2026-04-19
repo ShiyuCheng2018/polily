@@ -70,6 +70,9 @@ CREATE TABLE IF NOT EXISTS markets (
     book_asks           TEXT,
     recent_trades       TEXT,
     accepting_orders    INTEGER NOT NULL DEFAULT 1,
+    fees_enabled        INTEGER NOT NULL DEFAULT 0,  -- Gamma market.feesEnabled; authoritative gate for taker fee
+    fee_rate            REAL,                        -- Gamma market.feeSchedule.rate (coefficient); NULL when no schedule
+    resolved_outcome    TEXT CHECK(resolved_outcome IN ('yes','no','split','void')),
     active              INTEGER NOT NULL DEFAULT 1,
     closed              INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT,
@@ -125,28 +128,7 @@ CREATE TABLE IF NOT EXISTS movement_log (
     snapshot            TEXT NOT NULL DEFAULT '{}'
 );
 
--- 6. Paper trades
-CREATE TABLE IF NOT EXISTS paper_trades (
-    id                  TEXT PRIMARY KEY,
-    event_id            TEXT NOT NULL REFERENCES events(event_id),
-    market_id           TEXT NOT NULL REFERENCES markets(market_id),
-    title               TEXT NOT NULL,
-    side                TEXT NOT NULL CHECK(side IN ('yes','no')),
-    entry_price         REAL NOT NULL,
-    position_size_usd   REAL NOT NULL,
-    structure_score     REAL,
-    mispricing_signal   TEXT,
-    scan_id             TEXT,
-    status              TEXT NOT NULL DEFAULT 'open'
-                        CHECK(status IN ('open','resolved')),
-    resolved_result     TEXT CHECK(resolved_result IN ('yes','no')),
-    paper_pnl           REAL,
-    friction_adjusted_pnl REAL,
-    marked_at           TEXT NOT NULL,
-    resolved_at         TEXT
-);
-
--- 7. Scan logs
+-- 6. Scan logs
 CREATE TABLE IF NOT EXISTS scan_logs (
     scan_id             TEXT PRIMARY KEY,
     type                TEXT NOT NULL DEFAULT 'scan'
@@ -180,6 +162,58 @@ CREATE TABLE IF NOT EXISTS notifications (
     read_at             TEXT
 );
 
+-- 9. Wallet (singleton)
+CREATE TABLE IF NOT EXISTS wallet (
+    id                  INTEGER PRIMARY KEY CHECK(id = 1),  -- enforces singleton: only id=1 ever exists
+    cash_usd            REAL NOT NULL,
+    starting_balance    REAL NOT NULL,
+    topup_total         REAL NOT NULL DEFAULT 0.0,
+    withdraw_total      REAL NOT NULL DEFAULT 0.0,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+-- 10. Positions (aggregated)
+-- INVARIANT: Polily never hard-deletes events/markets (soft-close via closed=1).
+-- FK defaults to NO ACTION; if a future cleanup task deletes markets, positions
+-- inserts will raise IntegrityError — that is intentional, positions depend on
+-- their anchoring market/event for display and resolution context.
+CREATE TABLE IF NOT EXISTS positions (
+    market_id           TEXT NOT NULL REFERENCES markets(market_id),
+    side                TEXT NOT NULL CHECK(side IN ('yes','no')),
+    event_id            TEXT NOT NULL REFERENCES events(event_id),
+    shares              REAL NOT NULL,
+    avg_cost            REAL NOT NULL,
+    cost_basis          REAL NOT NULL,            -- = shares × avg_cost; PositionManager is the sole writer and must update together
+    realized_pnl        REAL NOT NULL DEFAULT 0.0,
+    title               TEXT NOT NULL,
+    opened_at           TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    PRIMARY KEY (market_id, side)
+);
+
+-- 11. Wallet transactions (append-only ledger)
+-- INVARIANT: market_id and event_id are stored WITHOUT FK constraints — the ledger
+-- must survive market soft-close and any future hard-delete cleanup. Orphan lookups
+-- via LEFT JOIN are acceptable; this is an accounting record, not relational master data.
+CREATE TABLE IF NOT EXISTS wallet_transactions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at          TEXT NOT NULL,
+    type                TEXT NOT NULL CHECK(type IN (
+        'TOPUP','WITHDRAW','BUY','SELL','RESOLVE','FEE','MIGRATION'
+    )),                                              -- uppercase convention for ledger codes
+    market_id           TEXT,
+    event_id            TEXT,
+    side                TEXT CHECK(side IN ('yes','no')),
+    shares              REAL,
+    price               REAL,
+    amount_usd          REAL NOT NULL,
+    fee_usd             REAL NOT NULL DEFAULT 0.0,
+    balance_after       REAL NOT NULL,
+    realized_pnl        REAL,                        -- null for TOPUP/WITHDRAW/FEE/MIGRATION; set for SELL/RESOLVE
+    notes               TEXT
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_markets_event ON markets(event_id);
 CREATE INDEX IF NOT EXISTS idx_markets_condition ON markets(condition_id);
@@ -188,16 +222,18 @@ CREATE INDEX IF NOT EXISTS idx_event_monitors_active ON event_monitors(auto_moni
 CREATE INDEX IF NOT EXISTS idx_analyses_event ON analyses(event_id);
 CREATE INDEX IF NOT EXISTS idx_movement_event ON movement_log(event_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_movement_market ON movement_log(market_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_paper_trades_status ON paper_trades(status);
-CREATE INDEX IF NOT EXISTS idx_paper_trades_event ON paper_trades(event_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(is_read) WHERE is_read = 0;
+CREATE INDEX IF NOT EXISTS idx_positions_event ON positions(event_id);
+CREATE INDEX IF NOT EXISTS idx_wallet_tx_created ON wallet_transactions(created_at);
+CREATE INDEX IF NOT EXISTS idx_wallet_tx_event ON wallet_transactions(event_id);
+CREATE INDEX IF NOT EXISTS idx_wallet_tx_type ON wallet_transactions(type);
 """
 
 
 class PolilyDB:
     """Unified SQLite database. Use as context manager."""
 
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
@@ -206,15 +242,59 @@ class PolilyDB:
         self.conn.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
 
-    def __enter__(self):
+    def __enter__(self) -> "PolilyDB":
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def _init_schema(self):
+    def _init_schema(self) -> None:
         self.conn.executescript(_SCHEMA)
+        # Drop the legacy paper_trades table on databases that were
+        # upgraded from <= v0.6.0. Idempotent — no-op on fresh DBs.
+        self.conn.execute("DROP TABLE IF EXISTS paper_trades")
+        self.conn.commit()
+        self._ensure_wallet_singleton()
+
+    def _ensure_wallet_singleton(self) -> None:
+        """Seed the wallet row on fresh DBs so downstream code can assume
+        `wallet` is non-empty. Idempotent — no-op when the row already
+        exists; a config change to `starting_balance` does NOT rebase an
+        existing wallet (use `polily reset --wallet-only` for that).
+        """
+        row = self.conn.execute("SELECT id FROM wallet WHERE id=1").fetchone()
+        if row is not None:
+            return
+
+        import warnings
+        from datetime import UTC, datetime
+
+        from scanner.core.config import ScannerConfig
+        try:
+            from scanner.core.config import load_config
+            minimal = Path("config.minimal.yaml")
+            example = Path("config.example.yaml")
+            if minimal.exists() and example.exists():
+                cfg = load_config(minimal, defaults_path=example)
+            elif example.exists():
+                cfg = load_config(example)
+            else:
+                cfg = ScannerConfig()
+        except Exception as e:
+            warnings.warn(
+                f"config load failed during wallet seed, using defaults: {e!r}",
+                stacklevel=2,
+            )
+            cfg = ScannerConfig()
+
+        now = datetime.now(UTC).isoformat()
+        starting = cfg.wallet.starting_balance
+        self.conn.execute(
+            "INSERT INTO wallet (id,cash_usd,starting_balance,topup_total,"
+            "withdraw_total,created_at,updated_at) VALUES (1,?,?,0,0,?,?)",
+            (starting, starting, now, now),
+        )
         self.conn.commit()
 
-    def close(self):
+    def close(self) -> None:
         self.conn.close()

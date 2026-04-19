@@ -10,25 +10,24 @@ from scanner.tui.service import ScanService
 
 
 def _mock_service():
-    """Create a ScanService with pre-loaded mock data (v0.5.0 DB-first API)."""
-    service = ScanService.__new__(ScanService)
-    service.config = MagicMock()
-    service.config.paper_trading.default_position_size_usd = 20
-    service.config.paper_trading.assumed_round_trip_friction_pct = 0.04
-    service.config.archiving.db_file = "/tmp/test_polily.db"
+    """Create a ScanService for TUI smoke tests.
+
+    Uses the real `__init__` so every new attribute added by future tasks
+    (wallet / positions / trade_engine / ...) is wired consistently. Config
+    is a MagicMock because TUI tests only need the config *shape*, not real
+    loaded values.
+    """
     import tempfile
 
     from scanner.core.db import PolilyDB
-    _tmp = tempfile.TemporaryDirectory()
-    service._tmp_dir = _tmp  # prevent GC cleanup during test
-    service.db = PolilyDB(Path(_tmp.name) / "polily.db")
-    service.total_scanned = 0
-    service.on_progress = None
-    service._steps = []
-    service._current_log = None
-    service.last_scan_id = None
-    service._current_narrator = None
 
+    config = MagicMock()
+    config.paper_trading.default_position_size_usd = 20
+    config.paper_trading.assumed_round_trip_friction_pct = 0.04
+    _tmp = tempfile.TemporaryDirectory()
+    db = PolilyDB(Path(_tmp.name) / "polily.db")
+    service = ScanService(config=config, db=db)
+    service._tmp_dir = _tmp  # prevent GC cleanup during test
     return service
 
 
@@ -120,8 +119,8 @@ class TestTUIDetailView:
             screen = app.screen
             screen.service = app.service
             screen._loading = False
-            # Navigate to research first
-            screen._navigate_to("research")
+            # Navigate to tasks first (the default "research"-era label before v0.5).
+            screen._navigate_to("tasks")
             await pilot.pause()
 
             await pilot.press("enter")

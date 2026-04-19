@@ -149,12 +149,39 @@ class PaperStatusView(Widget):
                 return
 
     def refresh_data(self) -> None:
-        """Incremental update: refresh current price and P&L for open trades."""
-        if not self._trades:
-            return
+        """Re-query positions, then update prices and P&L for visible rows.
+
+        Re-queries because positions can change between mounts: auto-resolution
+        via poll_job deletes closed positions, reset_wallet clears all, and
+        future UI paths may add trades without re-mounting this view. If the
+        set of row keys changed, rebuild the whole table — otherwise just
+        refresh cells incrementally to preserve cursor position.
+        """
         try:
             table = self.query_one("#portfolio-table", DataTable)
         except Exception:
+            return
+
+        fresh = self.service.get_open_trades()
+        old_keys = {t["id"] for t in self._trades}
+        new_keys = {t["id"] for t in fresh}
+        self._trades = fresh
+
+        if old_keys != new_keys:
+            # Row set changed → clear and re-fill so DataTable doesn't hold
+            # stale row_keys pointing at deleted / missing positions.
+            table.clear()
+            if not self._trades:
+                import contextlib
+                with contextlib.suppress(Exception):
+                    self.query_one("#portfolio-summary", Static).update(
+                        " [dim]暂无持仓。在市场详情页按 t 标记 paper trade。[/dim]"
+                    )
+                return
+            self._fill_table(table)
+            return
+
+        if not self._trades:
             return
 
         total_value = 0.0

@@ -4,7 +4,7 @@ import copy
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -75,8 +75,11 @@ class FiltersConfig(BaseModel):
     preferred_min_days_to_resolution: float = 0.5
     preferred_max_days_to_resolution: float = 7
 
-    max_spread_pct_yes: float = 0.04
-    preferred_max_spread_pct_yes: float = 0.02
+    # Spread threshold applies to the best-side % (cheaper of YES vs NO), so
+    # a low-YES market with a tradeable NO side isn't rejected for YES-side
+    # math the user never actually pays.
+    max_spread_pct: float = 0.04
+    preferred_max_spread_pct: float = 0.02
     max_round_trip_friction_pct: float = 0.08
 
     min_volume: float = 1000
@@ -175,7 +178,6 @@ class PaperTradingConfig(BaseModel):
     enabled: bool = True
     default_position_size_usd: float = 20
     assumed_round_trip_friction_pct: float = 0.04
-    auto_resolve: bool = False
 
 
 class DisciplineConfig(BaseModel):
@@ -210,6 +212,15 @@ class ReportingConfig(BaseModel):
 class ArchivingConfig(BaseModel):
     enabled: bool = True
     db_file: str = "./data/polily.db"
+
+
+class WalletConfig(BaseModel):
+    """Wallet starting balance for v0.6.0 paper trading system."""
+    starting_balance: float = Field(
+        default=100.0,
+        ge=1.0,
+        description="Initial cash when wallet is first created or reset.",
+    )
 
 
 class ExecutionHintsConfig(BaseModel):
@@ -307,6 +318,7 @@ class ScannerConfig(BaseModel):
     discipline: DisciplineConfig = DisciplineConfig()
     reporting: ReportingConfig = ReportingConfig()
     archiving: ArchivingConfig = ArchivingConfig()
+    wallet: WalletConfig = Field(default_factory=WalletConfig)
     execution_hints: ExecutionHintsConfig = ExecutionHintsConfig()
     movement: MovementConfig = MovementConfig()
 

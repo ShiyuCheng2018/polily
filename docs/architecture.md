@@ -1,4 +1,4 @@
-# Architecture (v0.5.0)
+# Architecture (v0.6.0+)
 
 ## System Overview
 
@@ -8,10 +8,16 @@ User pastes Polymarket URL
   Gamma API fetch → Score (5 dims) → Mispricing detect → AI narrative → Tier
         ↓                                                                  ↓
   events + markets persisted to SQLite               Tier A / B / C
+        ↓                                 ┌────────────────────────────────────┐
+  Auto-monitor ON → Daemon (30s tick)     │  User opens TradeDialog            │
+        ↓                                 │       ↓                            │
+  CLOB fetch → Score refresh              │  TradeEngine (atomic BEGIN/COMMIT) │
+        ↓                                 │       ├─ wallet.deduct (cash + fee)│
+  Movement detect → AI (if significant)   │       ├─ positions.add_shares      │
+        ↓                                 │       └─ wallet_transactions ledger│
+  Auto-resolution (closed + UMA final)    └────────────────────────────────────┘
         ↓
-  Auto-monitor ON → Daemon poll loop (30s)
-        ↓
-  CLOB prices → Score refresh → Movement detection → AI trigger (if significant)
+  ResolutionHandler: wallet.credit + positions.delete + ledger RESOLVE row
 ```
 
 ## Data Model (Unified SQLite)
@@ -25,7 +31,9 @@ All state in `data/polily.db`. No JSON files, no scan archives.
 | **event_monitors** | Monitor state — auto_monitor flag, next_check_at, next_check_reason |
 | **analyses** | Versioned AI analysis — trigger_source, narrative_output, mispricing_signal |
 | **movement_log** | Per-tick movement records — magnitude, quality, label, snapshot |
-| **paper_trades** | Simulated positions — entry/exit price, P&L, friction |
+| **positions** | Active exposure aggregated by (market_id, side) — weighted-avg cost, cost basis |
+| **wallet** | Cash singleton — balance, starting_balance, topup/withdraw totals |
+| **wallet_transactions** | Append-only ledger — BUY/SELL/FEE/RESOLVE/TOPUP/WITHDRAW with realized_pnl |
 | **scan_logs** | Audit trail — scan type, status, counts, errors |
 | **notifications** | Event alerts with read state |
 
@@ -66,6 +74,68 @@ Measures **tradability**, not profitability. Weights are type-specific (all sum 
 
 Output: signal (none/weak/moderate/strong), direction (overpriced/underpriced), deviation_pct, fair_value + confidence band.
 
+## Wallet System (v0.6.0+)
+
+Paper-trading backed by a real ledger. Built around three tables with
+atomicity guarantees so paper P&L reflects actual trading friction
+rather than a hardcoded constant.
+
+**Data flow**
+
+```
+execute_buy(shares)
+    └─> BEGIN
+        ├─ wallet.deduct(cost + fee)   → wallet_transactions(BUY)
+        ├─ wallet.deduct(fee, commit=False) → wallet_transactions(FEE)  [if fees_enabled]
+        └─ positions.add_shares(weighted-avg cost)
+        COMMIT
+
+execute_sell(shares)
+    └─> BEGIN
+        ├─ positions.remove_shares → realized_pnl
+        ├─ wallet.credit(proceeds)      → wallet_transactions(SELL, realized_pnl)
+        └─ wallet.deduct(fee)           → wallet_transactions(FEE)  [if fees_enabled]
+        COMMIT
+
+auto-resolution (poll tick, on closed market with UMA final)
+    └─> BEGIN
+        ├─ wallet.credit(payout × shares) → wallet_transactions(RESOLVE, realized_pnl)
+        └─ positions.delete
+        COMMIT
+```
+
+**Core tables**
+
+- `wallet` — singleton row: cash_usd, starting_balance, topup_total, withdraw_total
+- `positions` — one row per (market_id, side) with weighted-average avg_cost + cost_basis
+- `wallet_transactions` — append-only ledger, types: BUY / SELL / FEE / RESOLVE / TOPUP / WITHDRAW
+
+**Atomicity contract** (`scanner/core/trade_engine.py`): every public `execute_*` method
+opens one `BEGIN` and calls inner writes with `commit=False`, so the cash delta, fee
+deduction, and position mutation all commit together or all roll back. Same contract
+for `ResolutionHandler.resolve_market` — the credit + position delete + ledger insert
+are one transaction.
+
+**Fees** (`scanner/core/fees.py`): quadratic Polymarket taker fee:
+`fee = shares × rate × price × (1 − price)`. Rate comes from the market's
+`feesEnabled` + `feeSchedule.rate` fields (per-market, not per-category).
+Most Polymarket markets have `feesEnabled=false` → `fee = $0`.
+
+**Auto-resolution** (`scanner/daemon/resolution.py`): a closed market with a live
+position triggers a Gamma fetch. `derive_winner` gates on `umaResolutionStatuses`:
+
+- `[]` — non-UMA market (price-feed settled) → honor `outcomePrices`
+- `[…, "resolved"]` — UMA final → honor `outcomePrices`
+- `["proposed"]` / `["disputed"]` / other — defer (next poll tick retries)
+
+This prevents settling during the 2-hour UMA challenge window where `outcomePrices`
+already shows the proposer's guess but can still flip.
+
+**Realized-P&L history** (`HistoryView` + `ScanService.get_realized_history`): every
+SELL and RESOLVE row in the ledger is one history entry. Fees are joined by
+`(market_id, side, notes LIKE '%SELL%')` within a 2-second window so the per-sell
+friction shown in the UI reflects the real fee amount, not an estimate.
+
 ## Daemon Architecture
 
 `scanner/daemon/scheduler.py` — APScheduler with dual executors.
@@ -87,7 +157,8 @@ Output: signal (none/weak/moderate/strong), direction (overpriced/underpriced), 
 │                                              │
 │  Lifecycle: launchd (macOS)                  │
 │    PID → data/scheduler.pid                  │
-│    Log → data/poll.log                       │
+│    Log → data/logs/poll-v<ver>-<ts>.log      │
+│          (per-restart rotation, old kept)    │
 └─────────────────────────────────────────────┘
 ```
 
@@ -95,7 +166,7 @@ Output: signal (none/weak/moderate/strong), direction (overpriced/underpriced), 
 
 `scanner/daemon/poll_job.py` — `global_poll(db)`
 
-Each tick executes 3 steps sequentially:
+Each tick executes 4 steps sequentially:
 
 **Step 1 — CLOB Price Fetch**
 - Fetches all monitored markets (event_monitors.auto_monitor=1, market not closed, has token)
@@ -114,6 +185,16 @@ Each tick executes 3 steps sequentially:
 - Cold start guard: < 5 history entries → forced noise
 - negRisk events get event-level metrics (overround, entropy, leader, TV distance, HHI, dutch_book_gap)
 - Trigger check: max(M) >= 70 AND max(Q) >= 60 AND cooldown OK AND daily limit OK → submit to ai executor
+
+**Step 4 — Auto-Resolution** (`scanner/daemon/resolution.py`)
+- For each closed market where the user holds a live position: fetch Gamma to read
+  `outcomePrices` + `umaResolutionStatuses`
+- `derive_winner` gates on UMA status: proposed/disputed → defer; empty (non-UMA)
+  or last-entry `"resolved"` → honor the price vector
+- Settle atomically: `wallet.credit(payout × shares)` + `positions.delete` + ledger
+  RESOLVE row, all in one `BEGIN/COMMIT`
+- Zero Gamma calls for closed markets with no user exposure (read-through gate in
+  `_has_positions`)
 
 ## Movement Detection (Dual Dimensions)
 
@@ -147,9 +228,19 @@ Why /price not /book for bid/ask: negRisk markets' /book returns raw token order
 `scanner/agents/narrative_writer.py` — single autonomous agent.
 
 - Invoked via `claude -p --allowedTools Read,Bash,Grep,WebSearch,TodoWrite,StructuredOutput`
-- Reads polily.db autonomously, searches web for news/context
-- Outputs: mode (discovery/position_management), summary, risk_flags, operations, next_check_at
-- Structured output via JSON schema + --output-format json
+- Reads polily.db autonomously (events / markets / positions / wallet_transactions /
+  analyses / movement_log), searches web for news/context
+- Two modes driven by `_compute_position_context(event_id)`:
+  - **discovery** — no positions on the event → evaluate whether it's worth entering,
+    output BUY_YES / BUY_NO / PASS operations with position_size_usd, confidence,
+    reasoning
+  - **position_management** — user holds a live position → output HOLD /
+    INCREASE / REDUCE / EXIT plus `thesis_status` (intact / weakened / invalidated),
+    `thesis_note`, and optional `stop_loss` / `take_profit` trigger prices
+- Common output fields: `summary`, `analysis`, `risk_flags` (severity-tagged),
+  `research_findings` (source-cited), `time_window`, `next_check_at` +
+  `next_check_reason`, `dev_feedback` (self-critique for product iteration)
+- Structured output via JSON schema + `--output-format json`
 - Fallback on CLI failure; 1 retry on incomplete output
 - Heartbeat monitoring emits status every 5s
 
@@ -163,11 +254,14 @@ Built with [Textual](https://textual.textualize.io/). Single screen + sidebar na
 |------|------|
 | Scan Log | URL input + scan history with step logs |
 | Monitor List | Auto-monitored events, movement status, analysis history |
-| Paper Status | Open/closed positions, P&L |
-| History | Past analyses |
+| 持仓 (Positions) | Live positions across markets with floating P&L |
+| Wallet | Cash + positions equity + ledger (topup / withdraw / reset) |
+| History | Realized-P&L ledger — one row per SELL / RESOLVE event |
 | Notifications | Event alerts |
 
 - Worker threads for async scan/analysis (no UI blocking)
 - Auto-refresh current view when daemon is alive
-- Detail views: score breakdown, AI analysis versions, trade dialog with real-time CLOB pricing
-- Auto-starts daemon on launch if monitored events exist
+- Detail views: score breakdown, AI analysis versions, trade dialog (Buy/Sell tabs)
+  with real-time CLOB pricing and live fee preview
+- Always restarts daemon on launch (picks up latest code); skips when no
+  monitored events exist

@@ -23,19 +23,25 @@ class PolilyApp(App):
         self.service = service or ScanService()
 
     def on_mount(self) -> None:
-        self._ensure_daemon()
+        self._restart_daemon()
         self.push_screen(MainScreen(self.service))
 
-    def _ensure_daemon(self) -> None:
-        """Auto-start scheduler daemon if not running and there are auto-monitored events."""
+    def _restart_daemon(self) -> None:
+        """Restart scheduler daemon on every TUI launch.
+
+        Previously only started the daemon if it wasn't already running. Now
+        we always restart (when there are auto-monitored events) so the
+        daemon picks up the latest code the user has committed. New daemon
+        writes a fresh `data/logs/poll-v<ver>-<ts>.log`; old logs are kept.
+        """
         from scanner.core.monitor_store import get_active_monitors
         monitors = get_active_monitors(self.service.db)
         if not monitors:
             return
         try:
-            from scanner.daemon.scheduler import ensure_daemon_running
-            if ensure_daemon_running():
-                self.notify("后台监控已自动启动")
+            from scanner.daemon.scheduler import restart_daemon
+            if restart_daemon():
+                self.notify("后台监控已重启 (已加载最新代码)")
         except Exception:
             pass  # non-fatal — daemon can be started manually
 

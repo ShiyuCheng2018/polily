@@ -1,6 +1,6 @@
 # Polily — A Polymarket Monitoring Agent That Actually Works
 
-Paste a Polymarket event URL and Polily decides **whether it's worth your time, scores the structure, hunts mispricing, watches for moves, and tracks paper PnL**. A monitoring agent built for small accounts.
+Paste a Polymarket event URL and Polily decides **whether it's worth your time, scores the structure, hunts mispricing, watches for moves, and closes out positions automatically when markets resolve**. A monitoring agent built for small accounts.
 
 ## Why You Need It
 
@@ -23,7 +23,7 @@ Polymarket is unfriendly to small accounts:
 1. **Paste a URL → instant dossier + value check** — pulls the full event + child markets, scores 0–100 across spread / depth / objectivity / time / friction, surfaces hidden costs, and tells you whether the event is worth following
 2. **Mispricing detection** — for crypto threshold markets, compares against a log-normal vol model fed by live Binance data and flags probabilities that look mis-priced
 3. **Background watching + move alerts** — a daemon polls prices for everything in your watchlist; meaningful moves trigger AI analysis and notifications
-4. **Paper trading** — PnL computed against real friction, so you can rehearse for a while before putting real money on the line
+4. **Paper trading with a full wallet** — real cash balance, aggregated positions (YES + NO coexist), Polymarket-accurate taker fees, buy / add / reduce / close, and automatic settlement when markets resolve — so your paper PnL curve reflects what real trading would have looked like
 
 > A high structure score ≠ YES will win. It measures *whether the market is tradeable*, not *whether you should buy* — keep the two separate.
 
@@ -51,12 +51,15 @@ In the TUI, paste a Polymarket event URL (looks like `https://polymarket.com/eve
 |-----|--------|
 | `0` | Tasks log |
 | `1` | Watchlist |
-| `2` | Paper trades |
-| `3` | History |
-| `4` | Notifications |
+| `2` | Paper positions |
+| `3` | Wallet (balance + ledger + topup/withdraw) |
+| `4` | History |
+| `5` | Notifications |
 | `r` | Refresh |
 | `↑ / ↓` | Navigate menu |
 | `q` | Quit |
+
+Inside the Wallet page: `t` topup · `w` withdraw · click `重置钱包` to reset.
 
 ## Background Scheduler
 
@@ -68,6 +71,7 @@ polily scheduler status     # status
 polily scheduler restart    # restart
 polily scheduler stop       # stop
 polily reset                # wipe DB / logs for a clean restart
+polily reset --wallet-only  # reset wallet only, keep events/markets/analyses
 ```
 
 ## Current Limitations
@@ -79,7 +83,7 @@ polily reset                # wipe DB / logs for a clean restart
 ## Development
 
 ```bash
-pytest tests/ -q              # ~620 tests
+pytest tests/ -q              # ~900 tests
 ruff check scanner/ tests/    # lint
 pyright scanner/              # type check
 ```

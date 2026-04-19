@@ -1,12 +1,14 @@
-"""Global poll job -- fetches prices for ALL active markets every 10s.
+"""Global poll job -- fetches prices for ALL active markets every 30s.
 
 Architecture:
   - ONE global poll function, registered as IntervalTrigger in daemon
-  - Step 1 (price layer): fetch CLOB + Binance concurrently -> update markets table
-  - Step 2 (score refresh): recalculate mispricing + scores for scored markets
-  - Step 3 (intelligence layer): for monitored events -> compute signals
+  - Step 1   (price layer): fetch CLOB + Binance concurrently -> update markets table
+  - Step 1.5 (resolution): for markets closed this tick that the user holds,
+    fetch Gamma outcomePrices and settle via ResolutionHandler
+  - Step 2   (score refresh): recalculate mispricing + scores for scored markets
+  - Step 3   (intelligence layer): for monitored events -> compute signals
 
-Module-level _ctx pattern (PollerContext) for db/config/scheduler access.
+Module-level _ctx pattern (PollerContext) for db/config/scheduler/wallet access.
 """
 
 import asyncio
@@ -14,7 +16,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -24,7 +26,13 @@ from scanner.core.event_store import (
     mark_market_closed,
     update_market_prices,
 )
+from scanner.daemon.resolution import derive_winner
 from scanner.price_feeds import extract_crypto_asset
+
+if TYPE_CHECKING:
+    from scanner.core.positions import PositionManager
+    from scanner.core.wallet import WalletService
+    from scanner.daemon.resolution import ResolutionHandler
 
 logger = logging.getLogger(__name__)
 
@@ -34,20 +42,146 @@ _SEMAPHORE_LIMIT = 100
 _poll_count = 0  # Safe: poll executor is single-threaded (APScheduler config)
 _poll_log: logging.Logger | None = None
 
+# Gamma API for post-close resolution checks.
+GAMMA_BASE_URL = "https://gamma-api.polymarket.com"
+# Tight timeout — same as TradeEngine live-price fetch. Resolution is
+# best-effort per tick; a miss now retries 30s later.
+_GAMMA_TIMEOUT = 2.0
+# Cap concurrent Gamma requests when many markets close in one tick (e.g.
+# end-of-week expiry batch) so we don't DoS the free public endpoint.
+_GAMMA_CONCURRENCY = 5
+
+
+async def _fetch_gamma_market(market_id: str) -> dict | None:
+    """GET Gamma /markets/{market_id}; None on any failure.
+
+    Per-tick best-effort. Errors are split by kind:
+    - transient network/HTTP errors → WARN (expected at the free-tier edge)
+    - malformed/missing JSON → ERROR (schema drift → needs a human)
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_GAMMA_TIMEOUT) as client:
+            r = await client.get(f"{GAMMA_BASE_URL}/markets/{market_id}")
+            r.raise_for_status()
+            return r.json()
+    except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as e:
+        logger.warning("gamma fetch failed for %s (transient): %s", market_id, e)
+        return None
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        logger.error(
+            "gamma response malformed for %s — possible schema drift: %s",
+            market_id, e, exc_info=True,
+        )
+        return None
+
+
+def _has_positions(db: PolilyDB, market_id: str) -> bool:
+    row = db.conn.execute(
+        "SELECT 1 FROM positions WHERE market_id=? LIMIT 1", (market_id,)
+    ).fetchone()
+    return row is not None
+
+
+async def _run_resolution_pass(
+    market_ids: list[str],
+    db: PolilyDB,
+    wallet: "WalletService",
+    positions: "PositionManager",
+    resolver: "ResolutionHandler",
+) -> None:
+    """Fan out resolution checks across all markets closed this tick.
+
+    Wrapped in a coroutine so `asyncio.run()` owns the event loop lifetime.
+    Pre-3.12 Python tolerated `asyncio.gather(*[coro_call(...)])` outside a
+    loop; 3.14 raises at `asyncio.events.get_event_loop()` because the
+    coroutines are constructed before `asyncio.run()` installs the loop.
+
+    Concurrency is capped via a semaphore to avoid hammering Gamma's free
+    public endpoint during end-of-week close storms.
+    """
+    sem = asyncio.Semaphore(_GAMMA_CONCURRENCY)
+
+    async def _one(mid: str) -> None:
+        async with sem:
+            await _resolve_closed_market_if_position(
+                mid, db, wallet, positions, resolver,
+            )
+
+    await asyncio.gather(*[_one(mid) for mid in market_ids])
+
+
+async def _resolve_closed_market_if_position(
+    market_id: str,
+    db: PolilyDB,
+    wallet: "WalletService",
+    positions: "PositionManager",
+    resolver: "ResolutionHandler",
+) -> None:
+    """Gated on user holding a position — zero-Gamma-request path for closed
+    markets the user doesn't care about (the vast majority)."""
+    if not _has_positions(db, market_id):
+        return
+    data = await _fetch_gamma_market(market_id)
+    if data is None:
+        return  # transient HTTP error or timeout — retry next tick
+    prices_raw = data.get("outcomePrices", "[]")
+    prices = (
+        json.loads(prices_raw) if isinstance(prices_raw, str) else (prices_raw or [])
+    )
+    # Gamma's umaResolutionStatuses is a history array. During the UMA
+    # challenge window (last entry "proposed"), outcomePrices already
+    # reflects the proposer's guess but can still flip. Gate below.
+    uma_raw = data.get("umaResolutionStatuses", "[]")
+    try:
+        uma_statuses = (
+            json.loads(uma_raw) if isinstance(uma_raw, str) else (uma_raw or [])
+        )
+    except (ValueError, TypeError):
+        uma_statuses = []
+    winner = derive_winner(prices, uma_statuses=uma_statuses)
+    if winner is None:
+        return  # UMA pre-finalization, dispute in progress, or malformed response
+    n_settled, credited = resolver.resolve_market(market_id, winner)
+    # Operator-facing audit line (logger.info inside resolver goes to Python
+    # root logger which has no handler in daemon mode — poll.log is the only
+    # persistent trail). Skip when no positions settled to avoid noise.
+    if n_settled > 0:
+        _get_poll_log().info(
+            f"           resolved| {market_id} -> {winner} "
+            f"| {n_settled} position{'s' if n_settled != 1 else ''} "
+            f"credited ${credited:.2f}"
+        )
+
+
+def _build_poll_log_path(project_root: "Path | None" = None) -> "Path":  # noqa: F821
+    """Build the poll log path for this daemon instance.
+
+    Pattern: `data/logs/poll-v<version>-<YYYYMMDD-HHMMSS>.log`. Each daemon
+    restart gets a fresh file — callers keep the history. Directory is
+    created if missing.
+    """
+    from datetime import datetime
+    from pathlib import Path
+
+    from scanner import __version__
+
+    if project_root is None:
+        project_root = Path(__file__).resolve().parent.parent.parent
+    log_dir = project_root / "data" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return log_dir / f"poll-v{__version__}-{ts}.log"
+
 
 def _get_poll_log() -> logging.Logger:
-    """Lazy-init a dedicated file logger for poll.log."""
+    """Lazy-init a dedicated file logger for this daemon's poll log."""
     global _poll_log
     if _poll_log is not None:
         return _poll_log
-    from pathlib import Path
-    # Use project root (3 levels up from this file) to avoid cwd dependency
-    project_root = Path(__file__).resolve().parent.parent.parent
-    log_dir = str(project_root / "data")
-    Path(log_dir).mkdir(parents=True, exist_ok=True)
+    path = _build_poll_log_path()
     _poll_log = logging.getLogger("polily.poll")
     _poll_log.propagate = False
-    handler = logging.FileHandler(str(Path(log_dir) / "poll.log"))
+    handler = logging.FileHandler(str(path))
     handler.setFormatter(logging.Formatter("%(message)s"))
     _poll_log.addHandler(handler)
     _poll_log.setLevel(logging.INFO)
@@ -56,9 +190,16 @@ def _get_poll_log() -> logging.Logger:
 
 @dataclass(frozen=True)
 class PollerContext:
-    """Immutable context -- swapped atomically to avoid thread-safety races."""
+    """Immutable context -- swapped atomically to avoid thread-safety races.
+
+    wallet/positions/resolver are required so that auto-resolution cannot be
+    silently disabled by a forgotten init_poller arg (user's money at stake).
+    """
 
     db: PolilyDB
+    wallet: "WalletService"
+    positions: "PositionManager"
+    resolver: "ResolutionHandler"
     config: Any = None
     scheduler: Any = None
 
@@ -66,11 +207,24 @@ class PollerContext:
 # Single reference (set once on daemon startup via init_poller)
 _ctx: PollerContext | None = None
 
-
-def init_poller(db: PolilyDB, config: Any = None, scheduler: Any = None) -> None:
+def init_poller(
+    db: PolilyDB,
+    wallet: "WalletService",
+    positions: "PositionManager",
+    resolver: "ResolutionHandler",
+    config: Any = None,
+    scheduler: Any = None,
+) -> None:
     """Initialize module-level context."""
     global _ctx
-    _ctx = PollerContext(db=db, config=config, scheduler=scheduler)
+    _ctx = PollerContext(
+        db=db,
+        wallet=wallet,
+        positions=positions,
+        resolver=resolver,
+        config=config,
+        scheduler=scheduler,
+    )
 
 
 def global_poll(db: PolilyDB | None = None) -> None:
@@ -98,6 +252,13 @@ def global_poll(db: PolilyDB | None = None) -> None:
 
     if not fetchable:
         return
+
+    # Emit banner up front so mid-tick log lines (e.g. `resolved|` from
+    # Step 1.5) appear chronologically below the tick header they belong
+    # to, not above it. Pre-v0.6.0 had no mid-tick logging so the banner
+    # was written at the end as a summary header; that inverts reader
+    # expectations once auto-resolution joined the flow.
+    _get_poll_log().info(f"── poll #{_poll_count} {'─' * 50}")
 
     # --- Step 1: Fetch CLOB + Binance concurrently ---
     crypto_symbols = _collect_crypto_symbols(db)
@@ -165,6 +326,23 @@ def global_poll(db: PolilyDB | None = None) -> None:
             )
     db.conn.commit()
 
+    # --- Step 1.5: Auto-resolve newly closed markets the user holds -----
+    # Only fires if init_poller supplied wallet/positions/resolver (test
+    # paths that invoke global_poll(db=...) directly skip resolution).
+    if closed_count > 0 and _ctx is not None:
+        closed_market_ids = [
+            mid for mids in closed_by_event.values() for mid in mids
+        ]
+        try:
+            asyncio.run(
+                _run_resolution_pass(
+                    closed_market_ids, db,
+                    _ctx.wallet, _ctx.positions, _ctx.resolver,
+                )
+            )
+        except Exception:
+            logger.exception("auto-resolution pass failed (will retry next tick)")
+
     # --- Step 2: Refresh scores ---
     refresh_ms = 0
     refresh_n = 0
@@ -190,7 +368,6 @@ def global_poll(db: PolilyDB | None = None) -> None:
 
     plog = _get_poll_log()
     ts = datetime.now().strftime("%H:%M:%S")
-    plog.info(f"── poll #{_poll_count} {'─' * 50}")
 
     # fetch line
     fetch_parts = [f"clob {len(fetchable)} markets {clob_elapsed:.1f}s"]

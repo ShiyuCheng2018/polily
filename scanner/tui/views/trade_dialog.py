@@ -1,225 +1,692 @@
-"""TradeDialog: modal popup for creating paper trades.
+"""TradeDialog: modal with Buy/Sell tabs.
 
-Flow: select sub-market (radio) → enter amount → click YES/NO button.
+Buy flow: pick sub-market → enter USD amount → click 买 YES / 买 NO
+  → ScanService.execute_buy with shares = amount / preview_price.
+Sell flow: pick sub-market → pick side (if both held) → pick %/manual shares
+  → ScanService.execute_sell.
+
+Preview arithmetic (shares, fee, realized P&L) lives in `_trade_preview.py`
+so the panels match exactly what TradeEngine charges, without duplicating
+the fee curve.
+
+Price-drift note: preview uses DB `yes_price`/`no_price` (updated by the
+poll job, ~30s resolution). `TradeEngine.execute_buy/sell` re-fetches a
+fresh CLOB price at execution time, so actual fill may deviate a cent or
+two from the preview. The post-execution `notify(...)` shows the actual
+fill price and fee, so users see any drift after the fact. For a paper
+trader this is acceptable; no slippage guard is enforced.
 """
 
 from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static
+from textual.widget import Widget
+from textual.widgets import (
+    Button,
+    Input,
+    Label,
+    RadioButton,
+    RadioSet,
+    Static,
+    TabbedContent,
+    TabPane,
+)
+
+from scanner.core.event_store import get_event_markets
+from scanner.tui.views._trade_preview import (
+    compute_buy_preview,
+    compute_sell_preview,
+    shares_from_pct,
+)
+
+_DIALOG_WIDTH = 82
+_QUICK_AMOUNTS = (10, 20, 50)
+_QUICK_PCTS = (25, 50, 75, 100)
 
 
-class TradeDialog(ModalScreen[str | None]):
-    """Modal dialog for paper trade entry."""
+class BuyPane(Widget):
+    """Buy tab: USD input → live share/fee preview → YES/NO execute."""
 
-    DEFAULT_CSS = """
-    TradeDialog {
+    class BuyConfirmed(Message):
+        def __init__(self, *, market_id: str, side: str, shares: float) -> None:
+            super().__init__()
+            self.market_id = market_id
+            self.side = side
+            self.shares = shares
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._market = None
+        self._cash: float = 0.0
+        self._positions_here: list[dict] = []  # positions on currently-selected market
+
+    def compose(self) -> ComposeResult:
+        yield Static("", id="buy-holding-line")
+        with Horizontal(id="buy-amount-row"):
+            yield Label("金额 $", classes="field-label")
+            yield Input(value="10", id="buy-amount", type="number")
+            yield Static("", id="buy-preview", classes="preview")
+        yield Static("", id="buy-fee-line", classes="preview-secondary")
+        with Horizontal(id="buy-quick-row"):
+            yield Label("快捷金额", classes="field-label")
+            for amt in _QUICK_AMOUNTS:
+                yield Button(f"${amt}", id=f"buy-quick-{amt}", classes="quick-btn")
+        with Horizontal(id="buy-action-row"):
+            yield Button("买 YES", id="btn-buy-yes", variant="success", classes="trade-btn")
+            yield Button("买 NO", id="btn-buy-no", variant="error", classes="trade-btn")
+
+    def update_context(
+        self, *, market, cash: float, positions_here: list[dict],
+    ) -> None:
+        self._market = market
+        self._cash = cash
+        self._positions_here = positions_here
+        self._refresh()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "buy-amount":
+            self._refresh()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id is None:
+            return
+        # Quick-amount buttons
+        if event.button.id.startswith("buy-quick-"):
+            amt = event.button.id.replace("buy-quick-", "")
+            self.query_one("#buy-amount", Input).value = amt
+            return
+        # YES / NO execute
+        if event.button.id in ("btn-buy-yes", "btn-buy-no"):
+            self._execute("yes" if event.button.id == "btn-buy-yes" else "no")
+
+    # ----- internals -----
+
+    def _parse_amount(self) -> float | None:
+        try:
+            v = float(self.query_one("#buy-amount", Input).value)
+            return v if v > 0 else None
+        except (ValueError, TypeError):
+            return None
+
+    def _side_price(self, side: str) -> float | None:
+        if self._market is None or self._market.yes_price is None:
+            return None
+        yes = self._market.yes_price
+        if side == "yes":
+            return yes if 0 < yes < 1 else None
+        no = self._market.no_price or round(1 - yes, 4)
+        return no if 0 < no < 1 else None
+
+    def _refresh(self) -> None:
+        if self._market is None:
+            return
+        self._refresh_holdings()
+        self._refresh_button_labels()
+        self._refresh_preview()
+
+    def _refresh_holdings(self) -> None:
+        line = self.query_one("#buy-holding-line", Static)
+        if not self._positions_here:
+            line.update("[dim]已持有: —[/dim]")
+            return
+        parts = []
+        for p in self._positions_here:
+            parts.append(
+                f"{p['side'].upper()} {p['shares']:.1f}股 @ {p['avg_cost'] * 100:.1f}¢",
+            )
+        line.update("[dim]已持有:[/dim] " + " · ".join(parts))
+
+    def _refresh_button_labels(self) -> None:
+        yes_p = self._side_price("yes")
+        no_p = self._side_price("no")
+        yes_btn = self.query_one("#btn-buy-yes", Button)
+        no_btn = self.query_one("#btn-buy-no", Button)
+        yes_btn.label = f"买 YES {yes_p * 100:.1f}¢" if yes_p else "YES (价格不可用)"
+        no_btn.label = f"买 NO {no_p * 100:.1f}¢" if no_p else "NO (价格不可用)"
+        yes_btn.disabled = yes_p is None
+        no_btn.disabled = no_p is None
+
+    def _refresh_preview(self) -> None:
+        preview = self.query_one("#buy-preview", Static)
+        fee_line = self.query_one("#buy-fee-line", Static)
+
+        amount = self._parse_amount()
+        yes_p = self._side_price("yes")
+        no_p = self._side_price("no")
+
+        if amount is None or (yes_p is None and no_p is None):
+            preview.update("[dim]输入有效金额后显示折算[/dim]")
+            fee_line.update("")
+            return
+
+        rows: list[str] = []
+        max_cash_required = 0.0
+        max_fee = 0.0
+        for side_label, price in (("YES", yes_p), ("NO", no_p)):
+            if price is None:
+                continue
+            try:
+                p = compute_buy_preview(
+                    amount_usd=amount, price=price,
+                    fees_enabled=bool(getattr(self._market, "fees_enabled", False)),
+                    fee_rate=getattr(self._market, "fee_rate", None),
+                )
+            except ValueError:
+                continue
+            rows.append(
+                f"{side_label}→{p['shares']:.1f}股 赢${p['to_win']:.2f}",
+            )
+            max_cash_required = max(max_cash_required, p["cash_required"])
+            max_fee = max(max_fee, p["fee"])
+
+        preview.update("  ·  ".join(rows) if rows else "[dim]—[/dim]")
+
+        # Insufficient-funds advisory (worst-case side).
+        if max_cash_required > self._cash:
+            fee_line.update(
+                f"[red]余额不足[/red] · 手续费 ≈ ${max_fee:.2f} · 需 ${max_cash_required:.2f} / 有 ${self._cash:.2f}",
+            )
+            # Disable both sides — TradeEngine would reject anyway.
+            self.query_one("#btn-buy-yes", Button).disabled = True
+            self.query_one("#btn-buy-no", Button).disabled = True
+        else:
+            fee_line.update(f"[dim]手续费 ≈ ${max_fee:.2f}[/dim]")
+
+    def _execute(self, side: str) -> None:
+        amount = self._parse_amount()
+        if amount is None:
+            self.notify("请输入有效金额")
+            return
+        price = self._side_price(side)
+        if price is None or self._market is None:
+            self.notify("该方向价格不可用")
+            return
+        try:
+            p = compute_buy_preview(
+                amount_usd=amount, price=price,
+                fees_enabled=bool(getattr(self._market, "fees_enabled", False)),
+                fee_rate=getattr(self._market, "fee_rate", None),
+            )
+        except ValueError as e:
+            self.notify(f"无法执行: {e}")
+            return
+        self.post_message(self.BuyConfirmed(
+            market_id=self._market.market_id,
+            side=side,
+            shares=p["shares"],
+        ))
+
+
+class SellPane(Widget):
+    """Sell tab: pick side (radio if multi-side) → % / manual shares → realized P&L."""
+
+    class SellConfirmed(Message):
+        def __init__(self, *, market_id: str, side: str, shares: float) -> None:
+            super().__init__()
+            self.market_id = market_id
+            self.side = side
+            self.shares = shares
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._market = None
+        self._positions_here: list[dict] = []
+        self._selected_side: str | None = None
+        self._positions_sig: tuple | None = None  # change-detection for _rebuild_radio
+
+    def compose(self) -> ComposeResult:
+        # No "持仓:" static label — the radio set is self-evident, saving a row.
+        yield RadioSet(id="sell-side-radio")
+        yield Static("", id="sell-empty-hint")
+        with Horizontal(id="sell-pct-row"):
+            yield Label("卖出比例", classes="field-label")
+            for pct in _QUICK_PCTS:
+                yield Button(f"{pct}%", id=f"sell-pct-{pct}", classes="quick-btn")
+        with Horizontal(id="sell-shares-row"):
+            yield Label("股数 ", classes="field-label")
+            yield Input(value="", id="sell-shares", type="number")
+            yield Static("", id="sell-preview", classes="preview")
+        yield Static("", id="sell-pnl-line", classes="preview-secondary")
+        with Horizontal(id="sell-action-row"):
+            yield Button("卖出", id="btn-sell", variant="warning", classes="trade-btn")
+
+    def update_context(
+        self, *, market, positions_here: list[dict],
+    ) -> None:
+        """Push new market/positions into the pane.
+
+        Idempotent w.r.t. unchanged positions: skips radio rebuild when the
+        position set is identical, which prevents the 3s periodic refresh
+        from silently reverting the user's radio pick back to first side.
+        """
+        self._market = market
+        self._positions_here = positions_here
+
+        # Preserve user's selection if the side is still held.
+        held_sides = {p["side"] for p in positions_here}
+        if self._selected_side not in held_sides:
+            self._selected_side = positions_here[0]["side"] if positions_here else None
+
+        # Cheap signature compare — rebuild radio only on real change.
+        new_sig = tuple(
+            (p["side"], round(p["shares"], 6), round(p["avg_cost"], 6))
+            for p in positions_here
+        )
+        if new_sig != self._positions_sig:
+            self._rebuild_radio()
+            self._positions_sig = new_sig
+
+        self._refresh()
+
+    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+        if event.radio_set.id != "sell-side-radio":
+            return
+        idx = event.radio_set.pressed_index
+        if 0 <= idx < len(self._positions_here):
+            self._selected_side = self._positions_here[idx]["side"]
+            self._refresh()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "sell-shares":
+            self._refresh_preview()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id is None:
+            return
+        if event.button.id.startswith("sell-pct-"):
+            pct = int(event.button.id.replace("sell-pct-", ""))
+            self._apply_pct(pct)
+            return
+        if event.button.id == "btn-sell":
+            self._execute()
+
+    # ----- internals -----
+
+    def _current_position(self) -> dict | None:
+        if self._selected_side is None:
+            return None
+        for p in self._positions_here:
+            if p["side"] == self._selected_side:
+                return p
+        return None
+
+    def _exit_price(self, side: str) -> float | None:
+        """Exit price: YES→yes_price (ask proxy), NO→no_price (complementary)."""
+        if self._market is None or self._market.yes_price is None:
+            return None
+        yes = self._market.yes_price
+        if side == "yes":
+            return yes if 0 < yes < 1 else None
+        no = self._market.no_price or round(1 - yes, 4)
+        return no if 0 < no < 1 else None
+
+    def _parse_shares(self) -> float | None:
+        try:
+            v = float(self.query_one("#sell-shares", Input).value)
+            return v if v > 0 else None
+        except (ValueError, TypeError):
+            return None
+
+    def _rebuild_radio(self) -> None:
+        radio = self.query_one("#sell-side-radio", RadioSet)
+        for btn in list(radio.query(RadioButton)):
+            btn.remove()
+        for p in self._positions_here:
+            radio.mount(RadioButton(
+                f"{p['side'].upper()}  {p['shares']:.1f}股 @ {p['avg_cost'] * 100:.1f}¢",
+                value=(p["side"] == self._selected_side),
+            ))
+
+    def _apply_pct(self, pct: int) -> None:
+        pos = self._current_position()
+        if pos is None:
+            return
+        shares = shares_from_pct(holdings=pos["shares"], pct=pct)
+        # Round to 4 decimals so inputs stay tidy.
+        self.query_one("#sell-shares", Input).value = f"{shares:.4f}".rstrip("0").rstrip(".")
+
+    def _refresh(self) -> None:
+        self._refresh_empty_state()
+        self._refresh_sell_button_label()
+        self._refresh_preview()
+
+    def _refresh_empty_state(self) -> None:
+        hint = self.query_one("#sell-empty-hint", Static)
+        radio = self.query_one("#sell-side-radio", RadioSet)
+        pct_row = self.query_one("#sell-pct-row", Horizontal)
+        shares_row = self.query_one("#sell-shares-row", Horizontal)
+        action_row = self.query_one("#sell-action-row", Horizontal)
+        pnl = self.query_one("#sell-pnl-line", Static)
+        preview = self.query_one("#sell-preview", Static)
+
+        if not self._positions_here:
+            hint.update("[dim]该子市场暂无持仓。切到 '买入' tab 建仓。[/dim]")
+            hint.display = True
+            radio.display = False
+            pct_row.display = False
+            shares_row.display = False
+            action_row.display = False
+            pnl.update("")
+            preview.update("")
+            return
+
+        hint.update("")
+        hint.display = False  # collapse empty hint row when we have positions
+        radio.display = True
+        pct_row.display = True
+        shares_row.display = True
+        action_row.display = True
+
+    def _refresh_sell_button_label(self) -> None:
+        if self._selected_side is None:
+            return
+        price = self._exit_price(self._selected_side)
+        btn = self.query_one("#btn-sell", Button)
+        if price is None:
+            btn.label = f"卖出 {self._selected_side.upper()} (价格不可用)"
+            btn.disabled = True
+        else:
+            btn.label = f"卖出 {self._selected_side.upper()} @ {price * 100:.1f}¢"
+            btn.disabled = False
+
+    def _refresh_preview(self) -> None:
+        preview = self.query_one("#sell-preview", Static)
+        pnl_line = self.query_one("#sell-pnl-line", Static)
+        if not self._positions_here:
+            preview.update("")
+            pnl_line.update("")
+            return
+
+        pos = self._current_position()
+        shares = self._parse_shares()
+        price = self._exit_price(self._selected_side) if self._selected_side else None
+
+        if pos is None or shares is None or price is None:
+            preview.update("[dim]选择比例或输入股数[/dim]")
+            pnl_line.update("")
+            return
+
+        if shares > pos["shares"]:
+            preview.update(f"[red]超出持仓 (有 {pos['shares']:.2f} 股)[/red]")
+            pnl_line.update("")
+            self.query_one("#btn-sell", Button).disabled = True
+            return
+
+        try:
+            p = compute_sell_preview(
+                shares=shares, price=price,
+                fees_enabled=bool(getattr(self._market, "fees_enabled", False)),
+                fee_rate=getattr(self._market, "fee_rate", None),
+                avg_cost=pos["avg_cost"],
+            )
+        except ValueError:
+            preview.update("[dim]输入无效[/dim]")
+            pnl_line.update("")
+            return
+
+        preview.update(
+            f"净到账 ${p['net_received']:.2f}  ·  手续费 ${p['fee']:.2f}",
+        )
+        pnl = p["realized_pnl"]
+        color = "green" if pnl > 0 else "red" if pnl < 0 else "dim"
+        sign = "+" if pnl > 0 else ""
+        pnl_line.update(f"已实现盈亏: [{color}]{sign}${pnl:.2f}[/{color}]")
+        # Re-enable button if we disabled it on over-sell before.
+        self.query_one("#btn-sell", Button).disabled = False
+
+    def _execute(self) -> None:
+        pos = self._current_position()
+        shares = self._parse_shares()
+        if pos is None or shares is None:
+            self.notify("请选择要卖出的股数")
+            return
+        if shares > pos["shares"]:
+            self.notify(f"超出持仓 (有 {pos['shares']:.2f} 股)")
+            return
+        if self._market is None or self._selected_side is None:
+            return
+        self.post_message(self.SellConfirmed(
+            market_id=self._market.market_id,
+            side=self._selected_side,
+            shares=shares,
+        ))
+
+
+class TradeDialog(ModalScreen[dict | None]):
+    """Modal dialog for paper trade entry (Buy/Sell)."""
+
+    DEFAULT_CSS = f"""
+    TradeDialog {{
         align: center middle;
-    }
-    TradeDialog #dialog-box {
-        width: 80;
+    }}
+    TradeDialog #dialog-box {{
+        width: {_DIALOG_WIDTH};
         height: auto;
-        max-height: 85%;
+        max-height: 100%;
         border: thick $primary;
         background: $surface;
-        padding: 2 3;
-    }
-    TradeDialog #dialog-title {
+        padding: 0 2;
+    }}
+    TradeDialog #dialog-header {{
+        height: auto;
+        padding: 0 0 1 0;
+    }}
+    TradeDialog #dialog-title {{
         text-style: bold;
+        width: 1fr;
+    }}
+    TradeDialog #balance-label {{
+        width: auto;
+        color: $accent;
+        text-style: bold;
+    }}
+    TradeDialog #market-radios {{
+        height: auto;
+        max-height: 8;
         padding: 0 0 1 0;
-    }
-    TradeDialog #market-radios {
-        height: auto;
-        max-height: 12;
-        padding: 0 0 1 0;
-    }
-    TradeDialog #amount-row {
-        height: auto;
-        margin: 2 0;
-    }
-    TradeDialog #amount-input {
-        width: 20;
-    }
-    TradeDialog #btn-row {
-        height: auto;
-        align: center middle;
-        margin: 1 0;
-    }
-    TradeDialog .trade-btn {
+    }}
+    TradeDialog .field-label {{
+        width: 12;
+        padding: 1 1 0 0;
+    }}
+    TradeDialog .preview {{
+        padding: 1 0 0 1;
+        width: 1fr;
+    }}
+    TradeDialog .preview-secondary {{
+        padding: 0 0 1 13;
+    }}
+    TradeDialog #buy-amount, TradeDialog #sell-shares {{
+        width: 14;
+    }}
+    TradeDialog .quick-btn {{
+        min-width: 6;
+        margin: 0 1 0 0;
+    }}
+    TradeDialog .trade-btn {{
         min-width: 20;
         margin: 0 1;
-    }
-    TradeDialog #btn-cancel {
-        min-width: 10;
-    }
+    }}
+    TradeDialog #buy-action-row, TradeDialog #sell-action-row {{
+        height: auto;
+        align: center middle;
+        padding: 1 0;
+    }}
+    TradeDialog #buy-quick-row, TradeDialog #sell-pct-row {{
+        height: auto;
+        padding: 0 0 1 0;
+    }}
+    TradeDialog #buy-amount-row, TradeDialog #sell-shares-row {{
+        height: auto;
+        padding: 0 0 1 0;
+    }}
+    TradeDialog #sell-side-radio {{
+        height: auto;
+        max-height: 4;
+    }}
+    TradeDialog #sell-empty-hint {{
+        height: auto;
+        padding: 1 0;
+    }}
+    TradeDialog #btn-sell {{
+        min-width: 28;
+        height: 3;
+        color: white;
+        text-style: bold;
+    }}
+    /* TabbedContent inside an auto-height parent must itself be auto or
+       its inner ContentSwitcher collapses to zero (tab headers visible,
+       pane content invisible). Same for BuyPane / SellPane widgets. */
+    TradeDialog TabbedContent {{
+        height: auto;
+    }}
+    TradeDialog TabbedContent ContentSwitcher {{
+        height: auto;
+    }}
+    TradeDialog TabPane {{
+        height: auto;
+    }}
+    TradeDialog BuyPane, TradeDialog SellPane {{
+        height: auto;
+    }}
     """
 
-    BINDINGS = [("escape", "dismiss", "取消")]
+    BINDINGS = [("escape", "dismiss_cancel", "取消")]
 
-    def __init__(self, event_id: str, markets: list, service) -> None:
+    def __init__(
+        self,
+        event_id: str,
+        markets: list,
+        service,
+        default_tab: str = "buy",
+    ) -> None:
         super().__init__()
         self.event_id = event_id
         self._markets = [m for m in markets if not m.closed and m.yes_price is not None]
         self._service = service
+        self._default_tab = default_tab
+        self._buy_pane = BuyPane()
+        self._sell_pane = SellPane()
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog-box"):
-            yield Static("建仓", id="dialog-title")
-
-            # Sub-market radio selection
+            with Horizontal(id="dialog-header"):
+                yield Static("交易", id="dialog-title")
+                yield Static("", id="balance-label")
+            yield Static("子市场:", classes="field-label")
             with RadioSet(id="market-radios"):
                 for i, m in enumerate(self._markets):
-                    label = m.group_item_title or m.question[:30]
+                    label = m.group_item_title or (m.question or "")[:30]
                     yes = f"{m.yes_price * 100:.1f}¢" if m.yes_price else "?"
-                    no = f"{(m.no_price or round(1 - (m.yes_price or 0), 4)) * 100:.1f}¢"
+                    no_raw = m.no_price or round(1 - (m.yes_price or 0), 4)
+                    no = f"{no_raw * 100:.1f}¢"
                     yield RadioButton(f"{label}  Y:{yes} N:{no}", value=i == 0)
-
-            # Amount input
-            with Horizontal(id="amount-row"):
-                yield Label("金额 $")
-                yield Input(value="10", id="amount-input", type="number")
-
-            # YES / NO / Cancel buttons — labels set in on_mount
-            with Horizontal(id="btn-row"):
-                yield Button("YES", id="btn-yes", variant="success", classes="trade-btn")
-                yield Button("NO", id="btn-no", variant="error", classes="trade-btn")
-                yield Button("取消", id="btn-cancel", variant="default")
+            with TabbedContent(initial=self._default_tab, id="tabs"):
+                with TabPane("买入", id="buy"):
+                    yield self._buy_pane
+                with TabPane("卖出", id="sell"):
+                    yield self._sell_pane
 
     def on_mount(self) -> None:
-        self._update_buttons()
-        self._refresh_timer = self.set_interval(3, self._refresh_prices)
+        self._refresh_balance()
+        self._push_context_to_panes()
+        self._refresh_timer = self.set_interval(3, self._refresh_prices_periodic)
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
-        self._update_buttons()
+        if event.radio_set.id == "market-radios":
+            self._push_context_to_panes()
 
-    def _refresh_prices(self) -> None:
-        """Re-read prices from DB and update buttons + radio labels."""
-        from scanner.core.event_store import get_event_markets
-        fresh = get_event_markets(self.event_id, self._service.db)
-        fresh_by_id = {m.market_id: m for m in fresh}
+    def on_buy_pane_buy_confirmed(self, event: BuyPane.BuyConfirmed) -> None:
+        try:
+            result = self._service.execute_buy(
+                market_id=event.market_id,
+                side=event.side,
+                shares=event.shares,
+            )
+        except Exception as e:
+            self.notify(f"买入失败: {e}", severity="error")
+            return
+        self.notify(
+            f"买入成功: {event.side.upper()} {event.shares:.2f}股 "
+            f"@ {result['price'] * 100:.1f}¢  手续费 ${result['fee']:.2f}",
+        )
+        self.dismiss({"action": "buy", **result, "side": event.side, "shares": event.shares})
 
-        for i, m in enumerate(self._markets):
-            updated = fresh_by_id.get(m.market_id)
-            if updated and updated.yes_price is not None:
-                m.yes_price = updated.yes_price
-                m.no_price = updated.no_price
-                # Update radio label
-                try:
-                    radio_set = self.query_one("#market-radios", RadioSet)
-                    buttons = list(radio_set.query(RadioButton))
-                    btn = buttons[i] if i < len(buttons) else None
-                    if btn is None:
-                        continue
-                    label = m.group_item_title or m.question[:30]
-                    no = (m.no_price or round(1 - m.yes_price, 4)) * 100
-                    btn.label = f"{label}  Y:{m.yes_price * 100:.1f}¢ N:{no:.1f}¢"
-                except Exception:
-                    pass
+    def on_sell_pane_sell_confirmed(self, event: SellPane.SellConfirmed) -> None:
+        try:
+            result = self._service.execute_sell(
+                market_id=event.market_id,
+                side=event.side,
+                shares=event.shares,
+            )
+        except Exception as e:
+            self.notify(f"卖出失败: {e}", severity="error")
+            return
+        pnl = result["realized_pnl"]
+        sign = "+" if pnl >= 0 else ""
+        self.notify(
+            f"卖出成功: {event.side.upper()} {event.shares:.2f}股 "
+            f"@ {result['price'] * 100:.1f}¢  已实现 {sign}${pnl:.2f}",
+        )
+        self.dismiss({"action": "sell", **result, "side": event.side, "shares": event.shares})
 
-        self._update_buttons()
+    def action_dismiss_cancel(self) -> None:
+        self.dismiss(None)
 
-    def _get_selected_market(self):
+    # ----- internals -----
+
+    def _selected_market(self):
         try:
             radio_set = self.query_one("#market-radios", RadioSet)
             idx = radio_set.pressed_index
             if 0 <= idx < len(self._markets):
                 return self._markets[idx]
         except Exception:
-            pass
+            return self._markets[0] if self._markets else None
         return self._markets[0] if self._markets else None
 
-    @staticmethod
-    def _fetch_live_entry_price(token_id: str, side: str) -> float | None:
-        """Fetch real-time execution price from CLOB /price API.
-
-        For YES buy: /price?side=SELL (the ask — what you pay).
-        For NO buy: 1 - /price?side=BUY (the bid).
-        Returns entry price or None on failure.
-        """
-        if not token_id:
-            return None
+    def _refresh_balance(self) -> None:
         try:
-            import httpx
-            if side == "yes":
-                # Buying YES = paying the ask
-                resp = httpx.get(
-                    "https://clob.polymarket.com/price",
-                    params={"token_id": token_id, "side": "SELL"},
-                    timeout=2,
-                )
-            else:
-                # Buying NO = 1 - bid
-                resp = httpx.get(
-                    "https://clob.polymarket.com/price",
-                    params={"token_id": token_id, "side": "BUY"},
-                    timeout=2,
-                )
-            if resp.status_code == 200:
-                price = float(resp.json().get("price", 0))
-                return price if side == "yes" else round(1 - price, 4)
-        except Exception:
-            pass
-        return None
-
-    def _update_buttons(self) -> None:
-        m = self._get_selected_market()
-        if not m:
-            return
-        yes_price = m.yes_price or 0
-        no_price = m.no_price or round(1 - yes_price, 4)
-        try:
-            self.query_one("#btn-yes", Button).label = f"YES {yes_price * 100:.1f}¢"
-            self.query_one("#btn-no", Button).label = f"NO {no_price * 100:.1f}¢"
+            cash = self._service.wallet.get_cash()
+            self.query_one("#balance-label", Static).update(f"💰 余额 ${cash:.2f}")
         except Exception:
             pass
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-cancel":
-            self.dismiss(None)
+    def _push_context_to_panes(self) -> None:
+        market = self._selected_market()
+        if market is None:
             return
-
-        if event.button.id not in ("btn-yes", "btn-no"):
-            return
-
-        m = self._get_selected_market()
-        if not m:
-            self.notify("请选择子市场")
-            return
-
-        # Parse amount
-        try:
-            amount_input = self.query_one("#amount-input", Input)
-            amount = float(amount_input.value)
-            if amount <= 0:
-                self.notify("金额必须大于 0")
-                return
-        except (ValueError, TypeError):
-            self.notify("请输入有效金额")
-            return
-
-        side = "yes" if event.button.id == "btn-yes" else "no"
-
-        # Fetch real-time execution price from CLOB API
-        entry_price = self._fetch_live_entry_price(m.clob_token_id_yes, side)
-        if entry_price is None:
-            # Fallback to DB price
-            yes_price = m.yes_price or 0
-            entry_price = yes_price if side == "yes" else round(1 - yes_price, 4)
-
-        from scanner.core.paper_store import create_paper_trade
-
-        trade_id = create_paper_trade(
-            event_id=self.event_id,
-            market_id=m.market_id,
-            title=m.group_item_title or m.question[:40],
-            side=side,
-            entry_price=entry_price,
-            position_size_usd=amount,
-            structure_score=m.structure_score,
-            db=self._service.db,
+        positions_here = [
+            p for p in self._service.positions.get_event_positions(self.event_id)
+            if p["market_id"] == market.market_id
+        ]
+        import contextlib
+        cash = 0.0
+        with contextlib.suppress(Exception):
+            cash = self._service.wallet.get_cash()
+        # Fee context (fees_enabled + fee_rate) lives on the market object itself;
+        # panes pull from self._market at preview time.
+        self._buy_pane.update_context(
+            market=market, cash=cash, positions_here=positions_here,
+        )
+        self._sell_pane.update_context(
+            market=market, positions_here=positions_here,
         )
 
-        self.notify(f"建仓成功: {side.upper()} @ {entry_price * 100:.1f}¢ ${amount:.0f}")
-        self.dismiss(trade_id)
+    def _refresh_prices_periodic(self) -> None:
+        """Re-read prices from DB and update radio labels + pane context."""
+        try:
+            fresh = get_event_markets(self.event_id, self._service.db)
+        except Exception:
+            return
+        fresh_by_id = {m.market_id: m for m in fresh}
+        for m in self._markets:
+            updated = fresh_by_id.get(m.market_id)
+            if updated and updated.yes_price is not None:
+                m.yes_price = updated.yes_price
+                m.no_price = updated.no_price
+        self._refresh_balance()
+        self._push_context_to_panes()

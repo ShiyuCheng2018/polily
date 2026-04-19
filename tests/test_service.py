@@ -85,6 +85,66 @@ class TestGetEventDetail:
     def test_nonexistent_returns_none(self, db, service):
         assert service.get_event_detail("nonexistent") is None
 
+    def test_trades_reflects_v060_positions_not_legacy_paper_trades(self, db, service):
+        """Regression: after v0.6.0 the TUI MarketDetailView's 'trades' feed
+        must reflect the live `positions` table (TradeEngine.execute_buy only
+        writes there). Reading legacy `paper_trades` shows stale/empty data.
+
+        Test shape: buy through TradeEngine (mock live price), then confirm
+        get_event_detail exposes a PositionPanel-compatible row."""
+        from unittest.mock import patch as _patch
+        _seed(db, "ev1", "m1")
+        with _patch(
+            "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+            return_value=0.79,
+        ):
+            service.execute_buy(market_id="m1", side="no", shares=10.0)
+
+        detail = service.get_event_detail("ev1")
+        trades = detail["trades"]
+        assert len(trades) == 1, (
+            f"expected 1 trade row derived from positions, got {len(trades)}"
+        )
+        t = trades[0]
+        # PositionPanel reads: market_id, side, entry_price, position_size_usd, title.
+        assert t["market_id"] == "m1"
+        assert t["side"] == "no"
+        assert t["entry_price"] == pytest.approx(0.79)
+        assert t["position_size_usd"] == pytest.approx(7.90)  # 10 × 0.79
+        assert "title" in t
+
+
+class TestComputePositionContext:
+    """Regression: has_position + position_summary in analyze_event must
+    source from the v0.6.0 positions table (TradeEngine's sole write target),
+    not the legacy paper_trades table. Shape is shared with the AI
+    narrative-writer prompt, so fields must survive mapping:
+      avg_cost → entry_price line
+      cost_basis → size line
+    """
+
+    def test_no_positions_returns_false_none(self, db, service):
+        _seed(db, "ev1", "m1")
+        has_pos, summary = service._compute_position_context("ev1")
+        assert has_pos is False
+        assert summary is None
+
+    def test_positions_populate_summary_lines(self, db, service):
+        from unittest.mock import patch as _patch
+        _seed(db, "ev1", "m1")
+        with _patch(
+            "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+            return_value=0.50,
+        ):
+            service.execute_buy(market_id="m1", side="no", shares=10.0)
+
+        has_pos, summary = service._compute_position_context("ev1")
+        assert has_pos is True
+        assert summary is not None
+        assert "NO" in summary
+        assert "0.50" in summary  # avg_cost rendered
+        assert "$5" in summary    # cost_basis ≈ 5
+        assert "m1" in summary
 
 class TestPassEvent:
     def test_pass_sets_user_status(self, db, service):
@@ -109,24 +169,17 @@ class TestToggleMonitor:
 
 class TestPaperTrades:
     def test_create_and_get_trades(self, db, service):
+        """execute_buy creates a position surfaced by get_open_trades (post-v0.6.0)."""
         _seed(db, "ev1", "m1")
-        tid = service.create_paper_trade(
-            event_id="ev1", market_id="m1", title="Test",
-            side="yes", entry_price=0.55, position_size_usd=20,
-        )
-        assert tid is not None
+        with patch(
+            "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+            return_value=0.55,
+        ):
+            service.execute_buy(market_id="m1", side="yes", shares=10.0)
         trades = service.get_open_trades()
         assert len(trades) == 1
-
-    def test_trade_stats(self, db, service):
-        _seed(db, "ev1", "m1")
-        service.create_paper_trade(
-            event_id="ev1", market_id="m1", title="Test",
-            side="yes", entry_price=0.5, position_size_usd=20,
-        )
-        stats = service.get_trade_stats()
-        assert stats["open"] == 1
-
+        assert trades[0]["side"] == "yes"
+        assert trades[0]["entry_price"] == pytest.approx(0.55)
 
 class TestAnalyzeEvent:
     def test_analyze_saves_to_db(self, db, service):

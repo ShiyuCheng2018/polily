@@ -18,10 +18,9 @@ from scanner.core.event_store import (
     get_event_markets,
 )
 from scanner.core.monitor_store import get_event_monitor, update_next_check_at
-from scanner.core.paper_store import create_paper_trade as _create_paper_trade
-from scanner.core.paper_store import get_open_trades as _get_open_trades
-from scanner.core.paper_store import get_resolved_trades as _get_resolved_trades
-from scanner.core.paper_store import get_trade_stats as _get_trade_stats
+from scanner.core.positions import PositionManager
+from scanner.core.trade_engine import TradeEngine
+from scanner.core.wallet import WalletService
 from scanner.daemon.auto_monitor import toggle_auto_monitor
 from scanner.monitor.store import get_event_movements
 from scanner.scan_log import (
@@ -47,9 +46,15 @@ class ScanService:
         self,
         config: ScannerConfig | None = None,
         db: PolilyDB | None = None,
-    ):
+    ) -> None:
         self.config = config or self._load_default_config()
         self.db = db or PolilyDB(self.config.archiving.db_file)
+
+        # v0.6.0 wallet system: single dependency point for TUI views
+        # (wallet.py / trade_dialog.py / paper_status.py)
+        self.wallet = WalletService(self.db)
+        self.positions = PositionManager(self.db)
+        self.trade_engine = TradeEngine(self.db, self.wallet, self.positions)
 
         # Progress tracking for TUI
         self.on_progress: Callable[[list[StepInfo]], None] | None = None
@@ -122,7 +127,7 @@ class ScanService:
         self,
         event_id: str,
         trigger_source: str = "manual",
-        on_heartbeat=None,
+        on_heartbeat: Callable[[float, str], None] | None = None,
     ) -> AnalysisVersion:
         """Run AI analysis on an event. Agent reads DB autonomously."""
         event = get_event(event_id, self.db)
@@ -133,20 +138,7 @@ class ScanService:
         start_time = time.time()
 
         # Check if user has open positions in this event
-        from scanner.core.paper_store import get_event_open_trades
-        open_trades = get_event_open_trades(event_id, self.db)
-        has_position = len(open_trades) > 0
-        position_summary = None
-        if has_position:
-            lines = []
-            for t in open_trades:
-                side = t.get("side", "?").upper()
-                entry = t.get("entry_price", 0)
-                size = t.get("position_size_usd", 0)
-                mid = t.get("market_id", "?")
-                title = t.get("title", "")[:40]
-                lines.append(f"{side} @ {entry:.2f}  ${size:.0f}  {mid}  {title}")
-            position_summary = "\n".join(lines)
+        has_position, position_summary = self._compute_position_context(event_id)
 
         # Get existing analyses for version numbering
         existing = get_event_analyses(event_id, self.db)
@@ -223,13 +215,13 @@ class ScanService:
                    COUNT(DISTINCT mk.market_id) AS market_count,
                    COALESCE(em.auto_monitor, 0) AS is_monitored,
                    em.next_check_at AS next_check_at,
-                   COUNT(DISTINCT pt.id) AS position_count,
+                   COUNT(DISTINCT ps.market_id || '/' || ps.side) AS position_count,
                    leader.group_item_title AS leader_title,
                    leader.yes_price AS leader_price
             FROM events e
             LEFT JOIN markets mk ON mk.event_id = e.event_id
             LEFT JOIN event_monitors em ON em.event_id = e.event_id
-            LEFT JOIN paper_trades pt ON pt.event_id = e.event_id AND pt.status = 'open'
+            LEFT JOIN positions ps ON ps.event_id = e.event_id
             LEFT JOIN (
                 SELECT m1.event_id, m1.group_item_title, m1.yes_price
                 FROM markets m1
@@ -263,14 +255,30 @@ class ScanService:
         return results
 
     def get_event_detail(self, event_id: str) -> dict | None:
-        """Return full detail for an event: event, markets, analyses, trades, monitor, movements."""
+        """Return full detail for an event: event, markets, analyses, trades, monitor, movements.
+
+        `trades` is derived from the v0.6.0 `positions` table, reshaped into
+        the PositionPanel schema (market_id/side/title/entry_price/
+        position_size_usd). Previously this read the legacy `paper_trades`
+        table, which TradeEngine stopped writing in v0.6.0 — causing
+        MarketDetailView to show "无持仓" for live positions.
+        """
         event = get_event(event_id, self.db)
         if event is None:
             return None
         markets = get_event_markets(event_id, self.db)
         analyses = get_event_analyses(event_id, self.db)
-        from scanner.core.paper_store import get_event_open_trades
-        trades = get_event_open_trades(event_id, self.db)
+        _positions = self.positions.get_event_positions(event_id)
+        trades = [
+            {
+                "market_id": p["market_id"],
+                "side": p["side"],
+                "title": p.get("title") or "",
+                "entry_price": p["avg_cost"],
+                "position_size_usd": p["cost_basis"],
+            }
+            for p in _positions
+        ]
         monitor = get_event_monitor(event_id, self.db)
         movements = get_event_movements(event_id, self.db, hours=24)
         return {
@@ -299,38 +307,160 @@ class ScanService:
         return bool(mon and mon.get("auto_monitor"))
 
     # ------------------------------------------------------------------
-    # Paper trades
+    # Positions (v0.6.0) — legacy "paper trades" API name retained where
+    # TUI views read a shimmed dict shape.
     # ------------------------------------------------------------------
 
-    def create_paper_trade(
-        self,
-        *,
-        event_id: str,
-        market_id: str,
-        title: str,
-        side: str,
-        entry_price: float,
-        position_size_usd: float,
-    ) -> str:
-        """Create a paper trade. Returns trade ID."""
-        return _create_paper_trade(
-            event_id=event_id,
-            market_id=market_id,
-            title=title,
-            side=side,
-            entry_price=entry_price,
-            position_size_usd=position_size_usd,
-            db=self.db,
-        )
+    def _compute_position_context(
+        self, event_id: str,
+    ) -> tuple[bool, str | None]:
+        """Return (has_position, summary) for the NarrativeWriter prompt.
+
+        Sourced from `positions` (the v0.6.0 write target). Format keeps
+        the line layout the agent prompt expects so no prompt change is
+        needed: ``SIDE @ avg_cost  $cost_basis  market_id  title``.
+        """
+        rows = self.positions.get_event_positions(event_id)
+        if not rows:
+            return False, None
+        lines = []
+        for p in rows:
+            side = (p.get("side") or "?").upper()
+            entry = p.get("avg_cost") or 0
+            size = p.get("cost_basis") or 0
+            mid = p.get("market_id") or "?"
+            title = (p.get("title") or "")[:40]
+            lines.append(f"{side} @ {entry:.2f}  ${size:.0f}  {mid}  {title}")
+        return True, "\n".join(lines)
 
     def get_open_trades(self) -> list[dict]:
-        return _get_open_trades(self.db)
+        """Open positions in paper_trades dict shape (shim for legacy TUI views).
 
-    def get_resolved_trades(self) -> list[dict]:
-        return _get_resolved_trades(self.db)
+        Source of truth is `positions` post-v0.6.0. Synthetic `id` preserves
+        the DataTable row_key logic in paper_status.py. Callers needing the
+        native position shape should use `get_all_positions` instead.
+        """
+        positions = self.positions.get_all_positions()
+        return [
+            {
+                "id": f"{p['market_id']}:{p['side']}",
+                "market_id": p["market_id"],
+                "event_id": p["event_id"],
+                "side": p["side"],
+                "title": p["title"],
+                "entry_price": p["avg_cost"],
+                "position_size_usd": p["cost_basis"],
+            }
+            for p in positions
+        ]
 
-    def get_trade_stats(self) -> dict:
-        return _get_trade_stats(self.db)
+    # ------------------------------------------------------------------
+    # Realized P&L history (v0.6.0 — sourced from wallet_transactions)
+    # ------------------------------------------------------------------
+
+    def get_realized_history(self) -> list[dict]:
+        """Return SELL + RESOLVE rows with matched FEE and market title.
+
+        Each returned dict carries the ledger fields plus:
+          * ``title`` — markets.question (for UI display)
+          * ``fee_usd`` — sum of FEE rows on the same (market_id, side)
+            within a 2-second window of the realize event (same txn id
+            neighbourhood in practice)
+
+        Ordered newest-first by created_at.
+        """
+        cur = self.db.conn.execute(
+            """
+            SELECT
+                w.id,
+                w.created_at,
+                w.type,
+                w.market_id,
+                w.event_id,
+                w.side,
+                w.shares,
+                w.price,
+                w.amount_usd,
+                w.realized_pnl,
+                COALESCE(m.question, '') AS title,
+                CASE WHEN w.type = 'SELL' THEN (
+                    SELECT COALESCE(SUM(-f.amount_usd), 0)
+                    FROM wallet_transactions f
+                    WHERE f.type = 'FEE'
+                      AND f.market_id = w.market_id
+                      AND f.side = w.side
+                      AND f.notes LIKE '%SELL%'
+                      AND ABS(julianday(f.created_at) - julianday(w.created_at))
+                          < 2.0 / 86400.0
+                ) ELSE 0 END AS fee_usd
+            FROM wallet_transactions w
+            LEFT JOIN markets m ON m.market_id = w.market_id
+            WHERE w.type IN ('SELL', 'RESOLVE')
+            ORDER BY w.id DESC
+            """,
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+    def get_realized_summary(self) -> dict:
+        """Aggregate for the history page header.
+
+        count — number of realize events (SELL + RESOLVE rows)
+        total_pnl — SUM(realized_pnl) over SELL + RESOLVE
+        total_fees — SUM(-amount_usd) over FEE rows (all-time scope: every
+            fee the user paid; matches the pattern shown inline per row)
+        """
+        row = self.db.conn.execute(
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE type IN ('SELL', 'RESOLVE')) AS count,
+                COALESCE(
+                    SUM(realized_pnl) FILTER (WHERE type IN ('SELL', 'RESOLVE')),
+                    0.0
+                ) AS total_pnl,
+                COALESCE(
+                    SUM(-amount_usd) FILTER (WHERE type = 'FEE'),
+                    0.0
+                ) AS total_fees
+            FROM wallet_transactions
+            """,
+        ).fetchone()
+        return {
+            "count": row["count"],
+            "total_pnl": row["total_pnl"],
+            "total_fees": row["total_fees"],
+        }
+
+    # ------------------------------------------------------------------
+    # Wallet / positions / trade proxies (v0.6.0)
+    # ------------------------------------------------------------------
+
+    def execute_buy(self, *, market_id: str, side: str, shares: float) -> dict:
+        return self.trade_engine.execute_buy(
+            market_id=market_id, side=side, shares=shares,
+        )
+
+    def execute_sell(self, *, market_id: str, side: str, shares: float) -> dict:
+        return self.trade_engine.execute_sell(
+            market_id=market_id, side=side, shares=shares,
+        )
+
+    def topup(self, amount: float) -> None:
+        self.wallet.topup(amount)
+
+    def withdraw(self, amount: float) -> None:
+        self.wallet.withdraw(amount)
+
+    def get_wallet_snapshot(self) -> dict:
+        return self.wallet.get_snapshot()
+
+    def get_wallet_transactions(self, limit: int = 100) -> list[dict]:
+        return self.wallet.list_transactions(limit=limit)
+
+    def get_all_positions(self) -> list[dict]:
+        return self.positions.get_all_positions()
+
+    def get_event_positions(self, event_id: str) -> list[dict]:
+        return self.positions.get_event_positions(event_id)
 
     # ------------------------------------------------------------------
     # User actions
@@ -371,7 +501,7 @@ class ScanService:
     # ------------------------------------------------------------------
 
     def get_history_count(self) -> int:
-        return len(self.get_resolved_trades())
+        return self.get_realized_summary()["count"]
 
     # ------------------------------------------------------------------
     # Internal: fetch + persist

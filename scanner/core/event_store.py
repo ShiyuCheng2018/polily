@@ -85,6 +85,8 @@ class MarketRow(BaseModel):
     book_asks: str | None = None
     recent_trades: str | None = None
     accepting_orders: int = 1
+    fees_enabled: int = 0  # Gamma market.feesEnabled; default off matches Polymarket's norm
+    fee_rate: float | None = None  # Gamma market.feeSchedule.rate
     active: int = 1
     closed: int = 0
     created_at: str | None = None
@@ -111,7 +113,11 @@ _EVENT_UPDATE_COLS = tuple(c for c in _EVENT_INSERT_COLS if c != "event_id")
 
 
 def upsert_event(event: EventRow, db: PolilyDB) -> None:
-    """Insert or update an event. Preserves user_status, structure_score, tier."""
+    """Insert or update an event.
+
+    user_status / structure_score / tier are preserved by *exclusion* — they
+    are not in _EVENT_INSERT_COLS, so upsert never touches them.
+    """
     placeholders = ", ".join("?" for _ in _EVENT_INSERT_COLS)
     conflict_set = ", ".join(f"{c}=excluded.{c}" for c in _EVENT_UPDATE_COLS)
     sql = f"""
@@ -165,7 +171,7 @@ _MARKET_INSERT_COLS = (
     "yes_price", "no_price", "best_bid", "best_ask", "spread",
     "last_trade_price", "bid_depth", "ask_depth",
     "book_bids", "book_asks", "recent_trades",
-    "accepting_orders", "active", "closed",
+    "accepting_orders", "fees_enabled", "fee_rate", "active", "closed",
     "created_at", "updated_at",
 )
 
@@ -181,7 +187,7 @@ _MARKET_ALL_COLS = (
     "yes_price", "no_price", "best_bid", "best_ask", "spread",
     "last_trade_price", "bid_depth", "ask_depth",
     "book_bids", "book_asks", "recent_trades",
-    "accepting_orders", "active", "closed",
+    "accepting_orders", "fees_enabled", "fee_rate", "active", "closed",
     "created_at", "updated_at",
 )
 
@@ -326,6 +332,8 @@ def market_model_to_row(m: Market, event_id: str) -> MarketRow:
         ask_depth=m.total_ask_depth_usd,
         book_bids=json.dumps([{"price": b.price, "size": b.size} for b in m.book_depth_bids]) if m.book_depth_bids else None,
         book_asks=json.dumps([{"price": a.price, "size": a.size} for a in m.book_depth_asks]) if m.book_depth_asks else None,
+        fees_enabled=int(m.fees_enabled),
+        fee_rate=m.fee_rate,
         updated_at=datetime.now(UTC).isoformat(),
     )
 

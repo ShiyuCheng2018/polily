@@ -13,6 +13,7 @@ from textual.widgets import Static
 
 from scanner.tui.components import (
     AnalysisPanel,
+    BinaryMarketStructurePanel,
     EventHeader,
     EventKpiRow,
     PositionPanel,
@@ -116,7 +117,10 @@ class MarketDetailView(Widget):
         with VerticalScroll():
             yield EventHeader(event, monitor, movements)
             yield EventKpiRow(event, markets)
-            yield SubMarketTable(markets, event)
+            if len(markets) == 1:
+                yield BinaryMarketStructurePanel(markets[0], event)
+            else:
+                yield SubMarketTable(markets, event)
             yield Static("")
             yield PositionPanel(trades, markets, movements)
 
@@ -168,8 +172,10 @@ class MarketDetailView(Widget):
             return
         from scanner.tui.views.trade_dialog import TradeDialog
 
-        def _on_dismiss(trade_id: str | None) -> None:
-            if trade_id:
+        def _on_dismiss(payload: dict | None) -> None:
+            # Post-v0.6.0: payload is a dict from TradeDialog with action/side/shares/etc.
+            # Truthy on success (any completed buy/sell), None on cancel.
+            if payload:
                 self.screen.refresh_sidebar_counts()
                 self.refresh_data()
 
