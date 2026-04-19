@@ -26,10 +26,15 @@ structured release notes — see `git log` for history.
   The 历史 zone adds a `类型` column so AI 分析 / 评分 / 扫描 rows
   can be distinguished at a glance.
 - **`c` on a running row in 分析队列** opens a confirmation modal to
-  cancel the in-flight analysis. Routes through the new
-  `narrator_registry` so scans initiated by the dispatcher (not just
-  the TUI) are reachable — kills the Claude CLI subprocess + marks
-  the row `cancelled`.
+  cancel the in-flight analysis. For TUI-initiated runs the Claude CLI
+  subprocess is killed and the row flipped to `cancelled`. For rows
+  initiated by the daemon's dispatcher (scheduled / movement triggers)
+  the DB row is flipped to `cancelled` and the subsequent narrator
+  completion is safely ignored — the daemon subprocess still runs to
+  natural end but its result is discarded and no phantom pending row
+  is emitted. Process-local `narrator_registry` means true subprocess
+  termination from the TUI for daemon runs is not yet implemented;
+  planned for a later release via DB-backed cancel signals.
 - **Movement-triggered analyses** no longer bypass the queue — they
   write a pending row with `trigger_source='movement'` and go through
   the same dispatcher as scheduled runs. All AI triggers (manual /

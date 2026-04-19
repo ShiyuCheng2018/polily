@@ -105,6 +105,50 @@ def test_validate_next_check_at_rejects_bad_inputs():
 
 
 @pytest.mark.asyncio
+async def test_analyze_skips_next_pending_when_cancelled_mid_run(tmp_path):
+    """C3 fix: if user cancelled the running row while the narrator was
+    generating, analyze_event must NOT insert a new pending row on behalf
+    of it — the user's intent was to stop, not to reschedule."""
+    from scanner.scan_log import claim_pending_scan, finish_scan, insert_pending_scan
+
+    svc, db = _mk_service(tmp_path)
+    sid = insert_pending_scan(
+        event_id="ev1", event_title="Test",
+        scheduled_at="2026-04-01T10:00:00+00:00",
+        trigger_source="scheduled", scheduled_reason="r", db=db,
+    )
+    claim_pending_scan(sid, db)  # running — simulates dispatcher claim
+
+    narr = NarrativeWriterOutput(
+        event_id="ev1", mode="discovery", summary="s",
+        next_check_at="2099-05-01T10:00:00+00:00",
+        next_check_reason="FOMC",
+    )
+
+    async def _cancel_mid_run(*a, **kw):
+        # While narrator is 'running', user hits cancel (flips row)
+        finish_scan(sid, status="cancelled", db=db)
+        return narr
+
+    with patch("scanner.tui.service.NarrativeWriterAgent") as Mock:
+        Mock.return_value.generate = AsyncMock(side_effect=_cancel_mid_run)
+        Mock.return_value.cancel = MagicMock()
+        await svc.analyze_event("ev1", trigger_source="scheduled", scan_id=sid)
+
+    row = db.conn.execute(
+        "SELECT status FROM scan_logs WHERE scan_id=?", (sid,),
+    ).fetchone()
+    assert row["status"] == "cancelled", "cancel must survive narrator's late return"
+    pending_count = db.conn.execute(
+        "SELECT COUNT(*) FROM scan_logs WHERE event_id='ev1' AND status='pending'",
+    ).fetchone()[0]
+    assert pending_count == 0, (
+        "cancelled-mid-run must not spawn a new pending row from agent's "
+        "next_check_at — must respect user's cancel intent"
+    )
+
+
+@pytest.mark.asyncio
 async def test_analyze_skips_pending_insert_when_next_check_invalid(tmp_path):
     svc, db = _mk_service(tmp_path)
     narr = NarrativeWriterOutput(

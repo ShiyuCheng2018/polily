@@ -266,7 +266,17 @@ class ScanService:
         append_analysis(event_id, version, self.db)
 
         # --- Finalize scan_log row ---
-        finish_scan(scan_id, status="completed", db=self.db)
+        # If the row is no longer 'running' it was cancelled (or otherwise
+        # finalized) while the narrator was generating. Respect that: skip
+        # the supersede+insert dance so we don't resurrect a schedule the
+        # user just stopped.
+        if finish_scan(scan_id, status="completed", db=self.db) == 0:
+            logger.info(
+                "Analysis %s was finalized externally (likely cancelled) "
+                "during narrator run; skipping next_check_at insert",
+                scan_id,
+            )
+            return version
 
         # --- Validate + emit next pending ---
         next_check = _validate_next_check_at(narrative_output.next_check_at)

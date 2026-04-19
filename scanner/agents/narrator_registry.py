@@ -1,13 +1,31 @@
-"""Cross-process narrator registry for cancel-running-analysis.
+"""In-process narrator registry for cancel-running-analysis.
 
-Problem: ScanService is instantiated per-thread (TUI vs dispatcher worker).
-Each instance holds its own `_current_narrator`, so the TUI's cancel can't
-reach a narrator running under the daemon's ai executor. This module is
-the shared lookup table — both sides register by scan_id, either side can
-cancel by scan_id.
+Scope: **process-local**. The module-level ``_active`` dict lives in one
+Python interpreter. It lets threads within the same process share the
+`{scan_id: NarrativeWriterAgent}` lookup — e.g. the TUI main loop
+can find a narrator that the ai-executor thread registered.
+
+It does **NOT** cross process boundaries. The Polily daemon runs as a
+separate OS process (launched via launchd/subprocess), so analyses
+dispatched by the daemon register with the daemon's registry, not the
+TUI's. When a user hits `c` in the TUI for a dispatcher-initiated row:
+
+- The TUI's `cancel_running_scan` flips the DB row to 'cancelled'.
+- `cancel(scan_id)` in the TUI's registry returns False (miss — the
+  narrator belongs to the daemon process).
+- The daemon's narrator continues running until it finishes.
+- When it finishes, `finish_scan(status='completed')` is a no-op
+  because the row is no longer 'running' (see scan_log.py).
+- `analyze_event` detects rowcount=0 and skips the supersede+insert
+  step, so no phantom pending row is produced.
+
+Upshot: the user's DB-level cancel intent is honored, but the narrator
+subprocess still burns through its Claude quota. A proper cross-process
+cancel would need DB-backed signaling (e.g. a `scan_logs.cancel_requested`
+column the daemon polls each tick) — deferred to a later release.
 
 Thread safety: a lock guards the dict since register/unregister happen
-from worker threads and cancel happens from the TUI main loop.
+from worker threads and cancel happens from the main loop.
 """
 from __future__ import annotations
 

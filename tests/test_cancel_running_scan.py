@@ -50,23 +50,31 @@ def test_cancel_running_scan_kills_narrator_and_marks_row(svc):
     assert row["status"] == "cancelled"
 
 
-def test_cancel_running_scan_works_for_dispatcher_rows(svc):
-    """B2 regression: rows initiated by the daemon dispatcher (different
-    ScanService instance) can still be cancelled via the shared registry."""
-    from scanner.agents import narrator_registry
-    dispatcher_narrator = MagicMock()
+def test_cancel_marks_row_when_narrator_not_in_registry(svc):
+    """Cross-process scenario: the narrator is running in the daemon
+    process and isn't in the TUI's narrator_registry. The TUI's cancel
+    still flips the DB row to 'cancelled' so the user's intent is
+    recorded, and the next finish_scan from the daemon is a no-op
+    (see test_finish_scan_does_not_overwrite_terminal_state in
+    test_scan_log_lifecycle.py).
+
+    This test does NOT claim cross-process narrator subprocess
+    termination — see narrator_registry.py docstring for the scope
+    limitation. Quota burn until the daemon narrator finishes is
+    documented behavior for this release.
+    """
     sid = insert_pending_scan(
         event_id="ev1", event_title="Test",
         scheduled_at="2026-05-01T10:00:00+00:00",
         trigger_source="scheduled", scheduled_reason="r", db=svc.db,
     )
     claim_pending_scan(sid, svc.db)
-    narrator_registry.register(sid, dispatcher_narrator)
+    # Intentionally DO NOT register a narrator — represents the
+    # daemon-initiated case where the TUI's registry is empty.
 
     result = svc.cancel_running_scan(sid)
 
-    assert result is True
-    dispatcher_narrator.cancel.assert_called_once()
+    assert result is True, "DB row flip must succeed even without registry hit"
     row = svc.db.conn.execute(
         "SELECT status FROM scan_logs WHERE scan_id=?", (sid,),
     ).fetchone()
