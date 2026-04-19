@@ -132,7 +132,7 @@ def _execute_check(event_id: str, db, config=None, watch_scheduler=None) -> None
         from scanner.daemon.recheck import recheck_event
         from scanner.tui.service import ScanService
 
-        service = ScanService(db)
+        service = ScanService(config=config, db=db)
         result = recheck_event(event_id, db=db, service=service, trigger_source="scheduled")
         logger.info("Check result for %s: %s", event_id, result)
 
