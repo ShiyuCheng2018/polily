@@ -620,12 +620,19 @@ class ScanService:
         monitor stops polling, which stops auto-resolution, which would
         silently orphan the user's skin in the game. Callers should check
         `get_event_position_count` first to surface a UI-friendly error.
+
+        v0.7.0: Disabling also supersedes any pending scheduled analysis
+        for the event (Q3 decision). Re-enabling does NOT restore them —
+        the user can manually trigger a fresh analysis if they want.
         """
         if not enable and self.get_event_position_count(event_id) > 0:
             raise ActivePositionsError(
                 f"Cannot disable monitoring — event {event_id} has open positions",
             )
         toggle_auto_monitor(event_id, enable=enable, db=self.db)
+        if not enable:
+            from scanner.scan_log import supersede_pending_for_event
+            supersede_pending_for_event(event_id, self.db)
 
     def get_event_position_count(self, event_id: str) -> int:
         """Count open positions across every market in the event."""
