@@ -10,21 +10,13 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
-### Added
-
-- **Binary event structure panel**: binary (single-market) events on the
-  detail page now show the same 5-dimension score breakdown + per-dim
-  commentary that multi-market events expose via row expansion. Flat
-  layout (label / bar / score / comment) plus an overall summary line.
-  `SubMarketTable` still owns multi-market rendering.
-
 ## [0.6.0] — 2026-04-19
 
 Wallet system — paper trading gets real. Buys and sells now settle against
 a single cash balance, positions aggregate across trades, and markets
 auto-resolve when Polymarket publishes outcomes.
 
-First shipped as `v0.6.0-beta.1` on 2026-04-19.
+Shipped as `v0.6.0-beta.1` and stabilized as `v0.6.0` on 2026-04-19.
 
 ### Added
 
@@ -74,6 +66,11 @@ First shipped as `v0.6.0-beta.1` on 2026-04-19.
   without losing events, markets, or AI analyses.
 - **`markets.resolved_outcome` column**: structured per-market winner
   (`yes` / `no` / `invalid` / NULL), populated during resolution.
+- **Binary event structure panel**: binary (single-market) events on the
+  detail page now show the same 5-dimension score breakdown + per-dim
+  commentary that multi-market events expose via row expansion. Flat
+  layout (label / bar / score / comment) plus an overall summary line.
+  `SubMarketTable` still owns multi-market rendering.
 
 ### Changed
 
@@ -156,11 +153,11 @@ Migration is automatic for end users — these affect only callers of
 - `WalletResetModal` sends SIGTERM to the scheduler daemon and waits 1
   second before clearing wallet tables, then auto-restarts on success.
   If a poll tick is mid-resolution at that moment the race is serialized
-  by SQLite, but error reporting is raw. Plan is to harden with
-  `BEGIN EXCLUSIVE` or a poll-wait before stable.
+  by SQLite, but error reporting is raw. Will be hardened with
+  `BEGIN EXCLUSIVE` or a poll-wait in a follow-up release.
 - `feeSchedule.exponent` is assumed to be 1 (matches all observed crypto /
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.0-beta.1...HEAD
-[0.6.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.0-beta.1
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.0
