@@ -10,6 +10,14 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Added
+
+- **Binary event structure panel**: binary (single-market) events on the
+  detail page now show the same 5-dimension score breakdown + per-dim
+  commentary that multi-market events expose via row expansion. Flat
+  layout (label / bar / score / comment) plus an overall summary line.
+  `SubMarketTable` still owns multi-market rendering.
+
 ## [0.6.0] — 2026-04-19
 
 Wallet system — paper trading gets real. Buys and sells now settle against
