@@ -161,10 +161,21 @@ class AddEventRequested(Message):
         self.url = url
 
 
+class CancelScanRequested(Message):
+    """Request to cancel a running scan."""
+    def __init__(self, scan_id: str):
+        super().__init__()
+        self.scan_id = scan_id
+
+
 # --- List View ---
 
 class ScanLogView(Widget):
     """Scan task history with optional live progress at top."""
+
+    BINDINGS = [
+        Binding("c", "cancel_running", "取消正在运行的分析", show=False),
+    ]
 
     DEFAULT_CSS = """
     ScanLogView { height: 1fr; }
@@ -296,6 +307,42 @@ class ScanLogView(Widget):
             self.post_message(OpenMarketFromLog(log.event_id))
         else:
             self.post_message(ViewScanLogDetail(log))
+
+    def action_cancel_running(self) -> None:
+        from scanner.tui.views.scan_modals import ConfirmCancelScanModal
+
+        try:
+            table = self.query_one("#upcoming-table", DataTable)
+        except Exception:
+            return
+        if table.cursor_row is None or table.cursor_row >= len(self._upcoming):
+            return
+        log = self._upcoming[table.cursor_row]
+        if log.status != "running":
+            self.notify("只能取消正在运行的分析", severity="warning")
+            return
+        # Compute live elapsed for the modal display
+        live_elapsed = 0.0
+        try:
+            from datetime import UTC, datetime
+            started = datetime.fromisoformat(log.started_at)
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=UTC)
+            live_elapsed = (datetime.now(UTC) - started).total_seconds()
+        except (ValueError, TypeError):
+            pass
+
+        modal = ConfirmCancelScanModal(
+            event_title=log.market_title or "?",
+            elapsed_seconds=live_elapsed,
+        )
+        scan_id = log.scan_id
+
+        def on_close(confirmed: bool | None):
+            if confirmed:
+                self.post_message(CancelScanRequested(scan_id))
+
+        self.app.push_screen(modal, on_close)
 
 
 # --- Detail View ---

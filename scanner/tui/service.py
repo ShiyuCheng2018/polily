@@ -270,6 +270,29 @@ class ScanService:
             narrator.cancel()
             logger.info("Analysis cancelled by user")
 
+    def cancel_running_scan(self, scan_id: str) -> bool:
+        """Cancel a running scan_logs row: kill narrator + mark row cancelled.
+
+        Routes to narrator_registry so scans running under the dispatcher
+        (different ScanService instance) are reachable.
+
+        Returns True when the row was running and got flipped to cancelled;
+        False when the row wasn't running (already done / superseded / gone).
+        """
+        from scanner.agents import narrator_registry
+        from scanner.scan_log import finish_scan
+
+        row = self.db.conn.execute(
+            "SELECT status FROM scan_logs WHERE scan_id=?", (scan_id,),
+        ).fetchone()
+        if row is None or row["status"] != "running":
+            return False
+        # Best-effort kill via registry. A miss just means the narrator already
+        # finished between SELECT above and here — we still mark cancelled.
+        narrator_registry.cancel(scan_id)
+        finish_scan(scan_id, status="cancelled", error=None, db=self.db)
+        return True
+
     # ------------------------------------------------------------------
     # Event reads
     # ------------------------------------------------------------------

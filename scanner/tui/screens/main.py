@@ -23,6 +23,7 @@ from scanner.tui.views.paper_status import PaperStatusView, ViewTradeDetail
 from scanner.tui.views.scan_log import (
     AddEventRequested,
     BackToScanLog,
+    CancelScanRequested,
     OpenMarketFromLog,
     RescoreRequested,
     ScanLogDetailView,
@@ -335,6 +336,17 @@ class MainScreen(Screen):
 
     def on_cancel_analysis_requested(self, message: CancelAnalysisRequested) -> None:
         self._cancel_analysis()
+
+    def on_cancel_scan_requested(self, message: CancelScanRequested) -> None:
+        """Cancel a running scan from the 待办 zone."""
+        ok = self.service.cancel_running_scan(message.scan_id)
+        if ok:
+            self.notify("已取消分析")
+        else:
+            self.notify("无法取消——该行不在 running 状态", severity="warning")
+        # Re-render the scan log view so the row flips to cancelled
+        if self._current_menu == "tasks":
+            self._navigate_to("tasks")
 
     def on_open_market_from_log(self, message: OpenMarketFromLog) -> None:
         """Navigate to score result page from a log entry."""
