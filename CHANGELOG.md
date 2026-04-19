@@ -10,6 +10,23 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Changed
+
+- **Watchlist (TUI menu 1) redesigned**: scoped tightly to "what am I
+  monitoring and when's the next poll" plus a few routing hints. The
+  always-"监控中" status column was dropped. New columns: 结构分 (routing
+  signal), AI版 (analysis version count), 异动 (latest tick rollup), 结算
+  (settlement window across non-closed sub-markets, e.g.
+  `2天6小时 ~ 40天16小时`). Next-check column expanded to
+  `2026-04-21 09:00 (1d 11h 30m)` — full ISO date + compact relative
+  time. Movement cell reuses the same roll-up semantics as the
+  detail-page movement widget (max-M/max-Q of the latest tick's per-
+  market rows, ignoring the event-level aggregate row poll_job writes
+  last) and shares its magnitude-driven red/yellow/green palette.
+  Data columns like position / leader price / P&L stay on their
+  dedicated pages (Positions / Wallet / Market Detail), keeping page
+  responsibilities non-overlapping.
+
 ## [0.6.0] — 2026-04-19
 
 Wallet system — paper trading gets real. Buys and sells now settle against
