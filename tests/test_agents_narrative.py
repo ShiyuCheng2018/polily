@@ -101,3 +101,67 @@ class TestNarrativeFallback:
         result = narrative_fallback("ev_test")
         assert result.next_check_at is not None
         assert result.next_check_reason != ""
+
+
+class TestDevFeedbackLogFormat:
+    def test_header_includes_polily_version_and_event_title(self, tmp_path, monkeypatch):
+        """Header line carries polily version + event title alongside ops summary.
+
+        Before: `=== [ts] event=357807 ops=HOLD ===`
+        After:  `=== [ts] polily=v0.6.1 event=357807 title="Iran" ops=HOLD ===`
+        """
+        import scanner
+        from scanner.agents.narrative_writer import _write_dev_feedback
+        from scanner.agents.schemas import Operation
+
+        monkeypatch.chdir(tmp_path)
+
+        output = NarrativeWriterOutput(
+            event_id="357807",
+            mode="position_management",
+            summary="s",
+            operations=[Operation(action="HOLD", reasoning="r")],
+            dev_feedback="[9/10] 全对",
+        )
+        _write_dev_feedback("357807", "Iran Hormuz closure 2025", output)
+
+        log = (tmp_path / "data" / "logs" / "agent_feedback.log").read_text()
+        assert f"polily=v{scanner.__version__}" in log
+        assert "event=357807" in log
+        assert 'title="Iran Hormuz closure 2025"' in log
+        assert "ops=HOLD" in log
+        assert "[9/10] 全对" in log
+
+    def test_header_title_missing_renders_placeholder(self, tmp_path, monkeypatch):
+        from scanner.agents.narrative_writer import _write_dev_feedback
+
+        monkeypatch.chdir(tmp_path)
+        output = NarrativeWriterOutput(
+            event_id="x",
+            mode="discovery",
+            summary="s",
+            dev_feedback="note",
+        )
+        _write_dev_feedback("x", None, output)
+
+        log = (tmp_path / "data" / "logs" / "agent_feedback.log").read_text()
+        assert 'title="?"' in log
+
+    def test_header_title_sanitizes_newlines_and_quotes(self, tmp_path, monkeypatch):
+        """Newlines/CRs/quotes in user-controlled title must not split the header."""
+        from scanner.agents.narrative_writer import _write_dev_feedback
+
+        monkeypatch.chdir(tmp_path)
+        output = NarrativeWriterOutput(
+            event_id="y",
+            mode="discovery",
+            summary="s",
+            dev_feedback="note",
+        )
+        _write_dev_feedback("y", 'Iran\n"hormuz"\rclosure', output)
+
+        log = (tmp_path / "data" / "logs" / "agent_feedback.log").read_text()
+        # Header must stay on one line and double-quotes swapped to single
+        header_line = next(line for line in log.splitlines() if line.startswith("==="))
+        assert "event=y" in header_line
+        assert "title=\"Iran 'hormuz' closure\"" in header_line
