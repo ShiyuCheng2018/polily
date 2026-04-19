@@ -1,23 +1,23 @@
 """APScheduler-based daemon scheduler — dual executor architecture.
 
 Executors:
-  - poll (1 thread)  — dedicated to the single global poll job (10s interval)
-  - ai   (5 threads) — concurrent AI analyses (movement-triggered + scheduled check_jobs)
+  - poll (1 thread)  — dedicated to the single global poll job (30s interval)
+  - ai   (5 threads) — concurrent AI analyses dispatched from pending scan_logs rows
 
-Jobs are restored from event_monitors table on startup. No SQLAlchemy needed.
+v0.7.0: scheduled check jobs (date-trigger APScheduler path) were removed.
+Dispatching is now DB-driven — the poll tick drains pending rows via
+`dispatch_pending_analyses` onto the ai executor.
 """
 
 import contextlib
 import logging
 import signal
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from scanner.core.monitor_store import get_active_monitors, get_event_monitor
 from scanner.daemon.poll_job import global_poll, init_poller
 
 logger = logging.getLogger(__name__)
@@ -57,97 +57,6 @@ class WatchScheduler:
 
     def shutdown(self):
         self.scheduler.shutdown(wait=True)
-
-    def restore_check_jobs(self) -> int:
-        """Restore check jobs from event_monitors with next_check_at.
-
-        Returns the number of jobs restored.
-        """
-        event_ids = get_active_monitors(self.db)
-        now = datetime.now(UTC)
-        count = 0
-        for eid in event_ids:
-            mon = get_event_monitor(eid, self.db)
-            if not mon or not mon.get("next_check_at"):
-                continue
-            try:
-                check_at = datetime.fromisoformat(mon["next_check_at"])
-                # Ensure timezone-aware for comparison
-                if check_at.tzinfo is None:
-                    check_at = check_at.replace(tzinfo=UTC)
-            except ValueError:
-                logger.warning("Invalid next_check_at for %s: %s", eid, mon["next_check_at"])
-                continue
-
-            if check_at <= now:
-                # Overdue — skip, don't补跑 (context is stale)
-                logger.info("Skipping overdue check for %s (was %s)", eid, check_at)
-                continue
-
-            self.schedule_check(eid, run_at=check_at)
-            count += 1
-        logger.info("Restored %d check jobs from DB", count)
-        return count
-
-    def schedule_check(self, event_id: str, run_at: datetime) -> None:
-        """Schedule a check job for an event at the given time."""
-        self.scheduler.add_job(
-            _execute_check,
-            "date",
-            run_date=run_at,
-            id=f"check_{event_id}",
-            executor="ai",
-            replace_existing=True,
-            misfire_grace_time=3600,
-            kwargs={
-                "event_id": event_id,
-                "db": self.db,
-                "config": self.config,
-                "watch_scheduler": self,
-            },
-        )
-        logger.info("Scheduled check for %s at %s", event_id, run_at)
-
-    def cancel_check(self, event_id: str) -> None:
-        """Cancel a scheduled check job. No-op if not found."""
-        try:
-            self.scheduler.remove_job(f"check_{event_id}")
-            logger.info("Cancelled check for %s", event_id)
-        except Exception:
-            pass
-
-    def list_pending(self) -> list[dict]:
-        """List all pending scheduled jobs."""
-        jobs = self.scheduler.get_jobs()
-        return [{"job_id": j.id, "next_run": j.next_run_time} for j in jobs]
-
-
-def _execute_check(event_id: str, db, config=None, watch_scheduler=None) -> None:
-    """Job function called by APScheduler for scheduled event checks.
-
-    Creates a lightweight ScanService to run AI analysis.
-    """
-    logger.info("Executing scheduled check for event %s", event_id)
-    try:
-        from scanner.daemon.recheck import recheck_event
-        from scanner.tui.service import ScanService
-
-        service = ScanService(config=config, db=db)
-        result = recheck_event(event_id, db=db, service=service, trigger_source="scheduled")
-        logger.info("Check result for %s: %s", event_id, result)
-
-        # Re-schedule if result provides a next_check_at
-        if watch_scheduler is not None and hasattr(result, "next_check_at") and result.next_check_at:
-            try:
-                next_time = datetime.fromisoformat(result.next_check_at)
-                watch_scheduler.schedule_check(event_id, next_time)
-                logger.info("Re-scheduled %s for %s", event_id, result.next_check_at)
-            except ValueError:
-                logger.warning("Invalid next_check_at for %s: %s", event_id, result.next_check_at)
-    except ImportError:
-        logger.warning("recheck_event not yet implemented (Task 3.5), skipping check for %s", event_id)
-    except Exception:
-        logger.exception("Check failed for event %s", event_id)
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +187,11 @@ def generate_launchd_plist(working_dir: str, python_path: str | None = None) -> 
 
 
 def run_daemon(db, config=None) -> None:
-    """Daemon entry point: start scheduler, restore jobs, block until SIGTERM."""
+    """Daemon entry point: start scheduler, block until SIGTERM.
+
+    v0.7.0: no job restoration — the poll tick drains pending scan_logs rows
+    via `dispatch_pending_analyses`, so there's nothing to rehydrate on start.
+    """
     from scanner.core.positions import PositionManager
     from scanner.core.wallet import WalletService
     from scanner.daemon.resolution import ResolutionHandler
@@ -303,7 +216,6 @@ def run_daemon(db, config=None) -> None:
 
     scheduler = WatchScheduler(db, config=config)
     scheduler.start()
-    restored = scheduler.restore_check_jobs()
 
     # v0.7.0: scrub orphan running rows from a prior crash.
     from scanner.scan_log import fail_orphan_running
@@ -314,15 +226,14 @@ def run_daemon(db, config=None) -> None:
     # Log startup info to poll.log
     from scanner.daemon.poll_job import _get_poll_log
     plog = _get_poll_log()
-    plog.info(f"── daemon started ── {active} markets, {restored} check jobs ──")
-    jobs = scheduler.scheduler.get_jobs()
-    for j in jobs:
-        if j.id.startswith("check_"):
-            eid = j.id.replace("check_", "")
-            plog.info(f"  scheduled  | {eid} → {j.next_run_time}")
+    plog.info(f"── daemon started ── {active} markets, poll every 30s ──")
+    pending_count = db.conn.execute(
+        "SELECT COUNT(*) FROM scan_logs WHERE status='pending'"
+    ).fetchone()[0]
+    plog.info(f"  pending scan_logs rows: {pending_count}")
 
     print(f"Polily daemon started — {active} markets, poll every 30s. Ctrl+C to stop.")
-    logger.info("Daemon started with %d check jobs", restored)
+    logger.info("Daemon started; %d pending analyses queued", pending_count)
 
     # Write PID file for SIGUSR1 notification
     import os
@@ -354,11 +265,11 @@ def run_daemon(db, config=None) -> None:
             signal.pause()
             if _reload_requested:
                 _reload_requested = False
+                # SIGUSR1 reload is obsolete post-v0.7.0; Task 9 removes this branch.
                 from scanner.daemon.poll_job import _get_poll_log
                 plog = _get_poll_log()
-                plog.info("── reload (SIGUSR1) ──────────────────────────────")
-                logger.info("Reloading check jobs from DB (SIGUSR1)")
-                scheduler.restore_check_jobs()
+                plog.info("── reload (SIGUSR1) no-op post-v0.7.0 ──")
+                logger.info("SIGUSR1 received; reload is a no-op in v0.7.0")
     except AttributeError:
         # Windows doesn't have signal.pause
         import time
