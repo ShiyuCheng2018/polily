@@ -310,7 +310,7 @@ class ScanService:
             SELECT e.*,
                    COUNT(DISTINCT mk.market_id) AS market_count,
                    COALESCE(em.auto_monitor, 0) AS is_monitored,
-                   em.next_check_at AS next_check_at,
+                   pend.next_check_at AS next_check_at,
                    COUNT(DISTINCT ps.market_id || '/' || ps.side) AS position_count,
                    leader.group_item_title AS leader_title,
                    leader.yes_price AS leader_price,
@@ -321,6 +321,12 @@ class ScanService:
             LEFT JOIN markets mk ON mk.event_id = e.event_id
             LEFT JOIN event_monitors em ON em.event_id = e.event_id
             LEFT JOIN positions ps ON ps.event_id = e.event_id
+            LEFT JOIN (
+                SELECT event_id, MIN(scheduled_at) AS next_check_at
+                FROM scan_logs
+                WHERE status = 'pending'
+                GROUP BY event_id
+            ) pend ON pend.event_id = e.event_id
             LEFT JOIN (
                 SELECT m1.event_id, m1.group_item_title, m1.yes_price
                 FROM markets m1
