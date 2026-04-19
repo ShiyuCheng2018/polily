@@ -1,6 +1,6 @@
 # Polily — A Polymarket Monitoring Agent That Actually Works
 
-Paste a Polymarket event URL and Polily decides **whether it's worth your time, scores the structure, hunts mispricing, watches for moves, and tracks paper PnL**. A monitoring agent built for small accounts.
+Paste a Polymarket event URL and Polily decides **whether it's worth your time, scores the structure, hunts mispricing, watches for moves, and closes out positions automatically when markets resolve**. A monitoring agent built for small accounts.
 
 ## Why You Need It
 
@@ -71,6 +71,7 @@ polily scheduler status     # status
 polily scheduler restart    # restart
 polily scheduler stop       # stop
 polily reset                # wipe DB / logs for a clean restart
+polily reset --wallet-only  # reset wallet only, keep events/markets/analyses
 ```
 
 ## Current Limitations
