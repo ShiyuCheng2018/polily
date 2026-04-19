@@ -249,7 +249,11 @@ class ScanService:
                 logger.exception("finish_scan failed while recording agent error")
             raise agent_error
 
-        # --- Persist analysis ---
+        # --- Build (don't persist yet) the analysis version ---
+        # Persistence is gated on the atomic finish_scan UPDATE below: if
+        # another writer (e.g. user cancel) already finalized the row, we
+        # discard the narrator's output entirely so the cancelled scan
+        # doesn't surface as a fresh entry in the event's history.
         prices_snapshot = {
             mr.market_id: {"yes": mr.yes_price, "no": mr.no_price} for mr in markets
         }
@@ -263,20 +267,22 @@ class ScanService:
             mispricing_signal="none",
             elapsed_seconds=time.time() - start_time,
         )
-        append_analysis(event_id, version, self.db)
 
-        # --- Finalize scan_log row ---
-        # If the row is no longer 'running' it was cancelled (or otherwise
-        # finalized) while the narrator was generating. Respect that: skip
-        # the supersede+insert dance so we don't resurrect a schedule the
-        # user just stopped.
+        # --- Atomic "claim the completion" ---
+        # finish_scan UPDATE ... WHERE status='running' is the serialization
+        # point. rowcount=1 → we won, safe to persist; rowcount=0 → someone
+        # else finalized first (user cancel / crash / duplicate dispatch) →
+        # the analysis is moot, do nothing else.
         if finish_scan(scan_id, status="completed", db=self.db) == 0:
             logger.info(
                 "Analysis %s was finalized externally (likely cancelled) "
-                "during narrator run; skipping next_check_at insert",
+                "during narrator run; discarding narrator output",
                 scan_id,
             )
             return version
+
+        # Row flipped running→completed atomically. Now safe to persist.
+        append_analysis(event_id, version, self.db)
 
         # --- Validate + emit next pending ---
         next_check = _validate_next_check_at(narrative_output.next_check_at)

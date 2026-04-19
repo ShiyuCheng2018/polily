@@ -146,6 +146,15 @@ async def test_analyze_skips_next_pending_when_cancelled_mid_run(tmp_path):
         "cancelled-mid-run must not spawn a new pending row from agent's "
         "next_check_at — must respect user's cancel intent"
     )
+    # Narrator's output must NOT land in the analyses table. User's cancel
+    # intent means "stop this analysis" — persisting a new version would
+    # make the cancelled scan show up as a fresh entry in the event history.
+    analysis_count = db.conn.execute(
+        "SELECT COUNT(*) FROM analyses WHERE event_id='ev1'",
+    ).fetchone()[0]
+    assert analysis_count == 0, (
+        "cancelled-mid-run must discard narrator output — no new analysis row"
+    )
 
 
 @pytest.mark.asyncio
