@@ -6,12 +6,28 @@ from datetime import UTC, datetime
 
 _DASH = "—"
 
-_MOVEMENT_LABELS = {
-    "consensus": ("共识异动", "red"),
-    "whale_move": ("大单异动", "red"),
-    "slow_build": ("缓慢累积", "yellow"),
-    "noise": ("平静", "green"),
+_LABEL_CN = {
+    "consensus": "共识异动",
+    "whale_move": "大单异动",
+    "slow_build": "缓慢累积",
+    "noise": "平静",
 }
+
+_HIGH_MAGNITUDE_THRESHOLD = 70.0
+
+
+def pick_movement_color(label: str, magnitude: float) -> str:
+    """Magnitude-driven color used across all movement surfaces.
+
+    - `noise` is always green regardless of magnitude (it's the "quiet" bucket)
+    - Any other label: red if magnitude ≥ 70, yellow otherwise
+
+    Kept in one place so event_header / movement_sparkline / monitor list
+    can't drift into different palettes for the same concept.
+    """
+    if label == "noise":
+        return "green"
+    return "red" if magnitude >= _HIGH_MAGNITUDE_THRESHOLD else "yellow"
 
 
 def format_relative_en(iso_time: str | None) -> str:
@@ -59,6 +75,33 @@ def format_next_check(iso_time: str | None) -> str:
     return f"{date_str} ({rel})"
 
 
+def format_settlement_range(earliest: str | None, latest: str | None) -> str:
+    """Render the event's settlement window, e.g. '2天6小时 ~ 40天16小时'.
+
+    Single value (no tilde) when both sides render to the same string or when
+    only one side is provided. Returns `—` when both sides are missing.
+
+    Uses `scanner.tui.utils._relative` so the phrasing matches the detail
+    page's countdown style.
+    """
+    if not earliest and not latest:
+        return _DASH
+    # One-sided becomes single value.
+    if not earliest:
+        earliest = latest
+    if not latest:
+        latest = earliest
+
+    from scanner.tui.utils import _relative
+
+    rel_early = _relative(earliest)
+    rel_late = _relative(latest)
+
+    if rel_early == rel_late:
+        return rel_early
+    return f"{rel_early} ~ {rel_late}"
+
+
 def format_ai_version(count: int | None) -> str:
     """Show 'v5' for positive count, '—' for 0/None."""
     if not count:
@@ -69,13 +112,12 @@ def format_ai_version(count: int | None) -> str:
 def format_movement(label: str | None, magnitude: float, quality: float) -> str:
     """Format movement status cell, e.g. '[green]平静[/green] M:31 Q:31'.
 
-    Returns '—' when label is None or unknown. Colors follow 3-band palette:
-    红 for consensus/whale_move, 黄 for slow_build, 绿 for noise.
+    Returns '—' when label is None or unknown. Color is magnitude-driven via
+    `pick_movement_color` so the cell renders the same way as the detail-page
+    movement views.
     """
-    if not label:
+    if not label or label not in _LABEL_CN:
         return _DASH
-    entry = _MOVEMENT_LABELS.get(label)
-    if not entry:
-        return _DASH
-    label_cn, color = entry
+    label_cn = _LABEL_CN[label]
+    color = pick_movement_color(label, magnitude)
     return f"[{color}]{label_cn}[/{color}] M:{magnitude:.0f} Q:{quality:.0f}"

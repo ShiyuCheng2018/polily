@@ -61,7 +61,7 @@ async def test_columns_match_new_spec():
     svc = _service()
     _seed_monitored_event(svc, "evA", "Event A", score=82.0)
     view = MonitorListView(svc)
-    async with _Host(view).run_test(size=(160, 40)) as pilot:
+    async with _Host(view).run_test(size=(180, 40)) as pilot:
         await pilot.pause()
         table = view.query_one("#monitor-table", DataTable)
         labels = [str(c.label) for c in table.columns.values()]
@@ -71,9 +71,68 @@ async def test_columns_match_new_spec():
     assert "子市场" in labels
     assert any("AI" in lab for lab in labels)
     assert "异动" in labels
+    assert "结算" in labels
     assert any("下次检查" in lab for lab in labels)
     # Removed 状态 column
     assert "状态" not in labels
+
+
+@pytest.mark.asyncio
+async def test_renders_settlement_window_range_for_multi_market_event():
+    from scanner.core.event_store import MarketRow, upsert_market
+    from scanner.tui.views.monitor_list import MonitorListView
+
+    svc = _service()
+    _seed_monitored_event(svc, "evA", "Event A", score=82.0)
+    # Add a second market with a later end_date → settlement column should
+    # show a range ('… ~ …').
+    svc.db.conn.execute(
+        "UPDATE markets SET end_date = ? WHERE market_id = 'm-evA'",
+        ("2027-05-01T00:00:00+00:00",),
+    )
+    upsert_market(
+        MarketRow(
+            market_id="m-evA-2", event_id="evA", question="second market",
+            end_date="2027-11-01T00:00:00+00:00", closed=0,
+            updated_at="2026-04-19T00:00:00",
+        ),
+        svc.db,
+    )
+    svc.db.conn.commit()
+
+    view = MonitorListView(svc)
+    async with _Host(view).run_test(size=(180, 40)) as pilot:
+        await pilot.pause()
+        table = view.query_one("#monitor-table", DataTable)
+        row_key = next(iter(table.rows.keys()))
+        flat = " ".join(str(c) for c in table.get_row(row_key))
+
+    assert " ~ " in flat  # range separator with spaces
+
+
+@pytest.mark.asyncio
+async def test_renders_settlement_single_value_for_binary_event():
+    from scanner.tui.views.monitor_list import MonitorListView
+
+    svc = _service()
+    _seed_monitored_event(svc, "evA", "Event A", score=82.0)
+    svc.db.conn.execute(
+        "UPDATE markets SET end_date = ? WHERE market_id = 'm-evA'",
+        ("2027-05-01T00:00:00+00:00",),
+    )
+    svc.db.conn.commit()
+
+    view = MonitorListView(svc)
+    async with _Host(view).run_test(size=(180, 40)) as pilot:
+        await pilot.pause()
+        table = view.query_one("#monitor-table", DataTable)
+        row_key = next(iter(table.rows.keys()))
+        # 结算 cell specifically — find its column index
+        labels = [str(c.label) for c in table.columns.values()]
+        idx = labels.index("结算")
+        settlement_cell = str(table.get_row(row_key)[idx])
+
+    assert "~" not in settlement_cell  # single value only
 
 
 @pytest.mark.asyncio

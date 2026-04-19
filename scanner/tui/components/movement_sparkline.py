@@ -6,6 +6,8 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
 
+from scanner.tui.monitor_format import pick_movement_color
+
 _LABEL_CN = {
     "consensus": "共识异动",
     "whale_move": "大单异动",
@@ -69,9 +71,9 @@ class MovementSparkline(Widget):
     def compose(self) -> ComposeResult:
         m, q, label = get_event_movement(self._movements)
         label_cn = _LABEL_CN.get(label, label)
+        color = pick_movement_color(label, m)
 
         if label == "noise":
-            yield Static(f"[bold]异动[/]  [green]{label_cn}[/green]  [dim]M:{m:.0f} Q:{q:.0f}[/dim]")
+            yield Static(f"[bold]异动[/]  [{color}]{label_cn}[/{color}]  [dim]M:{m:.0f} Q:{q:.0f}[/dim]")
         else:
-            color = "red" if m >= 70 else "yellow"
-            yield Static(f"[bold]异动[/]  [{color}]{label_cn}[/]  M:{m:.0f} Q:{q:.0f}")
+            yield Static(f"[bold]异动[/]  [{color}]{label_cn}[/{color}]  M:{m:.0f} Q:{q:.0f}")

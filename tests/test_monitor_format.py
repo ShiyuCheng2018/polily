@@ -75,37 +75,104 @@ class TestFormatAiVersion:
         assert format_ai_version(None) == "—"
 
 
+class TestFormatSettlementRange:
+    def test_same_earliest_and_latest_is_single_value(self):
+        from scanner.tui.monitor_format import format_settlement_range
+
+        iso = _in(timedelta(days=2, hours=6))
+        out = format_settlement_range(iso, iso)
+        assert "~" not in out
+        assert "2天" in out
+
+    def test_different_dates_joined_with_spaced_tilde(self):
+        from scanner.tui.monitor_format import format_settlement_range
+
+        early = _in(timedelta(days=2, hours=6))
+        late = _in(timedelta(days=40, hours=16))
+        out = format_settlement_range(early, late)
+        assert " ~ " in out
+        assert "2天" in out
+        assert "40天" in out
+
+    def test_both_none_returns_dash(self):
+        from scanner.tui.monitor_format import format_settlement_range
+
+        assert format_settlement_range(None, None) == "—"
+
+    def test_only_one_provided_treats_as_single(self):
+        from scanner.tui.monitor_format import format_settlement_range
+
+        iso = _in(timedelta(days=5))
+        out = format_settlement_range(iso, None)
+        assert "~" not in out
+        assert "5天" in out
+
+        out2 = format_settlement_range(None, iso)
+        assert "~" not in out2
+        assert "5天" in out2
+
+
+class TestPickMovementColor:
+    """Magnitude-driven color policy, shared with event_header / movement_sparkline."""
+
+    def test_noise_is_always_green(self):
+        from scanner.tui.monitor_format import pick_movement_color
+
+        assert pick_movement_color("noise", 0) == "green"
+        assert pick_movement_color("noise", 85) == "green"  # even if someone writes a high-M noise row
+
+    def test_non_noise_high_magnitude_is_red(self):
+        from scanner.tui.monitor_format import pick_movement_color
+
+        assert pick_movement_color("consensus", 72) == "red"
+        assert pick_movement_color("slow_build", 85) == "red"  # high M beats label default
+        assert pick_movement_color("whale_move", 90) == "red"
+
+    def test_non_noise_low_magnitude_is_yellow(self):
+        from scanner.tui.monitor_format import pick_movement_color
+
+        assert pick_movement_color("consensus", 40) == "yellow"  # low M beats label default
+        assert pick_movement_color("slow_build", 40) == "yellow"
+        assert pick_movement_color("whale_move", 60) == "yellow"
+
+    def test_threshold_is_70(self):
+        from scanner.tui.monitor_format import pick_movement_color
+
+        assert pick_movement_color("consensus", 69.9) == "yellow"
+        assert pick_movement_color("consensus", 70.0) == "red"
+
+
 class TestFormatMovement:
-    def test_calm_label_green(self):
+    def test_calm_uses_green(self):
         from scanner.tui.monitor_format import format_movement
 
         out = format_movement("noise", magnitude=31.0, quality=31.0)
         assert "平静" in out
         assert "M:31" in out
         assert "Q:31" in out
-        assert "green" in out  # Rich markup color
+        assert "green" in out
 
-    def test_consensus_label_red(self):
+    def test_consensus_high_magnitude_uses_red(self):
         from scanner.tui.monitor_format import format_movement
 
         out = format_movement("consensus", magnitude=72.0, quality=85.0)
         assert "共识异动" in out
-        assert "M:72" in out
-        assert "Q:85" in out
         assert "red" in out
 
-    def test_whale_move_label_red(self):
+    def test_slow_build_high_magnitude_uses_red(self):
+        """High-magnitude slow_build should render red even though label suggests calmer."""
         from scanner.tui.monitor_format import format_movement
 
-        out = format_movement("whale_move", magnitude=60.0, quality=70.0)
-        assert "大单异动" in out
-        assert "red" in out
-
-    def test_slow_build_label_yellow(self):
-        from scanner.tui.monitor_format import format_movement
-
-        out = format_movement("slow_build", magnitude=40.0, quality=50.0)
+        out = format_movement("slow_build", magnitude=85.0, quality=70.0)
         assert "缓慢累积" in out
+        assert "red" in out
+
+    def test_consensus_low_magnitude_uses_yellow(self):
+        """Low-magnitude consensus should render yellow — magnitude drives color, not label."""
+        from scanner.tui.monitor_format import format_movement
+
+        out = format_movement("consensus", magnitude=40.0, quality=50.0)
+        assert "共识异动" in out
         assert "yellow" in out
 
     def test_no_label_returns_dash(self):

@@ -219,9 +219,8 @@ class ScanService:
                    leader.group_item_title AS leader_title,
                    leader.yes_price AS leader_price,
                    COALESCE(ac.analysis_count, 0) AS analysis_count,
-                   mv.label AS movement_label,
-                   mv.magnitude AS movement_magnitude,
-                   mv.quality AS movement_quality
+                   MIN(CASE WHEN mk.closed = 0 THEN mk.end_date END) AS markets_end_min,
+                   MAX(CASE WHEN mk.closed = 0 THEN mk.end_date END) AS markets_end_max
             FROM events e
             LEFT JOIN markets mk ON mk.event_id = e.event_id
             LEFT JOIN event_monitors em ON em.event_id = e.event_id
@@ -241,15 +240,6 @@ class ScanService:
                 FROM analyses
                 GROUP BY event_id
             ) ac ON ac.event_id = e.event_id
-            LEFT JOIN (
-                SELECT ml.event_id, ml.label, ml.magnitude, ml.quality
-                FROM movement_log ml
-                INNER JOIN (
-                    SELECT event_id, MAX(id) AS max_id
-                    FROM movement_log
-                    GROUP BY event_id
-                ) latest ON ml.event_id = latest.event_id AND ml.id = latest.max_id
-            ) mv ON mv.event_id = e.event_id
             {where_clause}
             GROUP BY e.event_id
             ORDER BY COALESCE(e.structure_score, 0) DESC
@@ -261,25 +251,39 @@ class ScanService:
             event = EventRow(**{
                 k: d[k] for k in EventRow.model_fields if k in d
             })
-            movement = None
-            if d.get("movement_label") is not None:
-                movement = {
-                    "label": d["movement_label"],
-                    "magnitude": d.get("movement_magnitude") or 0.0,
-                    "quality": d.get("movement_quality") or 0.0,
-                }
+            is_monitored = bool(d["is_monitored"])
             results.append({
                 "event": event,
                 "market_count": d["market_count"],
-                "is_monitored": bool(d["is_monitored"]),
+                "is_monitored": is_monitored,
                 "has_position": d["position_count"] > 0,
                 "leader_title": d.get("leader_title"),
                 "leader_price": d.get("leader_price"),
                 "next_check_at": d.get("next_check_at"),
                 "analysis_count": d["analysis_count"],
-                "movement": movement,
+                "markets_end_min": d.get("markets_end_min"),
+                "markets_end_max": d.get("markets_end_max"),
+                "movement": self._fetch_movement(event.event_id) if is_monitored else None,
             })
         return results
+
+    def _fetch_movement(self, event_id: str) -> dict | None:
+        """Roll up the latest movement tick for a monitored event.
+
+        Uses the same aggregation as `movement_sparkline.get_event_movement`
+        (latest tick's max-M/max-Q with label from strongest sub-market),
+        which correctly skips the event-level aggregate rows that poll_job
+        writes with market_id=NULL. Returns None when no movement rows exist
+        in the last hour so the UI can show a dash.
+        """
+        from scanner.monitor.store import get_event_movements
+        from scanner.tui.components.movement_sparkline import get_event_movement
+
+        movements = get_event_movements(event_id, self.db, hours=1)
+        if not movements:
+            return None
+        m, q, label = get_event_movement(movements)
+        return {"label": label, "magnitude": float(m), "quality": float(q)}
 
     def get_event_detail(self, event_id: str) -> dict | None:
         """Return full detail for an event: event, markets, analyses, trades, monitor, movements.

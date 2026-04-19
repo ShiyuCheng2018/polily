@@ -17,6 +17,7 @@ from scanner.tui.monitor_format import (
     format_ai_version,
     format_movement,
     format_next_check,
+    format_settlement_range,
 )
 from scanner.tui.service import ScanService
 
@@ -31,8 +32,9 @@ _COLUMN_SPEC = [
     ("事件", "title"),
     ("结构分", "score"),
     ("子市场", "count"),
-    ("AI 版", "ai"),
+    ("AI版", "ai"),
     ("异动", "movement"),
+    ("结算", "settlement"),
     ("下次检查", "next_check"),
 ]
 
@@ -84,6 +86,9 @@ class MonitorListView(Widget):
             else:
                 movement_str = "—"
 
+            settlement_str = format_settlement_range(
+                e.get("markets_end_min"), e.get("markets_end_max"),
+            )
             next_check_str = format_next_check(e.get("next_check_at"))
 
             table.add_row(
@@ -92,6 +97,7 @@ class MonitorListView(Widget):
                 count_str,
                 ai_str,
                 movement_str,
+                settlement_str,
                 next_check_str,
                 key=ev.event_id,
             )
@@ -167,5 +173,13 @@ class MonitorListView(Widget):
             )
             with contextlib.suppress(Exception):
                 table.update_cell(eid, "movement", movement_str)
+
+            # settlement window — min/max end_date may have shifted as
+            # sub-markets resolve.
+            settlement_str = format_settlement_range(
+                new.get("markets_end_min"), new.get("markets_end_max"),
+            )
+            with contextlib.suppress(Exception):
+                table.update_cell(eid, "settlement", settlement_str)
 
         self._monitored = [e for e in events if e["is_monitored"]]
