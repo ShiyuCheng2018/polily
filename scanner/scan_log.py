@@ -274,7 +274,7 @@ def fail_orphan_running(db) -> int:
     now = datetime.now(UTC).isoformat()
     cur = db.conn.execute(
         "UPDATE scan_logs SET status='failed', finished_at=?, "
-        "error='crashed before completion' "
+        "error='进程中断，未完成' "
         "WHERE status='running'",
         (now,),
     )
