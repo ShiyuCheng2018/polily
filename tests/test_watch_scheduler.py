@@ -7,7 +7,6 @@ import pytest
 
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.monitor_store import update_next_check_at, upsert_event_monitor
 from scanner.daemon.scheduler import WatchScheduler
 
 
@@ -16,11 +15,6 @@ def db(tmp_path):
     db = PolilyDB(tmp_path / "test.db")
     yield db
     db.close()
-
-
-def _seed_event(db, event_id: str):
-    """Insert a minimal event row for FK constraints."""
-    upsert_event(EventRow(event_id=event_id, title="E", updated_at="now"), db)
 
 
 class TestSchedulerCreation:
@@ -47,53 +41,6 @@ class TestSchedulerCreation:
             ws.start()
             poll_job = ws.scheduler.get_job("global_poll")
             assert poll_job.executor == "poll"
-            ws.shutdown()
-
-
-class TestCheckJobRestore:
-    def test_restores_check_jobs_from_db(self, db):
-        _seed_event(db, "ev1")
-        upsert_event_monitor("ev1", auto_monitor=True, db=db)
-        future = (datetime.now(UTC) + timedelta(days=3)).isoformat()
-        update_next_check_at("ev1", future, "CPI release", db)
-
-        with patch("scanner.daemon.scheduler.global_poll"):
-            ws = WatchScheduler(db)
-            ws.start()
-            count = ws.restore_check_jobs()
-            assert count == 1
-            jobs = ws.scheduler.get_jobs()
-            check_jobs = [j for j in jobs if j.id.startswith("check_")]
-            assert len(check_jobs) == 1
-            assert check_jobs[0].executor == "ai"
-            ws.shutdown()
-
-    def test_skips_events_without_next_check_at(self, db):
-        _seed_event(db, "ev1")
-        upsert_event_monitor("ev1", auto_monitor=True, db=db)
-        # No next_check_at set
-
-        with patch("scanner.daemon.scheduler.global_poll"):
-            ws = WatchScheduler(db)
-            ws.start()
-            count = ws.restore_check_jobs()
-            assert count == 0
-            ws.shutdown()
-
-    def test_overdue_check_jobs_skipped(self, db):
-        """Overdue check jobs should be skipped, not rescheduled."""
-        _seed_event(db, "ev1")
-        upsert_event_monitor("ev1", auto_monitor=True, db=db)
-        past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
-        update_next_check_at("ev1", past, "overdue", db)
-
-        with patch("scanner.daemon.scheduler.global_poll"):
-            ws = WatchScheduler(db)
-            ws.start()
-            count = ws.restore_check_jobs()
-            assert count == 0  # skipped, not restored
-            job = ws.scheduler.get_job("check_ev1")
-            assert job is None
             ws.shutdown()
 
 

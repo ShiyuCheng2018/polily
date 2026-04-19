@@ -75,10 +75,22 @@ def recheck_event(
             ):
                 next_check = version.narrative_output.get("next_check_at")
                 if next_check:
-                    from scanner.core.monitor_store import update_next_check_at
+                    from scanner.scan_log import (
+                        insert_pending_scan,
+                        supersede_pending_for_event,
+                    )
 
-                    reason = version.narrative_output.get("next_check_reason", "")
-                    update_next_check_at(event_id, next_check, reason, db, notify=False)
+                    supersede_pending_for_event(event_id, db)
+                    insert_pending_scan(
+                        event_id=event_id,
+                        event_title=event.title,
+                        scheduled_at=next_check,
+                        trigger_source="scheduled",
+                        scheduled_reason=version.narrative_output.get(
+                            "next_check_reason", ""
+                        ),
+                        db=db,
+                    )
                     return RecheckResult(
                         event_id=event_id,
                         next_check_at=next_check,

@@ -17,7 +17,7 @@ from scanner.core.event_store import (
     get_event,
     get_event_markets,
 )
-from scanner.core.monitor_store import get_event_monitor, update_next_check_at
+from scanner.core.monitor_store import get_event_monitor
 from scanner.core.positions import PositionManager
 from scanner.core.trade_engine import TradeEngine
 from scanner.core.wallet import WalletService
@@ -186,13 +186,20 @@ class ScanService:
 
         # Update next_check_at if AI provided one
         if narrative_output.next_check_at:
-            update_next_check_at(
-                event_id,
-                narrative_output.next_check_at,
-                narrative_output.next_check_reason,
-                self.db,
+            from scanner.scan_log import (
+                insert_pending_scan,
+                supersede_pending_for_event,
             )
-            # notify_daemon is called inside update_next_check_at
+
+            supersede_pending_for_event(event_id, self.db)
+            insert_pending_scan(
+                event_id=event_id,
+                event_title=event.title,
+                scheduled_at=narrative_output.next_check_at,
+                trigger_source="scheduled",
+                scheduled_reason=narrative_output.next_check_reason,
+                db=self.db,
+            )
 
         return version
 

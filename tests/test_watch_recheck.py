@@ -5,7 +5,7 @@ import pytest
 
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, get_event, upsert_event, upsert_market
-from scanner.core.monitor_store import get_event_monitor, upsert_event_monitor
+from scanner.core.monitor_store import upsert_event_monitor
 from scanner.daemon.recheck import RecheckResult, recheck_event
 
 
@@ -108,7 +108,8 @@ class TestRecheckWithoutService:
 
 class TestRecheckWithAI:
     def test_ai_analysis_updates_next_check_at(self, db):
-        """When service is provided, AI analysis runs and next_check_at is updated."""
+        """When service is provided, AI analysis runs and a pending scan_logs
+        row is inserted for the next check."""
         upsert_event(EventRow(event_id="ev1", title="E", updated_at="now"), db)
         upsert_market(MarketRow(
             market_id="m1", event_id="ev1", question="Q", updated_at="now",
@@ -130,9 +131,17 @@ class TestRecheckWithAI:
         assert result.next_check_at == "2027-06-01T09:00:00+08:00"
         assert result.trigger_source == "movement"
 
-        mon = get_event_monitor("ev1", db)
-        assert mon["next_check_at"] == "2027-06-01T09:00:00+08:00"
-        assert mon["next_check_reason"] == "FOMC meeting"
+        # The new scheduling path writes a pending row to scan_logs rather
+        # than mutating event_monitors (which lost next_check_at in v0.7.0).
+        pending = db.conn.execute(
+            "SELECT scheduled_at, scheduled_reason, trigger_source, status "
+            "FROM scan_logs WHERE event_id = ? AND status = 'pending'",
+            ("ev1",),
+        ).fetchone()
+        assert pending is not None
+        assert pending["scheduled_at"] == "2027-06-01T09:00:00+08:00"
+        assert pending["scheduled_reason"] == "FOMC meeting"
+        assert pending["trigger_source"] == "scheduled"
 
     def test_ai_no_next_check_at(self, db):
         """When AI output has no next_check_at, result.next_check_at is None."""

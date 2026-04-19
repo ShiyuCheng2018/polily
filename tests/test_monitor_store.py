@@ -6,7 +6,6 @@ from scanner.core.event_store import EventRow, upsert_event
 from scanner.core.monitor_store import (
     get_active_monitors,
     get_event_monitor,
-    update_next_check_at,
     upsert_event_monitor,
 )
 
@@ -57,19 +56,3 @@ class TestMonitorStore:
 
     def test_get_nonexistent_monitor(self, db):
         assert get_event_monitor("nonexistent", db) is None
-
-    def test_update_next_check_at(self, db):
-        _setup_event(db, "ev1")
-        upsert_event_monitor("ev1", auto_monitor=True, db=db)
-        update_next_check_at("ev1", "2026-04-12T14:00:00", "CPI release", db)
-        monitor = get_event_monitor("ev1", db)
-        assert monitor["next_check_at"] == "2026-04-12T14:00:00"
-        assert monitor["next_check_reason"] == "CPI release"
-
-    def test_update_next_check_at_clear(self, db):
-        _setup_event(db, "ev1")
-        upsert_event_monitor("ev1", auto_monitor=True, db=db)
-        update_next_check_at("ev1", "2026-04-12T14:00:00", "test", db)
-        update_next_check_at("ev1", None, None, db)
-        monitor = get_event_monitor("ev1", db)
-        assert monitor["next_check_at"] is None
