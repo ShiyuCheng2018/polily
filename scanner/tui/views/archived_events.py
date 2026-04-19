@@ -46,19 +46,25 @@ class ArchivedEventsView(Widget):
         self._events: list[dict] = []
 
     def compose(self) -> ComposeResult:
-        self._events = self.service.get_archived_events()
-        yield Static(f" 归档事件 ({len(self._events)})", id="archive-title")
-        if not self._events:
-            yield Static(" 暂无归档事件。", classes="empty-msg")
-            return
+        yield Static("", id="archive-title")
         yield DataTable(id="archive-table")
+        yield Static("", id="archive-empty", classes="empty-msg")
 
     def on_mount(self) -> None:
-        if not self._events:
-            return
+        self._events = self.service.get_archived_events()
+        self.query_one("#archive-title", Static).update(
+            f" 归档事件 ({len(self._events)})",
+        )
         table = self.query_one("#archive-table", DataTable)
         table.cursor_type = "row"
         table.add_columns(*_COLUMN_SPEC)
+
+        empty_msg = self.query_one("#archive-empty", Static)
+        if not self._events:
+            empty_msg.update(" 暂无归档事件。")
+            return
+        empty_msg.display = False
+
         for e in self._events:
             ev = e["event"]
             mc = e["market_count"]
