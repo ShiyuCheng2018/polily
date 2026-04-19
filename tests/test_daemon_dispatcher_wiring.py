@@ -20,13 +20,16 @@ def db(tmp_path):
     d.close()
 
 
+class _DaemonExitError(RuntimeError):
+    """Raised by the test to break out of run_daemon's signal.pause() loop."""
+
+
 def test_run_daemon_passes_scheduler_to_init_poller(db, monkeypatch):
     """When run_daemon boots, init_poller must receive a non-None scheduler."""
-    from scanner.daemon import poll_job, scheduler as scheduler_mod
+    from scanner.daemon import poll_job
+    from scanner.daemon import scheduler as scheduler_mod
 
-    # Capture the init_poller call
     captured: dict = {}
-
     real_init = poll_job.init_poller
 
     def spy_init(**kwargs):
@@ -36,17 +39,9 @@ def test_run_daemon_passes_scheduler_to_init_poller(db, monkeypatch):
     monkeypatch.setattr(poll_job, "init_poller", spy_init)
     monkeypatch.setattr(scheduler_mod, "init_poller", spy_init)
 
-    # Stop run_daemon before it blocks on signal.pause()
-    class _Exit(RuntimeError):
-        pass
-
-    def _die(*a, **kw):
-        raise _Exit
-
     with patch.object(scheduler_mod, "signal") as sig_mock:
-        sig_mock.pause.side_effect = _Exit
-        # Also stub out PID file writes
-        with patch("pathlib.Path.write_text"), pytest.raises((_Exit, SystemExit)):
+        sig_mock.pause.side_effect = _DaemonExitError
+        with patch("pathlib.Path.write_text"), pytest.raises((_DaemonExitError, SystemExit)):
             scheduler_mod.run_daemon(db, config=None)
 
     assert "scheduler" in captured, (
