@@ -10,6 +10,14 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-04-19
+
+Monitoring lifecycle v2 — the "monitor" flag now carries real user intent
+through event close, positions guard users against accidentally abandoning
+stakes, and the Notifications page retires in favor of a proper Archive
+view. Supporting cleanup: shared `close_event` routine, dropped the
+`notifications` table, and the Watchlist redesign shipped with this bundle.
+
 ### Added
 
 - **Confirm-before-disable monitor + positions guard**: pressing `m` on a
@@ -228,5 +236,6 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.0...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.1...dev
+[0.6.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.1
 [0.6.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.0
