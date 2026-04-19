@@ -177,3 +177,19 @@ def test_dispatch_dispatches_earliest_pending_per_event_only(db):
         "SELECT scheduled_reason FROM scan_logs WHERE status='running'",
     ).fetchone()
     assert running["scheduled_reason"] == "oldest"
+
+
+def test_movement_trigger_writes_pending_row(db):
+    """Q5: movement path writes scan_logs pending instead of direct add_job."""
+    from scanner.daemon.poll_job import _trigger_movement_analysis
+
+    _trigger_movement_analysis(
+        event_id="ev1", event_title="Test", reason="M=85 Q=72", db=db,
+    )
+    row = db.conn.execute(
+        "SELECT status, trigger_source, scheduled_reason FROM scan_logs "
+        "WHERE event_id='ev1' AND status='pending'",
+    ).fetchone()
+    assert row is not None
+    assert row["trigger_source"] == "movement"
+    assert "M=85" in row["scheduled_reason"]

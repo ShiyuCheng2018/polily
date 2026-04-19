@@ -709,6 +709,27 @@ def _run_pending_analysis(
         logger.exception("Dispatched analysis failed for scan_id=%s", scan_id)
 
 
+def _trigger_movement_analysis(
+    *, event_id: str, event_title: str | None, reason: str, db: PolilyDB,
+) -> None:
+    """Write a pending scan_logs row so the next poll tick dispatches analysis.
+
+    Q5 decision: movement-triggered analyses flow through the same DB queue as
+    scheduled ones so everything appears in the 待办 zone of menu 0.
+    """
+    from scanner.scan_log import insert_pending_scan
+
+    now_iso = datetime.now(UTC).isoformat()
+    insert_pending_scan(
+        event_id=event_id,
+        event_title=event_title,
+        scheduled_at=now_iso,  # "now" = immediately eligible for next tick
+        trigger_source="movement",
+        scheduled_reason=reason,
+        db=db,
+    )
+
+
 def _check_event_trigger(
     event_id: str,
     active_markets: list,
@@ -798,27 +819,15 @@ def _check_event_trigger(
         (event_id, event_id),
     )
 
-    # Submit to ai executor
-    if _ctx and _ctx.scheduler:
-        try:
-            from scanner.daemon.recheck import recheck_event
-            from scanner.tui.service import ScanService
-
-            service = ScanService(db)
-            _ctx.scheduler.add_job(
-                recheck_event,
-                id=f"movement_trigger_{event_id}",
-                executor="ai",
-                replace_existing=True,
-                kwargs={
-                    "event_id": event_id,
-                    "db": db,
-                    "service": service,
-                    "trigger_source": "movement",
-                },
-            )
-        except Exception:
-            logger.exception("Failed to submit movement-triggered analysis for %s", event_id)
+    # Write pending scan_logs row; the next poll tick's dispatcher picks it up
+    # (Q5: unified queue so movement analyses also show in menu 0's 待办 zone).
+    event = get_event(event_id, db)
+    _trigger_movement_analysis(
+        event_id=event_id,
+        event_title=event.title if event else None,
+        reason=f"M={max_m:.0f} Q={max_q:.0f} ({agg.label})",
+        db=db,
+    )
 
 
 # ---------------------------------------------------------------------------
