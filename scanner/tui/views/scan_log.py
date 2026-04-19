@@ -223,7 +223,7 @@ class ScanLogView(Widget):
             yield Static("  [dim]--- 历史记录 ---[/dim]")
 
         if self._upcoming:
-            yield Static(f"─ 待办 ({len(self._upcoming)}) ─", classes="zone-title")
+            yield Static(f"─ 分析队列 ({len(self._upcoming)}) ─", classes="zone-title")
             yield DataTable(id="upcoming-table")
         if self._history:
             yield Static(f"─ 历史 ({len(self._history)}) ─", classes="zone-title")
@@ -256,15 +256,20 @@ class ScanLogView(Widget):
         except Exception:
             return
         table.cursor_type = "row"
-        table.add_columns("状态", "事件", "时间", "耗时", "来源")
+        table.add_columns("状态", "类型", "事件", "时间", "耗时", "来源")
+        type_labels = {"analyze": "AI 分析", "add_event": "评分", "scan": "扫描"}
         for log in self._history:
             icon = {"completed": "✅", "failed": "❌",
                     "cancelled": "⚪", "superseded": "⚪"}.get(log.status, "·")
+            type_label = type_labels.get(log.type, log.type)
             started = _to_local(log.started_at)
             elapsed = f"{log.total_elapsed:.1f}s" if log.status == "completed" else ""
             source = log.trigger_source
             title = (log.market_title or "?")[:25]
-            table.add_row(f"{icon} {log.status}", title, started, elapsed, source, key=log.scan_id)
+            table.add_row(
+                f"{icon} {log.status}", type_label, title, started, elapsed, source,
+                key=log.scan_id,
+            )
 
     def _submit_url(self) -> None:
         try:

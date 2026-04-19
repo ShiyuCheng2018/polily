@@ -19,11 +19,13 @@ structured release notes — see `git log` for history.
   / launchd restart all become no-ops: the next tick picks up
   overdue work from the DB. Solves the recurring "missed scheduled
   check after Mac was closed overnight" bug.
-- **Menu 0 split into `待办` / `历史` zones.** Pending and running
-  analyses surface at the top with their schedule or live timer;
-  completed / failed / cancelled / superseded fall to history.
+- **Menu 0 split into `分析队列` / `历史` zones.** Pending and
+  running AI analyses surface at the top with their schedule or live
+  timer; completed / failed / cancelled / superseded fall to history.
   Running rows compute elapsed time live from `started_at` at render.
-- **`c` on a running row in 待办** opens a confirmation modal to
+  The 历史 zone adds a `类型` column so AI 分析 / 评分 / 扫描 rows
+  can be distinguished at a glance.
+- **`c` on a running row in 分析队列** opens a confirmation modal to
   cancel the in-flight analysis. Routes through the new
   `narrator_registry` so scans initiated by the dispatcher (not just
   the TUI) are reachable — kills the Claude CLI subprocess + marks
