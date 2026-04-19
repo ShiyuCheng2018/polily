@@ -139,3 +139,9 @@ Polily is open source; releases need to follow a standard. Always use `gh releas
 1. Feature-complete on dev → ship `vX.Y.0-beta.N` (prerelease)
 2. Collect feedback, fix bugs → ship `vX.Y.0-beta.N+1` (prerelease)
 3. Once stable, merge to master → ship `vX.Y.0` (latest)
+
+**CHANGELOG.md workflow** (Keep a Changelog + SemVer):
+- Update `[Unreleased]` as part of every PR that has user-visible change. Don't let it drift — it's the source of truth for what ships next.
+- Before `gh release create`, diff dev since the last tag and cross-check that every commit with user-visible impact is already in `[Unreleased]` (or the version section). Commits made after the PR merged (hotfixes, follow-ups, docs-only cleanups) are the usual gap.
+- On release, rename `[Unreleased]` → `[X.Y.Z] — YYYY-MM-DD` and update the compare/tag links at the bottom. Don't open a new section for the same version across beta→stable — keep accumulating in one section so the stable release notes reflect the cumulative truth.
+- If you realize post-release the section missed something, patch that version's section directly (commit to dev titled `docs(changelog): catch up [X.Y.Z]`), don't start a new section.
