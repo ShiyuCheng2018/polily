@@ -365,6 +365,9 @@ def global_poll(db: PolilyDB | None = None) -> None:
         warn = True
 
     # Step 3.5 (dispatcher): drain overdue pending scan_logs rows to the ai executor.
+    # Runs AFTER resolution (Step 1.5) and score refresh (Step 3) so analyses see
+    # committed state, and BEFORE intelligence layer so this-tick movement signals
+    # aren't consumed by this-tick analyses (they land next tick).
     if _ctx and _ctx.scheduler:
         try:
             n = dispatch_pending_analyses(_ctx.db, _ctx.scheduler)
@@ -654,19 +657,29 @@ def dispatch_pending_analyses(db: PolilyDB, scheduler) -> int:
         scan_id = row["scan_id"]
         if not claim_pending_scan(scan_id, db):
             continue  # another tick already claimed
-        scheduler.add_job(
-            _run_pending_analysis,
-            id=f"pending_{scan_id}",
-            executor="ai",
-            replace_existing=True,
-            kwargs={
-                "event_id": row["event_id"],
-                "scan_id": scan_id,
-                "db": db,
-                "trigger_source": row["trigger_source"],
-            },
-        )
-        submitted += 1
+        try:
+            scheduler.add_job(
+                _run_pending_analysis,
+                id=f"pending_{scan_id}",
+                executor="ai",
+                replace_existing=True,
+                kwargs={
+                    "event_id": row["event_id"],
+                    "scan_id": scan_id,
+                    "db": db,
+                    "trigger_source": row["trigger_source"],
+                },
+            )
+            submitted += 1
+        except Exception:
+            # add_job raised after we already flipped status to 'running'.
+            # Don't abort the loop — other overdue rows still get a shot.
+            # Row stays in 'running' and will be swept by fail_orphan_running
+            # on the next daemon restart.
+            logger.exception(
+                "scheduler.add_job failed for scan_id=%s; row left in running state",
+                scan_id,
+            )
     return submitted
 
 
