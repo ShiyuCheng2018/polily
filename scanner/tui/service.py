@@ -60,6 +60,14 @@ def _validate_next_check_at(value: str | None) -> str | None:
         return None
 
 
+class AnalysisInProgressError(Exception):
+    """Raised when the user tries to start a second concurrent analysis
+    for an event that already has a running scan_logs row.
+
+    Invariant: at most one active (running) scan_logs row per event_id.
+    """
+
+
 class ActivePositionsError(Exception):
     """Raised when an operation would orphan open positions (e.g. disabling
     monitor on an event the user still holds shares in)."""
@@ -178,17 +186,28 @@ class ScanService:
         start_time = time.time()
 
         # --- Write the 'running' scan_log row ---
+        # Invariant: at most one running row per event. Dispatcher-supplied
+        # scan_id means the row is already running (atomically claimed by
+        # `claim_pending_scan`), so the guard applies only to manual triggers.
         now_iso = datetime.now(UTC).isoformat()
         if scan_id is None:
             scan_id = _make_scan_id(prefix="r")
-            self.db.conn.execute(
+            # Atomic "insert only if no running row exists for this event":
+            # INSERT ... SELECT ... WHERE NOT EXISTS evaluates within one
+            # statement, so two concurrent callers can't both slip through.
+            cur = self.db.conn.execute(
                 "INSERT INTO scan_logs(scan_id, type, event_id, market_title, "
                 "started_at, status, trigger_source) "
-                "VALUES (?, 'analyze', ?, ?, ?, 'running', ?)",
-                (scan_id, event_id, event.title, now_iso, trigger_source),
+                "SELECT ?, 'analyze', ?, ?, ?, 'running', ? "
+                "WHERE NOT EXISTS (SELECT 1 FROM scan_logs "
+                "                  WHERE event_id=? AND status='running')",
+                (scan_id, event_id, event.title, now_iso, trigger_source, event_id),
             )
             self.db.conn.commit()
-        # else: dispatcher already claimed the pending row via claim_pending_scan.
+            if cur.rowcount == 0:
+                raise AnalysisInProgressError(
+                    "该事件已有分析在进行中，请等待完成或先取消后再试",
+                )
 
         has_position, position_summary = self._compute_position_context(event_id)
         existing = get_event_analyses(event_id, self.db)
