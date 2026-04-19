@@ -89,7 +89,9 @@ async def test_analyze_agent_failure_marks_row_failed(tmp_path):
         "SELECT status, error FROM scan_logs WHERE event_id='ev1' ORDER BY started_at DESC LIMIT 1"
     ).fetchone()
     assert row["status"] == "failed"
-    assert "Claude crashed" in (row["error"] or "")
+    err = row["error"] or ""
+    assert "RuntimeError" in err
+    assert "Claude crashed" in err
 
 
 def test_validate_next_check_at_rejects_bad_inputs():

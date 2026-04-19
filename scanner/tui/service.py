@@ -214,8 +214,18 @@ class ScanService:
             narrator_registry.unregister(scan_id)
 
         if agent_error is not None:
+            logger.error(
+                "narrator failed for scan_id=%s event_id=%s: %s",
+                scan_id, event_id, agent_error,
+                exc_info=agent_error,
+            )
             try:
-                finish_scan(scan_id, status="failed", error=str(agent_error)[:200], db=self.db)
+                finish_scan(
+                    scan_id,
+                    status="failed",
+                    error=f"{type(agent_error).__name__}: {agent_error}"[:200],
+                    db=self.db,
+                )
             except Exception:
                 logger.exception("finish_scan failed while recording agent error")
             raise agent_error
