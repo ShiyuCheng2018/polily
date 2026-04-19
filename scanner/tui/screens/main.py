@@ -9,6 +9,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
 from scanner.tui.service import ScanService
+from scanner.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 from scanner.tui.views.market_detail import (
     AnalyzeRequested,
     BackToList,
@@ -18,7 +19,6 @@ from scanner.tui.views.market_detail import (
     SwitchVersionRequested,
 )
 from scanner.tui.views.monitor_list import MonitorListView, ViewMonitorDetail
-from scanner.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 from scanner.tui.views.paper_status import PaperStatusView, ViewTradeDetail
 from scanner.tui.views.scan_log import (
     AddEventRequested,
