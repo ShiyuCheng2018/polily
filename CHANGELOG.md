@@ -27,6 +27,18 @@ structured release notes — see `git log` for history.
   dedicated pages (Positions / Wallet / Market Detail), keeping page
   responsibilities non-overlapping.
 
+### Fixed
+
+- **Poll-path auto-close leaves no stray monitor state**: when `poll_job`
+  detected every sub-market had gone (CLOB 404) and closed the event, it
+  only wrote `events.closed=1` — the matching `event_monitors.auto_monitor`
+  row stayed at `1` and no notification fired, unlike `recheck`'s close
+  path which did both. Extracted the close routine into a shared
+  `scanner/daemon/close_event.close_event()` and both paths now call it,
+  so closed events always land with `auto_monitor=0` and a `[CLOSED]`
+  notification. Gate added to avoid re-notifying on every subsequent tick
+  of an already-closed event.
+
 ## [0.6.0] — 2026-04-19
 
 Wallet system — paper trading gets real. Buys and sells now settle against

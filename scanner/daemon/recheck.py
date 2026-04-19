@@ -85,30 +85,8 @@ def recheck_event(
 def _close_event(
     event_id: str, title: str, db: PolilyDB, trigger_source: str
 ) -> RecheckResult:
-    """Mark event as closed + notify."""
-    now = datetime.now(UTC).isoformat()
-    db.conn.execute(
-        "UPDATE events SET closed=1, updated_at=? WHERE event_id=?",
-        (now, event_id),
-    )
-    db.conn.commit()
+    """Mark event as closed + notify via the shared close routine."""
+    from scanner.daemon.close_event import close_event
 
-    # Disable monitoring for closed event
-    from scanner.core.monitor_store import upsert_event_monitor
-
-    upsert_event_monitor(event_id, auto_monitor=False, db=db)
-
-    # Send notification
-    from scanner.notifications import add_notification
-
-    add_notification(
-        db,
-        title=f"[CLOSED] {title[:40]}",
-        body=f"Event closed ({trigger_source})",
-        event_id=event_id,
-        trigger_source=trigger_source,
-        action_result="closed",
-    )
-
-    logger.info("Event %s closed (trigger: %s)", event_id, trigger_source)
+    close_event(event_id, title, db, trigger_source)
     return RecheckResult(event_id=event_id, closed=True, trigger_source=trigger_source)

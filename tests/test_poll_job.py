@@ -117,6 +117,72 @@ class TestGlobalPollPriceLayer:
         event = get_event("ev1", db)
         assert event.closed == 1
 
+    def test_poll_close_disables_monitor_and_notifies(self, db):
+        """Regression: poll path used to only set events.closed=1, leaving
+        event_monitors.auto_monitor=1 dangling and never notifying the user.
+        Now it calls the shared close_event routine so both concerns land."""
+        from scanner.core.monitor_store import get_event_monitor
+        from scanner.notifications import get_unread_notifications
+
+        upsert_event(
+            EventRow(event_id="ev1", title="Some Event", updated_at="now"), db,
+        )
+        for market_id, token in (("m1", "t1"), ("m2", "t2")):
+            upsert_market(
+                MarketRow(
+                    market_id=market_id, event_id="ev1",
+                    question=f"Q-{market_id}", clob_token_id_yes=token,
+                    updated_at="now",
+                ), db,
+            )
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
+
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+            mock_fetch.side_effect = httpx.HTTPStatusError(
+                "Not Found",
+                request=MagicMock(),
+                response=MagicMock(status_code=404),
+            )
+            global_poll(db)
+
+        # auto_monitor must be cleared (was the main hygiene bug)
+        monitor = get_event_monitor("ev1", db)
+        assert monitor is not None
+        assert monitor["auto_monitor"] == 0
+
+        # User gets notified of the close
+        notifs = get_unread_notifications(db)
+        closed_notifs = [n for n in notifs if n["title"].startswith("[CLOSED]")]
+        assert len(closed_notifs) == 1
+        assert closed_notifs[0]["trigger_source"] == "poll"
+        assert closed_notifs[0]["event_id"] == "ev1"
+
+    def test_poll_close_doesnt_re_notify_on_subsequent_tick(self, db):
+        """Once event is closed, another poll tick should not emit a duplicate
+        [CLOSED] notification — the gate on `event.closed == 1` prevents
+        per-tick spam while the sub-markets stay in the map."""
+        from scanner.notifications import get_unread_notifications
+
+        upsert_event(
+            EventRow(event_id="ev1", title="Some Event", closed=1, updated_at="now"),
+            db,
+        )
+        upsert_market(
+            MarketRow(
+                market_id="m1", event_id="ev1", question="Q",
+                clob_token_id_yes="t1", closed=1, updated_at="now",
+            ), db,
+        )
+        upsert_event_monitor("ev1", auto_monitor=False, db=db)
+
+        # Poll runs (no live fetches thanks to closed=1 guard elsewhere)
+        with patch("scanner.core.clob.fetch_clob_market_data"):
+            global_poll(db)
+
+        # No new notifications produced for an already-closed event
+        notifs = get_unread_notifications(db)
+        assert not any(n["title"].startswith("[CLOSED]") for n in notifs)
+
     def test_skips_closed_markets(self, db):
         """Markets with closed=1 should not be fetched."""
         _seed(db, closed=1)
