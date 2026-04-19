@@ -564,17 +564,6 @@ class ScanService:
         return len(self.positions.get_event_positions(event_id))
 
     # ------------------------------------------------------------------
-    # Notifications
-    # ------------------------------------------------------------------
-
-    def get_unread_notification_count(self) -> int:
-        """Count unread notifications."""
-        row = self.db.conn.execute(
-            "SELECT COUNT(*) FROM notifications WHERE is_read = 0",
-        ).fetchone()
-        return row[0] if row else 0
-
-    # ------------------------------------------------------------------
     # Scan log
     # ------------------------------------------------------------------
 
