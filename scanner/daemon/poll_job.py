@@ -22,10 +22,12 @@ import httpx
 
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import (
+    get_event,
     get_event_markets,
     mark_market_closed,
     update_market_prices,
 )
+from scanner.daemon.close_event import close_event
 from scanner.daemon.resolution import derive_winner
 from scanner.price_feeds import extract_crypto_asset
 
@@ -316,15 +318,19 @@ def global_poll(db: PolilyDB | None = None) -> None:
 
     db.conn.commit()
 
-    # Close events where all sub-markets are gone
+    # Close events where all sub-markets are gone. Delegates to the shared
+    # close_event routine so auto_monitor flips to 0 and a notification is
+    # emitted — same contract as recheck's close path.
+    db.conn.commit()
     for event_id in closed_by_event:
         all_markets = get_event_markets(event_id, db)
-        if all(m.closed for m in all_markets):
-            db.conn.execute(
-                "UPDATE events SET closed=1, updated_at=? WHERE event_id=?",
-                (datetime.now(UTC).isoformat(), event_id),
-            )
-    db.conn.commit()
+        if not all(m.closed for m in all_markets):
+            continue
+        event = get_event(event_id, db)
+        if event is None or event.closed == 1:
+            continue  # already closed — don't re-notify on every tick
+        title = event.title or event_id
+        close_event(event_id, title, db, trigger_source="poll")
 
     # --- Step 1.5: Auto-resolve newly closed markets the user holds -----
     # Only fires if init_poller supplied wallet/positions/resolver (test
