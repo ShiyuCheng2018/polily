@@ -31,6 +31,28 @@ def _mock_service():
     return service
 
 
+def _seed_archived_event(service, event_id: str, title: str, score: float = 80.0):
+    """Seed an archived event (closed=1, auto_monitor=1) directly into the DB."""
+    from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+    from scanner.core.monitor_store import upsert_event_monitor
+
+    upsert_event(
+        EventRow(event_id=event_id, title=title, closed=1,
+                 updated_at="2026-04-19T00:00:00"),
+        service.db,
+    )
+    service.db.conn.execute(
+        "UPDATE events SET structure_score=? WHERE event_id=?", (score, event_id),
+    )
+    upsert_market(
+        MarketRow(market_id=f"m-{event_id}", event_id=event_id, question="Q",
+                  updated_at="2026-04-19T00:00:00"),
+        service.db,
+    )
+    upsert_event_monitor(event_id, auto_monitor=True, db=service.db)
+    service.db.conn.commit()
+
+
 class TestTUIStartup:
     @pytest.mark.asyncio
     async def test_app_starts_without_crash(self):
@@ -155,3 +177,95 @@ class TestTUIQuit:
         app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.press("q")
+
+
+class TestTUIArchive:
+    """Archive-view integration: sidebar count, menu-5 switch, row → detail.
+
+    Locks in the 'looking back' UX claim from the v0.6.x CHANGELOG: the
+    Archive view surfaces closed monitored events, press 5 navigates to it,
+    and clicking a row opens that event's MarketDetailView for retrospective
+    review.
+    """
+
+    @pytest.mark.asyncio
+    async def test_sidebar_shows_archive_count(self):
+        """Seed 2 archived events → sidebar archive item renders '(2)'."""
+        from scanner.tui.widgets.sidebar import Sidebar, SidebarItem
+
+        service = _mock_service()
+        _seed_archived_event(service, "ev-1", "Event 1")
+        _seed_archived_event(service, "ev-2", "Event 2")
+
+        app = PolilyApp(service=service)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            sidebar = app.screen.query_one(Sidebar)
+            archive_item = next(
+                i for i in sidebar.query(SidebarItem) if i.menu_id == "archive"
+            )
+            assert archive_item.count == 2
+            # The visible text also includes the count suffix.
+            assert "(2)" in str(archive_item.render())
+
+    @pytest.mark.asyncio
+    async def test_press_5_switches_to_archive(self):
+        """Key '5' is bound to show_archive, which mounts ArchivedEventsView.
+
+        The default TUI surface has a URL `Input` that eats digit keys, so
+        we can't reliably simulate `pilot.press('5')` without losing the
+        keystroke to the input widget. Instead we verify (a) the screen
+        binding table includes `5 → show_archive` and (b) that action wires
+        up the view correctly. These two together equal "pressing 5 works".
+        """
+        from scanner.tui.views.archived_events import ArchivedEventsView
+
+        app = PolilyApp(service=_mock_service())
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.screen
+            screen.service = app.service
+            screen._loading = False
+            await pilot.pause()
+
+            # (a) The binding exists and routes key "5" to action_show_archive.
+            bindings = {b.key: b.action for b in screen.BINDINGS}
+            assert bindings.get("5") == "show_archive"
+
+            # (b) Invoking the action has the expected effect.
+            screen.action_show_archive()
+            await pilot.pause()
+
+            assert screen._current_menu == "archive"
+            content = screen.query_one("#content-area")
+            archive_views = list(content.query(ArchivedEventsView))
+            assert len(archive_views) == 1
+
+    @pytest.mark.asyncio
+    async def test_view_archived_detail_message_opens_market_detail(self):
+        """Posting ViewArchivedDetail → MarketDetailView replaces content."""
+        from scanner.tui.views.archived_events import ViewArchivedDetail
+        from scanner.tui.views.market_detail import MarketDetailView
+
+        service = _mock_service()
+        _seed_archived_event(service, "ev-archived", "Archived title")
+
+        app = PolilyApp(service=service)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.screen
+            screen.service = app.service
+            screen._loading = False
+            await pilot.pause()
+
+            # Switch to archive first (establishes realistic starting state).
+            await pilot.press("5")
+            await pilot.pause()
+
+            # Simulate a row-click by posting the message directly (the view
+            # itself posts this from on_data_table_row_selected / action_view_detail).
+            screen.post_message(ViewArchivedDetail("ev-archived"))
+            await pilot.pause()
+
+            content = screen.query_one("#content-area")
+            detail_views = list(content.query(MarketDetailView))
+            assert len(detail_views) == 1
+            assert detail_views[0].event_id == "ev-archived"

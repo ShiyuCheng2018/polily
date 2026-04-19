@@ -23,6 +23,12 @@ structured release notes — see `git log` for history.
   Watchlist. Enabling monitor is unchanged (no confirmation, non-
   destructive). Service layer also raises `ActivePositionsError` as a
   defence-in-depth check.
+- **Archive view (menu 5 `归档`)**: replaces the former "通知" page. Lists
+  events the user was monitoring when they closed (`events.closed=1 AND
+  event_monitors.auto_monitor=1`), sorted by close time. Columns: 事件 /
+  结构分 / 子市场 / 关闭于. Row click navigates to `MarketDetailView`,
+  which also closes the "no way to re-open a closed event's detail" UX
+  gap noted in the v0.6.0 follow-up list.
 
 ### Changed
 
@@ -40,6 +46,17 @@ structured release notes — see `git log` for history.
   Data columns like position / leader price / P&L stay on their
   dedicated pages (Positions / Wallet / Market Detail), keeping page
   responsibilities non-overlapping.
+
+### Removed
+
+- **`notifications` table and module entirely.** The old system only ever
+  wrote `[CLOSED]` rows from the close path — the Archive view derives
+  that state from `events + event_monitors` directly, so the table,
+  `scanner/notifications.py`, and `NotificationListView` all retired.
+  `DROP TABLE IF EXISTS notifications` runs on first launch of an
+  upgraded DB (idempotent, no-op on fresh installs). External callers
+  of `scanner.notifications.*` or `ScanService.get_unread_notification_count`
+  will need to migrate — these were never a public-API contract.
 
 ### Fixed
 

@@ -9,6 +9,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
 from scanner.tui.service import ScanService
+from scanner.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 from scanner.tui.views.market_detail import (
     AnalyzeRequested,
     BackToList,
@@ -18,7 +19,6 @@ from scanner.tui.views.market_detail import (
     SwitchVersionRequested,
 )
 from scanner.tui.views.monitor_list import MonitorListView, ViewMonitorDetail
-from scanner.tui.views.notification_list import NotificationListView
 from scanner.tui.views.paper_status import PaperStatusView, ViewTradeDetail
 from scanner.tui.views.scan_log import (
     AddEventRequested,
@@ -49,12 +49,12 @@ class MainScreen(Screen):
         Binding("2", "show_paper", show=False),
         Binding("3", "show_wallet", show=False),
         Binding("4", "show_history", show=False),
-        Binding("5", "show_notifications", show=False),
+        Binding("5", "show_archive", show=False),
         Binding("up", "menu_prev", show=False),
         Binding("down", "menu_next", show=False),
     ]
 
-    MENU_ORDER = ["tasks", "monitor", "paper", "wallet", "history", "notifications"]
+    MENU_ORDER = ["tasks", "monitor", "paper", "wallet", "history", "archive"]
 
     def __init__(self, service: ScanService):
         super().__init__()
@@ -78,9 +78,9 @@ class MainScreen(Screen):
         sidebar.set_active_menu("tasks")
         monitor = self.service.get_monitor_count()
         paper = len(self.service.get_open_trades())
-        notif_count = self.service.get_unread_notification_count()
+        archive_count = len(self.service.get_archived_events())
         history = self.service.get_history_count()
-        sidebar.update_counts(monitor, paper, notif_count, history)
+        sidebar.update_counts(monitor, paper, archive_count, history)
         # Poll heartbeat: check every 5s
         self.set_interval(5, self._check_poll_heartbeat)
         self._check_poll_heartbeat()
@@ -204,9 +204,9 @@ class MainScreen(Screen):
     def refresh_sidebar_counts(self):
         monitor = self.service.get_monitor_count()
         paper = len(self.service.get_open_trades())
-        notif_count = self.service.get_unread_notification_count()
+        archive_count = len(self.service.get_archived_events())
         history = self.service.get_history_count()
-        self.query_one("#sidebar", Sidebar).update_counts(monitor, paper, notif_count, history)
+        self.query_one("#sidebar", Sidebar).update_counts(monitor, paper, archive_count, history)
 
     # --- Message handlers ---
 
@@ -390,6 +390,12 @@ class MainScreen(Screen):
             MarketDetailView(event_id=message.event_id, service=self.service)
         )
 
+    def on_view_archived_detail(self, message: ViewArchivedDetail) -> None:
+        """Row-click in ArchivedEventsView → push MarketDetailView for retrospective view."""
+        self._switch_view(
+            MarketDetailView(event_id=message.event_id, service=self.service)
+        )
+
     def on_view_trade_detail(self, message: ViewTradeDetail) -> None:
         """Navigate to event detail from portfolio."""
         self._switch_view(
@@ -417,8 +423,8 @@ class MainScreen(Screen):
         elif menu_id == "history":
             from scanner.tui.views.history import HistoryView
             self._switch_view(HistoryView(self.service), "history")
-        elif menu_id == "notifications":
-            self._switch_view(NotificationListView(self.service.db), "notifications")
+        elif menu_id == "archive":
+            self._switch_view(ArchivedEventsView(self.service), "archive")
         self._current_menu = menu_id
 
     def action_show_tasks(self) -> None:
@@ -436,8 +442,8 @@ class MainScreen(Screen):
     def action_show_history(self) -> None:
         self._navigate_to("history")
 
-    def action_show_notifications(self) -> None:
-        self._navigate_to("notifications")
+    def action_show_archive(self) -> None:
+        self._navigate_to("archive")
 
     def action_refresh(self) -> None:
         content = self.query_one("#content-area")

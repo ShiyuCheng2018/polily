@@ -272,6 +272,41 @@ class ScanService:
             })
         return results
 
+    def get_archived_events(self) -> list[dict]:
+        """Events the user was monitoring at the moment they closed.
+
+        Source-of-truth for the Archive view (menu 5). Filter is two-part:
+        `events.closed=1` (the event finished) AND
+        `event_monitors.auto_monitor=1` (the user was monitoring).
+
+        The auto_monitor flag is preserved through close (by design — it's a
+        user-intent flag, see PR #40), so the value at query time == value at
+        close time for any event not explicitly toggled off post-close.
+        """
+        # NOTE: aliased to `markets_total` (not `market_count`) because
+        # `events.market_count` is a real column pulled in via `e.*`; duplicate
+        # keys on sqlite3.Row collapse to the first occurrence on dict(row).
+        sql = """
+            SELECT e.*,
+                   COUNT(DISTINCT mk.market_id) AS markets_total
+            FROM events e
+            INNER JOIN event_monitors em ON em.event_id = e.event_id
+            LEFT JOIN markets mk ON mk.event_id = e.event_id
+            WHERE e.closed = 1 AND em.auto_monitor = 1
+            GROUP BY e.event_id
+            ORDER BY e.updated_at DESC
+        """
+        rows = self.db.conn.execute(sql).fetchall()
+        results = []
+        for row in rows:
+            d = dict(row)
+            event = EventRow(**{k: d[k] for k in EventRow.model_fields if k in d})
+            results.append({
+                "event": event,
+                "market_count": d["markets_total"],
+            })
+        return results
+
     def _fetch_movement(self, event_id: str) -> dict | None:
         """Roll up the latest movement tick for a monitored event.
 
@@ -527,17 +562,6 @@ class ScanService:
     def get_event_position_count(self, event_id: str) -> int:
         """Count open positions across every market in the event."""
         return len(self.positions.get_event_positions(event_id))
-
-    # ------------------------------------------------------------------
-    # Notifications
-    # ------------------------------------------------------------------
-
-    def get_unread_notification_count(self) -> int:
-        """Count unread notifications."""
-        row = self.db.conn.execute(
-            "SELECT COUNT(*) FROM notifications WHERE is_read = 0",
-        ).fetchone()
-        return row[0] if row else 0
 
     # ------------------------------------------------------------------
     # Scan log
