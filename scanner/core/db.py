@@ -323,16 +323,22 @@ class PolilyDB:
         """)
 
         # 3. AFTER the rebuild, seed pending rows directly into the new schema.
+        #    Look up events.title so the TUI 待办 zone shows the event name
+        #    instead of a "?" placeholder.
         from datetime import UTC, datetime
         now_iso = datetime.now(UTC).isoformat()
         for event_id, next_check_at, reason in seed_rows:
             scan_id = f"mig_{event_id}_{next_check_at[:19].replace(':','').replace('-','')}"
+            title_row = self.conn.execute(
+                "SELECT title FROM events WHERE event_id=?", (event_id,),
+            ).fetchone()
+            title = title_row["title"] if title_row else None
             self.conn.execute(
                 "INSERT OR IGNORE INTO scan_logs("
-                "scan_id, type, event_id, started_at, status, "
+                "scan_id, type, event_id, market_title, started_at, status, "
                 "trigger_source, scheduled_at, scheduled_reason) "
-                "VALUES (?, 'analyze', ?, ?, 'pending', 'scheduled', ?, ?)",
-                (scan_id, event_id, now_iso, next_check_at, reason),
+                "VALUES (?, 'analyze', ?, ?, ?, 'pending', 'scheduled', ?, ?)",
+                (scan_id, event_id, title, now_iso, next_check_at, reason),
             )
 
         # 4. Drop event_monitors columns (SQLite ≥3.35).

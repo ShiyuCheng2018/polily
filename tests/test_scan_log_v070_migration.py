@@ -112,6 +112,21 @@ def test_migration_moves_next_check_at_to_pending_row(tmp_path):
         db.close()
 
 
+def test_migration_seeds_pending_with_event_title(tmp_path):
+    """Seed rows must fill market_title from events.title so the TUI 待办
+    zone shows the event name instead of a '?' placeholder."""
+    db_path = _make_v06_db(tmp_path)
+    db = PolilyDB(db_path)
+    try:
+        row = db.conn.execute(
+            "SELECT market_title FROM scan_logs WHERE status='pending'"
+        ).fetchone()
+        assert row is not None
+        assert row["market_title"] == "Iran"
+    finally:
+        db.close()
+
+
 def test_migration_drops_event_monitors_columns(tmp_path):
     db_path = _make_v06_db(tmp_path)
     db = PolilyDB(db_path)
