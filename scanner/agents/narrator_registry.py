@@ -11,11 +11,14 @@ from worker threads and cancel happens from the TUI main loop.
 """
 from __future__ import annotations
 
+import logging
 import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from scanner.agents.narrative_writer import NarrativeWriterAgent
+
+logger = logging.getLogger(__name__)
 
 _active: dict[str, NarrativeWriterAgent] = {}
 _lock = threading.Lock()
@@ -48,4 +51,5 @@ def cancel(scan_id: str) -> bool:
         narrator.cancel()
         return True
     except Exception:
+        logger.exception("narrator.cancel() raised for scan_id=%s", scan_id)
         return False
