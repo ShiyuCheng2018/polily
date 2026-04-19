@@ -13,6 +13,7 @@ from textual.widgets import Static
 
 from scanner.tui.components import (
     AnalysisPanel,
+    BinaryMarketStructurePanel,
     EventHeader,
     EventKpiRow,
     PositionPanel,
@@ -116,7 +117,10 @@ class MarketDetailView(Widget):
         with VerticalScroll():
             yield EventHeader(event, monitor, movements)
             yield EventKpiRow(event, markets)
-            yield SubMarketTable(markets, event)
+            if len(markets) == 1:
+                yield BinaryMarketStructurePanel(markets[0], event)
+            else:
+                yield SubMarketTable(markets, event)
             yield Static("")
             yield PositionPanel(trades, markets, movements)
 
