@@ -117,10 +117,10 @@ class TestGlobalPollPriceLayer:
         event = get_event("ev1", db)
         assert event.closed == 1
 
-    def test_poll_close_disables_monitor_and_notifies(self, db):
-        """Regression: poll path used to only set events.closed=1, leaving
-        event_monitors.auto_monitor=1 dangling and never notifying the user.
-        Now it calls the shared close_event routine so both concerns land."""
+    def test_poll_close_notifies_and_preserves_user_intent(self, db):
+        """Close path emits [CLOSED] notification and preserves
+        `auto_monitor=1` as a user-intent flag (so the Archive view can later
+        tell "the user was monitoring this when it closed")."""
         from scanner.core.monitor_store import get_event_monitor
         from scanner.notifications import get_unread_notifications
 
@@ -145,10 +145,10 @@ class TestGlobalPollPriceLayer:
             )
             global_poll(db)
 
-        # auto_monitor must be cleared (was the main hygiene bug)
+        # auto_monitor stays 1 — records the fact that user was monitoring
         monitor = get_event_monitor("ev1", db)
         assert monitor is not None
-        assert monitor["auto_monitor"] == 0
+        assert monitor["auto_monitor"] == 1
 
         # User gets notified of the close
         notifs = get_unread_notifications(db)

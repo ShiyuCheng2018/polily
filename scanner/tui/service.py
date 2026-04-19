@@ -39,6 +39,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class ActivePositionsError(Exception):
+    """Raised when an operation would orphan open positions (e.g. disabling
+    monitor on an event the user still holds shares in)."""
+
+
 class ScanService:
     """DB-first bridge between TUI views, scan pipeline, AI agent, and DB."""
 
@@ -506,8 +511,22 @@ class ScanService:
         self.db.conn.commit()
 
     def toggle_monitor(self, event_id: str, enable: bool) -> None:
-        """Enable or disable monitoring for an event."""
+        """Enable or disable monitoring for an event.
+
+        Disabling is blocked when the event has open positions — closing
+        monitor stops polling, which stops auto-resolution, which would
+        silently orphan the user's skin in the game. Callers should check
+        `get_event_position_count` first to surface a UI-friendly error.
+        """
+        if not enable and self.get_event_position_count(event_id) > 0:
+            raise ActivePositionsError(
+                f"Cannot disable monitoring — event {event_id} has open positions",
+            )
         toggle_auto_monitor(event_id, enable=enable, db=self.db)
+
+    def get_event_position_count(self, event_id: str) -> int:
+        """Count open positions across every market in the event."""
+        return len(self.positions.get_event_positions(event_id))
 
     # ------------------------------------------------------------------
     # Notifications
