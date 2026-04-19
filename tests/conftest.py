@@ -12,12 +12,6 @@ from scanner.core.models import BookLevel, Market
 
 
 @pytest.fixture(autouse=True)
-def _suppress_desktop_notifications(monkeypatch):
-    """Globally prevent real macOS notifications during all tests."""
-    monkeypatch.setattr("scanner.notifications.subprocess.run", lambda *a, **kw: None)
-
-
-@pytest.fixture(autouse=True)
 def _suppress_agent_debug_log(monkeypatch):
     """Prevent tests from writing agent_debug.log to data/."""
     monkeypatch.setattr("scanner.agents.base._dump_debug", lambda *a, **kw: None)
