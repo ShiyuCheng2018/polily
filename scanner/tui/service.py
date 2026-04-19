@@ -17,7 +17,7 @@ from scanner.core.event_store import (
     get_event,
     get_event_markets,
 )
-from scanner.core.monitor_store import get_event_monitor, update_next_check_at
+from scanner.core.monitor_store import get_event_monitor
 from scanner.core.positions import PositionManager
 from scanner.core.trade_engine import TradeEngine
 from scanner.core.wallet import WalletService
@@ -37,6 +37,35 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_next_check_at(value: str | None) -> str | None:
+    """Return value if it parses as ISO 8601 and is strictly in the future.
+
+    Rejects: None, empty string, malformed date, past timestamps.
+    Logs a warning on reject so bad agent output is observable.
+    """
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        if parsed <= datetime.now(UTC):
+            logger.warning("Agent emitted non-future next_check_at: %s", value)
+            return None
+        return value
+    except (ValueError, TypeError):
+        logger.warning("Agent emitted malformed next_check_at: %r", value)
+        return None
+
+
+class AnalysisInProgressError(Exception):
+    """Raised when the user tries to start a second concurrent analysis
+    for an event that already has a running scan_logs row.
+
+    Invariant: at most one active (running) scan_logs row per event_id.
+    """
 
 
 class ActivePositionsError(Exception):
@@ -133,25 +162,62 @@ class ScanService:
         event_id: str,
         trigger_source: str = "manual",
         on_heartbeat: Callable[[float, str], None] | None = None,
+        scan_id: str | None = None,
     ) -> AnalysisVersion:
-        """Run AI analysis on an event. Agent reads DB autonomously."""
+        """Run AI analysis on an event. Writes full scan_logs lifecycle.
+
+        Args:
+            scan_id: If provided, this is a dispatcher-claimed pending row
+                being executed (status already 'running'). If None, a fresh
+                'running' row is inserted here (manual trigger from TUI).
+        """
+        from scanner.agents import narrator_registry
+        from scanner.scan_log import (
+            _make_scan_id,
+            finish_scan,
+            insert_pending_scan,
+            supersede_pending_for_event,
+        )
+
         event = get_event(event_id, self.db)
         if event is None:
             raise ValueError(f"Event {event_id} not found in DB")
         markets = get_event_markets(event_id, self.db)
-
         start_time = time.time()
 
-        # Check if user has open positions in this event
-        has_position, position_summary = self._compute_position_context(event_id)
+        # --- Write the 'running' scan_log row ---
+        # Invariant: at most one running row per event. Dispatcher-supplied
+        # scan_id means the row is already running (atomically claimed by
+        # `claim_pending_scan`), so the guard applies only to manual triggers.
+        now_iso = datetime.now(UTC).isoformat()
+        if scan_id is None:
+            scan_id = _make_scan_id(prefix="r")
+            # Atomic "insert only if no running row exists for this event":
+            # INSERT ... SELECT ... WHERE NOT EXISTS evaluates within one
+            # statement, so two concurrent callers can't both slip through.
+            cur = self.db.conn.execute(
+                "INSERT INTO scan_logs(scan_id, type, event_id, market_title, "
+                "started_at, status, trigger_source) "
+                "SELECT ?, 'analyze', ?, ?, ?, 'running', ? "
+                "WHERE NOT EXISTS (SELECT 1 FROM scan_logs "
+                "                  WHERE event_id=? AND status='running')",
+                (scan_id, event_id, event.title, now_iso, trigger_source, event_id),
+            )
+            self.db.conn.commit()
+            if cur.rowcount == 0:
+                raise AnalysisInProgressError(
+                    "该事件已有分析在进行中，请等待完成或先取消后再试",
+                )
 
-        # Get existing analyses for version numbering
+        has_position, position_summary = self._compute_position_context(event_id)
         existing = get_event_analyses(event_id, self.db)
         new_version_num = (existing[-1].version if existing else 0) + 1
 
-        # Run NarrativeWriter — agent reads DB and searches web autonomously
         narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
         self._current_narrator = narrator
+        narrator_registry.register(scan_id, narrator)
+        agent_error: Exception | None = None
+        narrative_output = None
         try:
             narrative_output = await narrator.generate(
                 event_id=event_id,
@@ -160,17 +226,37 @@ class ScanService:
                 on_heartbeat=on_heartbeat,
                 event_title=event.title,
             )
+        except Exception as e:
+            agent_error = e
         finally:
             self._current_narrator = None
+            narrator_registry.unregister(scan_id)
 
-        # Build price snapshot
-        prices_snapshot = {}
-        for mr in markets:
-            prices_snapshot[mr.market_id] = {
-                "yes": mr.yes_price,
-                "no": mr.no_price,
-            }
+        if agent_error is not None:
+            logger.error(
+                "narrator failed for scan_id=%s event_id=%s: %s",
+                scan_id, event_id, agent_error,
+                exc_info=agent_error,
+            )
+            try:
+                finish_scan(
+                    scan_id,
+                    status="failed",
+                    error=f"{type(agent_error).__name__}: {agent_error}"[:200],
+                    db=self.db,
+                )
+            except Exception:
+                logger.exception("finish_scan failed while recording agent error")
+            raise agent_error
 
+        # --- Build (don't persist yet) the analysis version ---
+        # Persistence is gated on the atomic finish_scan UPDATE below: if
+        # another writer (e.g. user cancel) already finalized the row, we
+        # discard the narrator's output entirely so the cancelled scan
+        # doesn't surface as a fresh entry in the event's history.
+        prices_snapshot = {
+            mr.market_id: {"yes": mr.yes_price, "no": mr.no_price} for mr in markets
+        }
         version = AnalysisVersion(
             version=new_version_num,
             created_at=datetime.now(UTC).isoformat(),
@@ -182,18 +268,34 @@ class ScanService:
             elapsed_seconds=time.time() - start_time,
         )
 
+        # --- Atomic "claim the completion" ---
+        # finish_scan UPDATE ... WHERE status='running' is the serialization
+        # point. rowcount=1 → we won, safe to persist; rowcount=0 → someone
+        # else finalized first (user cancel / crash / duplicate dispatch) →
+        # the analysis is moot, do nothing else.
+        if finish_scan(scan_id, status="completed", db=self.db) == 0:
+            logger.info(
+                "Analysis %s was finalized externally (likely cancelled) "
+                "during narrator run; discarding narrator output",
+                scan_id,
+            )
+            return version
+
+        # Row flipped running→completed atomically. Now safe to persist.
         append_analysis(event_id, version, self.db)
 
-        # Update next_check_at if AI provided one
-        if narrative_output.next_check_at:
-            update_next_check_at(
-                event_id,
-                narrative_output.next_check_at,
-                narrative_output.next_check_reason,
-                self.db,
+        # --- Validate + emit next pending ---
+        next_check = _validate_next_check_at(narrative_output.next_check_at)
+        if next_check:
+            supersede_pending_for_event(event_id, self.db)
+            insert_pending_scan(
+                event_id=event_id,
+                event_title=event.title,
+                scheduled_at=next_check,
+                trigger_source="scheduled",
+                scheduled_reason=(narrative_output.next_check_reason or "").strip() or None,
+                db=self.db,
             )
-            # notify_daemon is called inside update_next_check_at
-
         return version
 
     def cancel_analysis(self) -> None:
@@ -202,6 +304,29 @@ class ScanService:
         if narrator:
             narrator.cancel()
             logger.info("Analysis cancelled by user")
+
+    def cancel_running_scan(self, scan_id: str) -> bool:
+        """Cancel a running scan_logs row: kill narrator + mark row cancelled.
+
+        Routes to narrator_registry so scans running under the dispatcher
+        (different ScanService instance) are reachable.
+
+        Returns True when the row was running and got flipped to cancelled;
+        False when the row wasn't running (already done / superseded / gone).
+        """
+        from scanner.agents import narrator_registry
+        from scanner.scan_log import finish_scan
+
+        row = self.db.conn.execute(
+            "SELECT status FROM scan_logs WHERE scan_id=?", (scan_id,),
+        ).fetchone()
+        if row is None or row["status"] != "running":
+            return False
+        # Best-effort kill via registry. A miss just means the narrator already
+        # finished between SELECT above and here — we still mark cancelled.
+        narrator_registry.cancel(scan_id)
+        finish_scan(scan_id, status="cancelled", error=None, db=self.db)
+        return True
 
     # ------------------------------------------------------------------
     # Event reads
@@ -220,7 +345,7 @@ class ScanService:
             SELECT e.*,
                    COUNT(DISTINCT mk.market_id) AS market_count,
                    COALESCE(em.auto_monitor, 0) AS is_monitored,
-                   em.next_check_at AS next_check_at,
+                   pend.next_check_at AS next_check_at,
                    COUNT(DISTINCT ps.market_id || '/' || ps.side) AS position_count,
                    leader.group_item_title AS leader_title,
                    leader.yes_price AS leader_price,
@@ -231,6 +356,12 @@ class ScanService:
             LEFT JOIN markets mk ON mk.event_id = e.event_id
             LEFT JOIN event_monitors em ON em.event_id = e.event_id
             LEFT JOIN positions ps ON ps.event_id = e.event_id
+            LEFT JOIN (
+                SELECT event_id, MIN(scheduled_at) AS next_check_at
+                FROM scan_logs
+                WHERE status = 'pending'
+                GROUP BY event_id
+            ) pend ON pend.event_id = e.event_id
             LEFT JOIN (
                 SELECT m1.event_id, m1.group_item_title, m1.yes_price
                 FROM markets m1
@@ -553,12 +684,19 @@ class ScanService:
         monitor stops polling, which stops auto-resolution, which would
         silently orphan the user's skin in the game. Callers should check
         `get_event_position_count` first to surface a UI-friendly error.
+
+        v0.7.0: Disabling also supersedes any pending scheduled analysis
+        for the event (Q3 decision). Re-enabling does NOT restore them —
+        the user can manually trigger a fresh analysis if they want.
         """
         if not enable and self.get_event_position_count(event_id) > 0:
             raise ActivePositionsError(
                 f"Cannot disable monitoring — event {event_id} has open positions",
             )
         toggle_auto_monitor(event_id, enable=enable, db=self.db)
+        if not enable:
+            from scanner.scan_log import supersede_pending_for_event
+            supersede_pending_for_event(event_id, self.db)
 
     def get_event_position_count(self, event_id: str) -> int:
         """Count open positions across every market in the event."""

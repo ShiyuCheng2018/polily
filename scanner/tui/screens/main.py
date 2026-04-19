@@ -1,6 +1,5 @@
 """MainScreen: Sidebar navigation + Content area with view switching."""
 
-from datetime import UTC, datetime, timedelta
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -8,7 +7,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
-from scanner.tui.service import ScanService
+from scanner.tui.service import AnalysisInProgressError, ScanService
 from scanner.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 from scanner.tui.views.market_detail import (
     AnalyzeRequested,
@@ -23,6 +22,7 @@ from scanner.tui.views.paper_status import PaperStatusView, ViewTradeDetail
 from scanner.tui.views.scan_log import (
     AddEventRequested,
     BackToScanLog,
+    CancelScanRequested,
     OpenMarketFromLog,
     RescoreRequested,
     ScanLogDetailView,
@@ -262,31 +262,18 @@ class MainScreen(Screen):
             def _heartbeat(elapsed: float, status: str):
                 self.app.call_from_thread(self._update_heartbeat, elapsed, status)
 
-            import time as _time
-            _start = _time.time()
+            # v0.7.0: ScanService.analyze_event owns the full scan_logs
+            # lifecycle (running → completed/failed). We don't write a
+            # separate scan_log row here any more.
             await self.service.analyze_event(
                 event_id,
                 on_heartbeat=_heartbeat,
             )
-            _elapsed = _time.time() - _start
-
-            # Log analysis to scan_logs
-            from scanner.core.event_store import get_event
-            from scanner.scan_log import ScanLogEntry, save_scan_log
-            ev = get_event(event_id, self.service.db)
-            entry = ScanLogEntry(
-                scan_id=datetime.now(UTC).strftime("%Y%m%d_%H%M%S"),
-                started_at=(datetime.now(UTC) - timedelta(seconds=_elapsed)).isoformat(),
-                finished_at=datetime.now(UTC).isoformat(),
-                total_elapsed=_elapsed,
-                status="completed",
-                type="analyze",
-                event_id=event_id,
-                market_title=(ev.title if ev else event_id)[:60],
-            )
-            save_scan_log(entry, self.service.db)
-
             self.app.call_from_thread(self._on_analysis_complete, event_id)
+        except AnalysisInProgressError as e:
+            # Invariant guard hit — another analysis is already running
+            # for this event. Surface a friendly notify, not an error modal.
+            self.app.call_from_thread(self._on_analysis_failed, str(e))
         except Exception as e:
             error_msg = str(e)
             if "cancelled" in error_msg.lower():
@@ -335,6 +322,17 @@ class MainScreen(Screen):
 
     def on_cancel_analysis_requested(self, message: CancelAnalysisRequested) -> None:
         self._cancel_analysis()
+
+    def on_cancel_scan_requested(self, message: CancelScanRequested) -> None:
+        """Cancel a running scan from the 待办 zone."""
+        ok = self.service.cancel_running_scan(message.scan_id)
+        if ok:
+            self.notify("已取消分析")
+        else:
+            self.notify("无法取消——该行不在 running 状态", severity="warning")
+        # Re-render the scan log view so the row flips to cancelled
+        if self._current_menu == "tasks":
+            self._navigate_to("tasks")
 
     def on_open_market_from_log(self, message: OpenMarketFromLog) -> None:
         """Navigate to score result page from a log entry."""

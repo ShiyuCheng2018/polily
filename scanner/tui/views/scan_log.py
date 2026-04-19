@@ -27,6 +27,61 @@ def _to_local(iso_str: str | None) -> str:
         return iso_str[:16].replace("T", " ")
 
 
+_UPCOMING_STATUSES = {"pending", "running"}
+
+
+def _upcoming(logs: list[ScanLogEntry]) -> list[ScanLogEntry]:
+    """Rows shown in the 待办 zone. Running on top; pending by scheduled_at asc."""
+    upc = [e for e in logs if e.status in _UPCOMING_STATUSES]
+
+    def sort_key(e: ScanLogEntry) -> tuple[int, str]:
+        # running sorts before pending
+        bucket = 0 if e.status == "running" else 1
+        ts = e.scheduled_at or e.started_at or ""
+        return (bucket, ts)
+
+    return sorted(upc, key=sort_key)
+
+
+def _history(logs: list[ScanLogEntry]) -> list[ScanLogEntry]:
+    """Rows shown in the 历史 zone. Newest first."""
+    hist = [e for e in logs if e.status not in _UPCOMING_STATUSES]
+    return sorted(hist, key=lambda e: e.started_at or "", reverse=True)
+
+
+def _format_pending_when(log: ScanLogEntry) -> str:
+    """Human-friendly 'when' string for 待办 zone. Running rows compute elapsed live."""
+    if log.status == "running":
+        # total_elapsed persists only at finish_scan; compute live for UI
+        try:
+            from datetime import UTC, datetime
+            started = datetime.fromisoformat(log.started_at)
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=UTC)
+            live = (datetime.now(UTC) - started).total_seconds()
+        except (ValueError, TypeError):
+            live = 0.0
+        return f"正在分析... ({live:.0f}s)"
+    if log.scheduled_at:
+        try:
+            from datetime import UTC, datetime
+            sched = datetime.fromisoformat(log.scheduled_at)
+            delta = sched - datetime.now(UTC)
+            mins = int(delta.total_seconds() // 60)
+            if mins < 0:
+                return f"{_to_local(log.scheduled_at)} (已到)"
+            if mins < 60:
+                return f"{_to_local(log.scheduled_at)} ({mins}分)"
+            hours = mins // 60
+            if hours < 24:
+                return f"{_to_local(log.scheduled_at)} ({hours}h {mins%60}m)"
+            days = hours // 24
+            return f"{_to_local(log.scheduled_at)} ({days}d {hours%24}h)"
+        except ValueError:
+            return _to_local(log.scheduled_at)
+    return _to_local(log.started_at)
+
+
 @dataclass
 class StepInfo:
     """A single progress step (live, in-memory)."""
@@ -106,10 +161,21 @@ class AddEventRequested(Message):
         self.url = url
 
 
+class CancelScanRequested(Message):
+    """Request to cancel a running scan."""
+    def __init__(self, scan_id: str):
+        super().__init__()
+        self.scan_id = scan_id
+
+
 # --- List View ---
 
 class ScanLogView(Widget):
     """Scan task history with optional live progress at top."""
+
+    BINDINGS = [
+        Binding("c", "cancel_running", "取消正在运行的分析", show=False),
+    ]
 
     DEFAULT_CSS = """
     ScanLogView { height: 1fr; }
@@ -119,15 +185,21 @@ class ScanLogView(Widget):
     ScanLogView #score-btn { width: 10; min-width: 10; }
     ScanLogView .empty-msg { text-align: center; color: $text-muted; padding: 4; }
     ScanLogView #live-section { padding: 1 0 1 0; }
-    ScanLogView #log-table { height: auto; max-height: 60%; }
+    ScanLogView .zone-title { padding: 1 0 0 0; text-style: bold; color: $primary; }
+    ScanLogView DataTable { height: auto; max-height: 40%; }
     """
 
-    def __init__(self, logs: list[ScanLogEntry],
-                 current_steps: list[StepInfo] | None = None):
+    def __init__(
+        self,
+        logs: list[ScanLogEntry],
+        current_steps: list[StepInfo] | None = None,
+    ):
         super().__init__()
         self._logs = logs
         self._current_steps = current_steps
-        self._reversed_logs: list[ScanLogEntry] = list(reversed(logs))
+        self._upcoming = _upcoming(logs)
+        self._history = _history(logs)
+        self._reversed_logs = list(reversed(logs))  # keep for any external caller
 
     def compose(self) -> ComposeResult:
         yield Static(" 任务记录", id="log-title")
@@ -141,45 +213,63 @@ class ScanLogView(Widget):
                 yield Static("\n   [dim]--- 进行中 ---[/dim]\n")
                 yield LiveProgress()
 
-        if not self._logs and self._current_steps is None:
+        # Empty state
+        if self._current_steps is None and not (self._upcoming or self._history):
             yield Static(" 粘贴 Polymarket 事件链接开始评分。", classes="empty-msg")
-        elif self._logs:
-            if self._current_steps is not None:
-                yield Static("  [dim]--- 历史记录 ---[/dim]")
-            yield DataTable(id="log-table")
+            return
+
+        # Optional separator between live + history when both exist
+        if self._current_steps is not None and (self._upcoming or self._history):
+            yield Static("  [dim]--- 历史记录 ---[/dim]")
+
+        if self._upcoming:
+            yield Static(f"─ 分析队列 ({len(self._upcoming)}) ─", classes="zone-title")
+            yield DataTable(id="upcoming-table")
+        if self._history:
+            yield Static(f"─ 历史 ({len(self._history)}) ─", classes="zone-title")
+            yield DataTable(id="history-table")
 
     def on_mount(self) -> None:
         if self._current_steps is not None:
             with contextlib.suppress(Exception):
                 self.query_one(LiveProgress).set_steps(self._current_steps)
+        self._populate_upcoming()
+        self._populate_history()
 
-        if not self._logs:
-            return
+    def _populate_upcoming(self):
         try:
-            table = self.query_one("#log-table", DataTable)
+            table = self.query_one("#upcoming-table", DataTable)
         except Exception:
             return
         table.cursor_type = "row"
-        table.add_columns("类型", "开始时间", "耗时", "结果", "状态")
-        for log in self._reversed_logs:
+        table.add_columns("状态", "事件", "预计", "来源")
+        for log in self._upcoming:
+            icon = "🔵" if log.status == "running" else "🟡"
+            when = _format_pending_when(log)
+            source = log.trigger_source
+            title = (log.market_title or "?")[:25]
+            table.add_row(f"{icon} {log.status}", title, when, source, key=log.scan_id)
+
+    def _populate_history(self):
+        try:
+            table = self.query_one("#history-table", DataTable)
+        except Exception:
+            return
+        table.cursor_type = "row"
+        table.add_columns("状态", "类型", "事件", "时间", "耗时", "来源")
+        type_labels = {"analyze": "AI 分析", "add_event": "评分", "scan": "扫描"}
+        for log in self._history:
+            icon = {"completed": "✅", "failed": "❌",
+                    "cancelled": "⚪", "superseded": "⚪"}.get(log.status, "·")
+            type_label = type_labels.get(log.type, log.type)
             started = _to_local(log.started_at)
-            elapsed = f"{log.total_elapsed:.1f}s"
-            status_text = {"completed": "完成", "failed": "失败", "running": "进行中"}.get(
-                log.status, log.status
+            elapsed = f"{log.total_elapsed:.1f}s" if log.status == "completed" else ""
+            source = log.trigger_source
+            title = (log.market_title or "?")[:25]
+            table.add_row(
+                f"{icon} {log.status}", type_label, title, started, elapsed, source,
+                key=log.scan_id,
             )
-            if log.type == "analyze":
-                type_label = "AI 分析"
-                title_short = (log.market_title or "?")[:25]
-                result = title_short
-            elif log.type == "add_event":
-                type_label = "评分"
-                title_short = (log.market_title or "?")[:25]
-                result = title_short
-            else:
-                type_label = "扫描"
-                total = log.research_count + log.watchlist_count
-                result = f"{total} 事件"
-            table.add_row(type_label, started, elapsed, result, status_text, key=log.scan_id)
 
     def _submit_url(self) -> None:
         try:
@@ -205,16 +295,59 @@ class ScanLogView(Widget):
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Enter on a row — open detail view. add_event goes directly to event detail."""
         try:
-            table = self.query_one("#log-table", DataTable)
-            row_idx = table.cursor_row
+            table = event.data_table
         except Exception:
             return
-        if row_idx < len(self._reversed_logs):
-            log = self._reversed_logs[row_idx]
-            if log.type == "add_event" and log.event_id:
-                self.post_message(OpenMarketFromLog(log.event_id))
-            else:
-                self.post_message(ViewScanLogDetail(log))
+        if table.id == "upcoming-table":
+            rows = self._upcoming
+        elif table.id == "history-table":
+            rows = self._history
+        else:
+            return
+        row_idx = table.cursor_row
+        if row_idx is None or row_idx >= len(rows):
+            return
+        log = rows[row_idx]
+        if log.type == "add_event" and log.event_id:
+            self.post_message(OpenMarketFromLog(log.event_id))
+        else:
+            self.post_message(ViewScanLogDetail(log))
+
+    def action_cancel_running(self) -> None:
+        from scanner.tui.views.scan_modals import ConfirmCancelScanModal
+
+        try:
+            table = self.query_one("#upcoming-table", DataTable)
+        except Exception:
+            return
+        if table.cursor_row is None or table.cursor_row >= len(self._upcoming):
+            return
+        log = self._upcoming[table.cursor_row]
+        if log.status != "running":
+            self.notify("只能取消正在运行的分析", severity="warning")
+            return
+        # Compute live elapsed for the modal display
+        live_elapsed = 0.0
+        try:
+            from datetime import UTC, datetime
+            started = datetime.fromisoformat(log.started_at)
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=UTC)
+            live_elapsed = (datetime.now(UTC) - started).total_seconds()
+        except (ValueError, TypeError):
+            pass
+
+        modal = ConfirmCancelScanModal(
+            event_title=log.market_title or "?",
+            elapsed_seconds=live_elapsed,
+        )
+        scan_id = log.scan_id
+
+        def on_close(confirmed: bool | None):
+            if confirmed:
+                self.post_message(CancelScanRequested(scan_id))
+
+        self.app.push_screen(modal, on_close)
 
 
 # --- Detail View ---

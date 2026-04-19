@@ -493,12 +493,12 @@ def section_other_tables(conn: sqlite3.Connection):
     active_mon = conn.execute(
         "SELECT count(*) FROM event_monitors WHERE auto_monitor = 1"
     ).fetchone()[0]
-    has_next = conn.execute(
-        "SELECT count(*) FROM event_monitors WHERE next_check_at IS NOT NULL"
+    pending = conn.execute(
+        "SELECT COUNT(*) FROM scan_logs WHERE status='pending'"
     ).fetchone()[0]
     print(f"  总记录: {total_mon}")
     print(f"  auto_monitor=1 (活跃监控): {active_mon}")
-    print(f"  有 next_check_at: {has_next}")
+    print(f"  scan_logs pending rows: {pending}")
     # Check orphan monitors
     orphan_mon = conn.execute("""
         SELECT count(*) FROM event_monitors em

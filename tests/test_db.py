@@ -81,11 +81,12 @@ def test_event_monitors_columns(polily_db):
     cols = {r[1] for r in row}
     assert "event_id" in cols
     assert "auto_monitor" in cols
-    assert "next_check_at" in cols
-    assert "next_check_reason" in cols
     assert "price_snapshot" in cols
     assert "notes" in cols
     assert "poll_interval_s" not in cols
+    # v0.7.0 Task 1: scheduling moved to scan_logs pending rows.
+    assert "next_check_at" not in cols
+    assert "next_check_reason" not in cols
 
 
 def test_analyses_uses_event_id(polily_db):

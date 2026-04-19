@@ -28,6 +28,7 @@ def _service() -> ScanService:
 def _seed_monitored_event(service, event_id: str, title: str, score: float):
     from scanner.core.event_store import upsert_event
     from scanner.core.monitor_store import upsert_event_monitor
+    from scanner.scan_log import insert_pending_scan
 
     setup_event_and_market(
         service.db, event_id=event_id, market_id=f"m-{event_id}",
@@ -38,9 +39,13 @@ def _seed_monitored_event(service, event_id: str, title: str, score: float):
         "UPDATE events SET structure_score = ? WHERE event_id = ?", (score, event_id),
     )
     upsert_event_monitor(event_id=event_id, auto_monitor=True, db=service.db)
-    service.db.conn.execute(
-        "UPDATE event_monitors SET next_check_at = ? WHERE event_id = ?",
-        ("2027-01-01T09:00:00+00:00", event_id),
+    # Seed next-check via scan_logs pending row (Task 12: the monitor list
+    # now reads 下次检查 from scan_logs, not event_monitors).
+    insert_pending_scan(
+        event_id=event_id, event_title=title,
+        scheduled_at="2027-01-01T09:00:00+00:00",
+        trigger_source="scheduled", scheduled_reason="test",
+        db=service.db,
     )
     service.db.conn.commit()
 
