@@ -228,5 +228,5 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.0...dev
 [0.6.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.0
