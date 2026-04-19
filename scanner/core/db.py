@@ -79,12 +79,10 @@ CREATE TABLE IF NOT EXISTS markets (
     updated_at          TEXT NOT NULL
 );
 
--- 3. Event monitors
+-- 3. Event monitors (v0.7.0: scheduling moved to scan_logs; this table is user-intent only)
 CREATE TABLE IF NOT EXISTS event_monitors (
     event_id            TEXT PRIMARY KEY REFERENCES events(event_id),
     auto_monitor        INTEGER NOT NULL DEFAULT 0,
-    next_check_at       TEXT,
-    next_check_reason   TEXT,
     price_snapshot      TEXT,
     notes               TEXT DEFAULT '',
     updated_at          TEXT NOT NULL
@@ -128,7 +126,7 @@ CREATE TABLE IF NOT EXISTS movement_log (
     snapshot            TEXT NOT NULL DEFAULT '{}'
 );
 
--- 6. Scan logs
+-- 6. Scan logs (v0.7.0: unified lifecycle for manual / scheduled / movement AI analyses)
 CREATE TABLE IF NOT EXISTS scan_logs (
     scan_id             TEXT PRIMARY KEY,
     type                TEXT NOT NULL DEFAULT 'scan'
@@ -139,13 +137,18 @@ CREATE TABLE IF NOT EXISTS scan_logs (
     finished_at         TEXT,
     total_elapsed       REAL NOT NULL DEFAULT 0.0,
     status              TEXT NOT NULL DEFAULT 'running'
-                        CHECK(status IN ('running','completed','failed')),
+                        CHECK(status IN ('pending','running','completed','failed','cancelled','superseded')),
     error               TEXT,
     total_markets       INTEGER NOT NULL DEFAULT 0,
     research_count      INTEGER NOT NULL DEFAULT 0,
     watchlist_count     INTEGER NOT NULL DEFAULT 0,
     filtered_count      INTEGER NOT NULL DEFAULT 0,
-    steps               TEXT
+    steps               TEXT,
+    -- v0.7.0 scheduler fields
+    scheduled_at        TEXT,
+    trigger_source      TEXT NOT NULL DEFAULT 'manual'
+                        CHECK(trigger_source IN ('manual','scan','scheduled','movement')),
+    scheduled_reason    TEXT
 );
 
 -- 8. Wallet (singleton)
@@ -212,6 +215,9 @@ CREATE INDEX IF NOT EXISTS idx_positions_event ON positions(event_id);
 CREATE INDEX IF NOT EXISTS idx_wallet_tx_created ON wallet_transactions(created_at);
 CREATE INDEX IF NOT EXISTS idx_wallet_tx_event ON wallet_transactions(event_id);
 CREATE INDEX IF NOT EXISTS idx_wallet_tx_type ON wallet_transactions(type);
+CREATE INDEX IF NOT EXISTS idx_scan_logs_dispatch ON scan_logs(status, scheduled_at)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_scan_logs_event_status ON scan_logs(event_id, status);
 """
 
 
@@ -234,6 +240,12 @@ class PolilyDB:
         self.close()
 
     def _init_schema(self) -> None:
+        # v0.7.0 scheduler rework migration — runs BEFORE the schema script so
+        # the new `idx_scan_logs_dispatch` / `idx_scan_logs_event_status` indexes
+        # (which reference scheduled_at / the new status CHECK) see the rebuilt
+        # scan_logs table. Idempotent and a no-op on fresh DBs (detects absence
+        # of scan_logs or presence of scheduled_at).
+        self._migrate_v070_scheduler()
         self.conn.executescript(_SCHEMA)
         # Drop the legacy paper_trades table on databases that were
         # upgraded from <= v0.6.0. Idempotent — no-op on fresh DBs.
@@ -243,6 +255,91 @@ class PolilyDB:
         self.conn.execute("DROP TABLE IF EXISTS notifications")
         self.conn.commit()
         self._ensure_wallet_singleton()
+
+    def _migrate_v070_scheduler(self) -> None:
+        """Migrate scan_logs + event_monitors to v0.7.0 shape.
+
+        Idempotent: detects prior migration by checking for scheduled_at column.
+        Rebuilds scan_logs (CHECK constraint change requires it). Seeds pending
+        rows from event_monitors.next_check_at AFTER the rebuild (old schema
+        lacks the columns the seed needs).
+        """
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(scan_logs)").fetchall()}
+        if not cols:
+            return  # fresh DB — no scan_logs table yet, schema script will create it
+        if "scheduled_at" in cols:
+            return  # already migrated
+
+        # 1. Stash event_monitors pending-seed data BEFORE dropping the columns.
+        mon_cols = {r[1] for r in self.conn.execute("PRAGMA table_info(event_monitors)").fetchall()}
+        seed_rows: list[tuple[str, str, str | None]] = []
+        if "next_check_at" in mon_cols:
+            seed_rows = [
+                (r["event_id"], r["next_check_at"], r["next_check_reason"])
+                for r in self.conn.execute(
+                    "SELECT event_id, next_check_at, next_check_reason "
+                    "FROM event_monitors WHERE next_check_at IS NOT NULL"
+                ).fetchall()
+            ]
+
+        # 2. Rebuild scan_logs with extended CHECK + new columns.
+        self.conn.executescript("""
+            ALTER TABLE scan_logs RENAME TO _scan_logs_old;
+            CREATE TABLE scan_logs (
+                scan_id             TEXT PRIMARY KEY,
+                type                TEXT NOT NULL DEFAULT 'scan'
+                                    CHECK(type IN ('scan','analyze','add_event')),
+                event_id            TEXT,
+                market_title        TEXT,
+                started_at          TEXT NOT NULL,
+                finished_at         TEXT,
+                total_elapsed       REAL NOT NULL DEFAULT 0.0,
+                status              TEXT NOT NULL DEFAULT 'running'
+                                    CHECK(status IN ('pending','running','completed','failed','cancelled','superseded')),
+                error               TEXT,
+                total_markets       INTEGER NOT NULL DEFAULT 0,
+                research_count      INTEGER NOT NULL DEFAULT 0,
+                watchlist_count     INTEGER NOT NULL DEFAULT 0,
+                filtered_count      INTEGER NOT NULL DEFAULT 0,
+                steps               TEXT,
+                scheduled_at        TEXT,
+                trigger_source      TEXT NOT NULL DEFAULT 'manual'
+                                    CHECK(trigger_source IN ('manual','scan','scheduled','movement')),
+                scheduled_reason    TEXT
+            );
+            INSERT INTO scan_logs(
+                scan_id, type, event_id, market_title, started_at, finished_at,
+                total_elapsed, status, error, total_markets, research_count,
+                watchlist_count, filtered_count, steps
+            )
+            SELECT scan_id, type, event_id, market_title, started_at, finished_at,
+                   total_elapsed, status, error, total_markets, research_count,
+                   watchlist_count, filtered_count, steps
+            FROM _scan_logs_old;
+            DROP TABLE _scan_logs_old;
+            CREATE INDEX IF NOT EXISTS idx_scan_logs_dispatch ON scan_logs(status, scheduled_at)
+                WHERE status = 'pending';
+            CREATE INDEX IF NOT EXISTS idx_scan_logs_event_status ON scan_logs(event_id, status);
+        """)
+
+        # 3. AFTER the rebuild, seed pending rows directly into the new schema.
+        from datetime import UTC, datetime
+        now_iso = datetime.now(UTC).isoformat()
+        for event_id, next_check_at, reason in seed_rows:
+            scan_id = f"mig_{event_id}_{next_check_at[:19].replace(':','').replace('-','')}"
+            self.conn.execute(
+                "INSERT OR IGNORE INTO scan_logs("
+                "scan_id, type, event_id, started_at, status, "
+                "trigger_source, scheduled_at, scheduled_reason) "
+                "VALUES (?, 'analyze', ?, ?, 'pending', 'scheduled', ?, ?)",
+                (scan_id, event_id, now_iso, next_check_at, reason),
+            )
+
+        # 4. Drop event_monitors columns (SQLite ≥3.35).
+        if "next_check_at" in mon_cols:
+            self.conn.execute("ALTER TABLE event_monitors DROP COLUMN next_check_at")
+        if "next_check_reason" in mon_cols:
+            self.conn.execute("ALTER TABLE event_monitors DROP COLUMN next_check_reason")
 
     def _ensure_wallet_singleton(self) -> None:
         """Seed the wallet row on fresh DBs so downstream code can assume
