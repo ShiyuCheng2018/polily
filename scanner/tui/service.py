@@ -39,6 +39,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _validate_next_check_at(value: str | None) -> str | None:
+    """Return value if it parses as ISO 8601 and is strictly in the future.
+
+    Rejects: None, empty string, malformed date, past timestamps.
+    Logs a warning on reject so bad agent output is observable.
+    """
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        if parsed <= datetime.now(UTC):
+            logger.warning("Agent emitted non-future next_check_at: %s", value)
+            return None
+        return value
+    except (ValueError, TypeError):
+        logger.warning("Agent emitted malformed next_check_at: %r", value)
+        return None
+
+
 class ActivePositionsError(Exception):
     """Raised when an operation would orphan open positions (e.g. disabling
     monitor on an event the user still holds shares in)."""
@@ -133,25 +154,51 @@ class ScanService:
         event_id: str,
         trigger_source: str = "manual",
         on_heartbeat: Callable[[float, str], None] | None = None,
+        scan_id: str | None = None,
     ) -> AnalysisVersion:
-        """Run AI analysis on an event. Agent reads DB autonomously."""
+        """Run AI analysis on an event. Writes full scan_logs lifecycle.
+
+        Args:
+            scan_id: If provided, this is a dispatcher-claimed pending row
+                being executed (status already 'running'). If None, a fresh
+                'running' row is inserted here (manual trigger from TUI).
+        """
+        from scanner.agents import narrator_registry
+        from scanner.scan_log import (
+            _make_scan_id,
+            finish_scan,
+            insert_pending_scan,
+            supersede_pending_for_event,
+        )
+
         event = get_event(event_id, self.db)
         if event is None:
             raise ValueError(f"Event {event_id} not found in DB")
         markets = get_event_markets(event_id, self.db)
-
         start_time = time.time()
 
-        # Check if user has open positions in this event
-        has_position, position_summary = self._compute_position_context(event_id)
+        # --- Write the 'running' scan_log row ---
+        now_iso = datetime.now(UTC).isoformat()
+        if scan_id is None:
+            scan_id = _make_scan_id(prefix="r")
+            self.db.conn.execute(
+                "INSERT INTO scan_logs(scan_id, type, event_id, market_title, "
+                "started_at, status, trigger_source) "
+                "VALUES (?, 'analyze', ?, ?, ?, 'running', ?)",
+                (scan_id, event_id, event.title, now_iso, trigger_source),
+            )
+            self.db.conn.commit()
+        # else: dispatcher already claimed the pending row via claim_pending_scan.
 
-        # Get existing analyses for version numbering
+        has_position, position_summary = self._compute_position_context(event_id)
         existing = get_event_analyses(event_id, self.db)
         new_version_num = (existing[-1].version if existing else 0) + 1
 
-        # Run NarrativeWriter — agent reads DB and searches web autonomously
         narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
         self._current_narrator = narrator
+        narrator_registry.register(scan_id, narrator)
+        agent_error: Exception | None = None
+        narrative_output = None
         try:
             narrative_output = await narrator.generate(
                 event_id=event_id,
@@ -160,17 +207,23 @@ class ScanService:
                 on_heartbeat=on_heartbeat,
                 event_title=event.title,
             )
+        except Exception as e:
+            agent_error = e
         finally:
             self._current_narrator = None
+            narrator_registry.unregister(scan_id)
 
-        # Build price snapshot
-        prices_snapshot = {}
-        for mr in markets:
-            prices_snapshot[mr.market_id] = {
-                "yes": mr.yes_price,
-                "no": mr.no_price,
-            }
+        if agent_error is not None:
+            try:
+                finish_scan(scan_id, status="failed", error=str(agent_error)[:200], db=self.db)
+            except Exception:
+                logger.exception("finish_scan failed while recording agent error")
+            raise agent_error
 
+        # --- Persist analysis ---
+        prices_snapshot = {
+            mr.market_id: {"yes": mr.yes_price, "no": mr.no_price} for mr in markets
+        }
         version = AnalysisVersion(
             version=new_version_num,
             created_at=datetime.now(UTC).isoformat(),
@@ -181,26 +234,23 @@ class ScanService:
             mispricing_signal="none",
             elapsed_seconds=time.time() - start_time,
         )
-
         append_analysis(event_id, version, self.db)
 
-        # Update next_check_at if AI provided one
-        if narrative_output.next_check_at:
-            from scanner.scan_log import (
-                insert_pending_scan,
-                supersede_pending_for_event,
-            )
+        # --- Finalize scan_log row ---
+        finish_scan(scan_id, status="completed", db=self.db)
 
+        # --- Validate + emit next pending ---
+        next_check = _validate_next_check_at(narrative_output.next_check_at)
+        if next_check:
             supersede_pending_for_event(event_id, self.db)
             insert_pending_scan(
                 event_id=event_id,
                 event_title=event.title,
-                scheduled_at=narrative_output.next_check_at,
+                scheduled_at=next_check,
                 trigger_source="scheduled",
-                scheduled_reason=narrative_output.next_check_reason,
+                scheduled_reason=(narrative_output.next_check_reason or "").strip() or None,
                 db=self.db,
             )
-
         return version
 
     def cancel_analysis(self) -> None:

@@ -69,33 +69,12 @@ def recheck_event(
             version = asyncio.run(
                 service.analyze_event(event_id, trigger_source=trigger_source)
             )
-            # Update check schedule from AI output
-            if hasattr(version, "narrative_output") and isinstance(
-                version.narrative_output, dict
-            ):
-                next_check = version.narrative_output.get("next_check_at")
-                if next_check:
-                    from scanner.scan_log import (
-                        insert_pending_scan,
-                        supersede_pending_for_event,
-                    )
-
-                    supersede_pending_for_event(event_id, db)
-                    insert_pending_scan(
-                        event_id=event_id,
-                        event_title=event.title,
-                        scheduled_at=next_check,
-                        trigger_source="scheduled",
-                        scheduled_reason=version.narrative_output.get(
-                            "next_check_reason", ""
-                        ),
-                        db=db,
-                    )
-                    return RecheckResult(
-                        event_id=event_id,
-                        next_check_at=next_check,
-                        trigger_source=trigger_source,
-                    )
+            next_check = (version.narrative_output or {}).get("next_check_at")
+            return RecheckResult(
+                event_id=event_id,
+                next_check_at=next_check,
+                trigger_source=trigger_source,
+            )
         except Exception:
             logger.exception("AI analysis failed for %s", event_id)
 

@@ -107,9 +107,15 @@ class TestRecheckWithoutService:
 
 
 class TestRecheckWithAI:
-    def test_ai_analysis_updates_next_check_at(self, db):
-        """When service is provided, AI analysis runs and a pending scan_logs
-        row is inserted for the next check."""
+    def test_ai_analysis_surfaces_next_check_at(self, db):
+        """When service is provided, recheck delegates to analyze_event and
+        surfaces its next_check_at on the RecheckResult.
+
+        As of v0.7.0 Task 3, pending-row writing lives inside
+        service.analyze_event (not recheck.py). This test mocks the service,
+        so it only verifies the delegation contract — see
+        `test_analyze_event_lifecycle.py` for end-to-end pending-row coverage.
+        """
         upsert_event(EventRow(event_id="ev1", title="E", updated_at="now"), db)
         upsert_market(MarketRow(
             market_id="m1", event_id="ev1", question="Q", updated_at="now",
@@ -130,18 +136,6 @@ class TestRecheckWithAI:
         mock_service.analyze_event.assert_called_once()
         assert result.next_check_at == "2027-06-01T09:00:00+08:00"
         assert result.trigger_source == "movement"
-
-        # The new scheduling path writes a pending row to scan_logs rather
-        # than mutating event_monitors (which lost next_check_at in v0.7.0).
-        pending = db.conn.execute(
-            "SELECT scheduled_at, scheduled_reason, trigger_source, status "
-            "FROM scan_logs WHERE event_id = ? AND status = 'pending'",
-            ("ev1",),
-        ).fetchone()
-        assert pending is not None
-        assert pending["scheduled_at"] == "2027-06-01T09:00:00+08:00"
-        assert pending["scheduled_reason"] == "FOMC meeting"
-        assert pending["trigger_source"] == "scheduled"
 
     def test_ai_no_next_check_at(self, db):
         """When AI output has no next_check_at, result.next_check_at is None."""
