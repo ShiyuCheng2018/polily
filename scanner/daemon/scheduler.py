@@ -201,12 +201,19 @@ def run_daemon(db, config=None) -> None:
     wallet = WalletService(db)
     positions = PositionManager(db)
     resolver = ResolutionHandler(db, wallet, positions)
+
+    # Create scheduler BEFORE init_poller so the dispatcher step in
+    # global_poll (guarded by `if _ctx and _ctx.scheduler`) can actually
+    # submit jobs. Without this, v0.7.0's whole dispatcher is a no-op.
+    scheduler = WatchScheduler(db, config=config)
+
     init_poller(
         db=db,
         wallet=wallet,
         positions=positions,
         resolver=resolver,
         config=config,
+        scheduler=scheduler.scheduler,
     )
 
     # Count active markets for startup message
@@ -214,7 +221,6 @@ def run_daemon(db, config=None) -> None:
         "SELECT COUNT(*) FROM markets WHERE active = 1 AND closed = 0",
     ).fetchone()[0]
 
-    scheduler = WatchScheduler(db, config=config)
     scheduler.start()
 
     # v0.7.0: scrub orphan running rows from a prior crash.
