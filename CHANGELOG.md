@@ -10,6 +10,8 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-04-20
+
 ### Scheduler rework (DB-backed dispatcher)
 
 - **APScheduler downgraded to heartbeat only.** The daemon no longer
@@ -301,6 +303,7 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.1...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.7.0...dev
+[0.7.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.7.0
 [0.6.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.1
 [0.6.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.0
