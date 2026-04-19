@@ -35,10 +35,10 @@ All state in `data/polily.db`. No JSON files, no scan archives.
 | **positions** | Active exposure aggregated by (market_id, side) — weighted-avg cost, cost basis |
 | **wallet** | Cash singleton — balance, starting_balance, topup/withdraw totals |
 | **wallet_transactions** | Append-only ledger — BUY/SELL/FEE/RESOLVE/TOPUP/WITHDRAW with realized_pnl |
-| **scan_logs** | Audit trail — scan type, status, counts, errors |
-| **notifications** | Event alerts with read state |
 
-**Key relationships**: events ← markets (1:N), events ← event_monitors (1:1), events ← analyses (1:N), movement_log references event_id + market_id (NULL for event-level).
+**Key relationships**: events ← markets (1:N), events ← event_monitors (1:1), events ← analyses (1:N), scan_logs.event_id references events (pending rows are the dispatcher's work queue), movement_log references event_id + market_id (NULL for event-level).
+
+**Deprecated tables**: `notifications` was dropped in v0.6.1 (replaced by the Archive view + `events.closed`); `paper_trades` dropped in v0.6.1 (replaced by positions + wallet_transactions).
 
 ## Single-Event Ingestion Pipeline
 
@@ -168,7 +168,7 @@ friction shown in the UI reflects the real fee amount, not an estimate.
 
 `scanner/daemon/poll_job.py` — `global_poll(db)`
 
-Each tick executes 4 steps sequentially:
+Each tick executes these steps sequentially (numbering from the module docstring; Step 1.5 / 3.5 are later insertions that kept the original names):
 
 **Step 1 — CLOB Price Fetch**
 - Fetches all monitored markets (event_monitors.auto_monitor=1, market not closed, has token)
@@ -177,18 +177,8 @@ Each tick executes 4 steps sequentially:
 - Fetches recent trades from Data API (batch, sem=5)
 - Fetches Binance tickers for crypto symbols (deduped)
 
-**Step 2 — Score Refresh** (`scanner/daemon/score_refresh.py`)
-- Recalculates price-sensitive dimensions: liquidity, probability, friction, net_edge, mispricing
-- Preserves stable dimensions: verifiability, time
-- Refreshes event-level scores
-
-**Step 3 — Movement Detection** (signal computation + AI trigger)
-- Per sub-market: compute 5 raw signals → magnitude (0-100) + quality (0-100) → label
-- Cold start guard: < 5 history entries → forced noise
-- negRisk events get event-level metrics (overround, entropy, leader, TV distance, HHI, dutch_book_gap)
-- Trigger check: max(M) >= 70 AND max(Q) >= 60 AND cooldown OK AND daily limit OK → submit to ai executor
-
-**Step 4 — Auto-Resolution** (`scanner/daemon/resolution.py`)
+**Step 1.5 — Auto-Resolution** (`scanner/daemon/resolution.py`)
+- Runs immediately after the fetch so UMA status is as fresh as possible
 - For each closed market where the user holds a live position: fetch Gamma to read
   `outcomePrices` + `umaResolutionStatuses`
 - `derive_winner` gates on UMA status: proposed/disputed → defer; empty (non-UMA)
@@ -197,6 +187,33 @@ Each tick executes 4 steps sequentially:
   RESOLVE row, all in one `BEGIN/COMMIT`
 - Zero Gamma calls for closed markets with no user exposure (read-through gate in
   `_has_positions`)
+
+**Step 2 — Score Refresh** (`scanner/daemon/score_refresh.py`)
+- Recalculates price-sensitive dimensions: liquidity, probability, friction, net_edge, mispricing
+- Preserves stable dimensions: verifiability, time
+- Refreshes event-level scores
+
+**Step 3.5 — Pending Dispatcher** (v0.7.0, `dispatch_pending_analyses`)
+- Scans `scan_logs` for overdue pending rows via `fetch_overdue_pending`
+  (CTE picks earliest-per-event + `NOT EXISTS running` guard)
+- Atomically claims each row (`claim_pending_scan` = UPDATE ... WHERE status='pending')
+- Submits surviving rows to the `ai` executor via `_run_pending_analysis`, which
+  constructs a fresh `ScanService` from `_ctx.config` and runs `analyze_event`
+  with the claimed `scan_id`
+- Per-row try/except so a single `add_job` failure doesn't abort the batch;
+  failed claims get swept by `fail_orphan_running` on next daemon restart
+- Runs BEFORE Step 3 movement detection so this-tick movement signals don't
+  feed back into this-tick analyses (they land next tick)
+
+**Step 3 — Movement Detection** (signal computation → pending-row write)
+- Per sub-market: compute 5 raw signals → magnitude (0-100) + quality (0-100) → label
+- Cold start guard: < 5 history entries → forced noise
+- negRisk events get event-level metrics (overround, entropy, leader, TV distance, HHI, dutch_book_gap)
+- Trigger check: max(M) >= 70 AND max(Q) >= 60 AND cooldown OK AND daily limit OK →
+  `_trigger_movement_analysis` writes a `scan_logs` pending row with
+  `trigger_source='movement'`, `scheduled_at=now`. The NEXT tick's Step 3.5
+  dispatcher picks it up. All AI triggers (manual / scheduled / movement)
+  share this one queue.
 
 ## Movement Detection (Dual Dimensions)
 
@@ -254,12 +271,12 @@ Built with [Textual](https://textual.textualize.io/). Single screen + sidebar na
 
 | View | Role |
 |------|------|
-| Scan Log | URL input + scan history with step logs |
-| Monitor List | Auto-monitored events, movement status, analysis history |
+| 任务记录 (menu 0) | URL input + **分析队列** (pending/running) + **历史** (completed/failed/cancelled/superseded, with 类型 column for AI 分析 / 评分 / 扫描). `c` on a running row opens cancel-confirm modal. |
+| Monitor List (menu 1) | Auto-monitored events — 结构分 / 子市场 / AI版 / 异动 / 结算 / 下次检查. `下次检查` column reads the earliest pending `scan_logs.scheduled_at` per event (v0.7.0 data source change; same column, new backing store). |
 | 持仓 (Positions) | Live positions across markets with floating P&L |
 | Wallet | Cash + positions equity + ledger (topup / withdraw / reset) |
 | History | Realized-P&L ledger — one row per SELL / RESOLVE event |
-| Notifications | Event alerts |
+| 归档 (menu 5) | Events the user was monitoring when they closed (replaces v0.6.0's Notifications view) |
 
 - Worker threads for async scan/analysis (no UI blocking)
 - Auto-refresh current view when daemon is alive

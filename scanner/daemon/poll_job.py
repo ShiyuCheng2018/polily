@@ -365,9 +365,9 @@ def global_poll(db: PolilyDB | None = None) -> None:
         warn = True
 
     # Step 3.5 (dispatcher): drain overdue pending scan_logs rows to the ai executor.
-    # Runs AFTER resolution (Step 1.5) and score refresh (Step 3) so analyses see
-    # committed state, and BEFORE intelligence layer so this-tick movement signals
-    # aren't consumed by this-tick analyses (they land next tick).
+    # Runs AFTER resolution (Step 1.5) and score refresh (Step 2) so analyses see
+    # committed state, and BEFORE Step 3 intelligence layer so this-tick movement
+    # signals aren't consumed by this-tick analyses (they land next tick).
     if _ctx and _ctx.scheduler:
         try:
             n = dispatch_pending_analyses(_ctx.db, _ctx.scheduler)
