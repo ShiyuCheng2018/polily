@@ -217,7 +217,11 @@ class ScanService:
                    em.next_check_at AS next_check_at,
                    COUNT(DISTINCT ps.market_id || '/' || ps.side) AS position_count,
                    leader.group_item_title AS leader_title,
-                   leader.yes_price AS leader_price
+                   leader.yes_price AS leader_price,
+                   COALESCE(ac.analysis_count, 0) AS analysis_count,
+                   mv.label AS movement_label,
+                   mv.magnitude AS movement_magnitude,
+                   mv.quality AS movement_quality
             FROM events e
             LEFT JOIN markets mk ON mk.event_id = e.event_id
             LEFT JOIN event_monitors em ON em.event_id = e.event_id
@@ -232,6 +236,20 @@ class ScanService:
                 ) m2 ON m1.event_id = m2.event_id AND m1.yes_price = m2.max_price
                 GROUP BY m1.event_id
             ) leader ON leader.event_id = e.event_id
+            LEFT JOIN (
+                SELECT event_id, COUNT(*) AS analysis_count
+                FROM analyses
+                GROUP BY event_id
+            ) ac ON ac.event_id = e.event_id
+            LEFT JOIN (
+                SELECT ml.event_id, ml.label, ml.magnitude, ml.quality
+                FROM movement_log ml
+                INNER JOIN (
+                    SELECT event_id, MAX(id) AS max_id
+                    FROM movement_log
+                    GROUP BY event_id
+                ) latest ON ml.event_id = latest.event_id AND ml.id = latest.max_id
+            ) mv ON mv.event_id = e.event_id
             {where_clause}
             GROUP BY e.event_id
             ORDER BY COALESCE(e.structure_score, 0) DESC
@@ -243,6 +261,13 @@ class ScanService:
             event = EventRow(**{
                 k: d[k] for k in EventRow.model_fields if k in d
             })
+            movement = None
+            if d.get("movement_label") is not None:
+                movement = {
+                    "label": d["movement_label"],
+                    "magnitude": d.get("movement_magnitude") or 0.0,
+                    "quality": d.get("movement_quality") or 0.0,
+                }
             results.append({
                 "event": event,
                 "market_count": d["market_count"],
@@ -251,6 +276,8 @@ class ScanService:
                 "leader_title": d.get("leader_title"),
                 "leader_price": d.get("leader_price"),
                 "next_check_at": d.get("next_check_at"),
+                "analysis_count": d["analysis_count"],
+                "movement": movement,
             })
         return results
 

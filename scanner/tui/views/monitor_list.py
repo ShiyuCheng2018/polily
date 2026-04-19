@@ -1,4 +1,9 @@
-"""MonitorListView: shows events with active monitoring."""
+"""MonitorListView: shows events with active monitoring.
+
+Role: answer "what am I monitoring, and when's the next poll?" plus a few
+routing hints (structure score, AI analysis version, latest movement
+signal). Trade / position / P&L details live on their respective pages.
+"""
 
 import contextlib
 
@@ -8,6 +13,11 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
 
+from scanner.tui.monitor_format import (
+    format_ai_version,
+    format_movement,
+    format_next_check,
+)
 from scanner.tui.service import ScanService
 
 
@@ -15,6 +25,16 @@ class ViewMonitorDetail(Message):
     def __init__(self, event_id: str):
         super().__init__()
         self.event_id = event_id
+
+
+_COLUMN_SPEC = [
+    ("事件", "title"),
+    ("结构分", "score"),
+    ("子市场", "count"),
+    ("AI 版", "ai"),
+    ("异动", "movement"),
+    ("下次检查", "next_check"),
+]
 
 
 class MonitorListView(Widget):
@@ -39,13 +59,10 @@ class MonitorListView(Widget):
     def on_mount(self):
         table = self.query_one("#monitor-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns(
-            ("事件", "title"), ("子市场", "count"), ("状态", "status"), ("下次检查", "next_check"),
-        )
+        table.add_columns(*_COLUMN_SPEC)
         self._load_data(table)
 
     def _load_data(self, table):
-        # Get all events, filter to monitored
         events = self.service.get_all_events()
         self._monitored = [e for e in events if e["is_monitored"]]
 
@@ -55,14 +72,27 @@ class MonitorListView(Widget):
         for e in self._monitored:
             ev = e["event"]
             mc = e["market_count"]
-            nc = e.get("next_check_at")
-            next_check = nc[:16] if nc else "-"
+            score_str = f"{ev.structure_score:.0f}" if ev.structure_score else "—"
+            count_str = f"{mc} 个" if mc > 1 else "二元"
+            ai_str = format_ai_version(e.get("analysis_count", 0))
+
+            mov = e.get("movement")
+            if mov:
+                movement_str = format_movement(
+                    mov["label"], mov["magnitude"], mov["quality"],
+                )
+            else:
+                movement_str = "—"
+
+            next_check_str = format_next_check(e.get("next_check_at"))
 
             table.add_row(
                 ev.title[:45],
-                f"{mc} 个" if mc > 1 else "二元",
-                "监控中",
-                next_check,
+                score_str,
+                count_str,
+                ai_str,
+                movement_str,
+                next_check_str,
                 key=ev.event_id,
             )
 
@@ -96,7 +126,6 @@ class MonitorListView(Widget):
         self.service.toggle_monitor(eid, enable=False)
         self.notify(f"关闭监控: {e['event'].title[:30]}")
         self.screen.refresh_sidebar_counts()
-        # Remove row from table
         try:
             table = self.query_one("#monitor-table", DataTable)
             table.remove_row(eid)
@@ -105,7 +134,7 @@ class MonitorListView(Widget):
             pass
 
     def refresh_data(self) -> None:
-        """Incremental update: refresh monitored events data in-place."""
+        """Re-read from DB and refresh mutable columns in-place."""
         try:
             table = self.query_one("#monitor-table", DataTable)
         except Exception:
@@ -119,9 +148,24 @@ class MonitorListView(Widget):
             new = fresh.get(eid)
             if not new:
                 continue
-            nc = new.get("next_check_at")
-            next_check = nc[:16] if nc else "-"
+
+            # next check
+            next_check_str = format_next_check(new.get("next_check_at"))
             with contextlib.suppress(Exception):
-                table.update_cell(eid, "next_check", next_check)
+                table.update_cell(eid, "next_check", next_check_str)
+
+            # ai version
+            ai_str = format_ai_version(new.get("analysis_count", 0))
+            with contextlib.suppress(Exception):
+                table.update_cell(eid, "ai", ai_str)
+
+            # movement
+            mov = new.get("movement")
+            movement_str = (
+                format_movement(mov["label"], mov["magnitude"], mov["quality"])
+                if mov else "—"
+            )
+            with contextlib.suppress(Exception):
+                table.update_cell(eid, "movement", movement_str)
 
         self._monitored = [e for e in events if e["is_monitored"]]

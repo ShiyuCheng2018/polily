@@ -10,6 +10,17 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Changed
+
+- **Watchlist (TUI menu 1) redesigned**: scoped tightly to "what am I
+  monitoring and when's the next poll" plus three routing hints
+  (structure score, AI analysis version, latest movement signal). The
+  always-"监控中" status column was dropped. Next-check column now shows
+  full ISO datetime with relative time in parens (`2026-04-21 09:00
+  (1d 11h 30m)`). Data columns like position / leader price / P&L stay
+  on their dedicated pages (Positions / Wallet / Market Detail), keeping
+  page responsibilities non-overlapping.
+
 ## [0.6.0] — 2026-04-19
 
 Wallet system — paper trading gets real. Buys and sells now settle against
