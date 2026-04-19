@@ -18,7 +18,7 @@ def polily_db():
 
 
 def test_v2_schema_tables(polily_db):
-    """v2 schema should have 8 tables."""
+    """v2 schema should have the expected core tables (and no retired ones)."""
     tables = polily_db.conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
     ).fetchall()
@@ -29,10 +29,11 @@ def test_v2_schema_tables(polily_db):
     assert "analyses" in names
     assert "movement_log" in names
     assert "scan_logs" in names
-    assert "notifications" in names
     assert "market_states" not in names
     # paper_trades dropped in v0.6.1 (replaced by positions + wallet_transactions)
     assert "paper_trades" not in names
+    # notifications dropped post-v0.6.1 (replaced by archive view over wallet_transactions)
+    assert "notifications" not in names
 
 
 def test_events_table_columns(polily_db):
