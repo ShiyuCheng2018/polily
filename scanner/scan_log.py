@@ -195,8 +195,14 @@ def finish_scan(
     status: str,  # 'completed' | 'failed' | 'cancelled'
     error: str | None = None,
     db,
-) -> None:
-    """Finalize a running scan. Computes total_elapsed from started_at."""
+) -> int:
+    """Finalize a running scan. Computes total_elapsed from started_at.
+
+    Only transitions rows that are still `status='running'` — prevents a late
+    narrator completion from overwriting a user's cancel, or a retry from
+    stomping an already-finalized row. Returns rowcount (1 on success, 0 when
+    the row was already in a terminal state).
+    """
     if status not in ("completed", "failed", "cancelled"):
         raise ValueError(f"Invalid terminal status: {status!r}")
     now = datetime.now(UTC)
@@ -207,12 +213,13 @@ def finish_scan(
     if started_row and started_row["started_at"]:
         with contextlib.suppress(ValueError):
             elapsed = (now - datetime.fromisoformat(started_row["started_at"])).total_seconds()
-    db.conn.execute(
+    cur = db.conn.execute(
         "UPDATE scan_logs SET status=?, finished_at=?, total_elapsed=?, error=? "
-        "WHERE scan_id=?",
+        "WHERE scan_id=? AND status='running'",
         (status, now.isoformat(), elapsed, error, scan_id),
     )
     db.conn.commit()
+    return cur.rowcount
 
 
 def supersede_pending_for_event(event_id: str, db) -> int:

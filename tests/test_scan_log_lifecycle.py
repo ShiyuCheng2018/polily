@@ -159,6 +159,38 @@ def test_finish_scan_failed_with_error(db):
     assert row["error"] == "Claude CLI timeout"
 
 
+def test_finish_scan_does_not_overwrite_terminal_state(db):
+    """C2 fix: finish_scan must NOT overwrite a row that's already cancelled
+    (or completed/failed/superseded). Scenario: user cancels → row flipped;
+    narrator subprocess finishes later and analyze_event calls finish_scan
+    with status='completed'. That MUST NOT revert the cancel.
+    """
+    sid = insert_pending_scan(
+        event_id="ev1", event_title="Test",
+        scheduled_at="2026-05-01T10:00:00+00:00",
+        trigger_source="manual", scheduled_reason=None, db=db,
+    )
+    claim_pending_scan(sid, db)
+    first = finish_scan(sid, status="cancelled", db=db)
+    assert first == 1
+    # narrator happens to finish after cancel
+    late = finish_scan(sid, status="completed", db=db)
+    row = db.conn.execute("SELECT status FROM scan_logs WHERE scan_id=?", (sid,)).fetchone()
+    assert row["status"] == "cancelled", "cancel must survive narrator's late completion"
+    assert late == 0, "finish_scan must signal no-op via rowcount"
+
+
+def test_finish_scan_returns_rowcount_on_success(db):
+    """Callers need rowcount to tell 'updated' from 'no-op'."""
+    sid = insert_pending_scan(
+        event_id="ev1", event_title="Test",
+        scheduled_at="2026-05-01T10:00:00+00:00",
+        trigger_source="manual", scheduled_reason=None, db=db,
+    )
+    claim_pending_scan(sid, db)
+    assert finish_scan(sid, status="completed", db=db) == 1
+
+
 def test_fetch_overdue_pending_returns_rows_past_scheduled(db):
     past = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     future = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
