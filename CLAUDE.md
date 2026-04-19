@@ -145,3 +145,12 @@ Polily is open source; releases need to follow a standard. Always use `gh releas
 - Before `gh release create`, diff dev since the last tag and cross-check that every commit with user-visible impact is already in `[Unreleased]` (or the version section). Commits made after the PR merged (hotfixes, follow-ups, docs-only cleanups) are the usual gap.
 - On release, rename `[Unreleased]` → `[X.Y.Z] — YYYY-MM-DD` and update the compare/tag links at the bottom. Don't open a new section for the same version across beta→stable — keep accumulating in one section so the stable release notes reflect the cumulative truth.
 - If you realize post-release the section missed something, patch that version's section directly (commit to dev titled `docs(changelog): catch up [X.Y.Z]`), don't start a new section.
+
+**Branch channel discipline:**
+- **dev is the only channel to master.** Every PR into master MUST have `head=dev`. Never open a PR to master from a release branch, feature branch, or any other source — even if the content would be identical to dev.
+- **When dev and master have conflicts** (e.g. master got an independent squash like the v0.5.1 docs refresh), do NOT open the conflict-resolution branch directly to master. Correct flow:
+  1. Branch `sync/master-into-dev` from dev.
+  2. `git merge origin/master`, resolve conflicts (usually take dev's version — it's the newer state).
+  3. PR that branch → **dev** (not master).
+  4. After merge, dev is a clean descendant of master. Open the release PR dev → master (clean merge, no conflicts).
+- **Why the extra hop?** In the v0.6.0 release we shortcut this by opening `release/v0.6.0 → master` directly (with master pre-merged into the release branch for conflict resolution). Content equalled dev's, but the PR source wasn't dev — silently bypassing the channel rule. After landing on master, dev was content-equal but history-divergent, forcing a follow-up sync PR (#35) to align histories. The extra upstream hop keeps this from happening.
