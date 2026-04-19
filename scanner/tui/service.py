@@ -158,6 +158,7 @@ class ScanService:
                 has_position=has_position,
                 position_summary=position_summary,
                 on_heartbeat=on_heartbeat,
+                event_title=event.title,
             )
         finally:
             self._current_narrator = None
