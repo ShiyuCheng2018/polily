@@ -148,9 +148,16 @@ Polily is open source; releases need to follow a standard. Always use `gh releas
 
 **Branch channel discipline:**
 - **dev is the only channel to master.** Every PR into master MUST have `head=dev`. Never open a PR to master from a release branch, feature branch, or any other source — even if the content would be identical to dev.
-- **When dev and master have conflicts** (e.g. master got an independent squash like the v0.5.1 docs refresh), do NOT open the conflict-resolution branch directly to master. Correct flow:
-  1. Branch `sync/master-into-dev` from dev.
-  2. `git merge origin/master`, resolve conflicts (usually take dev's version — it's the newer state).
-  3. PR that branch → **dev** (not master).
-  4. After merge, dev is a clean descendant of master. Open the release PR dev → master (clean merge, no conflicts).
-- **Why the extra hop?** In the v0.6.0 release we shortcut this by opening `release/v0.6.0 → master` directly (with master pre-merged into the release branch for conflict resolution). Content equalled dev's, but the PR source wasn't dev — silently bypassing the channel rule. After landing on master, dev was content-equal but history-divergent, forcing a follow-up sync PR (#35) to align histories. The extra upstream hop keeps this from happening.
+
+**Merge strategy per PR type:**
+- **Feature PR → dev**: squash merge (keep dev's log granular, one commit per feature).
+- **Release PR `dev → master`**: **"Create a merge commit"** — NOT squash. The merge commit preserves dev's commits as ancestors of master, so the next release PR is a clean fast-forward.
+- **Sync PR (one-time fix when ancestry is broken)**: merge commit. Same reason.
+- **Why this matters:** v0.6.0 + v0.6.1 both had 5-file conflicts on `dev → master` because prior syncs/releases were squashed — that collapses master's history into a single commit on dev (or vice versa), losing the ancestry link. v0.6.1's PR #43 + #44 both used merge commits to establish proper ancestry; v0.6.2 and forward should be clean fast-forwards.
+- **Repo setting**: `allow_merge_commit=true` (enabled 2026-04-19 as part of v0.6.1 release). `allow_squash_merge=true` stays on for feature PRs.
+
+**When dev and master have conflicts** (shouldn't happen post-v0.6.1, but documented in case merge-commit discipline lapses):
+1. Branch `sync/master-into-dev` from dev.
+2. `git merge origin/master`, resolve conflicts (usually take dev's version — it's the newer state).
+3. PR that branch → **dev** (not master). **Merge via "Create a merge commit"**, not squash.
+4. After merge, dev is a clean descendant of master. Open the release PR dev → master (clean fast-forward).
