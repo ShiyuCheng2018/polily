@@ -18,7 +18,7 @@ def polily_db():
 
 
 def test_v2_schema_tables(polily_db):
-    """v2 schema should have 8 tables."""
+    """v2 schema should have the expected core tables (and no retired ones)."""
     tables = polily_db.conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
     ).fetchall()
@@ -29,10 +29,11 @@ def test_v2_schema_tables(polily_db):
     assert "analyses" in names
     assert "movement_log" in names
     assert "scan_logs" in names
-    assert "notifications" in names
     assert "market_states" not in names
     # paper_trades dropped in v0.6.1 (replaced by positions + wallet_transactions)
     assert "paper_trades" not in names
+    # notifications dropped post-v0.6.1 (replaced by archive view over wallet_transactions)
+    assert "notifications" not in names
 
 
 def test_events_table_columns(polily_db):
@@ -123,3 +124,28 @@ def test_db_wal_mode():
         with PolilyDB(db_path) as db:
             mode = db.conn.execute("PRAGMA journal_mode").fetchone()[0]
             assert mode == "wal"
+
+
+def test_upgrade_drops_legacy_notifications_table(tmp_path):
+    """Existing databases with a `notifications` table get it dropped on
+    next PolilyDB open — guards the post-v0.6.1 migration from Task 8 of
+    the archive-view refactor.
+    """
+    import sqlite3
+
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE notifications (id INTEGER PRIMARY KEY, foo TEXT)")
+    conn.commit()
+    conn.close()
+
+    db = PolilyDB(db_path)
+    try:
+        tables = {
+            r[0] for r in db.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert "notifications" not in tables
+    finally:
+        db.close()

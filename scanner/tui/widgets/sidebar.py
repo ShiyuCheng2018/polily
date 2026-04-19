@@ -82,7 +82,7 @@ class Sidebar(Widget):
         yield SidebarItem("持仓", "paper")
         yield SidebarItem("钱包", "wallet")
         yield SidebarItem("历史", "history")
-        yield SidebarItem("通知", "notifications")
+        yield SidebarItem("归档", "archive")
         yield Static("")
         yield Static("  [dim]快捷键[/dim]")
         yield Static("  [dim]0-5  切换视图[/dim]")
@@ -102,7 +102,7 @@ class Sidebar(Widget):
             indicator.update("  [dim]○[/dim] [dim]POLL[/dim]")
 
     def update_counts(self, monitor: int, paper: int,
-                       notifications: int = 0, history: int = 0):
+                       archive: int = 0, history: int = 0):
         for item in self.query(SidebarItem):
             if item.menu_id == "monitor":
                 item.set_count(monitor)
@@ -110,8 +110,8 @@ class Sidebar(Widget):
                 item.set_count(paper)
             elif item.menu_id == "history":
                 item.set_count(history)
-            elif item.menu_id == "notifications":
-                item.set_count(notifications)
+            elif item.menu_id == "archive":
+                item.set_count(archive)
 
     def set_active_menu(self, menu_id: str):
         for item in self.query(SidebarItem):

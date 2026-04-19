@@ -204,16 +204,6 @@ class TestCancelAnalysis:
         service.cancel_analysis()  # should not raise
 
 
-class TestNotifications:
-    def test_unread_count(self, db, service):
-        db.conn.execute(
-            "INSERT INTO notifications (created_at, title, body) VALUES (?, ?, ?)",
-            ("2026-04-10", "test", "body"),
-        )
-        db.conn.commit()
-        assert service.get_unread_notification_count() == 1
-
-
 class TestScanLogs:
     def test_get_scan_logs_empty(self, service):
         logs = service.get_scan_logs()

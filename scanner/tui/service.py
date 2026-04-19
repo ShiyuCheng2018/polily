@@ -39,6 +39,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class ActivePositionsError(Exception):
+    """Raised when an operation would orphan open positions (e.g. disabling
+    monitor on an event the user still holds shares in)."""
+
+
 class ScanService:
     """DB-first bridge between TUI views, scan pipeline, AI agent, and DB."""
 
@@ -217,7 +222,10 @@ class ScanService:
                    em.next_check_at AS next_check_at,
                    COUNT(DISTINCT ps.market_id || '/' || ps.side) AS position_count,
                    leader.group_item_title AS leader_title,
-                   leader.yes_price AS leader_price
+                   leader.yes_price AS leader_price,
+                   COALESCE(ac.analysis_count, 0) AS analysis_count,
+                   MIN(CASE WHEN mk.closed = 0 THEN mk.end_date END) AS markets_end_min,
+                   MAX(CASE WHEN mk.closed = 0 THEN mk.end_date END) AS markets_end_max
             FROM events e
             LEFT JOIN markets mk ON mk.event_id = e.event_id
             LEFT JOIN event_monitors em ON em.event_id = e.event_id
@@ -232,6 +240,11 @@ class ScanService:
                 ) m2 ON m1.event_id = m2.event_id AND m1.yes_price = m2.max_price
                 GROUP BY m1.event_id
             ) leader ON leader.event_id = e.event_id
+            LEFT JOIN (
+                SELECT event_id, COUNT(*) AS analysis_count
+                FROM analyses
+                GROUP BY event_id
+            ) ac ON ac.event_id = e.event_id
             {where_clause}
             GROUP BY e.event_id
             ORDER BY COALESCE(e.structure_score, 0) DESC
@@ -243,16 +256,74 @@ class ScanService:
             event = EventRow(**{
                 k: d[k] for k in EventRow.model_fields if k in d
             })
+            is_monitored = bool(d["is_monitored"])
             results.append({
                 "event": event,
                 "market_count": d["market_count"],
-                "is_monitored": bool(d["is_monitored"]),
+                "is_monitored": is_monitored,
                 "has_position": d["position_count"] > 0,
                 "leader_title": d.get("leader_title"),
                 "leader_price": d.get("leader_price"),
                 "next_check_at": d.get("next_check_at"),
+                "analysis_count": d["analysis_count"],
+                "markets_end_min": d.get("markets_end_min"),
+                "markets_end_max": d.get("markets_end_max"),
+                "movement": self._fetch_movement(event.event_id) if is_monitored else None,
             })
         return results
+
+    def get_archived_events(self) -> list[dict]:
+        """Events the user was monitoring at the moment they closed.
+
+        Source-of-truth for the Archive view (menu 5). Filter is two-part:
+        `events.closed=1` (the event finished) AND
+        `event_monitors.auto_monitor=1` (the user was monitoring).
+
+        The auto_monitor flag is preserved through close (by design — it's a
+        user-intent flag, see PR #40), so the value at query time == value at
+        close time for any event not explicitly toggled off post-close.
+        """
+        # NOTE: aliased to `markets_total` (not `market_count`) because
+        # `events.market_count` is a real column pulled in via `e.*`; duplicate
+        # keys on sqlite3.Row collapse to the first occurrence on dict(row).
+        sql = """
+            SELECT e.*,
+                   COUNT(DISTINCT mk.market_id) AS markets_total
+            FROM events e
+            INNER JOIN event_monitors em ON em.event_id = e.event_id
+            LEFT JOIN markets mk ON mk.event_id = e.event_id
+            WHERE e.closed = 1 AND em.auto_monitor = 1
+            GROUP BY e.event_id
+            ORDER BY e.updated_at DESC
+        """
+        rows = self.db.conn.execute(sql).fetchall()
+        results = []
+        for row in rows:
+            d = dict(row)
+            event = EventRow(**{k: d[k] for k in EventRow.model_fields if k in d})
+            results.append({
+                "event": event,
+                "market_count": d["markets_total"],
+            })
+        return results
+
+    def _fetch_movement(self, event_id: str) -> dict | None:
+        """Roll up the latest movement tick for a monitored event.
+
+        Uses the same aggregation as `movement_sparkline.get_event_movement`
+        (latest tick's max-M/max-Q with label from strongest sub-market),
+        which correctly skips the event-level aggregate rows that poll_job
+        writes with market_id=NULL. Returns None when no movement rows exist
+        in the last hour so the UI can show a dash.
+        """
+        from scanner.monitor.store import get_event_movements
+        from scanner.tui.components.movement_sparkline import get_event_movement
+
+        movements = get_event_movements(event_id, self.db, hours=1)
+        if not movements:
+            return None
+        m, q, label = get_event_movement(movements)
+        return {"label": label, "magnitude": float(m), "quality": float(q)}
 
     def get_event_detail(self, event_id: str) -> dict | None:
         """Return full detail for an event: event, markets, analyses, trades, monitor, movements.
@@ -475,19 +546,22 @@ class ScanService:
         self.db.conn.commit()
 
     def toggle_monitor(self, event_id: str, enable: bool) -> None:
-        """Enable or disable monitoring for an event."""
+        """Enable or disable monitoring for an event.
+
+        Disabling is blocked when the event has open positions — closing
+        monitor stops polling, which stops auto-resolution, which would
+        silently orphan the user's skin in the game. Callers should check
+        `get_event_position_count` first to surface a UI-friendly error.
+        """
+        if not enable and self.get_event_position_count(event_id) > 0:
+            raise ActivePositionsError(
+                f"Cannot disable monitoring — event {event_id} has open positions",
+            )
         toggle_auto_monitor(event_id, enable=enable, db=self.db)
 
-    # ------------------------------------------------------------------
-    # Notifications
-    # ------------------------------------------------------------------
-
-    def get_unread_notification_count(self) -> int:
-        """Count unread notifications."""
-        row = self.db.conn.execute(
-            "SELECT COUNT(*) FROM notifications WHERE is_read = 0",
-        ).fetchone()
-        return row[0] if row else 0
+    def get_event_position_count(self, event_id: str) -> int:
+        """Count open positions across every market in the event."""
+        return len(self.positions.get_event_positions(event_id))
 
     # ------------------------------------------------------------------
     # Scan log

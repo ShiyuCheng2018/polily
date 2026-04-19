@@ -37,6 +37,14 @@ def recheck_event(
     if event is None:
         raise ValueError(f"Event {event_id} not found")
 
+    # Already-closed events no-op out. Needed because auto_monitor stays 1
+    # through close (it's a user-intent flag) so the scheduler may still
+    # invoke recheck_event here; without this gate Layer 2 would re-enter
+    # close_event and fire a duplicate [CLOSED] notification.
+    if event.closed == 1:
+        logger.debug("Skipping recheck for already-closed event %s", event_id)
+        return RecheckResult(event_id=event_id, trigger_source=trigger_source)
+
     # Layer 1: Check end_date expiry
     if event.end_date:
         try:
@@ -85,30 +93,8 @@ def recheck_event(
 def _close_event(
     event_id: str, title: str, db: PolilyDB, trigger_source: str
 ) -> RecheckResult:
-    """Mark event as closed + notify."""
-    now = datetime.now(UTC).isoformat()
-    db.conn.execute(
-        "UPDATE events SET closed=1, updated_at=? WHERE event_id=?",
-        (now, event_id),
-    )
-    db.conn.commit()
+    """Mark event as closed + notify via the shared close routine."""
+    from scanner.daemon.close_event import close_event
 
-    # Disable monitoring for closed event
-    from scanner.core.monitor_store import upsert_event_monitor
-
-    upsert_event_monitor(event_id, auto_monitor=False, db=db)
-
-    # Send notification
-    from scanner.notifications import add_notification
-
-    add_notification(
-        db,
-        title=f"[CLOSED] {title[:40]}",
-        body=f"Event closed ({trigger_source})",
-        event_id=event_id,
-        trigger_source=trigger_source,
-        action_result="closed",
-    )
-
-    logger.info("Event %s closed (trigger: %s)", event_id, trigger_source)
+    close_event(event_id, title, db, trigger_source)
     return RecheckResult(event_id=event_id, closed=True, trigger_source=trigger_source)

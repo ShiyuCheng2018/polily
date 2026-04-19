@@ -117,6 +117,59 @@ class TestGlobalPollPriceLayer:
         event = get_event("ev1", db)
         assert event.closed == 1
 
+    def test_poll_close_preserves_user_intent(self, db):
+        """Close path preserves auto_monitor=1 as a user-intent flag (Archive
+        view later filters on this to tell 'events I was monitoring when they
+        closed')."""
+        from scanner.core.monitor_store import get_event_monitor
+
+        upsert_event(
+            EventRow(event_id="ev1", title="Some Event", updated_at="now"), db,
+        )
+        for market_id, token in (("m1", "t1"), ("m2", "t2")):
+            upsert_market(
+                MarketRow(
+                    market_id=market_id, event_id="ev1",
+                    question=f"Q-{market_id}", clob_token_id_yes=token,
+                    updated_at="now",
+                ), db,
+            )
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
+
+        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+            mock_fetch.side_effect = httpx.HTTPStatusError(
+                "Not Found",
+                request=MagicMock(),
+                response=MagicMock(status_code=404),
+            )
+            global_poll(db)
+
+        monitor = get_event_monitor("ev1", db)
+        assert monitor is not None
+        assert monitor["auto_monitor"] == 1
+
+    def test_poll_re_running_on_closed_event_is_noop(self, db):
+        """Once event is closed, a subsequent poll tick must not crash or flip
+        auto_monitor back (the closed-event gate in poll_job short-circuits)."""
+        from scanner.core.monitor_store import get_event_monitor
+
+        upsert_event(
+            EventRow(event_id="ev1", title="Some Event", closed=1, updated_at="now"),
+            db,
+        )
+        upsert_market(
+            MarketRow(
+                market_id="m1", event_id="ev1", question="Q",
+                clob_token_id_yes="t1", closed=1, updated_at="now",
+            ), db,
+        )
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
+
+        with patch("scanner.core.clob.fetch_clob_market_data"):
+            global_poll(db)
+
+        assert get_event_monitor("ev1", db)["auto_monitor"] == 1
+
     def test_skips_closed_markets(self, db):
         """Markets with closed=1 should not be fetched."""
         _seed(db, closed=1)

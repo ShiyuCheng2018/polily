@@ -5,6 +5,7 @@ from textual.widget import Widget
 from textual.widgets import Static
 
 from scanner.tui.components.movement_sparkline import _LABEL_CN, get_event_movement
+from scanner.tui.monitor_format import pick_movement_color
 
 
 class EventHeader(Widget):
@@ -44,11 +45,11 @@ class EventHeader(Widget):
         # Movement status
         m, q, label = get_event_movement(self._movements)
         label_cn = _LABEL_CN.get(label, label)
+        color = pick_movement_color(label, m)
         if label == "noise":
-            mov_str = f"[green]{label_cn}[/green] [dim]M:{m:.0f} Q:{q:.0f}[/dim]"
+            mov_str = f"[{color}]{label_cn}[/{color}] [dim]M:{m:.0f} Q:{q:.0f}[/dim]"
         else:
-            color = "red" if m >= 70 else "yellow"
-            mov_str = f"[{color}]{label_cn}[/] M:{m:.0f} Q:{q:.0f}"
+            mov_str = f"[{color}]{label_cn}[/{color}] M:{m:.0f} Q:{q:.0f}"
 
         yield Static(
             f"{mtype} | 结算: {deadline_str} | {monitor_str} | {mov_str}",

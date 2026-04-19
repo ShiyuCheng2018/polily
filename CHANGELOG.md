@@ -10,6 +10,83 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-04-19
+
+Monitoring lifecycle v2 — the "monitor" flag now carries real user intent
+through event close, positions guard users against accidentally abandoning
+stakes, and the Notifications page retires in favor of a proper Archive
+view. Supporting cleanup: shared `close_event` routine, dropped the
+`notifications` table, and the Watchlist redesign shipped with this bundle.
+
+### Added
+
+- **Confirm-before-disable monitor + positions guard**: pressing `m` on a
+  monitored event now asks for explicit confirmation before flipping off
+  (`[确认取消]` / `[继续监控]` modal). When the event has any open
+  position (YES or NO across any sub-market), the toggle-off is blocked
+  outright — closing monitoring would stop polling, stop auto-resolution,
+  and silently orphan the user's skin in the game. The block surfaces as
+  an inline warning (`无法取消监控 — 该事件有 N 个持仓未结算`) and leaves
+  `auto_monitor=1`. Rule applies consistently across MarketDetailView and
+  Watchlist. Enabling monitor is unchanged (no confirmation, non-
+  destructive). Service layer also raises `ActivePositionsError` as a
+  defence-in-depth check.
+- **Archive view (menu 5 `归档`)**: replaces the former "通知" page. Lists
+  events the user was monitoring when they closed (`events.closed=1 AND
+  event_monitors.auto_monitor=1`), sorted by close time. Columns: 事件 /
+  结构分 / 子市场 / 关闭于. Row click navigates to `MarketDetailView`,
+  which also closes the "no way to re-open a closed event's detail" UX
+  gap noted in the v0.6.0 follow-up list.
+
+### Changed
+
+- **Watchlist (TUI menu 1) redesigned**: scoped tightly to "what am I
+  monitoring and when's the next poll" plus a few routing hints. The
+  always-"监控中" status column was dropped. New columns: 结构分 (routing
+  signal), AI版 (analysis version count), 异动 (latest tick rollup), 结算
+  (settlement window across non-closed sub-markets, e.g.
+  `2天6小时 ~ 40天16小时`). Next-check column expanded to
+  `2026-04-21 09:00 (1d 11h 30m)` — full ISO date + compact relative
+  time. Movement cell reuses the same roll-up semantics as the
+  detail-page movement widget (max-M/max-Q of the latest tick's per-
+  market rows, ignoring the event-level aggregate row poll_job writes
+  last) and shares its magnitude-driven red/yellow/green palette.
+  Data columns like position / leader price / P&L stay on their
+  dedicated pages (Positions / Wallet / Market Detail), keeping page
+  responsibilities non-overlapping.
+
+### Removed
+
+- **`notifications` table and module entirely.** The old system only ever
+  wrote `[CLOSED]` rows from the close path — the Archive view derives
+  that state from `events + event_monitors` directly, so the table,
+  `scanner/notifications.py`, and `NotificationListView` all retired.
+  `DROP TABLE IF EXISTS notifications` runs on first launch of an
+  upgraded DB (idempotent, no-op on fresh installs). External callers
+  of `scanner.notifications.*` or `ScanService.get_unread_notification_count`
+  will need to migrate — these were never a public-API contract.
+
+### Fixed
+
+- **`auto_monitor` is now a stable user-intent flag, preserved through
+  event close.** The v0.6.0 close paths flipped `auto_monitor=1` → `0`
+  when an event closed, treating the field as "currently being polled"
+  rather than "the user chose to monitor this event". That lost the
+  information the upcoming Archive view needs ("events I was monitoring
+  when they closed"). `close_event()` no longer touches `auto_monitor`;
+  the Watchlist (`WHERE closed=0`) and poll guard (`if event.closed`)
+  already prevent closed events from being polled, so the flag's value
+  is now purely about user intent. `recheck_event` gained an early
+  `if event.closed: return` gate so the still-scheduled rechecks on
+  closed events no-op instead of re-firing `[CLOSED]` notifications.
+- **Poll-path auto-close now emits a `[CLOSED]` notification**, matching
+  the recheck close path that has always done so. Previously the poll
+  path only updated `events.closed=1`, silently closing events the user
+  was actively monitoring. Extracted the close routine into a shared
+  `scanner/daemon/close_event.close_event()` and both paths call it, so
+  the notification is emitted exactly once per closed event (poll gate
+  on `event.closed == 0` prevents re-fire on subsequent ticks).
+
 ## [0.6.0] — 2026-04-19
 
 Wallet system — paper trading gets real. Buys and sells now settle against
@@ -159,5 +236,6 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.1...dev
+[0.6.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.1
 [0.6.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.0

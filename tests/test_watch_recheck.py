@@ -16,6 +16,30 @@ def db(tmp_path):
     db.close()
 
 
+class TestRecheckGateOnAlreadyClosed:
+    """Since `auto_monitor` now stays 1 through close (user-intent flag), the
+    scheduler may still fire `recheck_event` on an already-closed event. That
+    path must no-op — not re-emit a [CLOSED] notification, not mutate any row.
+    """
+
+    def test_early_returns_for_already_closed_event(self, db):
+        """A closed event must no-op through recheck — Layer 2 would otherwise
+        re-enter `_close_event` and the gate on `event.closed == 1` must
+        short-circuit before Layer 2 runs."""
+        upsert_event(EventRow(
+            event_id="ev1", title="Already closed event", closed=1,
+            updated_at="now",
+        ), db)
+        upsert_market(MarketRow(
+            market_id="m1", event_id="ev1", question="Q", closed=1,
+            updated_at="now",
+        ), db)
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
+
+        result = recheck_event("ev1", db=db, service=None, trigger_source="scheduled")
+        assert result.closed is False
+
+
 class TestRecheckExpiry:
     def test_expired_event_gets_closed(self, db):
         """Event past end_date should be closed."""
@@ -80,31 +104,6 @@ class TestRecheckWithoutService:
     def test_nonexistent_event_raises(self, db):
         with pytest.raises(ValueError, match="not found"):
             recheck_event("nonexistent", db=db, service=None, trigger_source="manual")
-
-
-class TestRecheckNotification:
-    def test_close_sends_notification(self, db):
-        """Closing an event should create a notification."""
-        upsert_event(EventRow(
-            event_id="ev1", title="Test Market", end_date="2020-01-01T00:00:00Z", updated_at="now",
-        ), db)
-        recheck_event("ev1", db=db, service=None, trigger_source="scheduled")
-
-        notifs = db.conn.execute("SELECT * FROM notifications").fetchall()
-        assert len(notifs) >= 1
-        assert "CLOSED" in notifs[0]["title"] or "closed" in notifs[0]["title"].lower()
-
-    def test_close_disables_monitor(self, db):
-        """Closing an event should set auto_monitor=False."""
-        upsert_event(EventRow(
-            event_id="ev1", title="Test", end_date="2020-01-01T00:00:00Z", updated_at="now",
-        ), db)
-        upsert_event_monitor("ev1", auto_monitor=True, db=db)
-
-        recheck_event("ev1", db=db, service=None, trigger_source="scheduled")
-
-        mon = get_event_monitor("ev1", db)
-        assert mon["auto_monitor"] == 0
 
 
 class TestRecheckWithAI:

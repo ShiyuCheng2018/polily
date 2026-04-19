@@ -148,21 +148,7 @@ CREATE TABLE IF NOT EXISTS scan_logs (
     steps               TEXT
 );
 
--- 8. Notifications
-CREATE TABLE IF NOT EXISTS notifications (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at          TEXT NOT NULL,
-    event_id            TEXT,
-    market_id           TEXT,
-    title               TEXT NOT NULL,
-    body                TEXT NOT NULL,
-    trigger_source      TEXT,
-    action_result       TEXT,
-    is_read             INTEGER NOT NULL DEFAULT 0,
-    read_at             TEXT
-);
-
--- 9. Wallet (singleton)
+-- 8. Wallet (singleton)
 CREATE TABLE IF NOT EXISTS wallet (
     id                  INTEGER PRIMARY KEY CHECK(id = 1),  -- enforces singleton: only id=1 ever exists
     cash_usd            REAL NOT NULL,
@@ -173,7 +159,7 @@ CREATE TABLE IF NOT EXISTS wallet (
     updated_at          TEXT NOT NULL
 );
 
--- 10. Positions (aggregated)
+-- 9. Positions (aggregated)
 -- INVARIANT: Polily never hard-deletes events/markets (soft-close via closed=1).
 -- FK defaults to NO ACTION; if a future cleanup task deletes markets, positions
 -- inserts will raise IntegrityError — that is intentional, positions depend on
@@ -192,7 +178,7 @@ CREATE TABLE IF NOT EXISTS positions (
     PRIMARY KEY (market_id, side)
 );
 
--- 11. Wallet transactions (append-only ledger)
+-- 10. Wallet transactions (append-only ledger)
 -- INVARIANT: market_id and event_id are stored WITHOUT FK constraints — the ledger
 -- must survive market soft-close and any future hard-delete cleanup. Orphan lookups
 -- via LEFT JOIN are acceptable; this is an accounting record, not relational master data.
@@ -222,7 +208,6 @@ CREATE INDEX IF NOT EXISTS idx_event_monitors_active ON event_monitors(auto_moni
 CREATE INDEX IF NOT EXISTS idx_analyses_event ON analyses(event_id);
 CREATE INDEX IF NOT EXISTS idx_movement_event ON movement_log(event_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_movement_market ON movement_log(market_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(is_read) WHERE is_read = 0;
 CREATE INDEX IF NOT EXISTS idx_positions_event ON positions(event_id);
 CREATE INDEX IF NOT EXISTS idx_wallet_tx_created ON wallet_transactions(created_at);
 CREATE INDEX IF NOT EXISTS idx_wallet_tx_event ON wallet_transactions(event_id);
@@ -253,6 +238,9 @@ class PolilyDB:
         # Drop the legacy paper_trades table on databases that were
         # upgraded from <= v0.6.0. Idempotent — no-op on fresh DBs.
         self.conn.execute("DROP TABLE IF EXISTS paper_trades")
+        # Drop the legacy notifications table on databases that were
+        # upgraded from <= v0.6.1. Idempotent — no-op on fresh DBs.
+        self.conn.execute("DROP TABLE IF EXISTS notifications")
         self.conn.commit()
         self._ensure_wallet_singleton()
 
