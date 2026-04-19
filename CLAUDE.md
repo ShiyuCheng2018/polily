@@ -74,7 +74,7 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `scanner/core/config.py` | All Pydantic config models |
 | `scanner/core/models.py` | Market, BookLevel, Trade models |
 | `scanner/core/event_store.py` | EventRow, MarketRow, upsert/query |
-| `scanner/core/monitor_store.py` | Event monitor state (auto_monitor, next_check_at) |
+| `scanner/core/monitor_store.py` | Event monitor state (v0.7.0: user-intent flag only — `auto_monitor` / `price_snapshot` / `notes`) |
 | `scanner/core/wallet.py` | WalletService — cash + ledger + atomicity contract (commit=False) |
 | `scanner/core/positions.py` | PositionManager — aggregated (market_id, side) positions, weighted-avg cost |
 | `scanner/core/trade_engine.py` | TradeEngine — atomic buy/sell (wallet + position + fee in one BEGIN/COMMIT) |
@@ -92,13 +92,12 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `scanner/monitor/drift.py` | CUSUM drift detector |
 | `scanner/monitor/store.py` | Movement records storage |
 | `scanner/monitor/event_metrics.py` | Per-event movement metrics |
-| `scanner/daemon/scheduler.py` | APScheduler daemon: dual executor + launchd |
-| `scanner/daemon/poll_job.py` | Global poll job (30s) — fetch prices + auto-resolution pass for monitored markets |
+| `scanner/daemon/scheduler.py` | APScheduler daemon: dual executor + launchd; wires scheduler into `_ctx` so `global_poll`'s Step 3.5 dispatcher can submit |
+| `scanner/daemon/poll_job.py` | Global poll job (30s): fetch prices → auto-resolution → score refresh → **Step 3.5 dispatcher (drain overdue `scan_logs` pending rows)** → intelligence layer |
 | `scanner/daemon/resolution.py` | ResolutionHandler — atomic per-market settle on Gamma outcomePrices |
-| `scanner/daemon/recheck.py` | Scheduled event recheck (AI analysis) |
 | `scanner/daemon/auto_monitor.py` | Auto-monitor toggle logic |
 | `scanner/daemon/score_refresh.py` | Periodic structure-score refresh |
-| `scanner/daemon/notify.py` | Notification dispatch |
+| `scanner/agents/narrator_registry.py` | In-process narrator cancel registry (scope: process-local; see docstring for cross-process limitation) |
 | `scanner/agents/base.py` | BaseAgent: claude CLI invoke + retry + JSON parsing |
 | `scanner/agents/narrative_writer.py` | NarrativeWriter agent (decision advisor) |
 | `scanner/agents/schemas.py` | Pydantic schemas for agent I/O |
@@ -148,9 +147,16 @@ Polily is open source; releases need to follow a standard. Always use `gh releas
 
 **Branch channel discipline:**
 - **dev is the only channel to master.** Every PR into master MUST have `head=dev`. Never open a PR to master from a release branch, feature branch, or any other source — even if the content would be identical to dev.
-- **When dev and master have conflicts** (e.g. master got an independent squash like the v0.5.1 docs refresh), do NOT open the conflict-resolution branch directly to master. Correct flow:
-  1. Branch `sync/master-into-dev` from dev.
-  2. `git merge origin/master`, resolve conflicts (usually take dev's version — it's the newer state).
-  3. PR that branch → **dev** (not master).
-  4. After merge, dev is a clean descendant of master. Open the release PR dev → master (clean merge, no conflicts).
-- **Why the extra hop?** In the v0.6.0 release we shortcut this by opening `release/v0.6.0 → master` directly (with master pre-merged into the release branch for conflict resolution). Content equalled dev's, but the PR source wasn't dev — silently bypassing the channel rule. After landing on master, dev was content-equal but history-divergent, forcing a follow-up sync PR (#35) to align histories. The extra upstream hop keeps this from happening.
+
+**Merge strategy per PR type:**
+- **Feature PR → dev**: squash merge (keep dev's log granular, one commit per feature).
+- **Release PR `dev → master`**: **"Create a merge commit"** — NOT squash. The merge commit preserves dev's commits as ancestors of master, so the next release PR is a clean fast-forward.
+- **Sync PR (one-time fix when ancestry is broken)**: merge commit. Same reason.
+- **Why this matters:** v0.6.0 + v0.6.1 both had 5-file conflicts on `dev → master` because prior syncs/releases were squashed — that collapses master's history into a single commit on dev (or vice versa), losing the ancestry link. v0.6.1's PR #43 + #44 both used merge commits to establish proper ancestry; v0.6.2 and forward should be clean fast-forwards.
+- **Repo setting**: `allow_merge_commit=true` (enabled 2026-04-19 as part of v0.6.1 release). `allow_squash_merge=true` stays on for feature PRs.
+
+**When dev and master have conflicts** (shouldn't happen post-v0.6.1, but documented in case merge-commit discipline lapses):
+1. Branch `sync/master-into-dev` from dev.
+2. `git merge origin/master`, resolve conflicts (usually take dev's version — it's the newer state).
+3. PR that branch → **dev** (not master). **Merge via "Create a merge commit"**, not squash.
+4. After merge, dev is a clean descendant of master. Open the release PR dev → master (clean fast-forward).

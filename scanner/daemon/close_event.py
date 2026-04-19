@@ -1,12 +1,10 @@
-"""Shared 'close an event' routine used by both recheck and poll_job.
+"""Shared 'close an event' routine invoked from the poll_job close path.
 
 `auto_monitor` is intentionally not touched — it's a user-intent flag
 ("did the user choose to monitor this event") whose value at the moment of
 close is load-bearing for the Archive view ("list the events I was
-monitoring when they closed"). Callers that need to stop the scheduler from
-re-invoking this routine on already-closed events must gate on
-`event.closed == 0` themselves (see `recheck_event` and the closure branch
-of `poll_job`).
+monitoring when they closed"). Callers must gate on `event.closed == 0`
+themselves to avoid firing duplicate close side-effects.
 """
 
 from __future__ import annotations

@@ -10,6 +10,73 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-04-20
+
+### Scheduler rework (DB-backed dispatcher)
+
+- **APScheduler downgraded to heartbeat only.** The daemon no longer
+  holds in-memory date jobs for scheduled AI analyses. Every 30s poll
+  tick scans `scan_logs` for overdue `status='pending'` rows and
+  dispatches them to the `ai` executor. Laptop sleep / process kill
+  / launchd restart all become no-ops: the next tick picks up
+  overdue work from the DB. Solves the recurring "missed scheduled
+  check after Mac was closed overnight" bug.
+- **Menu 0 split into `分析队列` / `历史` zones.** Pending and
+  running AI analyses surface at the top with their schedule or live
+  timer; completed / failed / cancelled / superseded fall to history.
+  Running rows compute elapsed time live from `started_at` at render.
+  The 历史 zone adds a `类型` column so AI 分析 / 评分 / 扫描 rows
+  can be distinguished at a glance.
+- **`c` on a running row in 分析队列** opens a confirmation modal to
+  cancel the in-flight analysis. For TUI-initiated runs the Claude CLI
+  subprocess is killed and the row flipped to `cancelled`. For rows
+  initiated by the daemon's dispatcher (scheduled / movement triggers)
+  the DB row is flipped to `cancelled` and the subsequent narrator
+  completion is safely ignored — the daemon subprocess still runs to
+  natural end but its result is discarded and no phantom pending row
+  is emitted. Process-local `narrator_registry` means true subprocess
+  termination from the TUI for daemon runs is not yet implemented;
+  planned for a later release via DB-backed cancel signals.
+- **Movement-triggered analyses** no longer bypass the queue — they
+  write a pending row with `trigger_source='movement'` and go through
+  the same dispatcher as scheduled runs. All AI triggers (manual /
+  scheduled / movement) now share one lifecycle.
+- **Crash recovery.** On daemon startup, any `scan_logs` row stuck
+  at `status='running'` (left over from a crash) is marked `failed`
+  with `error='进程中断，未完成'` — the user sees the row
+  in history and decides whether to retry.
+- **Monitoring toggle cleanup.** Turning `auto_monitor` off for an
+  event now supersedes all its pending scan_logs rows atomically, so
+  a closed monitor won't silently fire a queued analysis.
+- **Exception type preservation**: agent failures surface in
+  `scan_logs.error` as `"RuntimeError: Claude crashed"` instead of
+  just the message, so debugging can distinguish transient from
+  structural failures.
+
+### Breaking (library callers only)
+
+- `event_monitors.next_check_at` and `next_check_reason` columns
+  dropped. All scheduling lives in `scan_logs` now; migration is
+  automatic on first DB open of an upgraded install (existing pending
+  schedules are seeded into scan_logs as pending rows).
+- `scanner.daemon.notify` module removed. SIGUSR1 handler gone.
+  `update_next_check_at` removed from `scanner.core.monitor_store`.
+- `WatchScheduler.schedule_check / cancel_check / list_pending /
+  restore_check_jobs` removed. Callers should insert a `scan_logs`
+  pending row via `scanner.scan_log.insert_pending_scan`.
+- New helpers exposed in `scanner.scan_log`: `insert_pending_scan`,
+  `claim_pending_scan`, `finish_scan`, `supersede_pending_for_event`,
+  `fetch_overdue_pending`, `fail_orphan_running`.
+- New module `scanner.agents.narrator_registry` for cross-process
+  narrator cancellation (`register` / `unregister` / `cancel` by
+  `scan_id`).
+
+### Fixed
+
+- Latent bug in `scanner/daemon/scheduler.py` `_execute_check` (deleted
+  in this release) passed `db` positionally as `config` to ScanService
+  — fixed en route to the deletion.
+
 ## [0.6.1] — 2026-04-19
 
 Monitoring lifecycle v2 — the "monitor" flag now carries real user intent
@@ -236,6 +303,7 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.6.1...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.7.0...dev
+[0.7.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.7.0
 [0.6.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.1
 [0.6.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.0

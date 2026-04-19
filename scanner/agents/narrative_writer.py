@@ -51,6 +51,8 @@ class NarrativeWriterAgent:
         has_position: bool = False,
         position_summary: str | None = None,
         on_heartbeat=None,
+        *,
+        event_title: str | None = None,
     ) -> NarrativeWriterOutput:
         """Generate analysis with semantic validation + retry."""
         prompt = self._build_prompt(event_id, has_position, position_summary)
@@ -79,12 +81,12 @@ class NarrativeWriterAgent:
 
             errors = output.semantic_errors()
             if not errors:
-                _write_dev_feedback(event_id, output)
+                _write_dev_feedback(event_id, event_title, output)
                 return output
             last_output = output
 
         # Retries exhausted — return last output (partial is better than fallback)
-        _write_dev_feedback(event_id, last_output)
+        _write_dev_feedback(event_id, event_title, last_output)
         return last_output
 
     def _build_prompt(
@@ -125,7 +127,11 @@ Prompt 指令: scanner/agents/prompts/narrative_writer.md
         ).model_dump()
 
 
-def _write_dev_feedback(event_id: str, output: NarrativeWriterOutput) -> None:
+def _write_dev_feedback(
+    event_id: str,
+    event_title: str | None,
+    output: NarrativeWriterOutput,
+) -> None:
     """Append agent feedback to data/logs/agent_feedback.log."""
     feedback = output.dev_feedback
     if not feedback:
@@ -133,12 +139,24 @@ def _write_dev_feedback(event_id: str, output: NarrativeWriterOutput) -> None:
     try:
         import os
         from datetime import UTC, datetime
+
+        import scanner
+
         log_dir = os.path.join(os.getcwd(), "data", "logs")
         os.makedirs(log_dir, exist_ok=True)
         ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        title = (
+            (event_title or "?")
+            .replace("\n", " ")
+            .replace("\r", " ")
+            .replace('"', "'")
+        )
         with open(os.path.join(log_dir, "agent_feedback.log"), "a") as f:
             ops_summary = ",".join(op.action for op in output.operations) or "none"
-            f.write(f"\n=== [{ts}] event={event_id} ops={ops_summary} ===\n")
+            f.write(
+                f'\n=== [{ts}] polily=v{scanner.__version__} '
+                f'event={event_id} title="{title}" ops={ops_summary} ===\n'
+            )
             f.write(f"{feedback}\n")
     except Exception:
         pass
