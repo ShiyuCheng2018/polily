@@ -16,6 +16,40 @@ def db(tmp_path):
     db.close()
 
 
+class TestRecheckGateOnAlreadyClosed:
+    """Since `auto_monitor` now stays 1 through close (user-intent flag), the
+    scheduler may still fire `recheck_event` on an already-closed event. That
+    path must no-op — not re-emit a [CLOSED] notification, not mutate any row.
+    """
+
+    def test_early_returns_for_already_closed_event(self, db):
+        """Seed a closed event WITH closed sub-markets — Layer 2 of
+        `recheck_event` would otherwise re-enter `_close_event` and fire a
+        duplicate [CLOSED] notification. The gate on `event.closed == 1`
+        must short-circuit before Layer 2 runs.
+        """
+        from scanner.notifications import get_unread_notifications
+
+        upsert_event(EventRow(
+            event_id="ev1", title="Already closed event", closed=1,
+            updated_at="now",
+        ), db)
+        # Add a closed sub-market so Layer 2's all-closed check would match
+        # and try to re-close if the gate is missing.
+        upsert_market(MarketRow(
+            market_id="m1", event_id="ev1", question="Q", closed=1,
+            updated_at="now",
+        ), db)
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
+
+        result = recheck_event("ev1", db=db, service=None, trigger_source="scheduled")
+
+        assert result.closed is False  # didn't newly close anything
+        # No new [CLOSED] notification — the gate prevents the re-close
+        notifs = get_unread_notifications(db)
+        assert not any(n["title"].startswith("[CLOSED]") for n in notifs)
+
+
 class TestRecheckExpiry:
     def test_expired_event_gets_closed(self, db):
         """Event past end_date should be closed."""
@@ -94,8 +128,10 @@ class TestRecheckNotification:
         assert len(notifs) >= 1
         assert "CLOSED" in notifs[0]["title"] or "closed" in notifs[0]["title"].lower()
 
-    def test_close_disables_monitor(self, db):
-        """Closing an event should set auto_monitor=False."""
+    def test_close_preserves_user_intent(self, db):
+        """Closing an event must PRESERVE `auto_monitor` — it's a user-intent
+        flag and the Archive view relies on its value at close time to tell
+        "events the user was monitoring when they closed"."""
         upsert_event(EventRow(
             event_id="ev1", title="Test", end_date="2020-01-01T00:00:00Z", updated_at="now",
         ), db)
@@ -104,7 +140,7 @@ class TestRecheckNotification:
         recheck_event("ev1", db=db, service=None, trigger_source="scheduled")
 
         mon = get_event_monitor("ev1", db)
-        assert mon["auto_monitor"] == 0
+        assert mon["auto_monitor"] == 1
 
 
 class TestRecheckWithAI:

@@ -220,6 +220,95 @@ async def test_renders_movement_label():
 
 
 @pytest.mark.asyncio
+async def test_toggle_monitor_blocked_by_positions():
+    """Watchlist `m` must obey the same guard as MarketDetail: a monitored
+    event with open positions cannot be unmonitored."""
+    from scanner.core.monitor_store import get_event_monitor
+    from scanner.tui.views.monitor_list import MonitorListView
+
+    svc = _service()
+    _seed_monitored_event(svc, "evA", "Event A", score=82.0)
+    svc.db.conn.execute(
+        "INSERT INTO positions (event_id, market_id, side, shares, avg_cost, "
+        "cost_basis, title, opened_at, updated_at) "
+        "VALUES ('evA', 'm-evA', 'yes', 10.0, 0.5, 5.0, 'Q', 'now', 'now')",
+    )
+    svc.db.conn.commit()
+
+    view = MonitorListView(svc)
+
+    class _Capture(App):
+        def __init__(self, w):
+            super().__init__()
+            self._w = w
+            self.pushed_modals: list = []
+
+        def compose(self) -> ComposeResult:
+            yield self._w
+
+        def push_screen(self, screen, callback=None):
+            self.pushed_modals.append((screen, callback))
+
+    host = _Capture(view)
+    notify_calls: list = []
+    async with host.run_test(size=(180, 40)) as pilot:
+        await pilot.pause()
+        view.notify = lambda msg, **kw: notify_calls.append((msg, kw))  # type: ignore[assignment]
+        view.focus()
+        await pilot.press("m")
+        await pilot.pause()
+        pushed = list(host.pushed_modals)
+
+    assert get_event_monitor("evA", svc.db)["auto_monitor"] == 1  # still monitored
+    assert not pushed  # no modal — blocked inline
+    assert notify_calls
+    assert "无法" in notify_calls[0][0]
+
+
+@pytest.mark.asyncio
+async def test_toggle_monitor_pushes_modal_when_no_positions():
+    """No positions → modal appears, toggle only fires on confirm-dismiss."""
+    from scanner.core.monitor_store import get_event_monitor
+    from scanner.tui.views.monitor_list import MonitorListView
+    from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
+
+    svc = _service()
+    _seed_monitored_event(svc, "evA", "Event A", score=82.0)
+
+    view = MonitorListView(svc)
+
+    class _Capture(App):
+        def __init__(self, w):
+            super().__init__()
+            self._w = w
+            self.pushed_modals: list = []
+
+        def compose(self) -> ComposeResult:
+            yield self._w
+
+        def push_screen(self, screen, callback=None):
+            self.pushed_modals.append((screen, callback))
+
+    host = _Capture(view)
+    async with host.run_test(size=(180, 40)) as pilot:
+        await pilot.pause()
+        view.focus()
+        await pilot.press("m")
+        await pilot.pause()
+        pushed = list(host.pushed_modals)
+        assert len(pushed) == 1
+        modal, cb = pushed[0]
+        assert isinstance(modal, ConfirmUnmonitorModal)
+        # Not yet toggled
+        assert get_event_monitor("evA", svc.db)["auto_monitor"] == 1
+        # Confirm → toggles off
+        cb(True)
+        await pilot.pause()
+
+    assert get_event_monitor("evA", svc.db)["auto_monitor"] == 0
+
+
+@pytest.mark.asyncio
 async def test_movement_dash_when_no_movement():
     from scanner.tui.views.monitor_list import MonitorListView
 

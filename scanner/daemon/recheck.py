@@ -37,6 +37,14 @@ def recheck_event(
     if event is None:
         raise ValueError(f"Event {event_id} not found")
 
+    # Already-closed events no-op out. Needed because auto_monitor stays 1
+    # through close (it's a user-intent flag) so the scheduler may still
+    # invoke recheck_event here; without this gate Layer 2 would re-enter
+    # close_event and fire a duplicate [CLOSED] notification.
+    if event.closed == 1:
+        logger.debug("Skipping recheck for already-closed event %s", event_id)
+        return RecheckResult(event_id=event_id, trigger_source=trigger_source)
+
     # Layer 1: Check end_date expiry
     if event.end_date:
         try:

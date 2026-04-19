@@ -10,6 +10,20 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Added
+
+- **Confirm-before-disable monitor + positions guard**: pressing `m` on a
+  monitored event now asks for explicit confirmation before flipping off
+  (`[确认取消]` / `[继续监控]` modal). When the event has any open
+  position (YES or NO across any sub-market), the toggle-off is blocked
+  outright — closing monitoring would stop polling, stop auto-resolution,
+  and silently orphan the user's skin in the game. The block surfaces as
+  an inline warning (`无法取消监控 — 该事件有 N 个持仓未结算`) and leaves
+  `auto_monitor=1`. Rule applies consistently across MarketDetailView and
+  Watchlist. Enabling monitor is unchanged (no confirmation, non-
+  destructive). Service layer also raises `ActivePositionsError` as a
+  defence-in-depth check.
+
 ### Changed
 
 - **Watchlist (TUI menu 1) redesigned**: scoped tightly to "what am I
@@ -29,15 +43,24 @@ structured release notes — see `git log` for history.
 
 ### Fixed
 
-- **Poll-path auto-close leaves no stray monitor state**: when `poll_job`
-  detected every sub-market had gone (CLOB 404) and closed the event, it
-  only wrote `events.closed=1` — the matching `event_monitors.auto_monitor`
-  row stayed at `1` and no notification fired, unlike `recheck`'s close
-  path which did both. Extracted the close routine into a shared
-  `scanner/daemon/close_event.close_event()` and both paths now call it,
-  so closed events always land with `auto_monitor=0` and a `[CLOSED]`
-  notification. Gate added to avoid re-notifying on every subsequent tick
-  of an already-closed event.
+- **`auto_monitor` is now a stable user-intent flag, preserved through
+  event close.** The v0.6.0 close paths flipped `auto_monitor=1` → `0`
+  when an event closed, treating the field as "currently being polled"
+  rather than "the user chose to monitor this event". That lost the
+  information the upcoming Archive view needs ("events I was monitoring
+  when they closed"). `close_event()` no longer touches `auto_monitor`;
+  the Watchlist (`WHERE closed=0`) and poll guard (`if event.closed`)
+  already prevent closed events from being polled, so the flag's value
+  is now purely about user intent. `recheck_event` gained an early
+  `if event.closed: return` gate so the still-scheduled rechecks on
+  closed events no-op instead of re-firing `[CLOSED]` notifications.
+- **Poll-path auto-close now emits a `[CLOSED]` notification**, matching
+  the recheck close path that has always done so. Previously the poll
+  path only updated `events.closed=1`, silently closing events the user
+  was actively monitoring. Extracted the close routine into a shared
+  `scanner/daemon/close_event.close_event()` and both paths call it, so
+  the notification is emitted exactly once per closed event (poll gate
+  on `event.closed == 0` prevents re-fire on subsequent ticks).
 
 ## [0.6.0] — 2026-04-19
 

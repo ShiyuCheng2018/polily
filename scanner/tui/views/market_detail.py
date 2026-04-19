@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
@@ -184,10 +185,40 @@ class MarketDetailView(Widget):
     def action_toggle_monitor(self) -> None:
         monitor = self._detail.get("monitor") if self._detail else None
         currently_on = bool(monitor and monitor.get("auto_monitor"))
-        self.service.toggle_monitor(self.event_id, enable=not currently_on)
-        state = "OFF" if currently_on else "ON"
+
+        if not currently_on:
+            # Enabling is non-destructive — no confirmation needed.
+            self.service.toggle_monitor(self.event_id, enable=True)
+            self._after_monitor_change("ON")
+            return
+
+        # Disabling path: block if positions exist, otherwise confirm.
+        pos_count = self.service.get_event_position_count(self.event_id)
+        if pos_count > 0:
+            self.notify(
+                f"无法取消监控 — 该事件有 {pos_count} 个持仓未结算，"
+                "请先平仓或等待结算",
+                severity="warning",
+            )
+            return
+
+        from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
+
+        event = self._detail.get("event") if self._detail else None
+        event_title = event.title if event else self.event_id
+
+        def _on_dismiss(confirmed: bool | None) -> None:
+            if confirmed:
+                self.service.toggle_monitor(self.event_id, enable=False)
+                self._after_monitor_change("OFF")
+
+        self.app.push_screen(ConfirmUnmonitorModal(event_title), _on_dismiss)
+
+    def _after_monitor_change(self, state: str) -> None:
+        """Post-toggle side effects shared by enable + confirmed-disable."""
         self.notify(f"监控 {state}")
-        self.screen.refresh_sidebar_counts()
+        with contextlib.suppress(AttributeError):
+            self.screen.refresh_sidebar_counts()
         self.post_message(SwitchVersionRequested(self.event_id, self._version_idx))
 
     def action_switch_version(self) -> None:

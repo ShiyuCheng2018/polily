@@ -129,15 +129,36 @@ class MonitorListView(Widget):
         if not e:
             return
         eid = e["event"].event_id
-        self.service.toggle_monitor(eid, enable=False)
-        self.notify(f"关闭监控: {e['event'].title[:30]}")
-        self.screen.refresh_sidebar_counts()
-        try:
-            table = self.query_one("#monitor-table", DataTable)
-            table.remove_row(eid)
-            self._monitored = [m for m in self._monitored if m["event"].event_id != eid]
-        except Exception:
-            pass
+        title = e["event"].title
+
+        # Block: event with open positions can't be unmonitored — closing it
+        # would silently stop auto-resolution.
+        pos_count = self.service.get_event_position_count(eid)
+        if pos_count > 0:
+            self.notify(
+                f"无法取消监控 — 该事件有 {pos_count} 个持仓未结算，"
+                "请先平仓或等待结算",
+                severity="warning",
+            )
+            return
+
+        from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
+
+        def _on_dismiss(confirmed: bool | None) -> None:
+            if not confirmed:
+                return
+            self.service.toggle_monitor(eid, enable=False)
+            self.notify(f"关闭监控: {title[:30]}")
+            with contextlib.suppress(AttributeError):
+                self.screen.refresh_sidebar_counts()
+            with contextlib.suppress(Exception):
+                table = self.query_one("#monitor-table", DataTable)
+                table.remove_row(eid)
+                self._monitored = [
+                    m for m in self._monitored if m["event"].event_id != eid
+                ]
+
+        self.app.push_screen(ConfirmUnmonitorModal(title), _on_dismiss)
 
     def refresh_data(self) -> None:
         """Re-read from DB and refresh mutable columns in-place."""
