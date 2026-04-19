@@ -305,6 +305,12 @@ def run_daemon(db, config=None) -> None:
     scheduler.start()
     restored = scheduler.restore_check_jobs()
 
+    # v0.7.0: scrub orphan running rows from a prior crash.
+    from scanner.scan_log import fail_orphan_running
+    orphans = fail_orphan_running(db)
+    if orphans:
+        logger.info("Marked %d orphan 'running' rows as failed on startup", orphans)
+
     # Log startup info to poll.log
     from scanner.daemon.poll_job import _get_poll_log
     plog = _get_poll_log()
