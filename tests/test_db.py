@@ -124,3 +124,28 @@ def test_db_wal_mode():
         with PolilyDB(db_path) as db:
             mode = db.conn.execute("PRAGMA journal_mode").fetchone()[0]
             assert mode == "wal"
+
+
+def test_upgrade_drops_legacy_notifications_table(tmp_path):
+    """Existing databases with a `notifications` table get it dropped on
+    next PolilyDB open — guards the post-v0.6.1 migration from Task 8 of
+    the archive-view refactor.
+    """
+    import sqlite3
+
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE notifications (id INTEGER PRIMARY KEY, foo TEXT)")
+    conn.commit()
+    conn.close()
+
+    db = PolilyDB(db_path)
+    try:
+        tables = {
+            r[0] for r in db.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert "notifications" not in tables
+    finally:
+        db.close()

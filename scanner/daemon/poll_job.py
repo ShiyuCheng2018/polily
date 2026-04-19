@@ -319,16 +319,16 @@ def global_poll(db: PolilyDB | None = None) -> None:
     db.conn.commit()
 
     # Close events where all sub-markets are gone. Delegates to the shared
-    # close_event routine so auto_monitor flips to 0 and a notification is
-    # emitted — same contract as recheck's close path.
-    db.conn.commit()
+    # close_event routine: flip `events.closed=1` + log. `auto_monitor` is
+    # preserved (user-intent flag) and the Archive view surfaces closed
+    # monitored events directly from `events + event_monitors`.
     for event_id in closed_by_event:
         all_markets = get_event_markets(event_id, db)
         if not all(m.closed for m in all_markets):
             continue
         event = get_event(event_id, db)
         if event is None or event.closed == 1:
-            continue  # already closed — don't re-notify on every tick
+            continue  # already closed — don't re-log on every tick
         title = event.title or event_id
         close_event(event_id, title, db, trigger_source="poll")
 
