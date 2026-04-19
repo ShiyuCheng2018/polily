@@ -364,6 +364,15 @@ def global_poll(db: PolilyDB | None = None) -> None:
         logger.exception("Score refresh failed")
         warn = True
 
+    # Step 3.5 (dispatcher): drain overdue pending scan_logs rows to the ai executor.
+    if _ctx and _ctx.scheduler:
+        try:
+            n = dispatch_pending_analyses(_ctx.db, _ctx.scheduler)
+            if n > 0:
+                logger.info("Dispatched %d pending analysis rows to ai executor", n)
+        except Exception:
+            logger.exception("Dispatcher step failed")
+
     # --- Step 3: Intelligence layer ---
     _run_intelligence_layer(db)
 
@@ -623,6 +632,68 @@ def _run_intelligence_layer(db: PolilyDB) -> None:
 
     # Batch commit all movement_log entries
     db.conn.commit()
+
+
+def dispatch_pending_analyses(db: PolilyDB, scheduler) -> int:
+    """Scan for overdue pending scan_logs rows and submit each to the ai executor.
+
+    Atomically claims each row (pending→running) before dispatching so
+    concurrent ticks can't double-fire. Returns count submitted.
+
+    fetch_overdue_pending already filters to at-most-one earliest pending
+    per event and excludes events with a running row (B4 + Q1 invariants).
+    """
+    from scanner.scan_log import claim_pending_scan, fetch_overdue_pending
+
+    overdue = fetch_overdue_pending(db)
+    if not overdue:
+        return 0
+
+    submitted = 0
+    for row in overdue:
+        scan_id = row["scan_id"]
+        if not claim_pending_scan(scan_id, db):
+            continue  # another tick already claimed
+        scheduler.add_job(
+            _run_pending_analysis,
+            id=f"pending_{scan_id}",
+            executor="ai",
+            replace_existing=True,
+            kwargs={
+                "event_id": row["event_id"],
+                "scan_id": scan_id,
+                "db": db,
+                "trigger_source": row["trigger_source"],
+            },
+        )
+        submitted += 1
+    return submitted
+
+
+def _run_pending_analysis(
+    *, event_id: str, scan_id: str, db: PolilyDB, trigger_source: str,
+) -> None:
+    """Executor job function for a dispatched pending analysis.
+
+    Pulls `config` from the shared `_ctx` (set by init_poller) so ScanService
+    can build its NarrativeWriter with the right `config.ai.narrative_writer`
+    settings. Without config, ScanService.__init__ would AttributeError on
+    the first agent call.
+    """
+    import asyncio
+
+    from scanner.tui.service import ScanService
+
+    cfg = _ctx.config if _ctx is not None else None
+    service = ScanService(config=cfg, db=db)
+    try:
+        asyncio.run(
+            service.analyze_event(
+                event_id, trigger_source=trigger_source, scan_id=scan_id,
+            ),
+        )
+    except Exception:
+        logger.exception("Dispatched analysis failed for scan_id=%s", scan_id)
 
 
 def _check_event_trigger(
