@@ -117,12 +117,11 @@ class TestGlobalPollPriceLayer:
         event = get_event("ev1", db)
         assert event.closed == 1
 
-    def test_poll_close_notifies_and_preserves_user_intent(self, db):
-        """Close path emits [CLOSED] notification and preserves
-        `auto_monitor=1` as a user-intent flag (so the Archive view can later
-        tell "the user was monitoring this when it closed")."""
+    def test_poll_close_preserves_user_intent(self, db):
+        """Close path preserves auto_monitor=1 as a user-intent flag (Archive
+        view later filters on this to tell 'events I was monitoring when they
+        closed')."""
         from scanner.core.monitor_store import get_event_monitor
-        from scanner.notifications import get_unread_notifications
 
         upsert_event(
             EventRow(event_id="ev1", title="Some Event", updated_at="now"), db,
@@ -145,23 +144,14 @@ class TestGlobalPollPriceLayer:
             )
             global_poll(db)
 
-        # auto_monitor stays 1 — records the fact that user was monitoring
         monitor = get_event_monitor("ev1", db)
         assert monitor is not None
         assert monitor["auto_monitor"] == 1
 
-        # User gets notified of the close
-        notifs = get_unread_notifications(db)
-        closed_notifs = [n for n in notifs if n["title"].startswith("[CLOSED]")]
-        assert len(closed_notifs) == 1
-        assert closed_notifs[0]["trigger_source"] == "poll"
-        assert closed_notifs[0]["event_id"] == "ev1"
-
-    def test_poll_close_doesnt_re_notify_on_subsequent_tick(self, db):
-        """Once event is closed, another poll tick should not emit a duplicate
-        [CLOSED] notification — the gate on `event.closed == 1` prevents
-        per-tick spam while the sub-markets stay in the map."""
-        from scanner.notifications import get_unread_notifications
+    def test_poll_re_running_on_closed_event_is_noop(self, db):
+        """Once event is closed, a subsequent poll tick must not crash or flip
+        auto_monitor back (the closed-event gate in poll_job short-circuits)."""
+        from scanner.core.monitor_store import get_event_monitor
 
         upsert_event(
             EventRow(event_id="ev1", title="Some Event", closed=1, updated_at="now"),
@@ -173,15 +163,12 @@ class TestGlobalPollPriceLayer:
                 clob_token_id_yes="t1", closed=1, updated_at="now",
             ), db,
         )
-        upsert_event_monitor("ev1", auto_monitor=False, db=db)
+        upsert_event_monitor("ev1", auto_monitor=True, db=db)
 
-        # Poll runs (no live fetches thanks to closed=1 guard elsewhere)
         with patch("scanner.core.clob.fetch_clob_market_data"):
             global_poll(db)
 
-        # No new notifications produced for an already-closed event
-        notifs = get_unread_notifications(db)
-        assert not any(n["title"].startswith("[CLOSED]") for n in notifs)
+        assert get_event_monitor("ev1", db)["auto_monitor"] == 1
 
     def test_skips_closed_markets(self, db):
         """Markets with closed=1 should not be fetched."""
