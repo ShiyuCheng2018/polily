@@ -18,12 +18,6 @@ def _suppress_agent_debug_log(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _suppress_daemon_notify(monkeypatch):
-    """Prevent tests from sending SIGUSR1 to the running daemon."""
-    monkeypatch.setattr("scanner.daemon.notify.notify_daemon", lambda: False)
-
-
-@pytest.fixture(autouse=True)
 def _isolate_poll_log(monkeypatch):
     """Prevent tests from polluting prod data/poll.log + leaking tick state.
 

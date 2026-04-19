@@ -235,7 +235,7 @@ def run_daemon(db, config=None) -> None:
     print(f"Polily daemon started — {active} markets, poll every 30s. Ctrl+C to stop.")
     logger.info("Daemon started; %d pending analyses queued", pending_count)
 
-    # Write PID file for SIGUSR1 notification
+    # Write PID file so `restart_daemon` / CLI `stop` can send SIGTERM.
     import os
 
     pid_path = Path("data/scheduler.pid")
@@ -249,30 +249,13 @@ def run_daemon(db, config=None) -> None:
             scheduler.shutdown(wait=False)
         sys.exit(0)
 
-    _reload_requested = False
-
-    def handle_reload(signum, frame):
-        nonlocal _reload_requested
-        _reload_requested = True
-
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
-    signal.signal(signal.SIGUSR1, handle_reload)
 
-    # Block until signal; reload jobs when SIGUSR1 flag is set
     try:
         while True:
             signal.pause()
-            if _reload_requested:
-                _reload_requested = False
-                # SIGUSR1 reload is obsolete post-v0.7.0; Task 9 removes this branch.
-                from scanner.daemon.poll_job import _get_poll_log
-                plog = _get_poll_log()
-                plog.info("── reload (SIGUSR1) no-op post-v0.7.0 ──")
-                logger.info("SIGUSR1 received; reload is a no-op in v0.7.0")
     except AttributeError:
-        # Windows doesn't have signal.pause
         import time
-
         while True:
             time.sleep(60)
