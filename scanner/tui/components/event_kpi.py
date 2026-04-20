@@ -17,8 +17,7 @@ class EventKpiRow(Widget):
     DEFAULT_CSS = """
     EventKpiRow { height: auto; }
     EventKpiRow #kpi-row { height: auto; min-height: 5; padding: 0; }
-    /* v0.8.0: bump horizontal margin so adjacent KPI cards have visible breathing room. */
-    EventKpiRow #kpi-row MetricCard { height: 5; margin: 0 2; }
+    EventKpiRow #kpi-row MetricCard { height: 5; margin: 0 1; }
     """
 
     def __init__(self, event, markets: list):
