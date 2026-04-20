@@ -14,7 +14,8 @@ class EventHeader(Widget):
     DEFAULT_CSS = """
     EventHeader { height: auto; }
     EventHeader .hdr-title { text-style: bold; color: $primary; padding: 1 0 0 1; }
-    EventHeader .hdr-sub { color: $text-muted; padding: 0 0 0 2; }
+    /* v0.8.0: add vertical breathing room so meta row separates from title above + KPI row below. */
+    EventHeader .hdr-sub { color: $text-muted; padding: 1 0 1 2; }
     """
 
     def __init__(self, event, monitor: dict | None = None, movements: list | None = None):
