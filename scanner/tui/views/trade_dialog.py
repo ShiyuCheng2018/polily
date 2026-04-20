@@ -490,8 +490,11 @@ class TradeDialog(ModalScreen[dict | None]):
         background: $surface;
         padding: 0 2;
     }}
+    /* v0.8.0: explicit fixed height — auto resolves to 1fr in this nesting
+       (Vertical inside dialog-box with align: center middle + max-height: 100%),
+       which made header-card stretch and push everything else off-screen. */
     TradeDialog #header-card {{
-        height: auto;
+        height: 5;
         margin: 0 0 1 0;
     }}
     TradeDialog #dialog-title {{
