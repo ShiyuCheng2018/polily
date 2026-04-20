@@ -10,8 +10,15 @@ Composition:
     │  <child content>             │
     │                              │
     └──────────────────────────────┘
+
+Title is mounted as the FIRST child in `on_mount()` via
+`self.mount(..., before=0)` so that when used as a context manager
+(`with PolilyZone(title=...):`), the title stays at the top regardless of
+how many children the parent compose yielded inside the `with` block.
+Previous implementation yielded the title from `compose()`, which Textual
+appended AFTER context-manager children, causing the title to appear at
+the BOTTOM of the zone — see v0.8.0 bug fix.
 """
-from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Static
 
@@ -38,6 +45,9 @@ class PolilyZone(Vertical):
         self._title = title
         self.add_class("polily-zone")
 
-    def compose(self) -> ComposeResult:
+    def on_mount(self) -> None:
         if self._title:
-            yield Static(self._title, classes="polily-zone-title")
+            self.mount(
+                Static(self._title, classes="polily-zone-title"),
+                before=0,
+            )
