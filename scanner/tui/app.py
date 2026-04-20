@@ -12,7 +12,7 @@ class PolilyApp(App):
 
     TITLE = "Polily"
     SUB_TITLE = "Polymarket Decision Copilot"
-    CSS_PATH = "css/app.tcss"
+    CSS_PATH = ["css/tokens.tcss", "css/app.tcss"]
 
     BINDINGS = [
         Binding("q", "quit", "退出"),
