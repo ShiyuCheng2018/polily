@@ -39,7 +39,41 @@ polily   # launches the TUI; everything happens inside it
 
 In the TUI, paste a Polymarket event URL (looks like `https://polymarket.com/event/...`) into the **Tasks** pane. Polily fetches and scores it; from there you can add it to monitoring or open a paper trade.
 
-### Requirements
+## Requirements
+
+Polily v0.8.0+ requires a [Nerd Font](https://www.nerdfonts.com/) installed
+and configured as your terminal font. The TUI uses Nerd Font glyphs for
+status icons, action markers, and domain entities (event / market / wallet).
+
+### macOS (Homebrew)
+
+```bash
+brew install --cask font-jetbrains-mono-nerd-font
+```
+
+Then set your terminal's font to `JetBrainsMono Nerd Font`:
+
+- **Ghostty**: edit `~/Library/Application Support/com.mitchellh.ghostty/config` and set `font-family = "JetBrainsMono Nerd Font"` (reload with `Cmd+Shift+,`)
+- **iTerm2**: Preferences → Profiles → Text → Font → `JetBrainsMono Nerd Font`
+- **Terminal.app**: Preferences → Profiles → Font → Change → `JetBrainsMono Nerd Font`
+
+Any Nerd Font works (`font-fira-code-nerd-font`, `font-hack-nerd-font`,
+`font-meslo-lg-nerd-font`). Polily tests on JetBrainsMono NF but glyph
+positions are the same across all NF fonts.
+
+### Verify
+
+```bash
+polily doctor
+```
+
+The "Nerd Font 字体" section prints sample glyphs. If you see `□` tofu
+boxes, the font is not yet active — check your terminal's font setting.
+
+Minimum terminal size: **100×30 cells**. Polily works at smaller sizes but
+column layout may wrap. 120×30 or larger recommended.
+
+### Python & Claude CLI
 
 - Python 3.11+
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) (optional, used for AI analysis): `npm install -g @anthropic-ai/claude-code && claude login`

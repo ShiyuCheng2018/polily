@@ -10,6 +10,24 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Added
+
+- Design system foundations: spacing / color / typography tokens (`scanner/tui/css/tokens.tcss`)
+- Polily-dark brand theme with semantic colors (`scanner/tui/theme.py`)
+- Atom widget library under `scanner/tui/widgets/`: PolilyZone, PolilyCard, StatusBadge, KVRow, EmptyState, LoadingState, SectionHeader
+- Nerd Font icon constants (`scanner/tui/icons.py`) and Chinese label translations (`scanner/tui/i18n.py`)
+- EventBus pub/sub scaffold (`scanner/core/events.py`) with topic constants for scan/wallet/monitor/position/price
+- `polily doctor` CLI subcommand — environment diagnostic (Nerd Font, terminal size, DB, Claude CLI, install hints)
+- Q11 key binding spec (`scanner/tui/bindings.py`) — global / CRUD / navigation groups
+- README Requirements section documenting Nerd Font dependency
+
+### Changed
+
+- `PolilyApp.theme` defaults to `polily-dark`; user can switch to Textual built-ins (`nord`, `dracula`, `textual-light`, etc.) via `Ctrl+P → Change theme`
+- `ScanService.__init__` now accepts `event_bus` kwarg (backward compatible; defaults to `get_event_bus()` singleton)
+- App-level `BINDINGS` now declares `q` / `?` / `Esc` globally
+- `ScanService.topup` / `withdraw` now publish `TOPIC_WALLET_UPDATED` on success
+
 ## [0.7.0] — 2026-04-20
 
 ### Scheduler rework (DB-backed dispatcher)
