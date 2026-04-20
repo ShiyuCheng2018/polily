@@ -30,10 +30,27 @@ structured release notes — see `git log` for history.
 - `scan_log` view migrated to v0.8.0 atoms (PolilyZone + StatusBadge + KVRow), Chinese status labels, EventBus subscription (no manual refresh), Q11 key bindings. Covers `ScanLogView` + `ScanLogDetailView` + `LiveProgress`. 分析队列 5 列(类型/状态/事件/预定时间/原因), 历史 6 列(加错误列). 详情页去掉 `scan_id` / `event_id` — 用户不再看到内部标识. `ScanLogView(service)` ctor refactor; `screens/main.py` 2 call sites updated.
 - `wallet` view migrated to v0.8.0 atoms (PolilyCard + PolilyZone + KVRow), EventBus subscription to wallet/position topics. `t`/`w`/`r` 充值/提现/重置 bindings all `show=True` in footer.
 - `market_detail` view migrated to v0.8.0 atoms (multiple PolilyZone: 事件信息/市场/持仓/叙事分析), EventBus subscription to price/position updates (price filtered by event_id), added `r` refresh binding.
+- `monitor_list` view migrated (`ICON_AUTO_MONITOR` header, subscribes to 3 topics — monitor/price/scan — for live refresh).
+- `market_list` view migrated (PolilyZone "研究列表", subscribes to price/monitor/scan; dead `get_research_events` reference fixed to `get_all_events`).
+- `paper_status` view migrated (PolilyZone "持仓", subscribes to wallet/position; mount-once refresh pattern avoids Textual deferred-remove crash).
+- `archived_events` view migrated (PolilyZone with `ICON_COMPLETED`, no bus subscription — historical snapshot).
+- `history` view migrated (PolilyZone "历史", subscribes to `TOPIC_WALLET_UPDATED` for auto-refresh on SELL/RESOLVE).
+- `score_result` view migrated (3-zone structure matching market_detail, no bus — one-shot snapshot).
+- `trade_dialog` migrated — `TradeDialog` + `BuyPane` + `SellPane` all 3 classes wrapped in PolilyCard/PolilyZone; BuyPane gets `ICON_BUY`, SellPane gets `ICON_SELL`; subscribe to `TOPIC_PRICE_UPDATED` for live mid refresh while dialog open; kept 3s polling fallback for daemon-less sessions.
+- `wallet_modals` migrated — `TopupModal` + `WithdrawModal` + `WalletResetModal`; Reset keeps `border: round $error` destructive visual + `⚠ 不可撤销` warning + `reset`-typed confirm input.
+- `scan_modals.ConfirmCancelScanModal` migrated (PolilyZone + `border: round $error`).
+- `monitor_modals.ConfirmUnmonitorModal` migrated (PolilyZone + `border: round $error`).
+- `MainScreen` migrated with `TOPIC_SCAN_UPDATED` bus subscription — completed/failed scans pulse a "new" indicator on the 任务 sidebar pill when user isn't on that menu.
+- `widgets/cards.py` (MetricCard + DashPanel) — legacy widgets preserved per Q7b scope, DEFAULT_CSS updated to pure theme vars (`$primary` / `$accent` / `$surface`).
+- `widgets/sidebar.py` (Sidebar + SidebarItem) — each menu item now shows a Nerd Font icon via central `MENU_ICONS` map (tasks→scan, monitor→eye, paper→briefcase, wallet→money, history→check, archive→calendar).
 
 ### Fixed
 
 - Eliminated race-prone manual `_refresh_*` calls in migrated views — view state now derives from EventBus payloads, bus callback uses `call_from_thread` per v0.8.0 threading convention.
+- `PolilyZone` title ordering — was appearing at bottom of zone when composed via `with PolilyZone():` context manager; now mounted at index 0 via `on_mount()` to force top position.
+- `market_detail` VerticalScroll no longer overflows — added `height: 1fr` / `height: auto` CSS pair; analysis zone no longer covers other zones.
+- `PositionPanel` dropped redundant inner DashPanel wrapper (outer PolilyZone "持仓" was being duplicated).
+- Event meta row (`political | 结算 | 监控 | 共识异动`) given vertical breathing room separating from title above and KPI cards below.
 
 ## [0.7.0] — 2026-04-20
 
