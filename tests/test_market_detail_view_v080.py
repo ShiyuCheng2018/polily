@@ -103,3 +103,58 @@ def test_market_detail_preserves_existing_bindings():
     keys = {b.key for b in MarketDetailView.BINDINGS}
     for k in ("a", "t", "m", "v", "o", "escape"):
         assert k in keys, f"existing binding '{k}' missing"
+
+
+async def test_market_detail_scroll_container_bounded(svc):
+    """Regression for: AI 分析 zone covering other zones.
+
+    When MarketDetailView contains an analysis, the VerticalScroll must
+    be height-bounded so all zones remain accessible without overflowing.
+    """
+    from scanner.analysis_store import AnalysisVersion, append_analysis
+    from scanner.tui.app import PolilyApp
+    from scanner.tui.views.market_detail import MarketDetailView
+    from scanner.tui.widgets.polily_zone import PolilyZone
+    from textual.containers import VerticalScroll
+
+    # Seed a minimal analysis so the analysis zone is rendered
+    av = AnalysisVersion(
+        version=1,
+        created_at="2026-01-01T00:00:00",
+        narrative_output={"analysis": "test analysis text", "operations": []},
+    )
+    append_analysis("ev1", av, svc.db)
+
+    app = PolilyApp(service=svc)
+    app._restart_daemon = lambda: None
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        view = MarketDetailView(event_id="ev1", service=svc)
+        await app.mount(view)
+        await pilot.pause()
+
+        # VerticalScroll must exist inside MarketDetailView
+        scrolls = list(view.query(VerticalScroll))
+        assert len(scrolls) >= 1, "MarketDetailView must contain a VerticalScroll"
+
+        # All expected zones must be in the DOM (not hidden/overflowed away)
+        zones = list(view.query(PolilyZone))
+        assert len(zones) >= 3, (
+            f"expected 3+ PolilyZones (事件信息 / 市场 / 持仓 + analysis), got {len(zones)}"
+        )
+
+        # The analysis zone specifically must be present when analysis exists
+        analysis_zone = view.query_one("#analysis-zone")
+        assert analysis_zone is not None, "analysis-zone must be in DOM when analyses exist"
+
+        # The VerticalScroll must have explicit height (not auto) so it clips content
+        scroll = scrolls[0]
+        # Check that the CSS class chain includes our 1fr rule — verify via styles
+        # Textual resolves '1fr' to a concrete height after layout; just confirm
+        # the widget is not taller than the app screen (it used to overflow unbounded)
+        scroll_height = scroll.size.height
+        app_height = app.size.height
+        assert scroll_height <= app_height, (
+            f"VerticalScroll height ({scroll_height}) exceeds app height ({app_height}); "
+            "analysis zone is overflowing the scroll container"
+        )

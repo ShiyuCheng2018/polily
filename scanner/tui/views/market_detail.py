@@ -87,6 +87,8 @@ class MarketDetailView(Widget):
 
     DEFAULT_CSS = """
     MarketDetailView { height: 1fr; }
+    MarketDetailView > VerticalScroll { height: 1fr; }
+    MarketDetailView > VerticalScroll > PolilyZone { height: auto; }
     """
 
     def __init__(
