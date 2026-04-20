@@ -1,8 +1,19 @@
-"""Modals for scan log actions — currently: confirm-cancel-running."""
+"""Modals for scan log actions — currently: confirm-cancel-running.
+
+v0.8.0 migration:
+- ConfirmCancelScanModal wraps the destructive-confirm flow in PolilyZone
+  (ICON_CANCELLED) with a red border override — cancelling a running
+  analysis is destructive (scan_log becomes `cancelled`).
+- Widget IDs preserved (#confirm, #keep, #btn-row) — dismiss protocol
+  (True on confirm, False on keep/Escape) untouched.
+"""
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
+
+from scanner.tui.icons import ICON_CANCELLED
+from scanner.tui.widgets.polily_zone import PolilyZone
 
 
 class ConfirmCancelScanModal(ModalScreen[bool]):
@@ -12,20 +23,26 @@ class ConfirmCancelScanModal(ModalScreen[bool]):
     """
 
     DEFAULT_CSS = """
-    ConfirmCancelScanModal > Vertical {
-        background: $panel;
-        border: round $primary;
-        padding: 2 4;
-        width: 60;
+    ConfirmCancelScanModal {
+        align: center middle;
+    }
+    ConfirmCancelScanModal #dialog-box {
+        width: 62;
         height: auto;
     }
-    ConfirmCancelScanModal .row { padding: 1 0; }
+    ConfirmCancelScanModal > #dialog-box > PolilyZone {
+        height: auto;
+        margin: 0;
+        border: round $error;
+    }
+    ConfirmCancelScanModal .polily-zone-title { color: $error; }
+    ConfirmCancelScanModal .row { padding: 0 0 1 0; }
     ConfirmCancelScanModal #btn-row {
         height: auto;
         align: center middle;
-        padding-top: 1;
+        padding: 1 0 0 0;
     }
-    ConfirmCancelScanModal Button { margin: 0 1; }
+    ConfirmCancelScanModal .action-btn { min-width: 14; margin: 0 1; }
     """
 
     BINDINGS = [("escape", "dismiss_false", "取消")]
@@ -36,16 +53,34 @@ class ConfirmCancelScanModal(ModalScreen[bool]):
         self._elapsed = elapsed_seconds
 
     def compose(self) -> ComposeResult:
-        with Vertical():
-            yield Static("[bold]确认取消 AI 分析？[/bold]", classes="row")
-            yield Static(f"事件: {self._title} · 正在分析... ({self._elapsed:.0f}s)", classes="row")
-            yield Static(
-                "[dim]取消后此次分析不会完成，scan_log 记录为 cancelled。[/dim]",
-                classes="row",
-            )
-            with Horizontal(id="btn-row"):
-                yield Button("确认取消", id="confirm", variant="error")
-                yield Button("继续分析", id="keep", variant="primary")
+        with Vertical(id="dialog-box"):
+            with PolilyZone(title=f"{ICON_CANCELLED} 取消分析"):
+                yield Static(
+                    f"[b]事件:[/b] {self._title}",
+                    classes="row",
+                )
+                yield Static(
+                    f"[dim]正在运行的分析已耗时 {self._elapsed:.0f}s[/dim]",
+                    classes="row",
+                )
+                yield Static(
+                    "[b red]⚠  取消后此次分析无法恢复[/b red]\n"
+                    "[dim]    scan_log 将标记为 cancelled。[/dim]",
+                    classes="row",
+                )
+                with Horizontal(id="btn-row"):
+                    yield Button(
+                        "确认取消",
+                        id="confirm",
+                        variant="error",
+                        classes="action-btn",
+                    )
+                    yield Button(
+                        "继续分析",
+                        id="keep",
+                        variant="primary",
+                        classes="action-btn",
+                    )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "confirm")
