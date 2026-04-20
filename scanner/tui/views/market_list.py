@@ -1,15 +1,32 @@
-"""MarketListView: event-first research list with fold/expand + probability bars."""
+"""MarketListView: event-first research list with fold/expand + probability bars.
+
+v0.8.0 migration:
+- PolilyZone atom wraps the list (title: 研究列表)
+- EventBus subscription (TOPIC_PRICE_UPDATED, TOPIC_MONITOR_UPDATED,
+  TOPIC_SCAN_UPDATED) for auto-refresh on mutations
+- Q11 NAV_BINDINGS + view-specific bindings (enter, p, m, o, r)
+- Chinese labels throughout; internal event_id not surfaced
+"""
 
 import contextlib
 from datetime import UTC, datetime
 
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable
 
+from scanner.core.events import (
+    TOPIC_MONITOR_UPDATED,
+    TOPIC_PRICE_UPDATED,
+    TOPIC_SCAN_UPDATED,
+)
+from scanner.tui.bindings import NAV_BINDINGS
+from scanner.tui.icons import ICON_EVENT
 from scanner.tui.service import ScanService
+from scanner.tui.widgets.polily_zone import PolilyZone
 
 
 class ViewDetailRequested(Message):
@@ -31,22 +48,43 @@ def _fmt_volume(vol: float | None) -> str:
     return f"${vol:.0f}"
 
 
+_COLUMN_SPEC = [
+    ("事件", "title"),
+    ("评分", "score"),
+    ("概况", "summary"),
+    ("交易量", "volume"),
+    ("结算", "countdown"),
+    ("类型", "type"),
+    ("状态", "status"),
+]
+
+
 class MarketListView(Widget):
     """Event-first research list with fold/expand for multi-outcome events."""
 
     BINDINGS = [
-        Binding("p", "quick_pass", "PASS"),
-        Binding("m", "toggle_monitor", "监控"),
-        Binding("o", "open_link", "打开链接"),
+        Binding("enter", "open_detail", "详情", show=True),
+        Binding("p", "quick_pass", "PASS", show=True),
+        Binding("m", "toggle_monitor", "监控", show=True),
+        Binding("o", "open_link", "打开链接", show=True),
+        Binding("r", "refresh", "刷新", show=False),
+        *NAV_BINDINGS,
     ]
 
     DEFAULT_CSS = """
     MarketListView { height: 1fr; }
-    MarketListView #list-title { padding: 1 0 0 0; text-style: bold; }
+    MarketListView > VerticalScroll { height: 1fr; }
+    MarketListView > VerticalScroll > PolilyZone { height: auto; }
+    MarketListView DataTable { height: auto; }
     MarketListView .empty-msg { text-align: center; color: $text-muted; padding: 4; }
     """
 
-    def __init__(self, events: list[dict], service: ScanService, title: str = "研究列表"):
+    def __init__(
+        self,
+        events: list[dict],
+        service: ScanService,
+        title: str = "研究列表",
+    ):
         super().__init__()
         self.events = events
         self.service = service
@@ -55,21 +93,76 @@ class MarketListView(Widget):
         self._row_map: list[dict] = []
 
     def compose(self) -> ComposeResult:
-        yield Static(f" {self._title} ({len(self.events)})", id="list-title")
-        if not self.events:
-            yield Static(" 暂无事件。运行扫描 (s) 获取市场数据。", classes="empty-msg")
-        else:
-            yield DataTable(id="market-table")
+        with VerticalScroll():
+            yield PolilyZone(
+                title=f"{ICON_EVENT} {self._title} ({len(self.events)})",
+                id="market-list-zone",
+            )
 
     def on_mount(self) -> None:
-        if not self.events:
-            return
-        table = self.query_one("#market-table", DataTable)
-        table.cursor_type = "row"
-        table.add_columns(
-            ("事件", "title"), ("评分", "score"), ("概况", "summary"),
-            ("交易量", "volume"), ("结算", "countdown"), ("类型", "type"), ("状态", "status"),
+        self.service.event_bus.subscribe(
+            TOPIC_PRICE_UPDATED, self._on_price_update,
         )
+        self.service.event_bus.subscribe(
+            TOPIC_MONITOR_UPDATED, self._on_monitor_update,
+        )
+        self.service.event_bus.subscribe(
+            TOPIC_SCAN_UPDATED, self._on_scan_update,
+        )
+        self._render_all()
+
+    def on_unmount(self) -> None:
+        self.service.event_bus.unsubscribe(
+            TOPIC_PRICE_UPDATED, self._on_price_update,
+        )
+        self.service.event_bus.unsubscribe(
+            TOPIC_MONITOR_UPDATED, self._on_monitor_update,
+        )
+        self.service.event_bus.unsubscribe(
+            TOPIC_SCAN_UPDATED, self._on_scan_update,
+        )
+
+    # -- Bus callbacks (published from non-UI threads — must hop back) --
+
+    def _on_price_update(self, payload: dict) -> None:
+        with contextlib.suppress(Exception):
+            self.app.call_from_thread(self._render_all)
+
+    def _on_monitor_update(self, payload: dict) -> None:
+        with contextlib.suppress(Exception):
+            self.app.call_from_thread(self._render_all)
+
+    def _on_scan_update(self, payload: dict) -> None:
+        with contextlib.suppress(Exception):
+            self.app.call_from_thread(self._render_all)
+
+    # -- Rendering --
+
+    def _render_all(self) -> None:
+        """Rebuild the DataTable inside PolilyZone from current self.events."""
+        try:
+            zone = self.query_one("#market-list-zone", PolilyZone)
+        except Exception:
+            return
+
+        # Clear any existing content inside zone (table + empty msg).
+        for child in list(zone.children):
+            # Keep the title static child (it has polily-zone-title class).
+            if "polily-zone-title" in child.classes:
+                continue
+            child.remove()
+
+        if not self.events:
+            from textual.widgets import Static
+
+            zone.mount(Static(" 暂无事件。运行扫描 (s) 获取市场数据。", classes="empty-msg"))
+            self._row_map = []
+            return
+
+        table = DataTable(id="market-table")
+        zone.mount(table)
+        table.cursor_type = "row"
+        table.add_columns(*_COLUMN_SPEC)
         self._rebuild_table()
 
     def _rebuild_table(self) -> None:
@@ -91,7 +184,7 @@ class MarketListView(Widget):
             is_expanded = ev.event_id in self._expanded
             is_multi = mc > 1
 
-            # Status labels
+            # Status labels (Chinese)
             labels: list[str] = []
             if ev.user_status == "pass":
                 labels.append("[PASS]")
@@ -104,13 +197,16 @@ class MarketListView(Widget):
             # Title with expand indicator
             if is_multi:
                 prefix = "▼" if is_expanded else "▶"
-                title = f"{prefix} {ev.title[:36]}" + ("..." if len(ev.title) > 36 else "")
+                title = f"{prefix} {ev.title[:36]}" + (
+                    "..." if len(ev.title) > 36 else ""
+                )
             else:
-                title = f"  {ev.title[:38]}" + ("..." if len(ev.title) > 38 else "")
+                title = f"  {ev.title[:38]}" + (
+                    "..." if len(ev.title) > 38 else ""
+                )
 
             # Summary (概况) — market count + expired count
             if is_multi:
-                # Count closed sub-markets
                 closed_count = self.service.db.conn.execute(
                     "SELECT COUNT(*) FROM markets WHERE event_id=? AND closed=1",
                     (ev.event_id,),
@@ -126,24 +222,28 @@ class MarketListView(Widget):
                 else:
                     summary = "-"
 
-            # Volume
             vol = _fmt_volume(ev.volume)
 
             # Resolution — range for multi-outcome, single for binary
             if is_multi:
                 from scanner.tui.utils import format_countdown_range
+
                 now_iso = datetime.now(UTC).isoformat()
                 r = self.service.db.conn.execute(
                     "SELECT MIN(end_date), MAX(end_date) FROM markets "
-                    "WHERE event_id=? AND closed=0 AND end_date IS NOT NULL AND end_date > ?",
+                    "WHERE event_id=? AND closed=0 AND end_date IS NOT NULL "
+                    "AND end_date > ?",
                     (ev.event_id, now_iso),
                 ).fetchone()
-                days = format_countdown_range(r[0] if r else None, r[1] if r else None)
+                days = format_countdown_range(
+                    r[0] if r else None, r[1] if r else None,
+                )
             else:
                 days = format_countdown(ev.end_date)
 
             table.add_row(
-                title, score, summary, vol, days, ev.market_type or "other", status,
+                title, score, summary, vol, days,
+                ev.market_type or "other", status,
                 key=f"ev_{ev.event_id}",
             )
             self._row_map.append({"type": "event", "event": e})
@@ -174,14 +274,17 @@ class MarketListView(Widget):
             vol = _fmt_volume(m.volume)
 
             from scanner.tui.utils import format_countdown
+
             market_date = format_countdown(m.end_date) if m.end_date else ""
 
             table.add_row(
-                f"  {connector} {label[:28]}", "", f"{bar} {price:.0%}", vol, market_date, "", "",
+                f"  {connector} {label[:28]}", "", f"{bar} {price:.0%}", vol,
+                market_date, "", "",
                 key=f"sub_{m.market_id}",
             )
-            self._row_map.append({"type": "sub_market", "market": m, "event_id": event_id})
-
+            self._row_map.append(
+                {"type": "sub_market", "market": m, "event_id": event_id}
+            )
 
     def _get_selected(self) -> dict | None:
         try:
@@ -207,7 +310,7 @@ class MarketListView(Widget):
         return None
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Enter/click: event row → toggle expand, sub-market row → open detail."""
+        """Enter/click: event row → toggle expand (multi) or detail (binary)."""
         item = self._get_selected()
         if not item:
             return
@@ -230,13 +333,34 @@ class MarketListView(Widget):
             if eid:
                 self.post_message(ViewDetailRequested(eid))
 
+    def action_open_detail(self) -> None:
+        item = self._get_selected()
+        if not item:
+            return
+        if item["type"] == "event":
+            ev = item["event"]
+            if ev["market_count"] > 1:
+                eid = ev["event"].event_id
+                if eid in self._expanded:
+                    self._expanded.discard(eid)
+                else:
+                    self._expanded.add(eid)
+                self._rebuild_table()
+            else:
+                self.post_message(ViewDetailRequested(ev["event"].event_id))
+        elif item["type"] in ("sub_market", "more"):
+            eid = item.get("event_id")
+            if eid:
+                self.post_message(ViewDetailRequested(eid))
+
     def action_quick_pass(self) -> None:
         e = self._get_selected_event()
         if not e:
             return
         self.service.pass_event(e["event"].event_id)
         self.notify(f"PASS: {e['event'].title[:30]}")
-        self.screen.refresh_sidebar_counts()
+        with contextlib.suppress(AttributeError):
+            self.screen.refresh_sidebar_counts()
 
     def action_toggle_monitor(self) -> None:
         e = self._get_selected_event()
@@ -246,7 +370,8 @@ class MarketListView(Widget):
         self.service.toggle_monitor(e["event"].event_id, enable=not currently)
         action = "关闭监控" if currently else "开启监控"
         self.notify(f"{action}: {e['event'].title[:30]}")
-        self.screen.refresh_sidebar_counts()
+        with contextlib.suppress(AttributeError):
+            self.screen.refresh_sidebar_counts()
 
     def action_open_link(self) -> None:
         e = self._get_selected_event()
@@ -259,8 +384,17 @@ class MarketListView(Widget):
             except Exception:
                 self.notify("无法打开浏览器", severity="warning")
 
+    def action_refresh(self) -> None:
+        """Manual full rebuild (Q11 `r` binding)."""
+        self._render_all()
+
     def refresh_data(self) -> None:
-        """Incremental update: re-read DB, update changed cells in-place."""
+        """Incremental update: re-read DB, update changed cells in-place.
+
+        Kept as a public API for callers that want a lightweight in-place
+        update without rebuilding the table. `_render_all` is the
+        bus-driven full rebuild path.
+        """
         from scanner.core.event_store import get_event_markets
 
         try:
@@ -268,8 +402,9 @@ class MarketListView(Widget):
         except Exception:
             return
 
-        # Re-fetch events from DB
-        fresh = self.service.get_research_events()
+        # Re-fetch events from DB via the same summary query used by
+        # the main menu (get_all_events is the canonical source now).
+        fresh = self.service.get_all_events()
         fresh_by_id = {e["event"].event_id: e for e in fresh}
 
         for e in self.events:
@@ -280,11 +415,9 @@ class MarketListView(Widget):
             new_ev = new["event"]
             # Update event row: score + volume
             score = f"{new_ev.structure_score:.0f}" if new_ev.structure_score else "-"
-            try:
+            with contextlib.suppress(Exception):
                 table.update_cell(f"ev_{eid}", "score", score)
                 table.update_cell(f"ev_{eid}", "volume", _fmt_volume(new_ev.volume))
-            except Exception:
-                pass
 
             # Update expanded sub-market rows: price bars
             if eid in self._expanded:
