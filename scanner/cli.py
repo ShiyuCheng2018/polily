@@ -228,5 +228,12 @@ def reset(
     console.print(f"[green]Deleted {deleted} files. Database will be recreated on next launch.[/green]")
 
 
+@app.command()
+def doctor():
+    """运行环境诊断。检查 Nerd Font、终端尺寸、数据库、Claude CLI。"""
+    from scanner.doctor import run_doctor
+    run_doctor()
+
+
 if __name__ == "__main__":
     app()
