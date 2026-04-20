@@ -27,7 +27,7 @@ from scanner.tui.components import (
     PositionPanel,
     SubMarketTable,
 )
-from scanner.tui.icons import ICON_AUTO_MONITOR, ICON_MARKET, ICON_POSITION, ICON_SCAN
+from scanner.tui.icons import ICON_AUTO_MONITOR, ICON_EVENT, ICON_MARKET, ICON_POSITION
 from scanner.tui.widgets.polily_zone import PolilyZone
 
 if TYPE_CHECKING:
@@ -129,12 +129,12 @@ class MarketDetailView(Widget):
 
         with VerticalScroll():
             # Zone: 事件信息 (header + KPI row)
-            with PolilyZone(title=f"{ICON_MARKET} 事件信息", id="event-info-zone"):
+            with PolilyZone(title=f"{ICON_EVENT} 事件信息", id="event-info-zone"):
                 yield EventHeader(event, monitor, movements)
                 yield EventKpiRow(event, markets)
 
             # Zone: 市场 (structure panel or sub-market table)
-            with PolilyZone(title=f"{ICON_SCAN} 市场", id="market-zone"):
+            with PolilyZone(title=f"{ICON_MARKET} 市场", id="market-zone"):
                 if len(markets) == 1:
                     yield BinaryMarketStructurePanel(markets[0], event)
                 else:
