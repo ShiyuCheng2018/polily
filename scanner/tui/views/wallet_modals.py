@@ -3,6 +3,13 @@
 All three dismiss with a truthy payload on success (parent refreshes) and
 None on cancel. Topup/Withdraw call WalletService directly; Reset stops
 the daemon first (if running) then calls reset_wallet.
+
+v0.8.0 migration:
+- Topup / Withdraw wrap inputs in PolilyCard (ICON_BUY / ICON_SELL titles)
+- WalletResetModal wraps destructive-confirm flow in PolilyZone (ICON_SETTINGS)
+- All widget IDs preserved (#amount, #ok, #cancel, #confirm-input, #ack-daemon,
+  #q50/#q100/#q500, #q20/#q50/#qall, #warn-line) — existing tests query by ID
+- push_screen / dismiss protocol untouched
 """
 
 from __future__ import annotations
@@ -16,6 +23,10 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, Static
+
+from scanner.tui.icons import ICON_BUY, ICON_SELL, ICON_SETTINGS, ICON_WALLET
+from scanner.tui.widgets.polily_card import PolilyCard
+from scanner.tui.widgets.polily_zone import PolilyZone
 
 _MODAL_WIDTH = 62
 
@@ -46,11 +57,11 @@ class TopupModal(ModalScreen[float | None]):
     TopupModal #dialog-box {{
         width: {_MODAL_WIDTH};
         height: auto;
-        border: thick $primary;
-        background: $surface;
-        padding: 1 2;
     }}
-    TopupModal .title {{ text-style: bold; padding: 0 0 1 0; }}
+    TopupModal > #dialog-box > PolilyCard {{
+        height: auto;
+        margin: 0;
+    }}
     TopupModal .balance-line {{ padding: 0 0 1 0; color: $text-muted; }}
     TopupModal .amount-row {{ height: auto; padding: 0 0 1 0; }}
     TopupModal #amount {{ width: 14; }}
@@ -68,18 +79,21 @@ class TopupModal(ModalScreen[float | None]):
     def compose(self) -> ComposeResult:
         cash = self._service.wallet.get_cash()
         with Vertical(id="dialog-box"):
-            yield Static("充值", classes="title")
-            yield Static(f"当前余额: ${cash:.2f}", classes="balance-line")
-            with Horizontal(classes="amount-row"):
-                yield Label("金额 $", classes="field-label")
-                yield Input(value="50", id="amount", type="number")
-            with Horizontal(id="quick-row"):
-                yield Label("快捷", classes="field-label")
-                for amt in (50, 100, 500):
-                    yield Button(f"${amt}", id=f"q{amt}", classes="quick-btn")
-            with Horizontal(id="btn-row"):
-                yield Button("确认", id="ok", variant="primary", classes="action-btn")
-                yield Button("取消", id="cancel", classes="action-btn")
+            with PolilyCard(title=f"{ICON_BUY} 充值"):
+                yield Static(
+                    f"{ICON_WALLET} 当前余额: ${cash:.2f}",
+                    classes="balance-line",
+                )
+                with Horizontal(classes="amount-row"):
+                    yield Label("金额 $", classes="field-label")
+                    yield Input(value="50", id="amount", type="number")
+                with Horizontal(id="quick-row"):
+                    yield Label("快捷", classes="field-label")
+                    for amt in (50, 100, 500):
+                        yield Button(f"${amt}", id=f"q{amt}", classes="quick-btn")
+                with Horizontal(id="btn-row"):
+                    yield Button("确认", id="ok", variant="primary", classes="action-btn")
+                    yield Button("取消", id="cancel", classes="action-btn")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id is None:
@@ -127,11 +141,11 @@ class WithdrawModal(ModalScreen[float | None]):
     WithdrawModal #dialog-box {{
         width: {_MODAL_WIDTH};
         height: auto;
-        border: thick $primary;
-        background: $surface;
-        padding: 1 2;
     }}
-    WithdrawModal .title {{ text-style: bold; padding: 0 0 1 0; }}
+    WithdrawModal > #dialog-box > PolilyCard {{
+        height: auto;
+        margin: 0;
+    }}
     WithdrawModal .balance-line {{ padding: 0 0 0 0; color: $text-muted; }}
     WithdrawModal .hint {{ padding: 0 0 1 0; color: $text-muted; }}
     WithdrawModal .amount-row {{ height: auto; padding: 0 0 1 0; }}
@@ -151,21 +165,24 @@ class WithdrawModal(ModalScreen[float | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog-box"):
-            yield Static("提现", classes="title")
-            yield Static(f"可提现 (现金): ${self._cash:.2f}", classes="balance-line")
-            yield Static("[dim]持仓市值不可提现[/dim]", classes="hint")
-            with Horizontal(classes="amount-row"):
-                yield Label("金额 $", classes="field-label")
-                yield Input(value="", id="amount", type="number")
-            with Horizontal(id="quick-row"):
-                yield Label("快捷", classes="field-label")
-                yield Button("$20", id="q20", classes="quick-btn")
-                yield Button("$50", id="q50", classes="quick-btn")
-                yield Button("全部", id="qall", classes="quick-btn")
-            yield Static("", id="warn-line")
-            with Horizontal(id="btn-row"):
-                yield Button("确认", id="ok", variant="primary", classes="action-btn")
-                yield Button("取消", id="cancel", classes="action-btn")
+            with PolilyCard(title=f"{ICON_SELL} 提现"):
+                yield Static(
+                    f"{ICON_WALLET} 可提现 (现金): ${self._cash:.2f}",
+                    classes="balance-line",
+                )
+                yield Static("[dim]持仓市值不可提现[/dim]", classes="hint")
+                with Horizontal(classes="amount-row"):
+                    yield Label("金额 $", classes="field-label")
+                    yield Input(value="", id="amount", type="number")
+                with Horizontal(id="quick-row"):
+                    yield Label("快捷", classes="field-label")
+                    yield Button("$20", id="q20", classes="quick-btn")
+                    yield Button("$50", id="q50", classes="quick-btn")
+                    yield Button("全部", id="qall", classes="quick-btn")
+                yield Static("", id="warn-line")
+                with Horizontal(id="btn-row"):
+                    yield Button("确认", id="ok", variant="primary", classes="action-btn")
+                    yield Button("取消", id="cancel", classes="action-btn")
 
     def on_mount(self) -> None:
         # Empty input on open → confirm must start disabled.
@@ -245,11 +262,13 @@ class WalletResetModal(ModalScreen[bool | None]):
     WalletResetModal #dialog-box {
         width: 68;
         height: auto;
-        border: thick $error;
-        background: $surface;
-        padding: 1 2;
     }
-    WalletResetModal .title { text-style: bold; color: $error; padding: 0 0 1 0; }
+    WalletResetModal > #dialog-box > PolilyZone {
+        height: auto;
+        margin: 0;
+        border: round $error;
+    }
+    WalletResetModal .polily-zone-title { color: $error; }
     WalletResetModal .warn-block { padding: 0 0 1 0; }
     WalletResetModal .daemon-block { padding: 0 0 1 0; color: $warning; }
     WalletResetModal #confirm-prompt { padding: 0 0 0 0; }
@@ -266,29 +285,29 @@ class WalletResetModal(ModalScreen[bool | None]):
         self._open_positions = len(service.positions.get_all_positions())
 
     def compose(self) -> ComposeResult:
+        starting = self._service.config.wallet.starting_balance
         with Vertical(id="dialog-box"):
-            yield Static("重置钱包", classes="title")
-            starting = self._service.config.wallet.starting_balance
-            warn_lines = [
-                "⚠️  不可撤销！将清除：",
-                f"    · 所有持仓 (当前 {self._open_positions} 个)",
-                "    · 所有交易流水",
-                f"    · 现金重置为初始 ${starting:.2f}",
-            ]
-            yield Static("\n".join(warn_lines), classes="warn-block")
-            if self._daemon_pid is not None:
-                daemon_text = (
-                    f"⚠️  后台监控正在运行 (PID {self._daemon_pid})\n"
-                    "    重置会先停止 daemon。完成后请手动执行：\n"
-                    "        polily scheduler restart"
-                )
-                yield Static(daemon_text, classes="daemon-block")
-                yield Checkbox("我知道 daemon 会被停止", id="ack-daemon")
-            yield Static('确认请输入 [bold]reset[/bold] :', id="confirm-prompt")
-            yield Input(value="", id="confirm-input")
-            with Horizontal(id="btn-row"):
-                yield Button("重置", id="ok", variant="error", classes="action-btn", disabled=True)
-                yield Button("取消", id="cancel", classes="action-btn")
+            with PolilyZone(title=f"{ICON_SETTINGS} 重置钱包"):
+                warn_lines = [
+                    "[b red]⚠  不可撤销！将清除：[/b red]",
+                    f"    · 所有持仓 (当前 {self._open_positions} 个)",
+                    "    · 所有交易流水",
+                    f"    · 现金重置为初始 ${starting:.2f}",
+                ]
+                yield Static("\n".join(warn_lines), classes="warn-block")
+                if self._daemon_pid is not None:
+                    daemon_text = (
+                        f"⚠  后台监控正在运行 (PID {self._daemon_pid})\n"
+                        "    重置会先停止 daemon。完成后请手动执行：\n"
+                        "        polily scheduler restart"
+                    )
+                    yield Static(daemon_text, classes="daemon-block")
+                    yield Checkbox("我知道 daemon 会被停止", id="ack-daemon")
+                yield Static('确认请输入 [bold]reset[/bold] :', id="confirm-prompt")
+                yield Input(value="", id="confirm-input")
+                with Horizontal(id="btn-row"):
+                    yield Button("重置", id="ok", variant="error", classes="action-btn", disabled=True)
+                    yield Button("取消", id="cancel", classes="action-btn")
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self._refresh_ok_state()
