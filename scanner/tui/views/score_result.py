@@ -1,7 +1,17 @@
 """ScoreResultView: scoring result page — steps + event detail + action buttons.
 
-Uses the same components as MarketDetailView but with different actions.
+v0.8.0 migration:
+- PolilyZone atoms wrap 评分步骤 / 事件信息 / 市场 sections.
+- ICON_SCAN / ICON_EVENT / ICON_MARKET from the atom icon set.
+- NAV_BINDINGS for list-nav keys (step list is scroll-heavy); `escape`
+  / `backspace` kept for go-back.
+- VerticalScroll + zone height constraints so the action bar at the
+  bottom (重新评分 / 添加到监控) stays visible on short terminals.
+- Static snapshot view — no EventBus subscription (the outer screen
+  owns rescore/refresh wiring). Users re-trigger via 重新评分.
 """
+
+from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -11,8 +21,11 @@ from textual.widget import Widget
 from textual.widgets import Button, Static
 
 from scanner.scan_log import ScanLogEntry
+from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.components import EventHeader, EventKpiRow, SubMarketTable
+from scanner.tui.icons import ICON_EVENT, ICON_MARKET, ICON_SCAN
 from scanner.tui.service import ScanService
+from scanner.tui.widgets.polily_zone import PolilyZone
 
 
 class BackToTasks(Message):
@@ -37,13 +50,14 @@ class ScoreResultView(Widget):
     BINDINGS = [
         Binding("escape", "go_back", "返回"),
         Binding("backspace", "go_back", show=False),
+        *NAV_BINDINGS,
     ]
 
     DEFAULT_CSS = """
     ScoreResultView { height: 1fr; }
-    ScoreResultView .section-title { text-style: bold; color: $primary; padding: 1 0 0 0; }
+    ScoreResultView > VerticalScroll { height: 1fr; }
+    ScoreResultView > VerticalScroll > PolilyZone { height: auto; }
     ScoreResultView .step-row { padding: 0 0 0 2; }
-    ScoreResultView #scroll-area { height: 1fr; }
     ScoreResultView #action-bar { height: auto; dock: bottom; padding: 1 1; }
     ScoreResultView #action-row { height: 3; }
     ScoreResultView #action-row Button { margin: 0 1; }
@@ -65,25 +79,35 @@ class ScoreResultView(Widget):
         is_monitored = self._is_monitored()
 
         with VerticalScroll(id="scroll-area"):
-            # --- Steps ---
+            # Zone: 评分步骤 (only when a scan log is found)
             if log and log.steps:
-                yield Static(" 评分步骤", classes="section-title")
-                for step in log.steps:
-                    elapsed_str = f"[dim]{step.elapsed:.1f}s[/dim]"
-                    detail_text = f"  [cyan]{step.detail}[/cyan]" if step.detail else ""
-                    status_label = {
-                        "done": "[green]done[/green]",
-                        "skip": "[dim]skip[/dim]",
-                        "fail": "[red]FAIL[/red]",
-                    }.get(step.status, step.status)
-                    yield Static(f"  {status_label}  {step.name}{detail_text}     {elapsed_str}", classes="step-row")
+                with PolilyZone(title=f"{ICON_SCAN} 评分步骤", id="steps-zone"):
+                    for step in log.steps:
+                        elapsed_str = f"[dim]{step.elapsed:.1f}s[/dim]"
+                        detail_text = (
+                            f"  [cyan]{step.detail}[/cyan]" if step.detail else ""
+                        )
+                        status_label = {
+                            "done": "[green]done[/green]",
+                            "skip": "[dim]skip[/dim]",
+                            "fail": "[red]FAIL[/red]",
+                        }.get(step.status, step.status)
+                        yield Static(
+                            f"  {status_label}  {step.name}"
+                            f"{detail_text}     {elapsed_str}",
+                            classes="step-row",
+                        )
 
-            # --- Event detail (same components as MarketDetailView) ---
-            yield EventHeader(event, monitor)
-            yield EventKpiRow(event, markets)
-            yield SubMarketTable(markets, event)
+            # Zone: 事件信息 (header + KPI row)
+            with PolilyZone(title=f"{ICON_EVENT} 事件信息", id="event-info-zone"):
+                yield EventHeader(event, monitor)
+                yield EventKpiRow(event, markets)
 
-        # --- Action buttons (fixed at bottom, outside scroll) ---
+            # Zone: 市场 (sub-market breakdown + per-market structure scores)
+            with PolilyZone(title=f"{ICON_MARKET} 市场", id="market-zone"):
+                yield SubMarketTable(markets, event)
+
+        # Action bar stays outside the scroll so it's always reachable.
         with Vertical(id="action-bar"):
             if is_expired:
                 yield Static("  事件已过期", classes="expired-msg")
@@ -91,7 +115,9 @@ class ScoreResultView(Widget):
                 with Horizontal(id="action-row"):
                     yield Button("重新评分", id="rescore-btn", variant="default")
                     if not is_monitored:
-                        yield Button("添加到监控", id="monitor-btn", variant="primary")
+                        yield Button(
+                            "添加到监控", id="monitor-btn", variant="primary",
+                        )
                     else:
                         yield Static("  [dim]已在监控列表[/dim]")
 
