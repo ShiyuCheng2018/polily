@@ -1,4 +1,13 @@
-"""Modals for monitoring lifecycle actions."""
+"""Modals for monitoring lifecycle actions.
+
+v0.8.0 migration:
+- ConfirmUnmonitorModal wraps the destructive-confirm flow in PolilyZone
+  (ICON_CANCELLED) with a red border override — stopping monitoring is a
+  user-workflow destructive action (event drops out of the poll rotation).
+- Widget IDs preserved (#dialog-box, #confirm, #keep, #btn-row) — dismiss
+  protocol (True on confirm, False on keep/Escape) untouched so existing
+  tests + callers in market_detail.py / monitor_list.py keep working.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +16,10 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
-_MODAL_WIDTH = 56
+from scanner.tui.icons import ICON_CANCELLED
+from scanner.tui.widgets.polily_zone import PolilyZone
+
+_MODAL_WIDTH = 62
 _TITLE_TRIM = 40
 
 
@@ -24,13 +36,19 @@ class ConfirmUnmonitorModal(ModalScreen[bool]):
     ConfirmUnmonitorModal #dialog-box {{
         width: {_MODAL_WIDTH};
         height: auto;
-        border: thick $primary;
-        background: $surface;
-        padding: 1 2;
     }}
-    ConfirmUnmonitorModal .title {{ text-style: bold; padding: 0 0 1 0; }}
+    ConfirmUnmonitorModal > #dialog-box > PolilyZone {{
+        height: auto;
+        margin: 0;
+        border: round $error;
+    }}
+    ConfirmUnmonitorModal .polily-zone-title {{ color: $error; }}
     ConfirmUnmonitorModal .event-line {{ color: $text-muted; padding: 0 0 1 0; }}
-    ConfirmUnmonitorModal #btn-row {{ height: auto; align: center middle; padding: 1 0 0 0; }}
+    ConfirmUnmonitorModal #btn-row {{
+        height: auto;
+        align: center middle;
+        padding: 1 0 0 0;
+    }}
     ConfirmUnmonitorModal .action-btn {{ min-width: 16; margin: 0 1; }}
     """
     BINDINGS = [("escape", "keep", "继续监控")]
@@ -41,11 +59,25 @@ class ConfirmUnmonitorModal(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog-box"):
-            yield Static("确认取消监控?", classes="title")
-            yield Static(self._event_title, classes="event-line")
-            with Horizontal(id="btn-row"):
-                yield Button("确认取消", id="confirm", variant="error", classes="action-btn")
-                yield Button("继续监控", id="keep", variant="primary", classes="action-btn")
+            with PolilyZone(title=f"{ICON_CANCELLED} 确认取消监控"):
+                yield Static(self._event_title, classes="event-line")
+                yield Static(
+                    "[dim]取消后此事件将从监控轮询中移除。[/dim]",
+                    classes="event-line",
+                )
+                with Horizontal(id="btn-row"):
+                    yield Button(
+                        "确认取消",
+                        id="confirm",
+                        variant="error",
+                        classes="action-btn",
+                    )
+                    yield Button(
+                        "继续监控",
+                        id="keep",
+                        variant="primary",
+                        classes="action-btn",
+                    )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "confirm":
