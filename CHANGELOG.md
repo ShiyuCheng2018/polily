@@ -27,6 +27,13 @@ structured release notes — see `git log` for history.
 - `ScanService.__init__` now accepts `event_bus` kwarg (backward compatible; defaults to `get_event_bus()` singleton)
 - App-level `BINDINGS` now declares `q` / `?` / `Esc` globally
 - `ScanService.topup` / `withdraw` now publish `TOPIC_WALLET_UPDATED` on success
+- `scan_log` view migrated to v0.8.0 atoms (PolilyZone + StatusBadge + KVRow), Chinese status labels, EventBus subscription (no manual refresh), Q11 key bindings. Covers `ScanLogView` + `ScanLogDetailView` + `LiveProgress`. 分析队列 5 列(类型/状态/事件/预定时间/原因), 历史 6 列(加错误列). 详情页去掉 `scan_id` / `event_id` — 用户不再看到内部标识. `ScanLogView(service)` ctor refactor; `screens/main.py` 2 call sites updated.
+- `wallet` view migrated to v0.8.0 atoms (PolilyCard + PolilyZone + KVRow), EventBus subscription to wallet/position topics. `t`/`w`/`r` 充值/提现/重置 bindings all `show=True` in footer.
+- `market_detail` view migrated to v0.8.0 atoms (multiple PolilyZone: 事件信息/市场/持仓/叙事分析), EventBus subscription to price/position updates (price filtered by event_id), added `r` refresh binding.
+
+### Fixed
+
+- Eliminated race-prone manual `_refresh_*` calls in migrated views — view state now derives from EventBus payloads, bus callback uses `call_from_thread` per v0.8.0 threading convention.
 
 ## [0.7.0] — 2026-04-20
 
