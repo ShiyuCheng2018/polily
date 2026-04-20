@@ -1,5 +1,19 @@
-"""MainScreen: Sidebar navigation + Content area with view switching."""
+"""MainScreen: Sidebar navigation + Content area with view switching.
 
+v0.8.0 Task 32 migration:
+- Sidebar menu items now carry Nerd Font glyphs (via
+  `scanner.tui.widgets.sidebar.MENU_ICONS`) — no colour / layout change.
+- MainScreen subscribes to `TOPIC_SCAN_UPDATED` so the status bar reflects
+  background scan progress without polling (bus callback hops through
+  `call_from_thread` because scans publish from worker / daemon threads).
+- Global bindings (`q`, `?`, `escape`) intentionally live on the App
+  (see `scanner.tui.bindings.GLOBAL_BINDINGS` + `PolilyApp.BINDINGS`).
+  MainScreen only declares screen-local bindings (digit menu jumps,
+  `r` refresh, up/down nav).
+"""
+
+
+import contextlib
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -7,6 +21,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
+from scanner.core.events import TOPIC_SCAN_UPDATED
 from scanner.tui.service import AnalysisInProgressError, ScanService
 from scanner.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 from scanner.tui.views.market_detail import (
@@ -54,6 +69,18 @@ class MainScreen(Screen):
         Binding("down", "menu_next", show=False),
     ]
 
+    DEFAULT_CSS = """
+    MainScreen {
+        background: $surface;
+    }
+    MainScreen #status-bar {
+        background: $panel;
+        color: $text-muted;
+        padding: 0 1;
+        height: 1;
+    }
+    """
+
     MENU_ORDER = ["tasks", "monitor", "paper", "wallet", "history", "archive"]
 
     def __init__(self, service: ScanService):
@@ -84,6 +111,38 @@ class MainScreen(Screen):
         # Poll heartbeat: check every 5s
         self.set_interval(5, self._check_poll_heartbeat)
         self._check_poll_heartbeat()
+        # Scan lifecycle updates (running / completed / failed) publish
+        # to the event bus from worker threads; reflect them in the
+        # status bar + tasks sidebar pill without manual polling.
+        bus = getattr(self.service, "event_bus", None)
+        if bus is not None:
+            bus.subscribe(TOPIC_SCAN_UPDATED, self._on_scan_updated)
+
+    def on_unmount(self) -> None:
+        bus = getattr(self.service, "event_bus", None)
+        if bus is not None:
+            with contextlib.suppress(Exception):
+                bus.unsubscribe(TOPIC_SCAN_UPDATED, self._on_scan_updated)
+
+    def _on_scan_updated(self, payload: dict) -> None:
+        """Bus callback: runs on publisher thread — must hop to UI thread.
+
+        Payload shape (per scanner.core.events): {scan_id, event_id, status}.
+        We mark the 'tasks' sidebar pill 'has new data' on terminal status
+        transitions (completed/failed) so the user sees the pill without
+        navigating there first.
+        """
+        status = (payload or {}).get("status") or ""
+        if status not in ("completed", "failed"):
+            return
+        with contextlib.suppress(Exception):
+            self.app.call_from_thread(self._mark_tasks_has_new)
+
+    def _mark_tasks_has_new(self) -> None:
+        if self._current_menu == "tasks":
+            return  # user's already looking at it — no pill needed
+        with contextlib.suppress(Exception):
+            self.query_one("#sidebar", Sidebar).mark_new_data("tasks")
 
     def _check_poll_heartbeat(self) -> None:
         """Check if poll daemon process is alive via PID file."""
