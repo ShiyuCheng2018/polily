@@ -12,6 +12,12 @@ from scanner.agents.narrative_writer import NarrativeWriterAgent
 from scanner.analysis_store import AnalysisVersion, append_analysis, get_event_analyses
 from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
+from scanner.core.events import (
+    EventBus,
+    TOPIC_SCAN_UPDATED,
+    TOPIC_WALLET_UPDATED,
+    get_event_bus,
+)
 from scanner.core.event_store import (
     EventRow,
     get_event,
@@ -80,6 +86,7 @@ class ScanService:
         self,
         config: ScannerConfig | None = None,
         db: PolilyDB | None = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         self.config = config or self._load_default_config()
         self.db = db or PolilyDB(self.config.archiving.db_file)
@@ -97,6 +104,9 @@ class ScanService:
         self._steps: list[StepInfo] = []
         self._current_log: ScanLogEntry | None = None
         self._current_narrator: NarrativeWriterAgent | None = None
+
+        # v0.8.0 event bus: publish mutations to subscribed TUI views
+        self.event_bus = event_bus or get_event_bus()
 
     @staticmethod
     def _load_default_config() -> ScannerConfig:
@@ -245,6 +255,7 @@ class ScanService:
                     error=f"{type(agent_error).__name__}: {agent_error}"[:200],
                     db=self.db,
                 )
+                self.publish_scan_update(scan_id, event_id=event_id, status="failed")
             except Exception:
                 logger.exception("finish_scan failed while recording agent error")
             raise agent_error
@@ -280,6 +291,7 @@ class ScanService:
                 scan_id,
             )
             return version
+        self.publish_scan_update(scan_id, event_id=event_id, status="completed")
 
         # Row flipped running→completed atomically. Now safe to persist.
         append_analysis(event_id, version, self.db)
@@ -649,9 +661,24 @@ class ScanService:
 
     def topup(self, amount: float) -> None:
         self.wallet.topup(amount)
+        self.event_bus.publish(
+            TOPIC_WALLET_UPDATED,
+            {"balance": self.wallet.get_cash(), "source": "topup", "amount": amount},
+        )
 
     def withdraw(self, amount: float) -> None:
         self.wallet.withdraw(amount)
+        self.event_bus.publish(
+            TOPIC_WALLET_UPDATED,
+            {"balance": self.wallet.get_cash(), "source": "withdraw", "amount": amount},
+        )
+
+    def publish_scan_update(self, scan_id: str, *, event_id: str, status: str) -> None:
+        """v0.8.0: publish TOPIC_SCAN_UPDATED. Called from analyze_event after finish_scan."""
+        self.event_bus.publish(
+            TOPIC_SCAN_UPDATED,
+            {"scan_id": scan_id, "event_id": event_id, "status": status},
+        )
 
     def get_wallet_snapshot(self) -> dict:
         return self.wallet.get_snapshot()
