@@ -5,6 +5,7 @@ from textual.binding import Binding
 
 from scanner.tui.screens.main import MainScreen
 from scanner.tui.service import ScanService
+from scanner.tui.theme import register_polily_theme
 
 
 class PolilyApp(App):
@@ -23,6 +24,7 @@ class PolilyApp(App):
         self.service = service or ScanService()
 
     def on_mount(self) -> None:
+        register_polily_theme(self)  # NEW: register brand theme
         self._restart_daemon()
         self.push_screen(MainScreen(self.service))
 
