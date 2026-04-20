@@ -15,9 +15,17 @@ fresh CLOB price at execution time, so actual fill may deviate a cent or
 two from the preview. The post-execution `notify(...)` shows the actual
 fill price and fee, so users see any drift after the fact. For a paper
 trader this is acceptable; no slippage guard is enforced.
+
+v0.8.0 migration:
+- BuyPane / SellPane wrap inputs in PolilyZone atoms (ICON_BUY / ICON_SELL)
+- TradeDialog market header uses PolilyCard with KVRow for balance line
+- EventBus subscription to TOPIC_PRICE_UPDATED replaces the 3s polling timer
+- All widget IDs preserved (referenced by existing widget tests)
 """
 
 from __future__ import annotations
+
+import contextlib
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -36,11 +44,15 @@ from textual.widgets import (
 )
 
 from scanner.core.event_store import get_event_markets
+from scanner.core.events import TOPIC_PRICE_UPDATED
+from scanner.tui.icons import ICON_BUY, ICON_MARKET, ICON_SELL, ICON_WALLET
 from scanner.tui.views._trade_preview import (
     compute_buy_preview,
     compute_sell_preview,
     shares_from_pct,
 )
+from scanner.tui.widgets.polily_card import PolilyCard
+from scanner.tui.widgets.polily_zone import PolilyZone
 
 _DIALOG_WIDTH = 82
 _QUICK_AMOUNTS = (10, 20, 50)
@@ -64,19 +76,20 @@ class BuyPane(Widget):
         self._positions_here: list[dict] = []  # positions on currently-selected market
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="buy-holding-line")
-        with Horizontal(id="buy-amount-row"):
-            yield Label("金额 $", classes="field-label")
-            yield Input(value="10", id="buy-amount", type="number")
-            yield Static("", id="buy-preview", classes="preview")
-        yield Static("", id="buy-fee-line", classes="preview-secondary")
-        with Horizontal(id="buy-quick-row"):
-            yield Label("快捷金额", classes="field-label")
-            for amt in _QUICK_AMOUNTS:
-                yield Button(f"${amt}", id=f"buy-quick-{amt}", classes="quick-btn")
-        with Horizontal(id="buy-action-row"):
-            yield Button("买 YES", id="btn-buy-yes", variant="success", classes="trade-btn")
-            yield Button("买 NO", id="btn-buy-no", variant="error", classes="trade-btn")
+        with PolilyZone(title=f"{ICON_BUY} 买入", id="buy-zone"):
+            yield Static("", id="buy-holding-line")
+            with Horizontal(id="buy-amount-row"):
+                yield Label("金额 $", classes="field-label")
+                yield Input(value="10", id="buy-amount", type="number")
+                yield Static("", id="buy-preview", classes="preview")
+            yield Static("", id="buy-fee-line", classes="preview-secondary")
+            with Horizontal(id="buy-quick-row"):
+                yield Label("快捷金额", classes="field-label")
+                for amt in _QUICK_AMOUNTS:
+                    yield Button(f"${amt}", id=f"buy-quick-{amt}", classes="quick-btn")
+            with Horizontal(id="buy-action-row"):
+                yield Button("买 YES", id="btn-buy-yes", variant="success", classes="trade-btn")
+                yield Button("买 NO", id="btn-buy-no", variant="error", classes="trade-btn")
 
     def update_context(
         self, *, market, cash: float, positions_here: list[dict],
@@ -238,20 +251,21 @@ class SellPane(Widget):
         self._positions_sig: tuple | None = None  # change-detection for _rebuild_radio
 
     def compose(self) -> ComposeResult:
-        # No "持仓:" static label — the radio set is self-evident, saving a row.
-        yield RadioSet(id="sell-side-radio")
-        yield Static("", id="sell-empty-hint")
-        with Horizontal(id="sell-pct-row"):
-            yield Label("卖出比例", classes="field-label")
-            for pct in _QUICK_PCTS:
-                yield Button(f"{pct}%", id=f"sell-pct-{pct}", classes="quick-btn")
-        with Horizontal(id="sell-shares-row"):
-            yield Label("股数 ", classes="field-label")
-            yield Input(value="", id="sell-shares", type="number")
-            yield Static("", id="sell-preview", classes="preview")
-        yield Static("", id="sell-pnl-line", classes="preview-secondary")
-        with Horizontal(id="sell-action-row"):
-            yield Button("卖出", id="btn-sell", variant="warning", classes="trade-btn")
+        with PolilyZone(title=f"{ICON_SELL} 卖出", id="sell-zone"):
+            # No "持仓:" static label — the radio set is self-evident, saving a row.
+            yield RadioSet(id="sell-side-radio")
+            yield Static("", id="sell-empty-hint")
+            with Horizontal(id="sell-pct-row"):
+                yield Label("卖出比例", classes="field-label")
+                for pct in _QUICK_PCTS:
+                    yield Button(f"{pct}%", id=f"sell-pct-{pct}", classes="quick-btn")
+            with Horizontal(id="sell-shares-row"):
+                yield Label("股数 ", classes="field-label")
+                yield Input(value="", id="sell-shares", type="number")
+                yield Static("", id="sell-preview", classes="preview")
+            yield Static("", id="sell-pnl-line", classes="preview-secondary")
+            with Horizontal(id="sell-action-row"):
+                yield Button("卖出", id="btn-sell", variant="warning", classes="trade-btn")
 
     def update_context(
         self, *, market, positions_here: list[dict],
@@ -456,7 +470,13 @@ class SellPane(Widget):
 
 
 class TradeDialog(ModalScreen[dict | None]):
-    """Modal dialog for paper trade entry (Buy/Sell)."""
+    """Modal dialog for paper trade entry (Buy/Sell).
+
+    v0.8.0: market info header uses PolilyCard; buy/sell tab panes wrap their
+    inputs in PolilyZone atoms (BuyPane, SellPane). EventBus subscription to
+    TOPIC_PRICE_UPDATED replaces the 3s polling timer — prices refresh as soon
+    as the daemon publishes new prices.
+    """
 
     DEFAULT_CSS = f"""
     TradeDialog {{
@@ -470,9 +490,9 @@ class TradeDialog(ModalScreen[dict | None]):
         background: $surface;
         padding: 0 2;
     }}
-    TradeDialog #dialog-header {{
+    TradeDialog #header-card {{
         height: auto;
-        padding: 0 0 1 0;
+        margin: 0 0 1 0;
     }}
     TradeDialog #dialog-title {{
         text-style: bold;
@@ -552,6 +572,12 @@ class TradeDialog(ModalScreen[dict | None]):
     TradeDialog BuyPane, TradeDialog SellPane {{
         height: auto;
     }}
+    /* Panes own a single PolilyZone each — keep it auto-sized. */
+    TradeDialog BuyPane > PolilyZone,
+    TradeDialog SellPane > PolilyZone {{
+        height: auto;
+        margin: 0;
+    }}
     """
 
     BINDINGS = [("escape", "dismiss_cancel", "取消")]
@@ -573,9 +599,13 @@ class TradeDialog(ModalScreen[dict | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog-box"):
-            with Horizontal(id="dialog-header"):
-                yield Static("交易", id="dialog-title")
-                yield Static("", id="balance-label")
+            # Header card: title + live balance. PolilyCard gives us a softer
+            # secondary-bordered frame so the header doesn't compete visually
+            # with the thick primary outer dialog border.
+            with PolilyCard(id="header-card"):
+                with Horizontal(id="dialog-header"):
+                    yield Static(f"{ICON_MARKET} 交易", id="dialog-title")
+                    yield Static("", id="balance-label")
             yield Static("子市场:", classes="field-label")
             with RadioSet(id="market-radios"):
                 for i, m in enumerate(self._markets):
@@ -593,7 +623,27 @@ class TradeDialog(ModalScreen[dict | None]):
     def on_mount(self) -> None:
         self._refresh_balance()
         self._push_context_to_panes()
+        # v0.8.0: subscribe to price bus for event-driven refresh.
+        # Kept the 3s timer as a fallback for when the daemon isn't running
+        # (e.g. ad-hoc TUI session without scheduler) — bus + timer coalesce
+        # on the same refresh method.
+        self._service.event_bus.subscribe(
+            TOPIC_PRICE_UPDATED, self._on_price_update,
+        )
         self._refresh_timer = self.set_interval(3, self._refresh_prices_periodic)
+
+    def on_unmount(self) -> None:
+        with contextlib.suppress(Exception):
+            self._service.event_bus.unsubscribe(
+                TOPIC_PRICE_UPDATED, self._on_price_update,
+            )
+
+    def _on_price_update(self, payload: dict) -> None:
+        """Bus callback — published from non-UI threads (daemon poll job)."""
+        if payload.get("event_id") != self.event_id:
+            return
+        with contextlib.suppress(Exception):
+            self.app.call_from_thread(self._refresh_prices_periodic)
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         if event.radio_set.id == "market-radios":
@@ -651,7 +701,9 @@ class TradeDialog(ModalScreen[dict | None]):
     def _refresh_balance(self) -> None:
         try:
             cash = self._service.wallet.get_cash()
-            self.query_one("#balance-label", Static).update(f"💰 余额 ${cash:.2f}")
+            self.query_one("#balance-label", Static).update(
+                f"{ICON_WALLET} 余额 ${cash:.2f}",
+            )
         except Exception:
             pass
 
@@ -663,7 +715,6 @@ class TradeDialog(ModalScreen[dict | None]):
             p for p in self._service.positions.get_event_positions(self.event_id)
             if p["market_id"] == market.market_id
         ]
-        import contextlib
         cash = 0.0
         with contextlib.suppress(Exception):
             cash = self._service.wallet.get_cash()
@@ -677,7 +728,11 @@ class TradeDialog(ModalScreen[dict | None]):
         )
 
     def _refresh_prices_periodic(self) -> None:
-        """Re-read prices from DB and update radio labels + pane context."""
+        """Re-read prices from DB and update radio labels + pane context.
+
+        Invoked by both the 3s timer (timer fallback) and TOPIC_PRICE_UPDATED
+        (bus-driven refresh). Idempotent.
+        """
         try:
             fresh = get_event_markets(self.event_id, self._service.db)
         except Exception:
