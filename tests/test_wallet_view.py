@@ -91,9 +91,12 @@ async def test_wallet_view_fresh_wallet_shows_starting_balance(tmp_path):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = host.screen.query_one(WalletView)
-        headline = view.query_one("#headline", Static).content
-        assert "$100.00" in str(headline)
-        assert "+0.00%" in str(headline) or "0.00%" in str(headline)
+        # v0.8.0: balance card replaced #headline — collect all Static content
+        all_text = " ".join(
+            str(s.content) for s in view.query(Static) if s.content
+        )
+        assert "$100.00" in all_text
+        assert "+0.00%" in all_text or "0.00%" in all_text
 
 
 @pytest.mark.asyncio
@@ -110,10 +113,13 @@ async def test_wallet_view_after_buy_shows_position_value(tmp_path):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = host.screen.query_one(WalletView)
-        metrics = view.query_one("#metrics", Static).content
-        assert "1 个持仓" in str(metrics)
+        # v0.8.0: metrics live inside balance card KVRows — collect all Static content
+        all_text = " ".join(
+            str(s.content) for s in view.query(Static) if s.content
+        )
+        assert "1 个持仓" in all_text
         # Cash ≈ 100 - 10 - 0.36 fee = 89.64; market value ≈ 10.00
-        assert "89." in str(metrics) or "89" in str(metrics)
+        assert "89." in all_text or "89" in all_text
 
 
 @pytest.mark.asyncio
@@ -155,9 +161,12 @@ async def test_wallet_view_realized_pnl_after_profitable_sell(tmp_path):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = host.screen.query_one(WalletView)
-        metrics = view.query_one("#metrics", Static).content
+        # v0.8.0: realized P&L in balance card KVRows — collect all Static content
+        all_text = " ".join(
+            str(s.content) for s in view.query(Static) if s.content
+        )
         # realized = (0.6 - 0.5) × 10 = 1.0
-        assert "$1.00" in str(metrics)
+        assert "$1.00" in all_text
 
 
 # --- TopupModal ---------------------------------------------------------
