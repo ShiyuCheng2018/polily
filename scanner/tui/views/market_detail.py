@@ -1,4 +1,10 @@
-"""MarketDetailView: event detail page composed from reusable components."""
+"""MarketDetailView: event detail page composed from reusable components.
+
+v0.8.0 migration:
+- PolilyZone atoms for 事件信息 / 市场 / 持仓 / 叙事分析 sections
+- EventBus subscription (TOPIC_PRICE_UPDATED, TOPIC_POSITION_UPDATED)
+- `r` (刷新) binding added
+"""
 
 from __future__ import annotations
 
@@ -12,6 +18,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static
 
+from scanner.core.events import TOPIC_POSITION_UPDATED, TOPIC_PRICE_UPDATED
 from scanner.tui.components import (
     AnalysisPanel,
     BinaryMarketStructurePanel,
@@ -20,6 +27,8 @@ from scanner.tui.components import (
     PositionPanel,
     SubMarketTable,
 )
+from scanner.tui.icons import ICON_AUTO_MONITOR, ICON_MARKET, ICON_POSITION, ICON_SCAN
+from scanner.tui.widgets.polily_zone import PolilyZone
 
 if TYPE_CHECKING:
     from scanner.tui.service import ScanService
@@ -73,6 +82,7 @@ class MarketDetailView(Widget):
         Binding("m", "toggle_monitor", "监控"),
         Binding("v", "switch_version", "版本"),
         Binding("o", "open_link", "链接"),
+        Binding("r", "refresh", "刷新", show=True),  # v0.8.0
     ]
 
     DEFAULT_CSS = """
@@ -116,21 +126,51 @@ class MarketDetailView(Widget):
         monitor = d.get("monitor")
 
         with VerticalScroll():
-            yield EventHeader(event, monitor, movements)
-            yield EventKpiRow(event, markets)
-            if len(markets) == 1:
-                yield BinaryMarketStructurePanel(markets[0], event)
-            else:
-                yield SubMarketTable(markets, event)
-            yield Static("")
-            yield PositionPanel(trades, markets, movements)
+            # Zone: 事件信息 (header + KPI row)
+            with PolilyZone(title=f"{ICON_MARKET} 事件信息", id="event-info-zone"):
+                yield EventHeader(event, monitor, movements)
+                yield EventKpiRow(event, markets)
 
+            # Zone: 市场 (structure panel or sub-market table)
+            with PolilyZone(title=f"{ICON_SCAN} 市场", id="market-zone"):
+                if len(markets) == 1:
+                    yield BinaryMarketStructurePanel(markets[0], event)
+                else:
+                    yield SubMarketTable(markets, event)
+
+            # Zone: 持仓
+            with PolilyZone(title=f"{ICON_POSITION} 持仓", id="position-zone"):
+                yield PositionPanel(trades, markets, movements)
+
+            # Zone: 叙事分析 (only when analyses exist or analysis in progress)
             if analyses or self._analyzing:
-                yield Static("")
-                yield AnalysisPanel(analyses, self._version_idx, self._analyzing)
-            elif not self._analyzing:
-                yield Static("")
+                with PolilyZone(title=f"{ICON_AUTO_MONITOR} 叙事分析", id="analysis-zone"):
+                    yield AnalysisPanel(analyses, self._version_idx, self._analyzing)
+            else:
                 yield Static("[dim]按 a 启动 AI 分析[/dim]", classes="row")
+
+    # ------------------------------------------------------------------
+    # Lifecycle — bus subscription
+    # ------------------------------------------------------------------
+
+    def on_mount(self) -> None:
+        """Subscribe to price + position bus topics for auto-refresh."""
+        self.service.event_bus.subscribe(TOPIC_PRICE_UPDATED, self._on_price_update)
+        self.service.event_bus.subscribe(TOPIC_POSITION_UPDATED, self._on_position_update)
+
+    def on_unmount(self) -> None:
+        """Clean up bus subscriptions."""
+        self.service.event_bus.unsubscribe(TOPIC_PRICE_UPDATED, self._on_price_update)
+        self.service.event_bus.unsubscribe(TOPIC_POSITION_UPDATED, self._on_position_update)
+
+    def _on_price_update(self, payload: dict) -> None:
+        """Bus callback — MUST use call_from_thread (called from non-UI thread)."""
+        if payload.get("event_id") == self.event_id:
+            self.app.call_from_thread(self.refresh_data)
+
+    def _on_position_update(self, payload: dict) -> None:
+        """Bus callback — MUST use call_from_thread (called from non-UI thread)."""
+        self.app.call_from_thread(self.refresh_data)
 
     # ------------------------------------------------------------------
     # Refresh
@@ -153,6 +193,10 @@ class MarketDetailView(Widget):
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
+
+    def action_refresh(self) -> None:
+        """Manual refresh — re-fetch data and recompose the view."""
+        self.refresh_data()
 
     def action_go_back(self) -> None:
         if self._analyzing:
