@@ -1,8 +1,8 @@
 """Polily TUI — interactive terminal interface (Textual)."""
 
 from textual.app import App
-from textual.binding import Binding
 
+from scanner.tui.bindings import GLOBAL_BINDINGS
 from scanner.tui.screens.main import MainScreen
 from scanner.tui.service import ScanService
 from scanner.tui.theme import register_polily_theme
@@ -15,9 +15,7 @@ class PolilyApp(App):
     SUB_TITLE = "Polymarket Decision Copilot"
     CSS_PATH = ["css/tokens.tcss", "css/app.tcss"]
 
-    BINDINGS = [
-        Binding("q", "quit", "退出"),
-    ]
+    BINDINGS = GLOBAL_BINDINGS
 
     def __init__(self, service: ScanService | None = None):
         super().__init__()
@@ -50,6 +48,16 @@ class PolilyApp(App):
     async def action_quit(self) -> None:
         """Kill everything and exit immediately."""
         self.exit()
+
+    async def action_back(self) -> None:
+        """Pop current screen if any; else no-op."""
+        if len(self.screen_stack) > 1:
+            self.pop_screen()
+
+    async def action_help(self) -> None:
+        """Placeholder for help overlay — Phase 3 actual overlay widget.
+        For now, notify."""
+        self.notify("帮助面板 v0.8.0 后续版本提供", severity="information")
 
 
 def run_tui():
