@@ -5,8 +5,19 @@ Differs from PolilyZone in:
 - Tighter padding (space-sm, not space-md)
 - Different background (panel, not surface)
 - Intended for grouping small info blocks (e.g. wallet balance trio)
+
+Title is mounted as the FIRST child in `on_mount()` via
+`self.mount(..., before=0)` so that when used as a context manager
+(`with PolilyCard(title=...):`), the title stays at the top regardless of
+how many children the parent compose yielded inside the `with` block.
+Previous implementation yielded the title from `compose()`, which Textual
+appended AFTER context-manager children, causing the title to appear at
+the BOTTOM of the card — see PolilyZone aa9bc27 for the matching fix.
+
+`height: auto` is explicit so that when nested in layouts with
+`align: center middle` + auto-sizing parents (e.g. modal dialogs), the
+card doesn't stretch to fill its parent's height.
 """
-from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Static
 
@@ -20,6 +31,7 @@ class PolilyCard(Vertical):
         padding: 1 2;
         margin: 0 1;
         background: $panel;
+        height: auto;
     }
     PolilyCard .polily-card-title {
         text-style: bold;
@@ -33,6 +45,9 @@ class PolilyCard(Vertical):
         self._title = title
         self.add_class("polily-card")
 
-    def compose(self) -> ComposeResult:
+    def on_mount(self) -> None:
         if self._title:
-            yield Static(self._title, classes="polily-card-title")
+            self.mount(
+                Static(self._title, classes="polily-card-title"),
+                before=0,
+            )

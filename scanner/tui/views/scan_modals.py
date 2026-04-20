@@ -65,7 +65,7 @@ class ConfirmCancelScanModal(ModalScreen[bool]):
                 )
                 yield Static(
                     "[b red]⚠  取消后此次分析无法恢复[/b red]\n"
-                    "[dim]    scan_log 将标记为 cancelled。[/dim]",
+                    "[dim]    分析记录将标记为已取消。[/dim]",
                     classes="row",
                 )
                 with Horizontal(id="btn-row"):
