@@ -54,7 +54,7 @@ from scanner.tui.views._trade_preview import (
 from scanner.tui.widgets.polily_card import PolilyCard
 from scanner.tui.widgets.polily_zone import PolilyZone
 
-_DIALOG_WIDTH = 82
+_DIALOG_WIDTH = 100
 _QUICK_AMOUNTS = (10, 20, 50)
 _QUICK_PCTS = (25, 50, 75, 100)
 
