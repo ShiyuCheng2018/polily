@@ -1,4 +1,14 @@
-"""ScanLogView: scan task history + live progress + detail view."""
+"""ScanLogView: scan task history + live progress + detail view.
+
+v0.8.0 changes:
+- ScanLogView(service) — service-driven, not data-driven
+- PolilyZone + KVRow atoms for layout
+- Chinese labels via i18n.translate_status / translate_trigger
+- Event bus subscription (TOPIC_SCAN_UPDATED) for auto-refresh
+- Table columns per user-approved mock: 5 for queue, 6 for history
+- ScanLogDetailView: no scan_id / event_id exposed to user
+- LiveProgress: Nerd Font status indicators (done= / fail= / running=Braille)
+"""
 
 import contextlib
 import time
@@ -7,12 +17,24 @@ from datetime import datetime
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, Static
 
+from scanner.core.events import TOPIC_SCAN_UPDATED
 from scanner.scan_log import ScanLogEntry
+from scanner.tui.i18n import translate_status, translate_trigger
+from scanner.tui.icons import (
+    ICON_COMPLETED,
+    ICON_EVENT,
+    ICON_FAILED,
+    ICON_NOTIFY,
+    ICON_SCAN,
+    STATUS_ICONS,
+)
+from scanner.tui.widgets.kv_row import KVRow
+from scanner.tui.widgets.polily_zone import PolilyZone
 
 
 def _to_local(iso_str: str | None) -> str:
@@ -82,6 +104,28 @@ def _format_pending_when(log: ScanLogEntry) -> str:
     return _to_local(log.started_at)
 
 
+def _format_elapsed(elapsed: float | None) -> str:
+    """Format elapsed seconds as human-friendly string."""
+    if elapsed is None or elapsed <= 0:
+        return ""
+    if elapsed < 60:
+        return f"{elapsed:.1f}s"
+    mins = int(elapsed // 60)
+    secs = int(elapsed % 60)
+    return f"{mins}m{secs:02d}s"
+
+
+def _trigger_icon(source: str) -> str:
+    """v0.8.0: map trigger_source enum to Nerd Font glyph.
+    manual returns empty string (no icon — trigger label alone is enough)."""
+    return {
+        "scheduled": ICON_EVENT,   # calendar U+F073
+        "manual": "",
+        "movement": ICON_NOTIFY,   # bell U+F0F3
+        "scan": ICON_SCAN,         # search U+F002
+    }.get(source, "")
+
+
 @dataclass
 class StepInfo:
     """A single progress step (live, in-memory)."""
@@ -129,11 +173,11 @@ class LiveProgress(Static):
                 line = f"   [bold cyan]{frame}[/bold cyan]  {step.name}     {elapsed_str}"
             elif step.status == "done":
                 detail = f"  [cyan]{step.detail}[/cyan]" if step.detail else ""
-                line = f"   [green]done[/green]  {step.name}{detail}     {elapsed_str}"
+                line = f"   [green]{ICON_COMPLETED}[/green]  {step.name}{detail}     {elapsed_str}"
             elif step.status == "skip":
                 line = f"   [dim]skip[/dim]  {step.name}     {elapsed_str}"
             elif step.status == "fail":
-                line = f"   [red]FAIL[/red]  {step.name}     {elapsed_str}"
+                line = f"   [red]{ICON_FAILED}[/red]  {step.name}     {elapsed_str}"
             else:
                 line = f"         {step.name}     {elapsed_str}"
             lines.append(line)
@@ -171,7 +215,11 @@ class CancelScanRequested(Message):
 # --- List View ---
 
 class ScanLogView(Widget):
-    """Scan task history with optional live progress at top."""
+    """Scan task history with optional live progress at top.
+
+    v0.8.0: service-driven constructor. Fetches logs from service on mount.
+    Subscribes to TOPIC_SCAN_UPDATED for auto-refresh.
+    """
 
     BINDINGS = [
         Binding("c", "cancel_running", "取消正在运行的分析", show=False),
@@ -185,21 +233,16 @@ class ScanLogView(Widget):
     ScanLogView #score-btn { width: 10; min-width: 10; }
     ScanLogView .empty-msg { text-align: center; color: $text-muted; padding: 4; }
     ScanLogView #live-section { padding: 1 0 1 0; }
-    ScanLogView .zone-title { padding: 1 0 0 0; text-style: bold; color: $primary; }
     ScanLogView DataTable { height: auto; max-height: 40%; }
     """
 
-    def __init__(
-        self,
-        logs: list[ScanLogEntry],
-        current_steps: list[StepInfo] | None = None,
-    ):
+    def __init__(self, service):
         super().__init__()
-        self._logs = logs
-        self._current_steps = current_steps
-        self._upcoming = _upcoming(logs)
-        self._history = _history(logs)
-        self._reversed_logs = list(reversed(logs))  # keep for any external caller
+        self.service = service
+        # Internal state populated on mount / refresh
+        self._logs: list[ScanLogEntry] = []
+        self._upcoming: list[ScanLogEntry] = []
+        self._history: list[ScanLogEntry] = []
 
     def compose(self) -> ComposeResult:
         yield Static(" 任务记录", id="log-title")
@@ -207,69 +250,107 @@ class ScanLogView(Widget):
             yield Input(placeholder="粘贴 Polymarket 链接...", id="url-input")
             yield Button("评分", id="score-btn", variant="primary")
 
-        # Live progress section
-        if self._current_steps is not None:
-            with Vertical(id="live-section"):
-                yield Static("\n   [dim]--- 进行中 ---[/dim]\n")
-                yield LiveProgress()
+        # Live progress section — shown when service has active steps
+        yield Static("", id="live-section-placeholder")
 
-        # Empty state
-        if self._current_steps is None and not (self._upcoming or self._history):
-            yield Static(" 粘贴 Polymarket 事件链接开始评分。", classes="empty-msg")
-            return
-
-        # Optional separator between live + history when both exist
-        if self._current_steps is not None and (self._upcoming or self._history):
-            yield Static("  [dim]--- 历史记录 ---[/dim]")
-
-        if self._upcoming:
-            yield Static(f"─ 分析队列 ({len(self._upcoming)}) ─", classes="zone-title")
-            yield DataTable(id="upcoming-table")
-        if self._history:
-            yield Static(f"─ 历史 ({len(self._history)}) ─", classes="zone-title")
-            yield DataTable(id="history-table")
+        # Tables are inside PolilyZone atoms
+        yield PolilyZone(title="分析队列", id="pending-zone")
+        yield PolilyZone(title="历史", id="history-zone")
 
     def on_mount(self) -> None:
-        if self._current_steps is not None:
-            with contextlib.suppress(Exception):
-                self.query_one(LiveProgress).set_steps(self._current_steps)
-        self._populate_upcoming()
-        self._populate_history()
+        self.service.event_bus.subscribe(TOPIC_SCAN_UPDATED, self._on_scan_update)
+        self._render_all()
 
-    def _populate_upcoming(self):
+    def on_unmount(self) -> None:
+        self.service.event_bus.unsubscribe(TOPIC_SCAN_UPDATED, self._on_scan_update)
+
+    def _on_scan_update(self, payload: dict) -> None:
+        """Bus callback — MUST use call_from_thread (called from non-UI thread)."""
+        self.app.call_from_thread(self._render_all)
+
+    def _render_all(self) -> None:
+        """Re-fetch logs from service and repopulate both tables."""
+        self._logs = self.service.get_scan_logs()
+        self._upcoming = _upcoming(self._logs)
+        self._history = _history(self._logs)
+        self._rebuild_pending_zone()
+        self._rebuild_history_zone()
+
+    def _rebuild_pending_zone(self) -> None:
         try:
-            table = self.query_one("#upcoming-table", DataTable)
+            zone = self.query_one("#pending-zone", PolilyZone)
         except Exception:
             return
+        # Clear existing DataTable children
+        for child in list(zone.query(DataTable)):
+            child.remove()
+
+        if not self._upcoming:
+            # Keep zone visible with empty table (columns only) so test can find it
+            table = DataTable(id="upcoming-table")
+            zone.mount(table)
+            table.cursor_type = "row"
+            table.add_column("类型", key="类型")
+            table.add_column("状态", key="状态")
+            table.add_column("事件", key="事件")
+            table.add_column("预定时间", key="预定时间")
+            table.add_column("原因", key="原因")
+            return
+
+        table = DataTable(id="upcoming-table")
+        zone.mount(table)
         table.cursor_type = "row"
-        table.add_columns("状态", "事件", "预计", "来源")
+        table.add_column("类型", key="类型")
+        table.add_column("状态", key="状态")
+        table.add_column("事件", key="事件")
+        table.add_column("预定时间", key="预定时间")
+        table.add_column("原因", key="原因")
+
         for log in self._upcoming:
-            icon = "🔵" if log.status == "running" else "🟡"
+            icon = _trigger_icon(log.trigger_source)
+            type_label = f"{icon} {translate_trigger(log.trigger_source)}".strip()
+            status_icon = STATUS_ICONS.get(log.status, "")
+            status_label = f"{status_icon} {translate_status(log.status)}".strip()
+            title = (log.market_title or "")[:40]
             when = _format_pending_when(log)
-            source = log.trigger_source
-            title = (log.market_title or "?")[:25]
-            table.add_row(f"{icon} {log.status}", title, when, source, key=log.scan_id)
+            reason = log.scheduled_reason or ""
+            if len(reason) > 15:
+                reason = reason[:14] + "…"
+            table.add_row(type_label, status_label, title, when, reason, key=log.scan_id)
 
-    def _populate_history(self):
+    def _rebuild_history_zone(self) -> None:
         try:
-            table = self.query_one("#history-table", DataTable)
+            zone = self.query_one("#history-zone", PolilyZone)
         except Exception:
             return
+        # Clear existing DataTable children
+        for child in list(zone.query(DataTable)):
+            child.remove()
+
+        table = DataTable(id="history-table")
+        zone.mount(table)
         table.cursor_type = "row"
-        table.add_columns("状态", "类型", "事件", "时间", "耗时", "来源")
-        type_labels = {"analyze": "AI 分析", "add_event": "评分", "scan": "扫描"}
+        table.add_column("类型", key="类型")
+        table.add_column("状态", key="状态")
+        table.add_column("事件", key="事件")
+        table.add_column("结束时间", key="结束时间")
+        table.add_column("耗时", key="耗时")
+        table.add_column("错误", key="错误")
+
         for log in self._history:
-            icon = {"completed": "✅", "failed": "❌",
-                    "cancelled": "⚪", "superseded": "⚪"}.get(log.status, "·")
-            type_label = type_labels.get(log.type, log.type)
-            started = _to_local(log.started_at)
-            elapsed = f"{log.total_elapsed:.1f}s" if log.status == "completed" else ""
-            source = log.trigger_source
-            title = (log.market_title or "?")[:25]
-            table.add_row(
-                f"{icon} {log.status}", type_label, title, started, elapsed, source,
-                key=log.scan_id,
-            )
+            icon = _trigger_icon(log.trigger_source)
+            type_label = f"{icon} {translate_trigger(log.trigger_source)}".strip()
+            status_icon = STATUS_ICONS.get(log.status, "")
+            status_label = f"{status_icon} {translate_status(log.status)}".strip()
+            title = (log.market_title or "")[:40]
+            # HH:MM only
+            finished = _to_local(log.finished_at)
+            fin_short = finished[-5:] if finished != "?" else "?"
+            elapsed_str = _format_elapsed(log.total_elapsed) if log.status == "completed" else ""
+            error_str = ""
+            if log.error:
+                error_str = log.error[:40]
+            table.add_row(type_label, status_label, title, fin_short, elapsed_str, error_str, key=log.scan_id)
 
     def _submit_url(self) -> None:
         try:
@@ -367,7 +448,11 @@ class RescoreRequested(Message):
 
 
 class ScanLogDetailView(Widget):
-    """Full detail view for a single scan/analyze log entry."""
+    """Full detail view for a single scan/analyze log entry.
+
+    v0.8.0: PolilyZone + KVRow atoms. scan_id and event_id are NOT shown
+    to users (internal identifiers only).
+    """
 
     BINDINGS = [
         Binding("escape", "go_back", "返回列表"),
@@ -376,8 +461,6 @@ class ScanLogDetailView(Widget):
 
     DEFAULT_CSS = """
     ScanLogDetailView { height: 1fr; }
-    ScanLogDetailView .section-title { text-style: bold; color: $primary; padding: 1 0 0 0; }
-    ScanLogDetailView .detail-row { padding: 0 0 0 2; }
     ScanLogDetailView .step-row { padding: 0 0 0 2; }
     """
 
@@ -465,67 +548,54 @@ class ScanLogDetailView(Widget):
         log = self.log_entry
         is_analyze = log.type == "analyze"
         is_add_event = log.type == "add_event"
-        status_text = {"completed": "完成", "failed": "失败", "running": "进行中"}.get(
-            log.status, log.status
-        )
+
+        status_icon = STATUS_ICONS.get(log.status, "")
+        status_label = f"{status_icon} {translate_status(log.status)}".strip()
+        type_label = translate_trigger(log.trigger_source)
 
         with VerticalScroll():
-            if is_analyze:
-                yield Static(f" [bold]AI 分析 {log.scan_id}[/bold]", classes="section-title")
-                yield Static(f"  事件: {log.market_title or '?'}", classes="detail-row")
-                if log.event_id:
-                    yield Static("  [dim]按 Enter 打开事件详情[/dim]", classes="detail-row")
-            elif is_add_event:
-                yield Static(f" [bold]评分任务 {log.scan_id}[/bold]", classes="section-title")
-                yield Static(f"  事件: {log.market_title or '?'}", classes="detail-row")
-            else:
-                yield Static(f" [bold]扫描任务 {log.scan_id}[/bold]", classes="section-title")
+            with PolilyZone(title="扫描详情"):
+                # event title — no event_id prefix
+                yield KVRow(label="事件", value=log.market_title or "?")
+                yield KVRow(label="状态", value=status_label)
+                yield KVRow(label="类型", value=type_label)
+                if log.scheduled_reason:
+                    yield KVRow(label="原因", value=log.scheduled_reason)
+                yield KVRow(label="开始时间", value=_to_local(log.started_at))
+                yield KVRow(label="结束时间", value=_to_local(log.finished_at))
+                elapsed_display = _format_elapsed(log.total_elapsed) or "?"
+                yield KVRow(label="总耗时", value=elapsed_display)
+                # Error only for failed status
+                if log.status == "failed" and log.error:
+                    yield KVRow(label="错误", value=log.error)
 
-            # Summary
-            yield Static(" 基本信息", classes="section-title")
-            yield Static(f"  开始时间: {_to_local(log.started_at)}", classes="detail-row")
-            yield Static(f"  结束时间: {_to_local(log.finished_at)}", classes="detail-row")
-            yield Static(f"  总耗时:   {log.total_elapsed:.1f}s", classes="detail-row")
-            yield Static(f"  状态:     {status_text}", classes="detail-row")
+                # Results summary for add_event / scan type
+                if is_add_event or (not is_analyze):
+                    stats = self._get_scan_stats()
+                    if stats and (is_add_event or not is_analyze):
+                        yield KVRow(
+                            label="事件数",
+                            value=f"{stats['research_events']} 事件 / {stats['research_markets']} 市场",
+                        )
 
-            if log.error:
-                yield Static(f"  [red]错误: {log.error}[/red]", classes="detail-row")
+                if is_analyze and log.event_id:
+                    yield Static("  [dim]按 Enter 打开事件详情[/dim]", classes="step-row")
 
-            # Results — different by type
-            if is_analyze:
-                yield Static(" 分析目标", classes="section-title")
-                yield Static(f"  事件: {log.market_title or '?'}", classes="detail-row")
-                yield Static(f"  ID:   {log.event_id or '?'}", classes="detail-row")
-            elif is_add_event:
-                yield Static(" 评分结果", classes="section-title")
-                stats = self._get_scan_stats()
-                if stats:
-                    yield Static(f"  事件数: {stats['research_events']} 事件 / {stats['research_markets']} 市场", classes="detail-row")
-                    yield Static(f"  类型分布: {stats['type_summary']}", classes="detail-row")
-                    yield Static(f"  评分区间: {stats['score_min']:.0f} ~ {stats['score_max']:.0f}", classes="detail-row")
-                    yield Static(f"  最近过期: {stats['earliest_end']}", classes="detail-row")
-                    yield Static(f"  最晚过期: {stats['latest_end']}", classes="detail-row")
-            else:
-                yield Static(" 扫描结果", classes="section-title")
-                stats = self._get_scan_stats()
-                if stats:
-                    yield Static(f"  事件数: {stats['research_events']} 事件 / {stats['research_markets']} 市场", classes="detail-row")
-                    yield Static(f"  类型分布: {stats['type_summary']}", classes="detail-row")
-                else:
-                    yield Static(f"  事件总数: {log.research_count + log.watchlist_count}", classes="detail-row")
-
-            # Steps
+            # Steps zone
             if log.steps:
-                yield Static(" 步骤详情", classes="section-title")
-                for step in log.steps:
-                    elapsed_str = f"[dim]{step.elapsed:.1f}s[/dim]"
-                    detail = f"  [cyan]{step.detail}[/cyan]" if step.detail else ""
-                    status_label = {
-                        "done": "[green]done[/green]",
-                        "skip": "[dim]skip[/dim]",
-                        "fail": "[red]FAIL[/red]",
-                    }.get(step.status, step.status)
-                    yield Static(f"  {status_label}  {step.name}{detail}     {elapsed_str}", classes="step-row")
+                with PolilyZone(title="步骤详情"):
+                    for step in log.steps:
+                        elapsed_str = f"[dim]{step.elapsed:.1f}s[/dim]"
+                        detail = f"  [cyan]{step.detail}[/cyan]" if step.detail else ""
+                        status_label_step = {
+                            "done": f"[green]{ICON_COMPLETED}[/green]",
+                            "skip": "[dim]skip[/dim]",
+                            "fail": f"[red]{ICON_FAILED}[/red]",
+                        }.get(step.status, step.status)
+                        yield Static(
+                            f"  {status_label_step}  {step.name}{detail}     {elapsed_str}",
+                            classes="step-row",
+                        )
 
             yield Static("")
             # Action buttons

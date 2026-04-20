@@ -70,7 +70,7 @@ class MainScreen(Screen):
         with Horizontal(id="main-container"):
             yield Sidebar(id="sidebar")
             with Vertical(id="content-area"):
-                yield ScanLogView(self.service.get_scan_logs())
+                yield ScanLogView(self.service)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -408,9 +408,7 @@ class MainScreen(Screen):
 
     def _navigate_to(self, menu_id: str):
         if menu_id == "tasks":
-            logs = self.service.get_scan_logs()
-            current_steps = list(self.service._steps) if self._loading else None
-            self._switch_view(ScanLogView(logs, current_steps), "tasks")
+            self._switch_view(ScanLogView(self.service), "tasks")
         elif menu_id == "monitor":
             self._switch_view(MonitorListView(service=self.service), "monitor")
         elif menu_id == "paper":
