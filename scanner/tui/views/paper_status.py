@@ -1,19 +1,54 @@
-"""PortfolioView: open positions with P&L from DB (poll-updated prices)."""
+"""PortfolioView: open positions with P&L from DB (poll-updated prices).
+
+v0.8.0 migration:
+- PolilyZone atom wraps the portfolio section (title: 持仓)
+- EventBus subscriptions (TOPIC_WALLET_UPDATED, TOPIC_POSITION_UPDATED,
+  TOPIC_PRICE_UPDATED) drive auto-refresh on mutations
+- Q11 NAV_BINDINGS + view-specific bindings (enter, r)
+- Chinese labels throughout; internal market_id / event_id not surfaced in
+  visible cells (row_keys preserved for the ViewTradeDetail routing)
+
+Scope note (v0.8.0 Q7b): this view overlaps conceptually with WalletView
+(both surface paper-trade state). The two are not merged in v0.8.0; a
+v0.9.0 consolidation is on the roadmap.
+"""
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from datetime import UTC, datetime
 
 from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
 
+from scanner.core.events import (
+    TOPIC_POSITION_UPDATED,
+    TOPIC_PRICE_UPDATED,
+    TOPIC_WALLET_UPDATED,
+)
 from scanner.pnl import calc_unrealized_pnl
+from scanner.tui.bindings import NAV_BINDINGS
+from scanner.tui.icons import ICON_POSITION
 from scanner.tui.service import ScanService
+from scanner.tui.widgets.polily_zone import PolilyZone
 
 logger = logging.getLogger(__name__)
+
+
+_COLUMN_SPEC = [
+    ("事件", "title"),
+    ("方向", "side"),
+    ("入场价", "entry"),
+    ("现价", "现价"),
+    ("金额", "amount"),
+    ("价值", "value"),
+    ("P&L", "P&L"),
+]
 
 
 class ViewTradeDetail(Message):
@@ -27,10 +62,18 @@ class ViewTradeDetail(Message):
 class PaperStatusView(Widget):
     """Portfolio view — reads prices from DB (no independent API fetch)."""
 
+    BINDINGS = [
+        Binding("enter", "view_detail", "详情", show=True),
+        Binding("r", "refresh", "刷新", show=False),
+        *NAV_BINDINGS,
+    ]
+
     DEFAULT_CSS = """
     PaperStatusView { height: 1fr; }
-    PaperStatusView #portfolio-title { padding: 1 0 0 0; text-style: bold; }
-    PaperStatusView #portfolio-summary { padding: 0 0 1 2; color: $text-muted; }
+    PaperStatusView > VerticalScroll { height: 1fr; }
+    PaperStatusView > VerticalScroll > PolilyZone { height: auto; }
+    PaperStatusView #portfolio-summary { padding: 0 0 1 0; color: $text-muted; }
+    PaperStatusView DataTable { height: auto; }
     """
 
     def __init__(self, service: ScanService):
@@ -39,28 +82,66 @@ class PaperStatusView(Widget):
         self._trades: list[dict] = []
 
     def compose(self) -> ComposeResult:
-        yield Static(" 持仓", id="portfolio-title")
-        yield Static("", id="portfolio-summary")
-        yield DataTable(id="portfolio-table")
+        with VerticalScroll():
+            yield PolilyZone(
+                title=f"{ICON_POSITION} 持仓",
+                id="portfolio-zone",
+            )
 
     def on_mount(self) -> None:
-        self._trades = self.service.get_open_trades()
+        # Mount summary + table once inside the zone; `_render_all` then
+        # repopulates them in place. Re-mounting on each render leaks
+        # stale widgets because Textual's `remove()` is deferred, which
+        # trips DuplicateIds on IDs like `#portfolio-summary`.
+        try:
+            zone = self.query_one("#portfolio-zone", PolilyZone)
+        except Exception:
+            zone = None
 
-        table = self.query_one("#portfolio-table", DataTable)
-        table.cursor_type = "row"
-        table.add_columns(
-            ("事件", "title"), ("方向", "side"), ("入场价", "entry"),
-            ("现价", "现价"), ("金额", "amount"), ("价值", "value"),
-            ("P&L", "P&L"),
+        if zone is not None:
+            zone.mount(Static("", id="portfolio-summary"))
+            table = DataTable(id="portfolio-table")
+            zone.mount(table)
+            table.cursor_type = "row"
+            table.add_columns(*_COLUMN_SPEC)
+
+        self.service.event_bus.subscribe(
+            TOPIC_WALLET_UPDATED, self._on_wallet_update,
+        )
+        self.service.event_bus.subscribe(
+            TOPIC_POSITION_UPDATED, self._on_position_update,
+        )
+        self.service.event_bus.subscribe(
+            TOPIC_PRICE_UPDATED, self._on_price_update,
+        )
+        self._render_all()
+
+    def on_unmount(self) -> None:
+        self.service.event_bus.unsubscribe(
+            TOPIC_WALLET_UPDATED, self._on_wallet_update,
+        )
+        self.service.event_bus.unsubscribe(
+            TOPIC_POSITION_UPDATED, self._on_position_update,
+        )
+        self.service.event_bus.unsubscribe(
+            TOPIC_PRICE_UPDATED, self._on_price_update,
         )
 
-        if not self._trades:
-            self.query_one("#portfolio-summary", Static).update(
-                " [dim]暂无持仓。在市场详情页按 t 标记 paper trade。[/dim]"
-            )
-            return
+    # -- Bus callbacks (published from non-UI threads — must hop back) --
 
-        self._fill_table(table)
+    def _on_wallet_update(self, payload: dict) -> None:
+        with contextlib.suppress(Exception):
+            self.app.call_from_thread(self._render_all)
+
+    def _on_position_update(self, payload: dict) -> None:
+        with contextlib.suppress(Exception):
+            self.app.call_from_thread(self._render_all)
+
+    def _on_price_update(self, payload: dict) -> None:
+        with contextlib.suppress(Exception):
+            self.app.call_from_thread(self._render_all)
+
+    # -- Rendering --
 
     def _get_market_price(self, market_id: str) -> float | None:
         """Get current YES price from DB markets table."""
@@ -69,8 +150,32 @@ class PaperStatusView(Widget):
         m = get_market(market_id, self.service.db)
         return m.yes_price if m else None
 
+    def _render_all(self) -> None:
+        """Refresh the summary + DataTable contents in place.
+
+        Table + summary are mounted once in `on_mount`; here we just clear
+        rows + update summary text. This avoids remove() race conditions
+        with Textual's deferred node removal.
+        """
+        try:
+            table = self.query_one("#portfolio-table", DataTable)
+        except Exception:
+            return
+
+        self._trades = self.service.get_open_trades()
+        table.clear()
+
+        if not self._trades:
+            with contextlib.suppress(Exception):
+                self.query_one("#portfolio-summary", Static).update(
+                    "[dim]暂无持仓。在市场详情页按 t 标记 paper trade。[/dim]"
+                )
+            return
+
+        self._fill_table(table)
+
     def _fill_table(self, table: DataTable) -> None:
-        """Fill portfolio table from DB data."""
+        """Fill portfolio table from DB data + update summary line."""
         total_value = 0.0
         total_pnl = 0.0
         total_cost = 0.0
@@ -125,15 +230,13 @@ class PaperStatusView(Widget):
                 key=t["id"],
             )
 
-        # Summary bar
+        # Summary line
         pnl_pct_total = total_pnl / total_cost * 100 if total_cost > 0 else 0
         pnl_color = "green" if total_pnl >= 0 else "red"
 
-        import contextlib
-
         with contextlib.suppress(Exception):
             self.query_one("#portfolio-summary", Static).update(
-                f" 总计: {len(self._trades)} | "
+                f"总计: {len(self._trades)} | "
                 f"持仓价值: ${total_value:.2f} | "
                 f"浮动盈亏: [{pnl_color}]{'+' if total_pnl >= 0 else ''}"
                 f"${total_pnl:.2f} ({pnl_pct_total:+.1f}%)[/{pnl_color}]"
@@ -148,6 +251,21 @@ class PaperStatusView(Widget):
                 self.post_message(ViewTradeDetail(t["event_id"]))
                 return
 
+    def action_view_detail(self) -> None:
+        """Enter: navigate to event detail for selected row."""
+        try:
+            table = self.query_one("#portfolio-table", DataTable)
+        except Exception:
+            return
+        row = table.cursor_row
+        if row is None or row < 0 or row >= len(self._trades):
+            return
+        self.post_message(ViewTradeDetail(self._trades[row]["event_id"]))
+
+    def action_refresh(self) -> None:
+        """Manual refresh (Q11 `r` binding) — full rebuild."""
+        self._render_all()
+
     def refresh_data(self) -> None:
         """Re-query positions, then update prices and P&L for visible rows.
 
@@ -160,6 +278,9 @@ class PaperStatusView(Widget):
         try:
             table = self.query_one("#portfolio-table", DataTable)
         except Exception:
+            # Table absent → either empty state mounted or not composed yet.
+            # Fall back to full render which handles both paths.
+            self._render_all()
             return
 
         fresh = self.service.get_open_trades()
@@ -168,17 +289,9 @@ class PaperStatusView(Widget):
         self._trades = fresh
 
         if old_keys != new_keys:
-            # Row set changed → clear and re-fill so DataTable doesn't hold
+            # Row set changed → rebuild everything so DataTable doesn't hold
             # stale row_keys pointing at deleted / missing positions.
-            table.clear()
-            if not self._trades:
-                import contextlib
-                with contextlib.suppress(Exception):
-                    self.query_one("#portfolio-summary", Static).update(
-                        " [dim]暂无持仓。在市场详情页按 t 标记 paper trade。[/dim]"
-                    )
-                return
-            self._fill_table(table)
+            self._render_all()
             return
 
         if not self._trades:
@@ -218,20 +331,17 @@ class PaperStatusView(Widget):
                 value_str = "?"
             total_cost += size
 
-            try:
+            with contextlib.suppress(Exception):
                 table.update_cell(t["id"], "现价", cur_str)
                 table.update_cell(t["id"], "value", value_str)
                 table.update_cell(t["id"], "P&L", pnl_str)
-            except Exception:
-                continue
 
         # Update summary
-        import contextlib
         pnl_pct_total = total_pnl / total_cost * 100 if total_cost > 0 else 0
         pnl_color = "green" if total_pnl >= 0 else "red"
         with contextlib.suppress(Exception):
             self.query_one("#portfolio-summary", Static).update(
-                f" 总计: {len(self._trades)} | "
+                f"总计: {len(self._trades)} | "
                 f"持仓价值: ${total_value:.2f} | "
                 f"浮动盈亏: [{pnl_color}]{'+' if total_pnl >= 0 else ''}"
                 f"${total_pnl:.2f} ({pnl_pct_total:+.1f}%)[/{pnl_color}]"
