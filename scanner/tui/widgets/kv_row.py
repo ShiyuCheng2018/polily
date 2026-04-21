@@ -13,8 +13,11 @@ class KVRow(Horizontal):
     """Label : Value row with aligned columns."""
 
     DEFAULT_CSS = """
+    /* v0.8.0+: height: auto so long values wrap to multiple lines instead
+       of being truncated (e.g. 原因 field with full reason text). Short
+       values still render as 1 line; no visual change for those. */
     KVRow {
-        height: 1;
+        height: auto;
         padding: 0 0;
     }
     KVRow .kv-label {
