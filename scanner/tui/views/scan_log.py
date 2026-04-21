@@ -227,12 +227,9 @@ class ScanLogView(Widget):
 
     DEFAULT_CSS = """
     ScanLogView { height: 1fr; }
-    ScanLogView #log-title { padding: 1 0 0 0; text-style: bold; }
-    ScanLogView #url-row { height: auto; padding: 1 1; margin: 1 0; }
+    ScanLogView #url-row { height: auto; padding: 1 1; }
     ScanLogView #url-input { width: 1fr; }
     ScanLogView #score-btn { width: 10; min-width: 10; }
-    ScanLogView .empty-msg { text-align: center; color: $text-muted; padding: 4; }
-    ScanLogView #live-section { padding: 1 0 1 0; }
     ScanLogView DataTable { height: auto; max-height: 40%; }
     """
 
@@ -245,8 +242,8 @@ class ScanLogView(Widget):
         self._history: list[ScanLogEntry] = []
 
     def compose(self) -> ComposeResult:
-        yield Static(" 任务记录", id="log-title")
-        with Horizontal(id="url-row"):
+        yield Static(" 任务记录", id="log-title", classes="bold pt-sm")
+        with Horizontal(id="url-row", classes="m-md"):
             yield Input(placeholder="粘贴 Polymarket 链接...", id="url-input")
             yield Button("评分", id="score-btn", variant="primary")
 

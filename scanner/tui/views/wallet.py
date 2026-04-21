@@ -104,12 +104,11 @@ class WalletView(Widget):
     WalletView #ledger-zone { height: 1fr; }
     WalletView #wallet-table { height: 1fr; }
     WalletView #action-row { height: 3; padding: 0; }
-    WalletView .hint { width: 1fr; padding: 1 1 0 0; color: $text-muted; }
+    WalletView .hint { width: 1fr; padding: 1 1 0 0; }
     WalletView #reset-btn {
         width: 14;
         background: $error 20%;
         color: white;
-        text-style: bold;
     }
     """
 
@@ -128,8 +127,11 @@ class WalletView(Widget):
         yield PolilyCard(title=f"{ICON_WALLET} 余额概览", id="balance-card")
         yield PolilyZone(title="交易流水", id="ledger-zone")
         with Horizontal(id="action-row"):
-            yield Static(r"[dim]\[t] 充值   \[w] 提现   \[r] 重置[/dim]", classes="hint")
-            yield Button("重置钱包", id="reset-btn", variant="error")
+            yield Static(
+                r"[dim]\[t] 充值   \[w] 提现   \[r] 重置[/dim]",
+                classes="hint text-muted",
+            )
+            yield Button("重置钱包", id="reset-btn", variant="error", classes="bold")
 
     def on_mount(self) -> None:
         # Set up ledger table inside ledger zone
