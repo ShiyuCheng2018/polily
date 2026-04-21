@@ -567,6 +567,37 @@ class ScanLogDetailView(Widget):
         except Exception:
             return None
 
+    def _find_analysis_version(self):
+        """Find the AnalysisVersion produced by this scan_log entry.
+
+        Only relevant for `analyze` + `completed`. Matches by event_id +
+        created_at falling within the scan_log's time window. If multiple
+        matches, returns the latest (highest version).
+        """
+        log = self.log_entry
+        if log.type != "analyze" or log.status != "completed":
+            return None
+        if not self._db or not log.event_id:
+            return None
+        try:
+            from scanner.analysis_store import get_event_analyses
+            versions = get_event_analyses(log.event_id, self._db)
+            if not versions:
+                return None
+            started = log.started_at or ""
+            finished = log.finished_at or "9999"
+            matching = [
+                v for v in versions
+                if started <= (v.created_at or "") <= finished
+            ]
+            if matching:
+                return matching[-1]
+            # Fallback: the latest analysis for this event (within the
+            # same day as scan's finished_at, to avoid mismatching old runs)
+            return versions[-1]
+        except Exception:
+            return None
+
     def compose(self) -> ComposeResult:
         log = self.log_entry
         is_analyze = log.type == "analyze"
@@ -579,12 +610,17 @@ class ScanLogDetailView(Widget):
         # Title reflects type: analyze → 分析详情; scan / add_event → 扫描详情
         zone_title = "分析详情" if is_analyze else "扫描详情"
 
+        # For completed analyze runs, try to locate the produced version.
+        analysis_version = self._find_analysis_version()
+
         with VerticalScroll():
             with PolilyZone(title=zone_title):
                 # event title — no event_id prefix
                 yield KVRow(label="事件", value=log.market_title or "?")
                 yield KVRow(label="状态", value=status_label)
                 yield KVRow(label="类型", value=type_label)
+                if analysis_version is not None:
+                    yield KVRow(label="版本", value=f"v{analysis_version.version}")
                 yield KVRow(label="开始时间", value=_to_local(log.started_at))
                 yield KVRow(label="结束时间", value=_to_local(log.finished_at))
                 elapsed_display = _format_elapsed(log.total_elapsed) or "?"
@@ -604,6 +640,30 @@ class ScanLogDetailView(Widget):
                             label="事件数",
                             value=f"{stats['research_events']} 事件 / {stats['research_markets']} 市场",
                         )
+
+            # Analysis content — show summary + commentary for analyze+completed
+            if analysis_version is not None:
+                narrative = analysis_version.narrative_output or {}
+                summary = narrative.get("summary", "").strip()
+                analysis_text = narrative.get("analysis", "").strip()
+                ops_commentary = narrative.get("operations_commentary", "").strip()
+                risk_commentary = narrative.get("risk_commentary", "").strip()
+
+                with PolilyZone(title=f"分析内容 (v{analysis_version.version})"):
+                    if summary:
+                        yield Static("[bold]总结[/bold]", classes="pb-sm")
+                        yield Static(summary, classes="pb-sm")
+                    if analysis_text:
+                        yield Static("[bold]分析[/bold]", classes="pb-sm")
+                        yield Static(analysis_text, classes="pb-sm")
+                    if ops_commentary:
+                        yield Static("[bold]操作建议[/bold]", classes="pb-sm")
+                        yield Static(ops_commentary, classes="pb-sm")
+                    if risk_commentary:
+                        yield Static("[bold]风险[/bold]", classes="pb-sm")
+                        yield Static(risk_commentary, classes="pb-sm")
+                    if not any([summary, analysis_text, ops_commentary, risk_commentary]):
+                        yield Static("[dim]分析内容为空[/dim]")
 
             # Steps zone
             if log.steps:
