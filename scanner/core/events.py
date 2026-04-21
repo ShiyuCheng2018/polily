@@ -17,7 +17,6 @@ convention documented at the constant. Keep payloads JSON-serializable-ish
 """
 from __future__ import annotations
 
-import contextlib
 import logging
 import threading
 from collections import defaultdict
@@ -85,26 +84,3 @@ def get_event_bus() -> EventBus:
     return _singleton
 
 
-def dispatch_to_ui(app, callable_: Callable[[], Any]) -> None:
-    """Invoke a UI-refresh callable safely regardless of the caller thread.
-
-    Textual's `App.call_from_thread` raises when called from the UI event
-    loop thread. Pre-v0.8.0 the bus handlers always used it, which meant
-    any publisher that happened to run on the UI thread (user button
-    click, App.on_mount timer, etc.) had its handler's call_from_thread
-    silently raise and be swallowed by `EventBus.publish`'s try/except —
-    so the corresponding view never refreshed.
-
-    This helper picks the right dispatch path at call time.
-    """
-    if threading.current_thread() is threading.main_thread():
-        # Already on the UI event loop — schedule via call_later(0, ...) so
-        # Textual processes it next tick. Direct call could mount inside
-        # an ongoing render and trip DuplicateIds.
-        with contextlib.suppress(Exception):
-            app.call_later(0, callable_)
-        return
-    # Worker / daemon / subprocess thread — this is what call_from_thread
-    # is designed for.
-    with contextlib.suppress(Exception):
-        app.call_from_thread(callable_)

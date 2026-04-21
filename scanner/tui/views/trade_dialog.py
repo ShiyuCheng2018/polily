@@ -44,7 +44,8 @@ from textual.widgets import (
 )
 
 from scanner.core.event_store import get_event_markets
-from scanner.core.events import TOPIC_PRICE_UPDATED, dispatch_to_ui
+from scanner.core.events import TOPIC_PRICE_UPDATED
+from scanner.tui._dispatch import dispatch_to_ui
 from scanner.tui.icons import ICON_BUY, ICON_MARKET, ICON_SELL, ICON_WALLET
 from scanner.tui.views._trade_preview import (
     compute_buy_preview,

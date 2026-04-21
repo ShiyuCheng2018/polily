@@ -25,8 +25,8 @@ from scanner.core.events import (
     TOPIC_MONITOR_UPDATED,
     TOPIC_PRICE_UPDATED,
     TOPIC_SCAN_UPDATED,
-    dispatch_to_ui,
 )
+from scanner.tui._dispatch import dispatch_to_ui
 from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_AUTO_MONITOR
 from scanner.tui.monitor_format import (

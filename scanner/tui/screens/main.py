@@ -27,14 +27,8 @@ from scanner.core.events import (
     TOPIC_PRICE_UPDATED,
     TOPIC_SCAN_UPDATED,
     TOPIC_WALLET_UPDATED,
-    dispatch_to_ui,
 )
-
-# Heartbeat cadence (seconds). Matches daemon poll_job interval — no
-# point going faster, the daemon only writes new prices every 30s. But
-# spacing it 5s makes the TUI feel responsive when the user DID change
-# something and a bus event is imminent.
-HEARTBEAT_SECONDS = 5
+from scanner.tui._dispatch import dispatch_to_ui
 from scanner.tui.service import AnalysisInProgressError, ScanService
 from scanner.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 from scanner.tui.views.event_detail import (
@@ -66,6 +60,12 @@ from scanner.tui.views.score_result import (
     ScoreViewRescore,
 )
 from scanner.tui.widgets.sidebar import MenuSelected, Sidebar
+
+# Heartbeat cadence (seconds). Matches daemon poll_job interval — no
+# point going faster, the daemon only writes new prices every 30s. But
+# spacing it 5s makes the TUI feel responsive when the user DID change
+# something and a bus event is imminent.
+HEARTBEAT_SECONDS = 5
 
 
 class MainScreen(Screen):
@@ -192,13 +192,17 @@ class MainScreen(Screen):
                 bus.publish(topic, payload)
 
     def _check_poll_heartbeat(self) -> None:
-        """Check if poll daemon process is alive via PID file."""
+        """Check if poll daemon process is alive via PID file.
+
+        Only updates the `● POLL` sidebar indicator. View refresh is
+        handled by `_bus_heartbeat` on the same cadence — keeping the
+        two concerns separated (PID liveness vs. DB re-read) avoids the
+        earlier inconsistency where half the views silently missed the
+        poll-heartbeat refresh because they didn't define `refresh_data`.
+        """
         try:
             alive = self._is_daemon_alive()
             self.query_one("#sidebar", Sidebar).set_poll_status(alive)
-
-            if alive and not self._loading and not self._analyzing:
-                self._refresh_current_view()
         except Exception:
             import logging
             logging.getLogger(__name__).debug("heartbeat error", exc_info=True)
@@ -218,14 +222,6 @@ class MainScreen(Screen):
         except (ValueError, ProcessLookupError, PermissionError, OSError):
             return False
 
-    def _refresh_current_view(self) -> None:
-        """Call refresh_data() on the current visible view if it supports it."""
-        content = self.query_one("#content-area")
-        # Walk all descendants, not just direct children
-        for widget in content.walk_children():
-            if hasattr(widget, "refresh_data"):
-                widget.refresh_data()
-                return
 
     def _update_progress(self, steps: list[StepInfo]):
         """Main thread: update live progress if ScanLogView is visible."""

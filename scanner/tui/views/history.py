@@ -32,7 +32,8 @@ from textual.containers import VerticalScroll
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
 
-from scanner.core.events import TOPIC_WALLET_UPDATED, dispatch_to_ui
+from scanner.core.events import TOPIC_WALLET_UPDATED
+from scanner.tui._dispatch import dispatch_to_ui
 from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_COMPLETED
 from scanner.tui.service import ScanService

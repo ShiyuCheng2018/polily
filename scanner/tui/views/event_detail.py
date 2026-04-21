@@ -21,8 +21,8 @@ from textual.widgets import Static
 from scanner.core.events import (
     TOPIC_POSITION_UPDATED,
     TOPIC_PRICE_UPDATED,
-    dispatch_to_ui,
 )
+from scanner.tui._dispatch import dispatch_to_ui
 from scanner.tui.components import (
     AnalysisPanel,
     BinaryMarketStructurePanel,

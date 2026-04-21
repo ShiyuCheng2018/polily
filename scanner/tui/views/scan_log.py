@@ -22,7 +22,8 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, Static
 
-from scanner.core.events import TOPIC_SCAN_UPDATED, dispatch_to_ui
+from scanner.core.events import TOPIC_SCAN_UPDATED
+from scanner.tui._dispatch import dispatch_to_ui
 from scanner.scan_log import ScanLogEntry
 from scanner.tui.i18n import translate_status, translate_trigger
 from scanner.tui.icons import (

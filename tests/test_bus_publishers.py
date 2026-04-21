@@ -227,33 +227,48 @@ async def test_event_detail_price_handler_still_filters_other_events(svc):
     assert not calls, f"other event's price update leaked through filter: {calls}"
 
 
-def test_dispatch_to_ui_main_thread_uses_call_later():
-    """On the UI thread `dispatch_to_ui` goes through `call_later(0, ...)`,
-    not `call_from_thread` (which raises RuntimeError on the main thread)."""
+def test_dispatch_to_ui_falls_back_to_call_later_on_ui_thread():
+    """When `call_from_thread` raises RuntimeError (the signature Textual
+    uses to signal 'you're on the event-loop thread'), `dispatch_to_ui`
+    falls through to `call_later(0, fn)`."""
     from unittest.mock import MagicMock
-    from scanner.core.events import dispatch_to_ui
+    from scanner.tui._dispatch import dispatch_to_ui
 
     app = MagicMock()
+    app.call_from_thread.side_effect = RuntimeError(
+        "The `call_from_thread` method must run in a different thread",
+    )
     fn = lambda: None
     dispatch_to_ui(app, fn)
+    app.call_from_thread.assert_called_once_with(fn)
     app.call_later.assert_called_once_with(0, fn)
-    app.call_from_thread.assert_not_called()
 
 
-def test_dispatch_to_ui_worker_thread_uses_call_from_thread():
-    """From a worker thread `dispatch_to_ui` uses `call_from_thread`."""
-    import threading
+def test_dispatch_to_ui_uses_call_from_thread_when_it_works():
+    """When `call_from_thread` succeeds (caller is on a worker thread),
+    `call_later` must NOT be called — no double-dispatch."""
     from unittest.mock import MagicMock
-    from scanner.core.events import dispatch_to_ui
+    from scanner.tui._dispatch import dispatch_to_ui
 
     app = MagicMock()
+    # call_from_thread returns normally (default MagicMock behavior)
     fn = lambda: None
+    dispatch_to_ui(app, fn)
+    app.call_from_thread.assert_called_once_with(fn)
+    app.call_later.assert_not_called()
 
-    def worker():
-        dispatch_to_ui(app, fn)
 
-    t = threading.Thread(target=worker)
-    t.start()
-    t.join()
+def test_dispatch_to_ui_generic_exception_is_logged_not_fatal():
+    """If call_from_thread raises an unexpected exception (not
+    RuntimeError), dispatch_to_ui must not fall through to call_later
+    (which could double-dispatch) nor bubble up the exception."""
+    from unittest.mock import MagicMock
+    from scanner.tui._dispatch import dispatch_to_ui
+
+    app = MagicMock()
+    app.call_from_thread.side_effect = ValueError("unexpected")
+    fn = lambda: None
+    # Must not raise
+    dispatch_to_ui(app, fn)
     app.call_from_thread.assert_called_once_with(fn)
     app.call_later.assert_not_called()
