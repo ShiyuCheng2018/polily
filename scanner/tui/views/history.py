@@ -80,8 +80,7 @@ class HistoryView(Widget):
     HistoryView { height: 1fr; }
     HistoryView > VerticalScroll { height: 1fr; }
     HistoryView > VerticalScroll > PolilyZone { height: auto; }
-    HistoryView #history-summary { padding: 0 0 1 0; color: $text-muted; }
-    HistoryView #history-empty { text-align: center; color: $text-muted; padding: 2; }
+    HistoryView #history-empty { padding: 2; }
     HistoryView DataTable { height: auto; }
     """
 
@@ -110,8 +109,8 @@ class HistoryView(Widget):
             zone = None
 
         if zone is not None:
-            zone.mount(Static("", id="history-summary"))
-            zone.mount(Static("", id="history-empty"))
+            zone.mount(Static("", id="history-summary", classes="pb-sm text-muted"))
+            zone.mount(Static("", id="history-empty", classes="text-center text-muted"))
             table = DataTable(id="history-table")
             zone.mount(table)
             table.cursor_type = "row"

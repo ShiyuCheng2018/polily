@@ -72,7 +72,6 @@ class PaperStatusView(Widget):
     PaperStatusView { height: 1fr; }
     PaperStatusView > VerticalScroll { height: 1fr; }
     PaperStatusView > VerticalScroll > PolilyZone { height: auto; }
-    PaperStatusView #portfolio-summary { padding: 0 0 1 0; color: $text-muted; }
     PaperStatusView DataTable { height: auto; }
     """
 
@@ -99,7 +98,7 @@ class PaperStatusView(Widget):
             zone = None
 
         if zone is not None:
-            zone.mount(Static("", id="portfolio-summary"))
+            zone.mount(Static("", id="portfolio-summary", classes="pb-sm text-muted"))
             table = DataTable(id="portfolio-table")
             zone.mount(table)
             table.cursor_type = "row"

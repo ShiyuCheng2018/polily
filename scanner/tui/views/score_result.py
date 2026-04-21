@@ -61,7 +61,6 @@ class ScoreResultView(Widget):
     ScoreResultView #action-bar { height: auto; dock: bottom; padding: 1 1; }
     ScoreResultView #action-row { height: 3; }
     ScoreResultView #action-row Button { margin: 0 1; }
-    ScoreResultView .expired-msg { color: $error; padding: 1 2; }
     """
 
     def __init__(self, event_id: str, service: ScanService):
@@ -110,7 +109,10 @@ class ScoreResultView(Widget):
         # Action bar stays outside the scroll so it's always reachable.
         with Vertical(id="action-bar"):
             if is_expired:
-                yield Static("  事件已过期", classes="expired-msg")
+                yield Static(
+                    "  事件已过期",
+                    classes="expired-msg text-error p-sm",
+                )
             else:
                 with Horizontal(id="action-row"):
                     yield Button("重新评分", id="rescore-btn", variant="default")

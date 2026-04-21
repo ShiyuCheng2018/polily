@@ -62,7 +62,7 @@ class ArchivedEventsView(Widget):
     ArchivedEventsView > VerticalScroll { height: 1fr; }
     ArchivedEventsView > VerticalScroll > PolilyZone { height: auto; }
     ArchivedEventsView DataTable { height: auto; }
-    ArchivedEventsView .empty-msg { text-align: center; color: $text-muted; padding: 2; }
+    ArchivedEventsView .empty-msg { padding: 2; }
     """
 
     def __init__(self, service: ScanService):
@@ -92,7 +92,11 @@ class ArchivedEventsView(Widget):
 
         if zone is not None:
             zone.mount(Static("", id="archive-summary"))
-            zone.mount(Static("", id="archive-empty", classes="empty-msg"))
+            zone.mount(Static(
+                "",
+                id="archive-empty",
+                classes="empty-msg text-center text-muted",
+            ))
             table = DataTable(id="archive-table")
             zone.mount(table)
             table.cursor_type = "row"
