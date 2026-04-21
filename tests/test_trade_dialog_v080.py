@@ -185,7 +185,7 @@ async def test_trade_dialog_preserves_widget_ids(svc):
         dialog.query_one("#buy-amount", Input)
         dialog.query_one("#btn-buy-yes", Button)
         dialog.query_one("#btn-buy-no", Button)
-        dialog.query_one("#buy-quick-20", Button)
+        dialog.query_one("#quick-20", Button)  # v0.8.0 Opt-A2: QuickAmountRow atom
 
         # SellPane IDs
         dialog.query_one("#btn-sell", Button)

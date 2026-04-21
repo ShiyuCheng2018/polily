@@ -118,7 +118,7 @@ async def test_buy_quick_amount_fills_input(tmp_path):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         dialog = host.screen
-        dialog.query_one("#buy-quick-20", Button).press()
+        dialog.query_one("#quick-20", Button).press()
         await pilot.pause()
         assert dialog.query_one("#buy-amount", Input).value == "20"
 

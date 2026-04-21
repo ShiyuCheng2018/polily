@@ -53,9 +53,10 @@ from scanner.tui.views._trade_preview import (
 )
 from scanner.tui.widgets.polily_card import PolilyCard
 from scanner.tui.widgets.polily_zone import PolilyZone
+from scanner.tui.widgets.quick_amount_row import QuickAmountRow
 
 _DIALOG_WIDTH = 100
-_QUICK_AMOUNTS = (10, 20, 50)
+_QUICK_AMOUNTS = [10, 20, 50]
 _QUICK_PCTS = (25, 50, 75, 100)
 
 
@@ -83,10 +84,7 @@ class BuyPane(Widget):
                 yield Input(value="10", id="buy-amount", type="number")
                 yield Static("", id="buy-preview", classes="preview")
             yield Static("", id="buy-fee-line", classes="preview-secondary")
-            with Horizontal(id="buy-quick-row"):
-                yield Label("快捷金额", classes="field-label")
-                for amt in _QUICK_AMOUNTS:
-                    yield Button(f"${amt}", id=f"buy-quick-{amt}", classes="quick-btn")
+            yield QuickAmountRow(amounts=_QUICK_AMOUNTS)
             with Horizontal(id="buy-action-row"):
                 yield Button("买 YES", id="btn-buy-yes", variant="success", classes="trade-btn")
                 yield Button("买 NO", id="btn-buy-no", variant="error", classes="trade-btn")
@@ -106,14 +104,15 @@ class BuyPane(Widget):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id is None:
             return
-        # Quick-amount buttons
-        if event.button.id.startswith("buy-quick-"):
-            amt = event.button.id.replace("buy-quick-", "")
-            self.query_one("#buy-amount", Input).value = amt
-            return
-        # YES / NO execute
+        # YES / NO execute (quick-amount buttons are handled by QuickAmountRow
+        # via the dedicated Selected handler below)
         if event.button.id in ("btn-buy-yes", "btn-buy-no"):
             self._execute("yes" if event.button.id == "btn-buy-yes" else "no")
+
+    def on_quick_amount_row_selected(
+        self, event: QuickAmountRow.Selected,
+    ) -> None:
+        self.query_one("#buy-amount", Input).value = str(event.amount)
 
     # ----- internals -----
 
@@ -538,7 +537,7 @@ class TradeDialog(ModalScreen[dict | None]):
         align: center middle;
         padding: 1 0;
     }}
-    TradeDialog #buy-quick-row, TradeDialog #sell-pct-row {{
+    TradeDialog #sell-pct-row {{
         height: auto;
         padding: 0 0 1 0;
     }}

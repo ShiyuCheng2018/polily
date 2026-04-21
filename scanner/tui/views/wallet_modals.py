@@ -7,8 +7,11 @@ the daemon first (if running) then calls reset_wallet.
 v0.8.0 migration:
 - Topup / Withdraw wrap inputs in PolilyCard (ICON_BUY / ICON_SELL titles)
 - WalletResetModal wraps destructive-confirm flow in PolilyZone (ICON_SETTINGS)
-- All widget IDs preserved (#amount, #ok, #cancel, #confirm-input, #ack-daemon,
-  #q50/#q100/#q500, #q20/#q50/#qall, #warn-line) — existing tests query by ID
+- Quick-amount rows replaced by QuickAmountRow atom (Opt-A2): button ids
+  moved from #q50/#q100/#q500, #q20/#q50/#qall → #quick-50/#quick-100/...,
+  #quick-20/#quick-50/#quick-tok-2 (non-ASCII token "全部"). Other widget
+  IDs preserved (#amount, #confirm, #cancel, #confirm-input, #ack-daemon,
+  #warn-line).
 - push_screen / dismiss protocol untouched
 """
 
@@ -28,6 +31,7 @@ from scanner.tui.icons import ICON_BUY, ICON_SELL, ICON_SETTINGS, ICON_WALLET
 from scanner.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 from scanner.tui.widgets.polily_card import PolilyCard
 from scanner.tui.widgets.polily_zone import PolilyZone
+from scanner.tui.widgets.quick_amount_row import QuickAmountRow
 
 _MODAL_WIDTH = 62
 
@@ -66,8 +70,8 @@ class TopupModal(ModalScreen[float | None]):
     TopupModal .balance-line {{ padding: 0 0 1 0; color: $text-muted; }}
     TopupModal .amount-row {{ height: auto; padding: 0 0 1 0; }}
     TopupModal #amount {{ width: 14; }}
-    TopupModal #quick-row {{ height: auto; padding: 0 0 1 0; }}
-    TopupModal .quick-btn {{ min-width: 7; margin: 0 1 0 0; }}
+    TopupModal QuickAmountRow {{ padding: 0 0 1 0; }}
+    TopupModal QuickAmountRow Button {{ min-width: 7; }}
     TopupModal ConfirmCancelBar Button {{ min-width: 14; }}
     """
     BINDINGS = [("escape", "cancel", "取消")]
@@ -87,19 +91,13 @@ class TopupModal(ModalScreen[float | None]):
                 with Horizontal(classes="amount-row"):
                     yield Label("金额 $", classes="field-label")
                     yield Input(value="50", id="amount", type="number")
-                with Horizontal(id="quick-row"):
-                    yield Label("快捷", classes="field-label")
-                    for amt in (50, 100, 500):
-                        yield Button(f"${amt}", id=f"q{amt}", classes="quick-btn")
+                yield QuickAmountRow(amounts=[50, 100, 500])
                 yield ConfirmCancelBar()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        # ConfirmCancelBar buttons stop their event; only quick-amount buttons
-        # reach here.
-        if event.button.id is None:
-            return
-        if event.button.id.startswith("q"):
-            self.query_one("#amount", Input).value = event.button.id[1:]
+    def on_quick_amount_row_selected(
+        self, event: QuickAmountRow.Selected,
+    ) -> None:
+        self.query_one("#amount", Input).value = str(event.amount)
 
     def on_confirm_cancel_bar_confirmed(
         self, event: ConfirmCancelBar.Confirmed,
@@ -154,8 +152,8 @@ class WithdrawModal(ModalScreen[float | None]):
     WithdrawModal .hint {{ padding: 0 0 1 0; color: $text-muted; }}
     WithdrawModal .amount-row {{ height: auto; padding: 0 0 1 0; }}
     WithdrawModal #amount {{ width: 14; }}
-    WithdrawModal #quick-row {{ height: auto; padding: 0 0 1 0; }}
-    WithdrawModal .quick-btn {{ min-width: 7; margin: 0 1 0 0; }}
+    WithdrawModal QuickAmountRow {{ padding: 0 0 1 0; }}
+    WithdrawModal QuickAmountRow Button {{ min-width: 7; }}
     WithdrawModal #warn-line {{ padding: 0 0 1 0; }}
     WithdrawModal ConfirmCancelBar Button {{ min-width: 14; }}
     """
@@ -177,11 +175,7 @@ class WithdrawModal(ModalScreen[float | None]):
                 with Horizontal(classes="amount-row"):
                     yield Label("金额 $", classes="field-label")
                     yield Input(value="", id="amount", type="number")
-                with Horizontal(id="quick-row"):
-                    yield Label("快捷", classes="field-label")
-                    yield Button("$20", id="q20", classes="quick-btn")
-                    yield Button("$50", id="q50", classes="quick-btn")
-                    yield Button("全部", id="qall", classes="quick-btn")
+                yield QuickAmountRow(amounts=[20, 50, "全部"])
                 yield Static("", id="warn-line")
                 yield ConfirmCancelBar()
 
@@ -192,16 +186,14 @@ class WithdrawModal(ModalScreen[float | None]):
     def on_input_changed(self, event: Input.Changed) -> None:
         self._refresh_warn()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        # ConfirmCancelBar buttons stop their event; only quick-amount buttons
-        # reach here.
-        if event.button.id is None:
-            return
-        if event.button.id.startswith("q"):
-            if event.button.id == "qall":
-                self.query_one("#amount", Input).value = f"{self._cash:.2f}"
-            else:
-                self.query_one("#amount", Input).value = event.button.id[1:]
+    def on_quick_amount_row_selected(
+        self, event: QuickAmountRow.Selected,
+    ) -> None:
+        if event.amount == "全部":
+            # Resolve the "max available" token against current cash.
+            self.query_one("#amount", Input).value = f"{self._cash:.2f}"
+        else:
+            self.query_one("#amount", Input).value = str(event.amount)
 
     def on_confirm_cancel_bar_confirmed(
         self, event: ConfirmCancelBar.Confirmed,

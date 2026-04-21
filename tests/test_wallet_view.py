@@ -208,7 +208,7 @@ async def test_topup_modal_quick_button_fills_amount(tmp_path):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         modal = host.screen
-        modal.query_one("#q100", Button).press()
+        modal.query_one("#quick-100", Button).press()
         await pilot.pause()
         assert modal.query_one("#amount", Input).value == "100"
 
@@ -238,7 +238,9 @@ async def test_withdraw_modal_qall_fills_cash(tmp_path):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         modal = host.screen
-        modal.query_one("#qall", Button).press()
+        # "全部" is a non-ASCII token → QuickAmountRow assigns a positional
+        # id (#quick-tok-2 for the third button at index 2).
+        modal.query_one("#quick-tok-2", Button).press()
         await pilot.pause()
         assert modal.query_one("#amount", Input).value == "100.00"
 
