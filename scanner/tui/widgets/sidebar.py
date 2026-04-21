@@ -87,7 +87,7 @@ class Sidebar(Widget):
 
     DEFAULT_CSS = """
     Sidebar {
-        width: 48;
+        width: 22;
         dock: left;
         border-right: tall $primary;
         background: $surface;
@@ -126,16 +126,9 @@ class Sidebar(Widget):
     }
     """
 
-    # ANSI Regular figlet "POLILY" — 5 rows × ~44 cols.
     # Theme-colored via .sidebar-title (`color: $primary`) — auto-follows
     # polily-dark (blue) / polily-geek (phosphor green) / any built-in.
-    _LOGO = (
-        "██████   ██████  ██      ██ ██      ██    ██\n"
-        "██   ██ ██    ██ ██      ██ ██       ██  ██ \n"
-        "██████  ██    ██ ██      ██ ██        ████  \n"
-        "██      ██    ██ ██      ██ ██         ██   \n"
-        "██       ██████  ███████ ██ ███████    ██   "
-    )
+    _LOGO = "  [bold]Polily[/bold]"  # placeholder — to be replaced w/ figlet logo
 
     def compose(self) -> ComposeResult:
         yield Static(self._LOGO, classes="sidebar-title")
