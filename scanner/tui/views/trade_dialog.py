@@ -269,7 +269,12 @@ class SellPane(Widget):
             )
             yield Static("", id="sell-pnl-line", classes="preview-secondary")
             with Horizontal(id="sell-action-row"):
-                yield Button("卖出", id="btn-sell", variant="warning", classes="trade-btn")
+                yield Button(
+                    "卖出",
+                    id="btn-sell",
+                    variant="warning",
+                    classes="trade-btn bold",
+                )
 
     def update_context(
         self, *, market, positions_here: list[dict],
@@ -501,13 +506,11 @@ class TradeDialog(ModalScreen[dict | None]):
         margin: 0 0 1 0;
     }}
     TradeDialog #dialog-title {{
-        text-style: bold;
         width: 1fr;
     }}
     TradeDialog #balance-label {{
         width: auto;
         color: $accent;
-        text-style: bold;
     }}
     TradeDialog #market-radios {{
         height: auto;
@@ -561,7 +564,6 @@ class TradeDialog(ModalScreen[dict | None]):
         min-width: 28;
         height: 3;
         color: white;
-        text-style: bold;
     }}
     /* TabbedContent inside an auto-height parent must itself be auto or
        its inner ContentSwitcher collapses to zero (tab headers visible,
@@ -610,8 +612,8 @@ class TradeDialog(ModalScreen[dict | None]):
             # with the thick primary outer dialog border.
             with PolilyCard(id="header-card"):
                 with Horizontal(id="dialog-header"):
-                    yield Static(f"{ICON_MARKET} 交易", id="dialog-title")
-                    yield Static("", id="balance-label")
+                    yield Static(f"{ICON_MARKET} 交易", id="dialog-title", classes="bold")
+                    yield Static("", id="balance-label", classes="bold")
             yield Static("子市场:", classes="field-label")
             with RadioSet(id="market-radios"):
                 for i, m in enumerate(self._markets):

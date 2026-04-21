@@ -69,7 +69,6 @@ class TopupModal(ModalScreen[float | None]):
         height: auto;
         margin: 0;
     }}
-    TopupModal .balance-line {{ padding: 0 0 1 0; color: $text-muted; }}
     TopupModal #amount {{ width: 14; }}
     TopupModal QuickAmountRow {{ padding: 0 0 1 0; }}
     TopupModal QuickAmountRow Button {{ min-width: 7; }}
@@ -87,7 +86,7 @@ class TopupModal(ModalScreen[float | None]):
             with PolilyCard(title=f"{ICON_BUY} 充值"):
                 yield Static(
                     f"{ICON_WALLET} 当前余额: ${cash:.2f}",
-                    classes="balance-line",
+                    classes="balance-line pb-sm text-muted",
                 )
                 yield FieldRow(
                     label="金额",
@@ -147,8 +146,6 @@ class WithdrawModal(ModalScreen[float | None]):
         height: auto;
         margin: 0;
     }}
-    WithdrawModal .balance-line {{ padding: 0 0 0 0; color: $text-muted; }}
-    WithdrawModal .hint {{ padding: 0 0 1 0; color: $text-muted; }}
     WithdrawModal #amount {{ width: 14; }}
     WithdrawModal QuickAmountRow {{ padding: 0 0 1 0; }}
     WithdrawModal QuickAmountRow Button {{ min-width: 7; }}
@@ -167,9 +164,12 @@ class WithdrawModal(ModalScreen[float | None]):
             with PolilyCard(title=f"{ICON_SELL} 提现"):
                 yield Static(
                     f"{ICON_WALLET} 可提现 (现金): ${self._cash:.2f}",
-                    classes="balance-line",
+                    classes="balance-line text-muted",
                 )
-                yield Static("[dim]持仓市值不可提现[/dim]", classes="hint")
+                yield Static(
+                    "[dim]持仓市值不可提现[/dim]",
+                    classes="hint pb-sm text-muted",
+                )
                 yield FieldRow(
                     label="金额",
                     unit="$",
@@ -268,8 +268,6 @@ class WalletResetModal(ModalScreen[bool | None]):
         border: round $error;
     }
     WalletResetModal .polily-zone-title { color: $error; }
-    WalletResetModal .warn-block { padding: 0 0 1 0; }
-    WalletResetModal .daemon-block { padding: 0 0 1 0; color: $warning; }
     WalletResetModal #confirm-prompt { padding: 0 0 0 0; }
     WalletResetModal #confirm-input { width: 20; }
     WalletResetModal ConfirmCancelBar Button { min-width: 14; }
@@ -292,14 +290,17 @@ class WalletResetModal(ModalScreen[bool | None]):
                     "    · 所有交易流水",
                     f"    · 现金重置为初始 ${starting:.2f}",
                 ]
-                yield Static("\n".join(warn_lines), classes="warn-block")
+                yield Static("\n".join(warn_lines), classes="warn-block pb-sm")
                 if self._daemon_pid is not None:
                     daemon_text = (
                         f"⚠  后台监控正在运行 (PID {self._daemon_pid})\n"
                         "    重置会先停止 daemon。完成后请手动执行：\n"
                         "        polily scheduler restart"
                     )
-                    yield Static(daemon_text, classes="daemon-block")
+                    yield Static(
+                        daemon_text,
+                        classes="daemon-block pb-sm text-warning",
+                    )
                     yield Checkbox("我知道 daemon 会被停止", id="ack-daemon")
                 yield Static('确认请输入 [bold]reset[/bold] :', id="confirm-prompt")
                 yield Input(value="", id="confirm-input")

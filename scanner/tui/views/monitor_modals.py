@@ -45,7 +45,6 @@ class ConfirmUnmonitorModal(ModalScreen[bool]):
         border: round $error;
     }}
     ConfirmUnmonitorModal .polily-zone-title {{ color: $error; }}
-    ConfirmUnmonitorModal .event-line {{ color: $text-muted; padding: 0 0 1 0; }}
     ConfirmUnmonitorModal ConfirmCancelBar Button {{ min-width: 16; }}
     """
     BINDINGS = [("escape", "keep", "继续监控")]
@@ -57,10 +56,13 @@ class ConfirmUnmonitorModal(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog-box"):
             with PolilyZone(title=f"{ICON_CANCELLED} 确认取消监控"):
-                yield Static(self._event_title, classes="event-line")
+                yield Static(
+                    self._event_title,
+                    classes="event-line text-muted pb-sm",
+                )
                 yield Static(
                     "[dim]取消后此事件将从监控轮询中移除。[/dim]",
-                    classes="event-line",
+                    classes="event-line text-muted pb-sm",
                 )
                 yield ConfirmCancelBar(
                     confirm_label="确认取消",
