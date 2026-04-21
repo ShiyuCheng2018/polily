@@ -458,7 +458,7 @@ class ScanLogDetailView(Widget):
 
     BINDINGS = [
         Binding("escape", "go_back", "返回列表"),
-        Binding("enter", "open_market", "打开市场", show=False),
+        Binding("enter", "open_market", "打开事件", show=True),
     ]
 
     DEFAULT_CSS = """
@@ -555,18 +555,22 @@ class ScanLogDetailView(Widget):
         status_label = f"{status_icon} {translate_status(log.status)}".strip()
         type_label = translate_trigger(log.trigger_source)
 
+        # Title reflects type: analyze → 分析详情; scan / add_event → 扫描详情
+        zone_title = "分析详情" if is_analyze else "扫描详情"
+
         with VerticalScroll():
-            with PolilyZone(title="扫描详情"):
+            with PolilyZone(title=zone_title):
                 # event title — no event_id prefix
                 yield KVRow(label="事件", value=log.market_title or "?")
                 yield KVRow(label="状态", value=status_label)
                 yield KVRow(label="类型", value=type_label)
-                if log.scheduled_reason:
-                    yield KVRow(label="原因", value=log.scheduled_reason)
                 yield KVRow(label="开始时间", value=_to_local(log.started_at))
                 yield KVRow(label="结束时间", value=_to_local(log.finished_at))
                 elapsed_display = _format_elapsed(log.total_elapsed) or "?"
                 yield KVRow(label="总耗时", value=elapsed_display)
+                # 原因 moved below 总耗时, full content (no truncation).
+                if log.scheduled_reason:
+                    yield KVRow(label="原因", value=log.scheduled_reason)
                 # Error only for failed status
                 if log.status == "failed" and log.error:
                     yield KVRow(label="错误", value=log.error)
@@ -579,9 +583,6 @@ class ScanLogDetailView(Widget):
                             label="事件数",
                             value=f"{stats['research_events']} 事件 / {stats['research_markets']} 市场",
                         )
-
-                if is_analyze and log.event_id:
-                    yield Static("  [dim]按 Enter 打开事件详情[/dim]", classes="step-row")
 
             # Steps zone
             if log.steps:
@@ -600,15 +601,9 @@ class ScanLogDetailView(Widget):
                         )
 
             yield Static("")
-            # Action buttons
+            # Action buttons — keyboard hints live in the footer (via BINDINGS show=True).
             if is_add_event and log.event_id:
                 yield Button("重新评分", id="rescore-btn", variant="primary")
-                yield Static("")
-                yield Static("  [dim]Esc 返回列表[/dim]")
-            elif is_analyze and log.event_id:
-                yield Static("  [dim]Enter 打开事件 | Esc 返回列表[/dim]")
-            else:
-                yield Static("  [dim]Esc 返回列表[/dim]")
 
     def action_go_back(self) -> None:
         self.post_message(BackToScanLog())
