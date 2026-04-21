@@ -391,9 +391,13 @@ class ScanLogView(Widget):
         if row_idx is None or row_idx >= len(rows):
             return
         log = rows[row_idx]
-        # Always enter the scan detail page first; inside, Enter opens the
-        # event market_detail. Uniform behaviour regardless of type.
-        self.post_message(ViewScanLogDetail(log))
+        # Enter from the scan_log list goes straight to the event (market
+        # detail). Scan detail page is reachable via a separate action if
+        # needed.
+        if log.event_id:
+            self.post_message(OpenMarketFromLog(log.event_id))
+        else:
+            self.post_message(ViewScanLogDetail(log))
 
     def action_cancel_running(self) -> None:
         from scanner.tui.views.scan_modals import ConfirmCancelScanModal
@@ -456,8 +460,8 @@ class ScanLogDetailView(Widget):
     """
 
     BINDINGS = [
-        Binding("escape", "go_back", "返回列表", key_display="⎋"),
-        Binding("enter", "open_market", "打开事件", show=True, key_display="⏎"),
+        Binding("escape", "go_back", "返回列表"),
+        Binding("enter", "open_market", "打开事件", show=True),
     ]
 
     DEFAULT_CSS = """
