@@ -22,7 +22,12 @@ from textual.widgets import Button, Static
 
 from scanner.scan_log import ScanLogEntry
 from scanner.tui.bindings import NAV_BINDINGS
-from scanner.tui.components import EventHeader, EventKpiRow, SubMarketTable
+from scanner.tui.components import (
+    BinaryMarketStructurePanel,
+    EventHeader,
+    EventKpiRow,
+    SubMarketTable,
+)
 from scanner.tui.icons import ICON_EVENT, ICON_MARKET, ICON_SCAN
 from scanner.tui.service import ScanService
 from scanner.tui.widgets.polily_zone import PolilyZone
@@ -103,9 +108,13 @@ class ScoreResultView(Widget):
                 yield EventHeader(event, monitor)
                 yield EventKpiRow(event, markets)
 
-            # Zone: 市场 (sub-market breakdown + per-market structure scores)
+            # Zone: 市场 — binary events show the structure panel (same as
+            # EventDetailView); multi-outcome events use SubMarketTable.
             with PolilyZone(title=f"{ICON_MARKET} 市场", id="market-zone"):
-                yield SubMarketTable(markets, event)
+                if len(markets) == 1:
+                    yield BinaryMarketStructurePanel(markets[0], event)
+                else:
+                    yield SubMarketTable(markets, event)
 
         # Action bar stays outside the scroll so it's always reachable.
         with Vertical(id="action-bar"):
