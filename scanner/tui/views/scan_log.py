@@ -254,6 +254,7 @@ class ScanLogView(Widget):
 
     BINDINGS = [
         Binding("c", "cancel_running", "取消正在运行的分析", show=False),
+        Binding("r", "refresh", "刷新", show=True),
     ]
 
     DEFAULT_CSS = """
@@ -291,8 +292,39 @@ class ScanLogView(Widget):
         yield PolilyZone(title="历史", id="history-zone")
 
     def on_mount(self) -> None:
+        # Mount both DataTables ONCE. `_rebuild_*` refreshes rows in
+        # place via `table.clear()` so manual `r` refresh doesn't race
+        # Textual's deferred `remove()`.
+        self._mount_tables()
         self.service.event_bus.subscribe(TOPIC_SCAN_UPDATED, self._on_scan_update)
         self._render_all()
+
+    def _mount_tables(self) -> None:
+        try:
+            pending_zone = self.query_one("#pending-zone", PolilyZone)
+            history_zone = self.query_one("#history-zone", PolilyZone)
+        except Exception:
+            return
+        up_table = DataTable(id="upcoming-table")
+        pending_zone.mount(up_table)
+        up_table.cursor_type = "row"
+        up_table.add_column("触发", key="触发")
+        up_table.add_column("类型", key="类型")
+        up_table.add_column("状态", key="状态")
+        up_table.add_column("事件", key="事件")
+        up_table.add_column("预定时间", key="预定时间")
+        up_table.add_column("原因", key="原因")
+
+        hist_table = DataTable(id="history-table")
+        history_zone.mount(hist_table)
+        hist_table.cursor_type = "row"
+        hist_table.add_column("触发", key="触发")
+        hist_table.add_column("类型", key="类型")
+        hist_table.add_column("状态", key="状态")
+        hist_table.add_column("事件", key="事件")
+        hist_table.add_column("结束时间", key="结束时间")
+        hist_table.add_column("耗时", key="耗时")
+        hist_table.add_column("错误", key="错误")
 
     def on_unmount(self) -> None:
         self.service.event_bus.unsubscribe(TOPIC_SCAN_UPDATED, self._on_scan_update)
@@ -311,33 +343,10 @@ class ScanLogView(Widget):
 
     def _rebuild_pending_zone(self) -> None:
         try:
-            zone = self.query_one("#pending-zone", PolilyZone)
+            table = self.query_one("#upcoming-table", DataTable)
         except Exception:
             return
-        # Clear existing DataTable children
-        for child in list(zone.query(DataTable)):
-            child.remove()
-
-        def _add_upcoming_columns(t: DataTable) -> None:
-            t.add_column("触发", key="触发")
-            t.add_column("类型", key="类型")
-            t.add_column("状态", key="状态")
-            t.add_column("事件", key="事件")
-            t.add_column("预定时间", key="预定时间")
-            t.add_column("原因", key="原因")
-
-        if not self._upcoming:
-            # Keep zone visible with empty table (columns only) so test can find it
-            table = DataTable(id="upcoming-table")
-            zone.mount(table)
-            table.cursor_type = "row"
-            _add_upcoming_columns(table)
-            return
-
-        table = DataTable(id="upcoming-table")
-        zone.mount(table)
-        table.cursor_type = "row"
-        _add_upcoming_columns(table)
+        table.clear()
 
         for log in self._upcoming:
             who = _trigger_who_label(log.trigger_source)
@@ -353,23 +362,10 @@ class ScanLogView(Widget):
 
     def _rebuild_history_zone(self) -> None:
         try:
-            zone = self.query_one("#history-zone", PolilyZone)
+            table = self.query_one("#history-table", DataTable)
         except Exception:
             return
-        # Clear existing DataTable children
-        for child in list(zone.query(DataTable)):
-            child.remove()
-
-        table = DataTable(id="history-table")
-        zone.mount(table)
-        table.cursor_type = "row"
-        table.add_column("触发", key="触发")
-        table.add_column("类型", key="类型")
-        table.add_column("状态", key="状态")
-        table.add_column("事件", key="事件")
-        table.add_column("结束时间", key="结束时间")
-        table.add_column("耗时", key="耗时")
-        table.add_column("错误", key="错误")
+        table.clear()
 
         for log in self._history:
             who = _trigger_who_label(log.trigger_source)
@@ -431,6 +427,16 @@ class ScanLogView(Widget):
             self.post_message(OpenEventScoreResult(log.event_id))
         else:
             self.post_message(ViewScanLogDetail(log))
+
+    def action_refresh(self) -> None:
+        """Manual refresh — re-fetch logs from service and rebuild zones.
+
+        The bus subscription already auto-updates when scans publish
+        TOPIC_SCAN_UPDATED, but `r` gives the user a direct lever when
+        they want to force a re-read (e.g., if they suspect a poll tick
+        lagged behind a DB write by another process).
+        """
+        self._render_all()
 
     def action_cancel_running(self) -> None:
         from scanner.tui.views.scan_modals import ConfirmCancelScanModal
@@ -512,6 +518,8 @@ class ScanLogDetailView(Widget):
     BINDINGS = [
         Binding("escape", "go_back", "返回列表"),
         Binding("enter", "open_event", "打开事件", show=True),
+        Binding("o", "open_link", "链接", show=True),
+        Binding("r", "refresh", "刷新", show=True),
     ]
 
     DEFAULT_CSS = """
@@ -707,12 +715,57 @@ class ScanLogDetailView(Widget):
             if is_add_event and log.event_id:
                 yield Button("重新评分", id="rescore-btn", variant="primary")
 
+    def action_refresh(self) -> None:
+        """Manual refresh — reload the log entry from DB and recompose.
+
+        A scan_log row is mostly immutable once finalized, but a
+        `running` row the user is watching grows (steps, elapsed), and
+        an `analyze` row's produced AnalysisVersion is written at
+        completion — `r` lets the user pull the latest snapshot.
+        """
+        from scanner.scan_log import load_scan_logs
+
+        if not self._db:
+            return
+        fresh = next(
+            (e for e in load_scan_logs(self._db, limit=200)
+             if e.scan_id == self.log_entry.scan_id),
+            None,
+        )
+        if fresh is not None:
+            self.log_entry = fresh
+        self.recompose()
+
     def action_go_back(self) -> None:
         self.post_message(BackToScanLog())
 
     def action_open_event(self) -> None:
         if self.log_entry.event_id:
             self.post_message(OpenEventFromLog(self.log_entry.event_id))
+
+    def action_open_link(self) -> None:
+        """`o` → open the Polymarket event page in the system browser.
+
+        Resolves slug via `get_event(event_id, db)`; scan_log rows without
+        an event_id (shouldn't happen for analyze / add_event, but the
+        field is nullable) or with a null slug get a toast instead.
+        """
+        from scanner.core.event_store import get_event
+
+        if not self.log_entry.event_id or not self._db:
+            self.notify("无链接信息", severity="warning")
+            return
+        event = get_event(self.log_entry.event_id, self._db)
+        slug = getattr(event, "slug", None) if event else None
+        if not slug:
+            self.notify("无链接信息", severity="warning")
+            return
+        import webbrowser
+        url = f"https://polymarket.com/event/{slug}"
+        try:
+            webbrowser.open(url)
+        except Exception:
+            self.notify("无法打开浏览器", severity="warning")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "rescore-btn" and self.log_entry.event_id:

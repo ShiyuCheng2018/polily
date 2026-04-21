@@ -72,7 +72,7 @@ class HistoryView(Widget):
     """Realized P&L ledger — one row per SELL / RESOLVE event."""
 
     BINDINGS = [
-        Binding("r", "refresh", "刷新", show=False),
+        Binding("r", "refresh", "刷新", show=True),
         *NAV_BINDINGS,
     ]
 

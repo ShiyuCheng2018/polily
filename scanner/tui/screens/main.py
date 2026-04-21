@@ -60,7 +60,6 @@ class MainScreen(Screen):
 
     BINDINGS = [
         Binding("0", "show_tasks", show=False),
-        Binding("r", "refresh", show=False),
         Binding("1", "show_monitor", show=False),
         Binding("2", "show_paper", show=False),
         Binding("3", "show_wallet", show=False),
@@ -512,16 +511,6 @@ class MainScreen(Screen):
 
     def action_show_archive(self) -> None:
         self._navigate_to("archive")
-
-    def action_refresh(self) -> None:
-        content = self.query_one("#content-area")
-        for child in content.children:
-            if isinstance(child, EventDetailView):
-                self._switch_view(EventDetailView(
-                    event_id=child.event_id, service=self.service,
-                ))
-                return
-        self._navigate_to(self._current_menu)
 
     def action_menu_prev(self) -> None:
         idx = self.MENU_ORDER.index(self._current_menu) if self._current_menu in self.MENU_ORDER else 0

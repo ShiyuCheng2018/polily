@@ -56,6 +56,8 @@ class ScoreResultView(Widget):
         Binding("escape", "go_back", "返回"),
         Binding("backspace", "go_back", show=False),
         Binding("enter", "open_event", "打开事件", show=True),
+        Binding("o", "open_link", "链接", show=True),
+        Binding("r", "refresh", "刷新", show=True),
         *NAV_BINDINGS,
     ]
 
@@ -170,3 +172,23 @@ class ScoreResultView(Widget):
         """Enter → open EventDetailView for this scored event."""
         from scanner.tui.views.scan_log import OpenEventFromLog
         self.post_message(OpenEventFromLog(self.event_id))
+
+    def action_refresh(self) -> None:
+        """Manual refresh — recompose so the latest event detail
+        (prices, monitor flag, markets) is re-read from the service."""
+        self.recompose()
+
+    def action_open_link(self) -> None:
+        """`o` → open the Polymarket event page in the system browser."""
+        detail = self.service.get_event_detail(self.event_id)
+        event = detail.get("event") if detail else None
+        slug = getattr(event, "slug", None) if event else None
+        if not slug:
+            self.notify("无链接信息", severity="warning")
+            return
+        import webbrowser
+        url = f"https://polymarket.com/event/{slug}"
+        try:
+            webbrowser.open(url)
+        except Exception:
+            self.notify("无法打开浏览器", severity="warning")

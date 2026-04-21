@@ -59,7 +59,7 @@ class MonitorListView(Widget):
     BINDINGS = [
         Binding("enter", "view_detail", "详情", show=True),
         Binding("m", "toggle_monitor", "关闭监控", show=True),
-        Binding("r", "refresh", "刷新", show=False),
+        Binding("r", "refresh", "刷新", show=True),
         *NAV_BINDINGS,
     ]
 
@@ -84,6 +84,21 @@ class MonitorListView(Widget):
             )
 
     def on_mount(self):
+        # Mount the DataTable ONCE inside the zone. `_render_all` then
+        # refreshes it in place via `table.clear()` + re-add rows.
+        # Re-mounting per render would leak stale widgets because
+        # Textual's `remove()` is deferred, tripping DuplicateIds on
+        # `#monitor-table` when the user manually hits `r`.
+        try:
+            zone = self.query_one("#monitor-zone", PolilyZone)
+        except Exception:
+            zone = None
+        if zone is not None:
+            table = DataTable(id="monitor-table")
+            zone.mount(table)
+            table.cursor_type = "row"
+            table.add_columns(*_COLUMN_SPEC)
+
         self.service.event_bus.subscribe(
             TOPIC_MONITOR_UPDATED, self._on_monitor_update,
         )
@@ -123,22 +138,21 @@ class MonitorListView(Widget):
     # -- Rendering --
 
     def _render_all(self) -> None:
-        """Rebuild the DataTable inside the PolilyZone from fresh service data."""
+        """Refresh the DataTable rows from fresh service data (in place).
+
+        The table itself is mounted once in `on_mount`; this method only
+        clears and repopulates rows so manual `r` refresh doesn't race
+        Textual's deferred remove.
+        """
         try:
-            zone = self.query_one("#monitor-zone", PolilyZone)
+            table = self.query_one("#monitor-table", DataTable)
         except Exception:
             return
-
-        for child in list(zone.query(DataTable)):
-            child.remove()
 
         events = self.service.get_all_events()
         self._monitored = [e for e in events if e["is_monitored"]]
 
-        table = DataTable(id="monitor-table")
-        zone.mount(table)
-        table.cursor_type = "row"
-        table.add_columns(*_COLUMN_SPEC)
+        table.clear()
 
         for e in self._monitored:
             ev = e["event"]

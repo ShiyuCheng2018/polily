@@ -8,9 +8,10 @@ v0.8.0 changes:
 - NAV_BINDINGS appended for Q11 key spec compliance
 
 Keybindings
-    t  TopupModal
-    w  WithdrawModal
-    r  WalletResetModal
+    t        TopupModal
+    w        WithdrawModal
+    shift+r  WalletResetModal (r is reserved for global refresh;
+             Shift modifier prevents accidental destructive resets)
 
 Data lives in `positions` and `wallet_transactions`; prices are read from
 `markets.yes_price` (poll-updated ~30s). The `cumulative_realized_pnl`
@@ -103,8 +104,7 @@ class WalletView(Widget):
     WalletView #balance-card { margin: 0 0 1 0; }
     WalletView #ledger-zone { height: 1fr; }
     WalletView #wallet-table { height: 1fr; }
-    WalletView #action-row { height: 3; padding: 0; }
-    WalletView .hint { width: 1fr; padding: 1 1 0 0; }
+    WalletView #action-row { height: 3; padding: 0; align: right middle; }
     WalletView #reset-btn {
         width: 14;
         background: $error 20%;
@@ -115,7 +115,11 @@ class WalletView(Widget):
     BINDINGS = [
         Binding("t", "topup", "充值", show=True),
         Binding("w", "withdraw", "提现", show=True),
-        Binding("r", "reset", "重置", show=True),
+        Binding("r", "refresh", "刷新", show=True),
+        # v0.8.0: `r` is page refresh (every view has it) — reset moves
+        # to shift+r so the destructive op keeps a mnemonic key but
+        # requires a modifier.
+        Binding("shift+r", "reset", "重置", show=True),
         *NAV_BINDINGS,
     ]
 
@@ -127,10 +131,10 @@ class WalletView(Widget):
         yield PolilyCard(title=f"{ICON_WALLET} 余额概览", id="balance-card")
         yield PolilyZone(title="交易流水", id="ledger-zone")
         with Horizontal(id="action-row"):
-            yield Static(
-                r"[dim]\[t] 充值   \[w] 提现   \[r] 重置[/dim]",
-                classes="hint text-muted",
-            )
+            # v0.8.0: the redundant `[t] 充值   [w] 提现   [r] 重置`
+            # hint Static was removed — the Footer already surfaces
+            # every binding. Only the destructive red button remains
+            # as the primary reset entry point.
             yield Button("重置钱包", id="reset-btn", variant="error", classes="bold")
 
     def on_mount(self) -> None:
@@ -168,6 +172,15 @@ class WalletView(Widget):
         self._render_ledger()
 
     def refresh_data(self) -> None:
+        self._render_all()
+
+    def action_refresh(self) -> None:
+        """Manual refresh — rerender balance card + ledger from the DB.
+
+        Bus subscriptions already update on trades / topup / withdraw;
+        `r` is a manual lever for edge cases (external writer, suspected
+        stale display).
+        """
         self._render_all()
 
     def _price_lookup(self, market_id: str, side: str) -> float | None:

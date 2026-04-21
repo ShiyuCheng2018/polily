@@ -64,7 +64,7 @@ class PaperStatusView(Widget):
 
     BINDINGS = [
         Binding("enter", "view_detail", "详情", show=True),
-        Binding("r", "refresh", "刷新", show=False),
+        Binding("r", "refresh", "刷新", show=True),
         *NAV_BINDINGS,
     ]
 
