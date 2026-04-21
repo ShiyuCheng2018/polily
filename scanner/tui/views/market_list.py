@@ -76,7 +76,7 @@ class MarketListView(Widget):
     MarketListView > VerticalScroll { height: 1fr; }
     MarketListView > VerticalScroll > PolilyZone { height: auto; }
     MarketListView DataTable { height: auto; }
-    MarketListView .empty-msg { text-align: center; color: $text-muted; padding: 4; }
+    MarketListView .empty-msg { padding: 4; }
     """
 
     def __init__(
@@ -155,7 +155,10 @@ class MarketListView(Widget):
         if not self.events:
             from textual.widgets import Static
 
-            zone.mount(Static(" 暂无事件。运行扫描 (s) 获取市场数据。", classes="empty-msg"))
+            zone.mount(Static(
+                " 暂无事件。运行扫描 (s) 获取市场数据。",
+                classes="empty-msg text-center text-muted",
+            ))
             self._row_map = []
             return
 
