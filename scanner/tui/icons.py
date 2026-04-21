@@ -36,6 +36,9 @@ ICON_NOTIFY = "\uf0f3"        # fa-bell
 # User / source
 ICON_USER = "\uf007"          # fa-user (manual-trigger scans, user-initiated actions)
 
+# Docs
+ICON_CHANGELOG = "\uf249"     # fa-sticky-note (updates / release notes)
+
 
 STATUS_ICONS = {
     "pending": ICON_PENDING,

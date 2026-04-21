@@ -105,7 +105,8 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `scanner/tui/app.py` | Textual TUI entry point |
 | `scanner/tui/screens/main.py` | Main screen: sidebar + content + worker (menu: tasks/monitor/paper/wallet/history/notifications) |
 | `scanner/tui/service.py` | `ScanService` — bridge between TUI views and backend; owns wallet/positions/trade_engine |
-| `scanner/tui/views/` | Per-pane views (scan_log, monitor_list, paper_status, event_detail, wallet, notification_list, history) |
+| `scanner/tui/views/` | Per-pane views (scan_log, monitor_list, paper_status, event_detail, wallet, history, archived_events, changelog) |
+| `scanner/tui/views/changelog.py` | ChangelogView — renders CHANGELOG.md via Markdown widget; reads from repo root in dev or from packaged resource (see `pyproject.toml` `force-include`) in installed wheels |
 | `scanner/tui/views/trade_dialog.py` | Modal with Buy/Sell tabs — calls TradeEngine.execute_buy/sell |
 | `scanner/tui/views/wallet.py` | WalletView — balance + transactions ledger + topup/withdraw/reset |
 | `scanner/tui/views/wallet_modals.py` | TopupModal / WithdrawModal / WalletResetModal |

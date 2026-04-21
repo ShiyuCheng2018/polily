@@ -112,7 +112,7 @@ async def test_sidebar_items_have_nerd_font_icons(svc):
 
 @pytest.mark.asyncio
 async def test_sidebar_menu_order_preserved(svc):
-    """All 6 menu entries still present in expected order."""
+    """All menu entries present in expected order (v0.8.0+: changelog added last)."""
     from scanner.tui.app import PolilyApp
     from scanner.tui.widgets.sidebar import Sidebar, SidebarItem
 
@@ -123,7 +123,7 @@ async def test_sidebar_menu_order_preserved(svc):
         sidebar = app.screen.query_one(Sidebar)
         menu_ids = [item.menu_id for item in sidebar.query(SidebarItem)]
         assert menu_ids == [
-            "tasks", "monitor", "paper", "wallet", "history", "archive",
+            "tasks", "monitor", "paper", "wallet", "history", "archive", "changelog",
         ], f"sidebar menu order changed: {menu_ids}"
 
 

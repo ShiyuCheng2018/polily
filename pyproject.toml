@@ -44,6 +44,10 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["scanner"]
+# Ship CHANGELOG.md inside the wheel so `ChangelogView` can render it
+# via `importlib.resources.files("scanner") / "CHANGELOG.md"` after
+# pip-install (not just from a source checkout).
+force-include = { "CHANGELOG.md" = "scanner/CHANGELOG.md" }
 
 [project.scripts]
 polily = "scanner.cli:app"
