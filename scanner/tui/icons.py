@@ -33,6 +33,9 @@ ICON_SUPERSEDED = "\uf079"  # fa-retweet (visually distinct from running — "re
 ICON_AUTO_MONITOR = "\uf06e"  # fa-eye
 ICON_NOTIFY = "\uf0f3"        # fa-bell
 
+# User / source
+ICON_USER = "\uf007"          # fa-user (manual-trigger scans, user-initiated actions)
+
 
 STATUS_ICONS = {
     "pending": ICON_PENDING,

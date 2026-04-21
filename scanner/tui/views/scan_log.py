@@ -31,6 +31,7 @@ from scanner.tui.icons import (
     ICON_FAILED,
     ICON_NOTIFY,
     ICON_SCAN,
+    ICON_USER,
     STATUS_ICONS,
 )
 from scanner.tui.widgets.kv_row import KVRow
@@ -116,11 +117,10 @@ def _format_elapsed(elapsed: float | None) -> str:
 
 
 def _trigger_icon(source: str) -> str:
-    """v0.8.0: map trigger_source enum to Nerd Font glyph.
-    manual returns empty string (no icon — trigger label alone is enough)."""
+    """v0.8.0: map trigger_source enum to Nerd Font glyph."""
     return {
         "scheduled": ICON_EVENT,   # calendar U+F073
-        "manual": "",
+        "manual": ICON_USER,       # person U+F007
         "movement": ICON_NOTIFY,   # bell U+F0F3
         "scan": ICON_SCAN,         # search U+F002
     }.get(source, "")
@@ -230,7 +230,12 @@ class ScanLogView(Widget):
     ScanLogView #url-row { height: auto; padding: 1 1; }
     ScanLogView #url-input { width: 1fr; }
     ScanLogView #score-btn { width: 10; min-width: 10; }
-    ScanLogView DataTable { height: auto; max-height: 40%; }
+    /* v0.8.0+: pending zone auto-sizes (usually 0-3 rows); history zone
+       stretches to fill remaining viewport — user wants to see the log. */
+    ScanLogView #pending-zone { height: auto; }
+    ScanLogView #history-zone { height: 1fr; }
+    ScanLogView #upcoming-table { height: auto; max-height: 40%; }
+    ScanLogView #history-table { height: 1fr; }
     """
 
     def __init__(self, service):
