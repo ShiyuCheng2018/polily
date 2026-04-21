@@ -26,12 +26,10 @@ from scanner.core.events import TOPIC_SCAN_UPDATED
 from scanner.scan_log import ScanLogEntry
 from scanner.tui.i18n import translate_status, translate_trigger
 from scanner.tui.icons import (
-    ICON_AI,
     ICON_COMPLETED,
     ICON_EVENT,
     ICON_FAILED,
     ICON_NOTIFY,
-    ICON_SCAN,
     ICON_USER,
     STATUS_ICONS,
 )
@@ -123,32 +121,33 @@ def _trigger_icon(source: str) -> str:
         "scheduled": ICON_EVENT,   # calendar U+F073
         "manual": ICON_USER,       # person U+F007
         "movement": ICON_NOTIFY,   # bell U+F0F3
-        "scan": ICON_SCAN,         # search U+F002
     }.get(source, "")
 
 
 def _trigger_who_label(source: str) -> str:
-    """Who initiated this scan — user-friendly collapsed label.
+    """Who / what initiated this scan. Icon + Chinese label.
 
-    manual → 手动 (user-initiated)
-    everything else (scheduled / movement / scan) → AI (system-initiated)
+    manual    → 手动  (user clicked 评分 / 分析)
+    scheduled → 定时  (scheduler daemon fired at scheduled_at)
+    movement  → 监控  (auto-monitor detected price movement)
     """
-    if source == "manual":
-        return f"{ICON_USER} 手动"
-    return f"{ICON_AI} AI"
+    mapping = {
+        "manual":    f"{ICON_USER} 手动",
+        "scheduled": f"{ICON_EVENT} 定时",
+        "movement":  f"{ICON_NOTIFY} 监控",
+    }
+    return mapping.get(source, source)
 
 
 def _scan_kind_label(type_: str) -> str:
-    """What this scan did — user-friendly collapsed label.
+    """What this scan did.
 
-    analyze   → 分析 (AI narrative)
-    add_event → 评分 (URL-pasted event scoring)
-    scan      → 评分 (batch scoring of many events)
+    analyze   → 分析 (AI narrative run)
+    add_event → 评分 (URL-pasted event scored + persisted)
     """
     return {
         "analyze": "分析",
         "add_event": "评分",
-        "scan": "评分",
     }.get(type_, type_)
 
 
@@ -632,7 +631,8 @@ class ScanLogDetailView(Widget):
 
         status_icon = STATUS_ICONS.get(log.status, "")
         status_label = f"{status_icon} {translate_status(log.status)}".strip()
-        type_label = translate_trigger(log.trigger_source)
+        trigger_label = _trigger_who_label(log.trigger_source)
+        kind_label = _scan_kind_label(log.type)
 
         # Title reflects type: analyze → 分析详情; scan / add_event → 扫描详情
         zone_title = "分析详情" if is_analyze else "扫描详情"
@@ -645,7 +645,8 @@ class ScanLogDetailView(Widget):
                 # event title — no event_id prefix
                 yield KVRow(label="事件", value=log.market_title or "?")
                 yield KVRow(label="状态", value=status_label)
-                yield KVRow(label="类型", value=type_label)
+                yield KVRow(label="触发", value=trigger_label)
+                yield KVRow(label="类型", value=kind_label)
                 if analysis_version is not None:
                     yield KVRow(label="版本", value=f"v{analysis_version.version}")
                 yield KVRow(label="开始时间", value=_to_local(log.started_at))

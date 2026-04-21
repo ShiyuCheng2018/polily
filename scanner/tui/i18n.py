@@ -18,12 +18,13 @@ STATUS_LABELS = {
     "superseded": "已覆盖",
 }
 
-# Trigger sources (scan_logs.trigger_source enum)
+# Trigger sources (scan_logs.trigger_source enum).
+# 'scan' is kept in the DB CHECK constraint for backward compat but no code
+# currently produces it; not included here.
 TRIGGER_LABELS = {
     "manual": "手动",
     "scheduled": "定时",
-    "movement": "异动",
-    "scan": "批量",
+    "movement": "监控",
 }
 
 

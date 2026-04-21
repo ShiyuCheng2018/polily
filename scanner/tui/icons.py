@@ -35,10 +35,6 @@ ICON_NOTIFY = "\uf0f3"        # fa-bell
 
 # User / source
 ICON_USER = "\uf007"          # fa-user (manual-trigger scans, user-initiated actions)
-# Note: fa-robot (U+F544) is FA5 Extended — NOT in FA Legacy range covered
-# by JetBrains Mono Nerd Font default. Use fa-bolt (⚡) from Legacy instead
-# for "automated / system-triggered" semantics — guaranteed to render.
-ICON_AI = "\uf0e7"            # fa-bolt (AI / system-initiated triggers)
 
 
 STATUS_ICONS = {
