@@ -51,6 +51,7 @@ from scanner.tui.views._trade_preview import (
     compute_sell_preview,
     shares_from_pct,
 )
+from scanner.tui.widgets.amount_input import AmountInput
 from scanner.tui.widgets.buy_sell_action_row import BuySellActionRow
 from scanner.tui.widgets.field_row import FieldRow
 from scanner.tui.widgets.polily_card import PolilyCard
@@ -85,7 +86,7 @@ class BuyPane(Widget):
             yield FieldRow(
                 label="金额",
                 unit="$",
-                input_widget=Input(value="10", id="buy-amount", type="number"),
+                input_widget=AmountInput(value="10", id="buy-amount"),
                 helper="",
                 helper_id="buy-preview",
                 id="buy-amount-row",
@@ -102,13 +103,16 @@ class BuyPane(Widget):
         self._positions_here = positions_here
         self._refresh()
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "buy-amount":
+    def on_amount_input_amount_changed(
+        self, event: AmountInput.AmountChanged,
+    ) -> None:
+        if event.input_id == "buy-amount":
             self._refresh()
 
     def on_quick_amount_row_selected(
         self, event: QuickAmountRow.Selected,
     ) -> None:
+        # AmountInput IS-A Input — querying via Input still finds it.
         self.query_one("#buy-amount", Input).value = str(event.amount)
 
     def on_buy_sell_action_row_pressed(
@@ -121,11 +125,8 @@ class BuyPane(Widget):
     # ----- internals -----
 
     def _parse_amount(self) -> float | None:
-        try:
-            v = float(self.query_one("#buy-amount", Input).value)
-            return v if v > 0 else None
-        except (ValueError, TypeError):
-            return None
+        v, valid, _ = self.query_one("#buy-amount", AmountInput).parse()
+        return v if valid else None
 
     def _side_price(self, side: str) -> float | None:
         if self._market is None or self._market.yes_price is None:
@@ -261,7 +262,7 @@ class SellPane(Widget):
                     yield Button(f"{pct}%", id=f"sell-pct-{pct}", classes="quick-btn")
             yield FieldRow(
                 label="股数",
-                input_widget=Input(value="", id="sell-shares", type="number"),
+                input_widget=AmountInput(value="", id="sell-shares"),
                 helper="",
                 helper_id="sell-preview",
                 id="sell-shares-row",
@@ -306,8 +307,10 @@ class SellPane(Widget):
             self._selected_side = self._positions_here[idx]["side"]
             self._refresh()
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "sell-shares":
+    def on_amount_input_amount_changed(
+        self, event: AmountInput.AmountChanged,
+    ) -> None:
+        if event.input_id == "sell-shares":
             self._refresh_preview()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -341,11 +344,8 @@ class SellPane(Widget):
         return no if 0 < no < 1 else None
 
     def _parse_shares(self) -> float | None:
-        try:
-            v = float(self.query_one("#sell-shares", Input).value)
-            return v if v > 0 else None
-        except (ValueError, TypeError):
-            return None
+        v, valid, _ = self.query_one("#sell-shares", AmountInput).parse()
+        return v if valid else None
 
     def _rebuild_radio(self) -> None:
         radio = self.query_one("#sell-side-radio", RadioSet)

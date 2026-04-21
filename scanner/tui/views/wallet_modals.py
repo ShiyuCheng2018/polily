@@ -28,6 +28,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Static
 
 from scanner.tui.icons import ICON_BUY, ICON_SELL, ICON_SETTINGS, ICON_WALLET
+from scanner.tui.widgets.amount_input import AmountInput
 from scanner.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 from scanner.tui.widgets.field_row import FieldRow
 from scanner.tui.widgets.polily_card import PolilyCard
@@ -91,7 +92,7 @@ class TopupModal(ModalScreen[float | None]):
                 yield FieldRow(
                     label="金额",
                     unit="$",
-                    input_widget=Input(value="50", id="amount", type="number"),
+                    input_widget=AmountInput(value="50", id="amount"),
                 )
                 yield QuickAmountRow(amounts=[50, 100, 500])
                 yield ConfirmCancelBar()
@@ -115,13 +116,9 @@ class TopupModal(ModalScreen[float | None]):
         self.dismiss(None)
 
     def _confirm(self) -> None:
-        try:
-            amt = float(self.query_one("#amount", Input).value)
-        except (ValueError, TypeError):
-            self.notify("请输入有效金额", severity="error")
-            return
-        if amt <= 0:
-            self.notify("金额必须大于 0", severity="error")
+        amt, valid, _ = self.query_one("#amount", AmountInput).parse()
+        if not valid or amt is None:
+            self.notify("请输入有效金额 (> 0)", severity="error")
             return
         try:
             self._service.topup(amt)
@@ -176,7 +173,9 @@ class WithdrawModal(ModalScreen[float | None]):
                 yield FieldRow(
                     label="金额",
                     unit="$",
-                    input_widget=Input(value="", id="amount", type="number"),
+                    input_widget=AmountInput(
+                        value="", id="amount", max_value=self._cash,
+                    ),
                 )
                 yield QuickAmountRow(amounts=[20, 50, "全部"])
                 yield Static("", id="warn-line")
@@ -186,8 +185,11 @@ class WithdrawModal(ModalScreen[float | None]):
         # Empty input on open → confirm must start disabled.
         self._refresh_warn()
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        self._refresh_warn()
+    def on_amount_input_amount_changed(
+        self, event: AmountInput.AmountChanged,
+    ) -> None:
+        if event.input_id == "amount":
+            self._refresh_warn()
 
     def on_quick_amount_row_selected(
         self, event: QuickAmountRow.Selected,
@@ -211,31 +213,26 @@ class WithdrawModal(ModalScreen[float | None]):
     def action_cancel(self) -> None:
         self.dismiss(None)
 
-    def _parse(self) -> float | None:
-        try:
-            v = float(self.query_one("#amount", Input).value)
-            return v if v > 0 else None
-        except (ValueError, TypeError):
-            return None
+    def _parse(self) -> tuple[float | None, bool, str]:
+        return self.query_one("#amount", AmountInput).parse()
 
     def _refresh_warn(self) -> None:
         warn = self.query_one("#warn-line", Static)
         ok_btn = self.query_one("#confirm", Button)
-        amt = self._parse()
-        if amt is None:
+        amt, valid, reason = self._parse()
+        if valid:
             warn.update("")
-            ok_btn.disabled = True
+            ok_btn.disabled = False
             return
-        if amt > self._cash:
+        if reason == "above_max":
             warn.update(f"[red]超出可提金额[/red] (最多 ${self._cash:.2f})")
-            ok_btn.disabled = True
-            return
-        warn.update("")
-        ok_btn.disabled = False
+        else:
+            warn.update("")
+        ok_btn.disabled = True
 
     def _confirm(self) -> None:
-        amt = self._parse()
-        if amt is None or amt > self._cash:
+        amt, valid, _ = self._parse()
+        if not valid or amt is None:
             return
         try:
             self._service.withdraw(amt)
