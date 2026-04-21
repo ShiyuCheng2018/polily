@@ -66,8 +66,9 @@ class MonitorListView(Widget):
     DEFAULT_CSS = """
     MonitorListView { height: 1fr; }
     MonitorListView > VerticalScroll { height: 1fr; }
-    MonitorListView > VerticalScroll > PolilyZone { height: auto; }
-    MonitorListView DataTable { height: auto; }
+    /* v0.8.0+: stretch zone + table to screen bottom (match paper_status/history/archived). */
+    MonitorListView > VerticalScroll > PolilyZone { height: 1fr; }
+    MonitorListView DataTable { height: 1fr; }
     """
 
     def __init__(self, service: ScanService):
