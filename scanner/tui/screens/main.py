@@ -39,6 +39,7 @@ from scanner.tui.views.scan_log import (
     BackToScanLog,
     CancelScanRequested,
     OpenEventFromLog,
+    OpenEventScoreResult,
     RescoreRequested,
     ScanLogDetailView,
     ScanLogView,
@@ -394,7 +395,19 @@ class MainScreen(Screen):
             self._navigate_to("tasks")
 
     def on_open_event_from_log(self, message: OpenEventFromLog) -> None:
-        """Navigate to score result page from a log entry."""
+        """Navigate to EventDetailView from a log context.
+
+        Triggered by Enter in ScanLogDetailView (分析详情) and
+        ScoreResultView (评分结果). Both second-level detail pages hand
+        off here to show the full event.
+        """
+        self._switch_view(
+            EventDetailView(event_id=message.event_id, service=self.service)
+        )
+
+    def on_open_event_score_result(self, message: OpenEventScoreResult) -> None:
+        """Navigate directly to ScoreResultView (评分结果) from an
+        add_event scan_log row — shortcut for the scoring workflow."""
         self._switch_view(
             ScoreResultView(event_id=message.event_id, service=self.service)
         )

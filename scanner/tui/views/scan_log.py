@@ -391,10 +391,14 @@ class ScanLogView(Widget):
         if row_idx is None or row_idx >= len(rows):
             return
         log = rows[row_idx]
-        # Enter from the scan_log list enters the scan detail page (分析详情).
-        # From there, pressing Enter again opens the market (event) detail.
-        # Two-level navigation: list → scan detail → event detail.
-        self.post_message(ViewScanLogDetail(log))
+        # Row-type-aware routing:
+        # - add_event (URL-pasted scoring task) → ScoreResultView (评分结果)
+        # - analyze / scan / other → ScanLogDetailView (分析详情)
+        # Both second-level pages have Enter → EventDetailView (事件详情).
+        if log.type == "add_event" and log.event_id:
+            self.post_message(OpenEventScoreResult(log.event_id))
+        else:
+            self.post_message(ViewScanLogDetail(log))
 
     def action_cancel_running(self) -> None:
         from scanner.tui.views.scan_modals import ConfirmCancelScanModal
@@ -436,7 +440,24 @@ class ScanLogView(Widget):
 # --- Detail View ---
 
 class OpenEventFromLog(Message):
-    """Request to open event detail from a log entry."""
+    """Request to open EventDetailView from a log context.
+
+    Emitted from:
+    - ScanLogDetailView Enter binding (分析详情 → 事件详情)
+    - ScoreResultView Enter binding (评分结果 → 事件详情)
+    """
+    def __init__(self, event_id: str):
+        super().__init__()
+        self.event_id = event_id
+
+
+class OpenEventScoreResult(Message):
+    """Request to open ScoreResultView (评分结果) from a log entry.
+
+    Emitted from the scan_log list when user presses Enter on an
+    `add_event` row. This is a shortcut — add_event rows are scoring
+    tasks whose natural destination is the 5-dim score breakdown page.
+    """
     def __init__(self, event_id: str):
         super().__init__()
         self.event_id = event_id

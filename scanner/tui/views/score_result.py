@@ -50,6 +50,7 @@ class ScoreResultView(Widget):
     BINDINGS = [
         Binding("escape", "go_back", "返回"),
         Binding("backspace", "go_back", show=False),
+        Binding("enter", "open_event", "打开事件", show=True),
         *NAV_BINDINGS,
     ]
 
@@ -155,3 +156,8 @@ class ScoreResultView(Widget):
 
     def action_go_back(self) -> None:
         self.post_message(BackToTasks())
+
+    def action_open_event(self) -> None:
+        """Enter → open EventDetailView for this scored event."""
+        from scanner.tui.views.scan_log import OpenEventFromLog
+        self.post_message(OpenEventFromLog(self.event_id))
