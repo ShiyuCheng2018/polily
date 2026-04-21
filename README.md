@@ -27,6 +27,10 @@ Polymarket is unfriendly to small accounts:
 
 > A high structure score ≠ YES will win. It measures *whether the market is tradeable*, not *whether you should buy* — keep the two separate.
 
+## What's new in v0.8.0
+
+Full visual rework — consistent atom-based widgets, Chinese status labels, a Polily brand theme, EventBus-driven reactive views with zero manual refresh, uniform footer keybindings, an optional phosphor-green `polily-geek` theme, and an in-app changelog viewer (`6` key). **Nerd Font required** — see Requirements below. Full list in [CHANGELOG](CHANGELOG.md) or press `6` inside the TUI.
+
 ## Quick Start
 
 ```bash
@@ -88,12 +92,17 @@ column layout may wrap. 120×30 or larger recommended.
 | `2` | Paper positions |
 | `3` | Wallet (balance + ledger + topup/withdraw) |
 | `4` | History |
-| `5` | Notifications |
-| `r` | Refresh |
+| `5` | Archive |
+| `6` | Changelog |
+| `r` | Refresh current page |
+| `o` | Open Polymarket link (detail pages) |
 | `↑ / ↓` | Navigate menu |
 | `q` | Quit |
 
-Inside the Wallet page: `t` topup · `w` withdraw · click `重置钱包` to reset.
+Inside the Wallet page: `t` topup · `w` withdraw · `shift+r` reset (or click `重置钱包`).
+Inside an event detail page: `a` AI analysis · `t` trade · `m` toggle monitoring · `v` switch analysis version.
+
+See [docs/ui-guide.md](docs/ui-guide.md) for the full v0.8.0 interaction reference.
 
 ## Background Scheduler
 

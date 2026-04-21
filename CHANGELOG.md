@@ -10,16 +10,24 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-04-22
+
 ### Added
 
 - Design system foundations: spacing / color / typography tokens (`scanner/tui/css/tokens.tcss`)
 - Polily-dark brand theme with semantic colors (`scanner/tui/theme.py`)
-- Atom widget library under `scanner/tui/widgets/`: PolilyZone, PolilyCard, StatusBadge, KVRow, EmptyState, LoadingState, SectionHeader
+- `polily-geek` phosphor-green CRT theme as optional alternative (`Ctrl+P → Change theme`)
+- Atom widget library under `scanner/tui/widgets/`: PolilyZone, PolilyCard, StatusBadge, KVRow (+ `set_value()`), EmptyState, LoadingState, SectionHeader, ConfirmCancelBar, QuickAmountRow, BuySellActionRow, FieldRow, AmountInput
 - Nerd Font icon constants (`scanner/tui/icons.py`) and Chinese label translations (`scanner/tui/i18n.py`)
 - EventBus pub/sub scaffold (`scanner/core/events.py`) with topic constants for scan/wallet/monitor/position/price
 - `polily doctor` CLI subcommand — environment diagnostic (Nerd Font, terminal size, DB, Claude CLI, install hints)
 - Q11 key binding spec (`scanner/tui/bindings.py`) — global / CRUD / navigation groups
 - README Requirements section documenting Nerd Font dependency
+- `docs/ui-guide.md` — user-facing UI reference
+- `scripts/generate_snapshots.py` — release-QA helper that captures SVG/PNG snapshots of every view + modal for manual visual review (the lighter-weight alternative to `pytest-textual-snapshot`; see `docs/internal/v090-backlog.md` for the ROI discussion that descoped automated baseline diffing)
+- **`ChangelogView`** — new 7th sidebar menu (`6` key) that renders `CHANGELOG.md` as Markdown inside the TUI so users can browse release notes without opening another tool. Ships bundled into the wheel via `pyproject.toml` `[tool.hatch.build.targets.wheel] force-include`; dev checkout takes precedence so `r` refresh shows live edits.
+- `scanner/core/positions.py` `DUST_SHARE_THRESHOLD` + `is_dust_position()` — display layers now hide sub-0.1-share fragments left behind by partial sells.
+- `scanner/tui/_dispatch.py` — `dispatch_to_ui(app, fn)` + `@once_per_tick` decorator (React-style coalescing).
 
 ### Changed
 
@@ -49,6 +57,8 @@ structured release notes — see `git log` for history.
 - **Wallet reset moved `r` → `shift+r`.** `r` is now page refresh (consistency across every view); reset keeps its mnemonic but requires the Shift modifier so destructive op doesn't fire on an accidental single key. Red 重置钱包 button preserved as the primary click target. Removed the `[t] 充值 [w] 提现 [r] 重置` hint Static in wallet view — Footer already shows every binding.
 - **Trade guard**: `EventDetailView.action_trade` now blocks with a warning toast ("需要先激活监控才能进行交易 — 按 m 开启监控") when the event's `auto_monitor` is off. Opening a position on an unmonitored event would leave it without price polling, movement scoring, or narrator attention.
 - `ScoreResultView` 市场 zone reuses `BinaryMarketStructurePanel` for binary events (parity with `EventDetailView`); multi-outcome events still use `SubMarketTable`.
+- **Slogan rebrand** from "Polymarket Decision Copilot" to **"A Polymarket Monitoring Agent That Actually Works"** across TUI top bar, CLI help, package docstring, `pyproject.toml` description, and `CLAUDE.md`. Better matches Polily's day-to-day value — running in the background, polling prices, tracking movement, alerting on changes.
+- **Display-layer dust filter** — `ScanService.get_open_trades` / `get_all_positions` / `get_event_detail["trades"]` hide positions with `shares < 0.1` (≈ <$0.10 max value) so paper_status, wallet balance card, and event_detail PositionPanel don't show 0.02-share partial-sell stragglers. Accounting layers (trade engine, narrator prompt, trade guard, monitor toggle) still see raw rows.
 
 ### Fixed
 
@@ -66,6 +76,17 @@ structured release notes — see `git log` for history.
 - **`ScanService.execute_buy/sell` guards with `MonitorRequiredError`.** Service layer (not TradeEngine — engine stays a pure atomic primitive) asserts `events.auto_monitor=1` before delegating to the engine. Primary UI guard in `EventDetailView.action_trade` still fires first (better UX — block the dialog from opening); service-layer guard is defence-in-depth for future autopilot paths or DB-drift edge cases. Any future caller (live-money trading service) MUST replicate this check or route through `ScanService`. `TradeDialog` BuyPane / SellPane `buy_confirmed` / `sell_confirmed` handlers now specifically catch `MonitorRequiredError` and surface the same warning toast.
 - **Heartbeat payload uses explicit `source="heartbeat"` sentinel.** `EventDetailView._on_price_update` and `TradeDialog._on_price_update` previously treated a missing `event_id` as match-all — risked silently accepting any publisher that forgot the key. Now checks `payload.get("source") == "heartbeat"` explicitly; ambiguous payloads (no event_id, no heartbeat sentinel) are filtered out.
 - **`WalletView` balance card uses stable widget IDs.** The 5 KVRows (`#wallet-cash` / `#wallet-available` / `#wallet-positions-value` / `#wallet-unrealized` / `#wallet-realized`) and 2 `.wallet-dynamic` Statics (`#wallet-headline` / `#wallet-footnote`) mount once in `on_mount`; `_render_balance_card` now updates in place via `KVRow.set_value()` (new atom method) and `Static.update()`. Removes the prior remove+remount pattern that could briefly double-display rows under rapid bus callbacks.
+- **Narrator failures no longer masquerade as "completed".** Pre-fix, any `claude` CLI retry-exhaustion or schema-invalid output was silently replaced by a fake `NarrativeWriterOutput` with `summary="AI 分析不可用..."`. `ScanService.analyze_event` treated that as success → `finish_scan(completed)` + stored a bogus analysis version. Now both failure paths raise; `analyze_event`'s existing exception handler correctly marks the scan_logs row `failed` and skips `append_analysis`. Dropped `narrative_fallback()` + `_fallback_from_prompt()` as dead code.
+- **`scan_log` history 结束时间 column** was slicing `finished[-5:]` which grabbed "SS:00" (the last 5 chars of `YYYY-MM-DD HH:MM:SS`) instead of "HH:MM". Now formats as `YY-MM-DD HH:MM`.
+
+### Limitations
+
+- Nerd Font is now a hard dependency. Users without Nerd Font will see `□` tofu boxes. `polily doctor` provides install guidance.
+- Minimum terminal size: 100×30. Below this, wrapping may occur.
+- Design system documentation (`docs/design-system.md`) deferred to v0.8.1.
+- Legacy view overlap (`paper_status` / `wallet`; `history` / `scan_log` history zone) not consolidated. v0.9.0 decision.
+- `EventBus` is process-local. The daemon process runs `poll_job` every 30s and writes `markets.yes_price` / `events.structure_score` / `positions` / `wallet_transactions` to SQLite, but publishes to ITS OWN bus — the TUI process never receives those events. Bridged by MainScreen's 5s `_bus_heartbeat` which fans out match-all payloads on every bus topic, triggering views to re-read DB. Worst-case UI lag is therefore 30s daemon poll + 5s heartbeat ≈ 35s; `r` forces an instant DB re-read. See `docs/ui-guide.md` Developer notes.
+- `pytest-textual-snapshot` automated visual regression tests were evaluated and descoped for v0.8.0 (ROI too low for a solo-user TUI with active Textual-version churn). Manual QA uses `scripts/generate_snapshots.py`. See `docs/internal/v090-backlog.md` for the analysis.
 
 ## [0.7.0] — 2026-04-20
 
@@ -360,7 +381,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.7.0...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.8.0...dev
+[0.8.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.8.0
 [0.7.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.7.0
 [0.6.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.1
 [0.6.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.0
