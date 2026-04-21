@@ -17,6 +17,14 @@ from scanner.core.event_store import (
     get_event,
     get_event_markets,
 )
+from scanner.core.events import (
+    TOPIC_MONITOR_UPDATED,
+    TOPIC_POSITION_UPDATED,
+    TOPIC_SCAN_UPDATED,
+    TOPIC_WALLET_UPDATED,
+    EventBus,
+    get_event_bus,
+)
 from scanner.core.monitor_store import get_event_monitor
 from scanner.core.positions import PositionManager
 from scanner.core.trade_engine import TradeEngine
@@ -73,6 +81,30 @@ class ActivePositionsError(Exception):
     monitor on an event the user still holds shares in)."""
 
 
+class MonitorRequiredError(Exception):
+    """Raised by `ScanService.execute_buy / execute_sell` when the target
+    event has `auto_monitor` off.
+
+    Positions on an unmonitored event would silently rot (no price
+    polling, no movement scoring, no narrator attention). `toggle_monitor`
+    already blocks disabling monitor when positions exist (see
+    `ActivePositionsError`), so by invariant sell should never hit an
+    unmonitored event — a raise here on sell surfaces DB drift rather
+    than trading against stale state.
+
+    Policy lives in the service layer (not `TradeEngine`) so the engine
+    stays a pure atomic primitive. Any future caller (e.g. a live-money
+    trading service) MUST replicate this guard — wire it via service
+    methods, not direct engine calls.
+    """
+
+    def __init__(self, event_id: str) -> None:
+        self.event_id = event_id
+        super().__init__(
+            f"Event {event_id} has monitoring disabled; enable it before trading",
+        )
+
+
 class ScanService:
     """DB-first bridge between TUI views, scan pipeline, AI agent, and DB."""
 
@@ -80,6 +112,7 @@ class ScanService:
         self,
         config: ScannerConfig | None = None,
         db: PolilyDB | None = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         self.config = config or self._load_default_config()
         self.db = db or PolilyDB(self.config.archiving.db_file)
@@ -97,6 +130,9 @@ class ScanService:
         self._steps: list[StepInfo] = []
         self._current_log: ScanLogEntry | None = None
         self._current_narrator: NarrativeWriterAgent | None = None
+
+        # v0.8.0 event bus: publish mutations to subscribed TUI views
+        self.event_bus = event_bus or get_event_bus()
 
     @staticmethod
     def _load_default_config() -> ScannerConfig:
@@ -245,6 +281,7 @@ class ScanService:
                     error=f"{type(agent_error).__name__}: {agent_error}"[:200],
                     db=self.db,
                 )
+                self.publish_scan_update(scan_id, event_id=event_id, status="failed")
             except Exception:
                 logger.exception("finish_scan failed while recording agent error")
             raise agent_error
@@ -280,6 +317,7 @@ class ScanService:
                 scan_id,
             )
             return version
+        self.publish_scan_update(scan_id, event_id=event_id, status="completed")
 
         # Row flipped running→completed atomically. Now safe to persist.
         append_analysis(event_id, version, self.db)
@@ -464,14 +502,19 @@ class ScanService:
         the PositionPanel schema (market_id/side/title/entry_price/
         position_size_usd). Previously this read the legacy `paper_trades`
         table, which TradeEngine stopped writing in v0.6.0 — causing
-        MarketDetailView to show "无持仓" for live positions.
+        EventDetailView to show "无持仓" for live positions.
         """
+        from scanner.core.positions import is_dust_position
+
         event = get_event(event_id, self.db)
         if event is None:
             return None
         markets = get_event_markets(event_id, self.db)
         analyses = get_event_analyses(event_id, self.db)
         _positions = self.positions.get_event_positions(event_id)
+        # Filter dust from the display-facing trades list. Accounting
+        # (_compute_position_context, get_event_position_count) keeps
+        # raw rows via `self.positions.get_event_positions(...)`.
         trades = [
             {
                 "market_id": p["market_id"],
@@ -481,6 +524,7 @@ class ScanService:
                 "position_size_usd": p["cost_basis"],
             }
             for p in _positions
+            if not is_dust_position(p)
         ]
         monitor = get_event_monitor(event_id, self.db)
         movements = get_event_movements(event_id, self.db, hours=24)
@@ -542,7 +586,14 @@ class ScanService:
         Source of truth is `positions` post-v0.6.0. Synthetic `id` preserves
         the DataTable row_key logic in paper_status.py. Callers needing the
         native position shape should use `get_all_positions` instead.
+
+        Dust positions (`shares < DUST_SHARE_THRESHOLD`) are filtered out so
+        `paper_status` doesn't display 0.02-share stragglers that partial
+        sells leave behind. Accounting layers still see them via
+        `self.positions.get_all_positions()`.
         """
+        from scanner.core.positions import is_dust_position
+
         positions = self.positions.get_all_positions()
         return [
             {
@@ -555,6 +606,7 @@ class ScanService:
                 "position_size_usd": p["cost_basis"],
             }
             for p in positions
+            if not is_dust_position(p)
         ]
 
     # ------------------------------------------------------------------
@@ -637,21 +689,79 @@ class ScanService:
     # Wallet / positions / trade proxies (v0.6.0)
     # ------------------------------------------------------------------
 
+    def _assert_monitor_active_for_market(self, market_id: str) -> None:
+        """Raise `MonitorRequiredError` when the market's owning event has
+        `auto_monitor` off or no monitor row. Policy guard in front of
+        every trade so autopilot / external callers inherit the check.
+        """
+        row = self.db.conn.execute(
+            "SELECT em.auto_monitor FROM markets m "
+            "LEFT JOIN event_monitors em ON em.event_id = m.event_id "
+            "WHERE m.market_id = ?",
+            (market_id,),
+        ).fetchone()
+        if row is None:
+            # Market doesn't exist — let downstream raise a more specific error.
+            return
+        if not row["auto_monitor"]:
+            event_row = self.db.conn.execute(
+                "SELECT event_id FROM markets WHERE market_id = ?",
+                (market_id,),
+            ).fetchone()
+            raise MonitorRequiredError(event_row["event_id"])
+
     def execute_buy(self, *, market_id: str, side: str, shares: float) -> dict:
-        return self.trade_engine.execute_buy(
+        self._assert_monitor_active_for_market(market_id)
+        result = self.trade_engine.execute_buy(
             market_id=market_id, side=side, shares=shares,
         )
+        # v0.8.0: let wallet / paper_status / event_detail views refresh
+        # without waiting for the next heartbeat.
+        self.event_bus.publish(
+            TOPIC_POSITION_UPDATED,
+            {"market_id": market_id, "side": side, "size": shares, "source": "buy"},
+        )
+        self.event_bus.publish(
+            TOPIC_WALLET_UPDATED,
+            {"balance": self.wallet.get_cash(), "source": "buy"},
+        )
+        return result
 
     def execute_sell(self, *, market_id: str, side: str, shares: float) -> dict:
-        return self.trade_engine.execute_sell(
+        self._assert_monitor_active_for_market(market_id)
+        result = self.trade_engine.execute_sell(
             market_id=market_id, side=side, shares=shares,
         )
+        self.event_bus.publish(
+            TOPIC_POSITION_UPDATED,
+            {"market_id": market_id, "side": side, "size": shares, "source": "sell"},
+        )
+        self.event_bus.publish(
+            TOPIC_WALLET_UPDATED,
+            {"balance": self.wallet.get_cash(), "source": "sell"},
+        )
+        return result
 
     def topup(self, amount: float) -> None:
         self.wallet.topup(amount)
+        self.event_bus.publish(
+            TOPIC_WALLET_UPDATED,
+            {"balance": self.wallet.get_cash(), "source": "topup", "amount": amount},
+        )
 
     def withdraw(self, amount: float) -> None:
         self.wallet.withdraw(amount)
+        self.event_bus.publish(
+            TOPIC_WALLET_UPDATED,
+            {"balance": self.wallet.get_cash(), "source": "withdraw", "amount": amount},
+        )
+
+    def publish_scan_update(self, scan_id: str, *, event_id: str, status: str) -> None:
+        """v0.8.0: publish TOPIC_SCAN_UPDATED. Called from analyze_event after finish_scan."""
+        self.event_bus.publish(
+            TOPIC_SCAN_UPDATED,
+            {"scan_id": scan_id, "event_id": event_id, "status": status},
+        )
 
     def get_wallet_snapshot(self) -> dict:
         return self.wallet.get_snapshot()
@@ -660,7 +770,15 @@ class ScanService:
         return self.wallet.list_transactions(limit=limit)
 
     def get_all_positions(self) -> list[dict]:
-        return self.positions.get_all_positions()
+        """Display-layer positions, with dust (`shares < DUST_SHARE_THRESHOLD`)
+        filtered. Use `self.positions.get_all_positions()` for accounting
+        where dust must still count (trade engine, narrator prompt).
+        """
+        from scanner.core.positions import is_dust_position
+        return [
+            p for p in self.positions.get_all_positions()
+            if not is_dust_position(p)
+        ]
 
     def get_event_positions(self, event_id: str) -> list[dict]:
         return self.positions.get_event_positions(event_id)
@@ -697,6 +815,11 @@ class ScanService:
         if not enable:
             from scanner.scan_log import supersede_pending_for_event
             supersede_pending_for_event(event_id, self.db)
+        # v0.8.0: let monitor_list / event_detail refresh immediately.
+        self.event_bus.publish(
+            TOPIC_MONITOR_UPDATED,
+            {"event_id": event_id, "auto_monitor": enable},
+        )
 
     def get_event_position_count(self, event_id: str) -> int:
         """Count open positions across every market in the event."""

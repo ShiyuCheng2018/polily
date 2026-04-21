@@ -184,7 +184,7 @@ class TestTUIArchive:
 
     Locks in the 'looking back' UX claim from the v0.6.x CHANGELOG: the
     Archive view surfaces closed monitored events, press 5 navigates to it,
-    and clicking a row opens that event's MarketDetailView for retrospective
+    and clicking a row opens that event's EventDetailView for retrospective
     review.
     """
 
@@ -241,10 +241,10 @@ class TestTUIArchive:
             assert len(archive_views) == 1
 
     @pytest.mark.asyncio
-    async def test_view_archived_detail_message_opens_market_detail(self):
-        """Posting ViewArchivedDetail → MarketDetailView replaces content."""
+    async def test_view_archived_detail_message_opens_event_detail(self):
+        """Posting ViewArchivedDetail → EventDetailView replaces content."""
         from scanner.tui.views.archived_events import ViewArchivedDetail
-        from scanner.tui.views.market_detail import MarketDetailView
+        from scanner.tui.views.event_detail import EventDetailView
 
         service = _mock_service()
         _seed_archived_event(service, "ev-archived", "Archived title")
@@ -266,6 +266,6 @@ class TestTUIArchive:
             await pilot.pause()
 
             content = screen.query_one("#content-area")
-            detail_views = list(content.query(MarketDetailView))
+            detail_views = list(content.query(EventDetailView))
             assert len(detail_views) == 1
             assert detail_views[0].event_id == "ev-archived"

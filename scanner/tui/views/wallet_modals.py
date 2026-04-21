@@ -3,6 +3,16 @@
 All three dismiss with a truthy payload on success (parent refreshes) and
 None on cancel. Topup/Withdraw call WalletService directly; Reset stops
 the daemon first (if running) then calls reset_wallet.
+
+v0.8.0 migration:
+- Topup / Withdraw wrap inputs in PolilyCard (ICON_BUY / ICON_SELL titles)
+- WalletResetModal wraps destructive-confirm flow in PolilyZone (ICON_SETTINGS)
+- Quick-amount rows replaced by QuickAmountRow atom (Opt-A2): button ids
+  moved from #q50/#q100/#q500, #q20/#q50/#qall → #quick-50/#quick-100/...,
+  #quick-20/#quick-50/#quick-tok-2 (non-ASCII token "全部"). Other widget
+  IDs preserved (#amount, #confirm, #cancel, #confirm-input, #ack-daemon,
+  #warn-line).
+- push_screen / dismiss protocol untouched
 """
 
 from __future__ import annotations
@@ -13,9 +23,17 @@ import time
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Label, Static
+from textual.widgets import Button, Checkbox, Input, Static
+
+from scanner.tui.icons import ICON_BUY, ICON_SELL, ICON_SETTINGS, ICON_WALLET
+from scanner.tui.widgets.amount_input import AmountInput
+from scanner.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
+from scanner.tui.widgets.field_row import FieldRow
+from scanner.tui.widgets.polily_card import PolilyCard
+from scanner.tui.widgets.polily_zone import PolilyZone
+from scanner.tui.widgets.quick_amount_row import QuickAmountRow
 
 _MODAL_WIDTH = 62
 
@@ -46,18 +64,15 @@ class TopupModal(ModalScreen[float | None]):
     TopupModal #dialog-box {{
         width: {_MODAL_WIDTH};
         height: auto;
-        border: thick $primary;
-        background: $surface;
-        padding: 1 2;
     }}
-    TopupModal .title {{ text-style: bold; padding: 0 0 1 0; }}
-    TopupModal .balance-line {{ padding: 0 0 1 0; color: $text-muted; }}
-    TopupModal .amount-row {{ height: auto; padding: 0 0 1 0; }}
+    TopupModal > #dialog-box > PolilyCard {{
+        height: auto;
+        margin: 0;
+    }}
     TopupModal #amount {{ width: 14; }}
-    TopupModal #quick-row {{ height: auto; padding: 0 0 1 0; }}
-    TopupModal .quick-btn {{ min-width: 7; margin: 0 1 0 0; }}
-    TopupModal #btn-row {{ height: auto; align: center middle; padding: 1 0 0 0; }}
-    TopupModal .action-btn {{ min-width: 14; margin: 0 1; }}
+    TopupModal QuickAmountRow {{ padding: 0 0 1 0; }}
+    TopupModal QuickAmountRow Button {{ min-width: 7; }}
+    TopupModal ConfirmCancelBar Button {{ min-width: 14; }}
     """
     BINDINGS = [("escape", "cancel", "取消")]
 
@@ -68,42 +83,41 @@ class TopupModal(ModalScreen[float | None]):
     def compose(self) -> ComposeResult:
         cash = self._service.wallet.get_cash()
         with Vertical(id="dialog-box"):
-            yield Static("充值", classes="title")
-            yield Static(f"当前余额: ${cash:.2f}", classes="balance-line")
-            with Horizontal(classes="amount-row"):
-                yield Label("金额 $", classes="field-label")
-                yield Input(value="50", id="amount", type="number")
-            with Horizontal(id="quick-row"):
-                yield Label("快捷", classes="field-label")
-                for amt in (50, 100, 500):
-                    yield Button(f"${amt}", id=f"q{amt}", classes="quick-btn")
-            with Horizontal(id="btn-row"):
-                yield Button("确认", id="ok", variant="primary", classes="action-btn")
-                yield Button("取消", id="cancel", classes="action-btn")
+            with PolilyCard(title=f"{ICON_BUY} 充值"):
+                yield Static(
+                    f"{ICON_WALLET} 当前余额: ${cash:.2f}",
+                    classes="balance-line pb-sm text-muted",
+                )
+                yield FieldRow(
+                    label="金额",
+                    unit="$",
+                    input_widget=AmountInput(value="50", id="amount"),
+                )
+                yield QuickAmountRow(amounts=[50, 100, 500])
+                yield ConfirmCancelBar()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id is None:
-            return
-        if event.button.id.startswith("q"):
-            self.query_one("#amount", Input).value = event.button.id[1:]
-            return
-        if event.button.id == "cancel":
-            self.dismiss(None)
-            return
-        if event.button.id == "ok":
-            self._confirm()
+    def on_quick_amount_row_selected(
+        self, event: QuickAmountRow.Selected,
+    ) -> None:
+        self.query_one("#amount", Input).value = str(event.amount)
+
+    def on_confirm_cancel_bar_confirmed(
+        self, event: ConfirmCancelBar.Confirmed,
+    ) -> None:
+        self._confirm()
+
+    def on_confirm_cancel_bar_cancelled(
+        self, event: ConfirmCancelBar.Cancelled,
+    ) -> None:
+        self.dismiss(None)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
 
     def _confirm(self) -> None:
-        try:
-            amt = float(self.query_one("#amount", Input).value)
-        except (ValueError, TypeError):
-            self.notify("请输入有效金额", severity="error")
-            return
-        if amt <= 0:
-            self.notify("金额必须大于 0", severity="error")
+        amt, valid, _ = self.query_one("#amount", AmountInput).parse()
+        if not valid or amt is None:
+            self.notify("请输入有效金额 (> 0)", severity="error")
             return
         try:
             self._service.topup(amt)
@@ -127,20 +141,16 @@ class WithdrawModal(ModalScreen[float | None]):
     WithdrawModal #dialog-box {{
         width: {_MODAL_WIDTH};
         height: auto;
-        border: thick $primary;
-        background: $surface;
-        padding: 1 2;
     }}
-    WithdrawModal .title {{ text-style: bold; padding: 0 0 1 0; }}
-    WithdrawModal .balance-line {{ padding: 0 0 0 0; color: $text-muted; }}
-    WithdrawModal .hint {{ padding: 0 0 1 0; color: $text-muted; }}
-    WithdrawModal .amount-row {{ height: auto; padding: 0 0 1 0; }}
+    WithdrawModal > #dialog-box > PolilyCard {{
+        height: auto;
+        margin: 0;
+    }}
     WithdrawModal #amount {{ width: 14; }}
-    WithdrawModal #quick-row {{ height: auto; padding: 0 0 1 0; }}
-    WithdrawModal .quick-btn {{ min-width: 7; margin: 0 1 0 0; }}
+    WithdrawModal QuickAmountRow {{ padding: 0 0 1 0; }}
+    WithdrawModal QuickAmountRow Button {{ min-width: 7; }}
     WithdrawModal #warn-line {{ padding: 0 0 1 0; }}
-    WithdrawModal #btn-row {{ height: auto; align: center middle; padding: 1 0 0 0; }}
-    WithdrawModal .action-btn {{ min-width: 14; margin: 0 1; }}
+    WithdrawModal ConfirmCancelBar Button {{ min-width: 14; }}
     """
     BINDINGS = [("escape", "cancel", "取消")]
 
@@ -151,72 +161,78 @@ class WithdrawModal(ModalScreen[float | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog-box"):
-            yield Static("提现", classes="title")
-            yield Static(f"可提现 (现金): ${self._cash:.2f}", classes="balance-line")
-            yield Static("[dim]持仓市值不可提现[/dim]", classes="hint")
-            with Horizontal(classes="amount-row"):
-                yield Label("金额 $", classes="field-label")
-                yield Input(value="", id="amount", type="number")
-            with Horizontal(id="quick-row"):
-                yield Label("快捷", classes="field-label")
-                yield Button("$20", id="q20", classes="quick-btn")
-                yield Button("$50", id="q50", classes="quick-btn")
-                yield Button("全部", id="qall", classes="quick-btn")
-            yield Static("", id="warn-line")
-            with Horizontal(id="btn-row"):
-                yield Button("确认", id="ok", variant="primary", classes="action-btn")
-                yield Button("取消", id="cancel", classes="action-btn")
+            with PolilyCard(title=f"{ICON_SELL} 提现"):
+                yield Static(
+                    f"{ICON_WALLET} 可提现 (现金): ${self._cash:.2f}",
+                    classes="balance-line text-muted",
+                )
+                yield Static(
+                    "[dim]持仓市值不可提现[/dim]",
+                    classes="hint pb-sm text-muted",
+                )
+                yield FieldRow(
+                    label="金额",
+                    unit="$",
+                    input_widget=AmountInput(
+                        value="", id="amount", max_value=self._cash,
+                    ),
+                )
+                yield QuickAmountRow(amounts=[20, 50, "全部"])
+                yield Static("", id="warn-line")
+                yield ConfirmCancelBar()
 
     def on_mount(self) -> None:
         # Empty input on open → confirm must start disabled.
         self._refresh_warn()
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        self._refresh_warn()
+    def on_amount_input_amount_changed(
+        self, event: AmountInput.AmountChanged,
+    ) -> None:
+        if event.input_id == "amount":
+            self._refresh_warn()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id is None:
-            return
-        if event.button.id.startswith("q"):
-            if event.button.id == "qall":
-                self.query_one("#amount", Input).value = f"{self._cash:.2f}"
-            else:
-                self.query_one("#amount", Input).value = event.button.id[1:]
-            return
-        if event.button.id == "cancel":
-            self.dismiss(None)
-            return
-        if event.button.id == "ok":
-            self._confirm()
+    def on_quick_amount_row_selected(
+        self, event: QuickAmountRow.Selected,
+    ) -> None:
+        if event.amount == "全部":
+            # Resolve the "max available" token against current cash.
+            self.query_one("#amount", Input).value = f"{self._cash:.2f}"
+        else:
+            self.query_one("#amount", Input).value = str(event.amount)
+
+    def on_confirm_cancel_bar_confirmed(
+        self, event: ConfirmCancelBar.Confirmed,
+    ) -> None:
+        self._confirm()
+
+    def on_confirm_cancel_bar_cancelled(
+        self, event: ConfirmCancelBar.Cancelled,
+    ) -> None:
+        self.dismiss(None)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
 
-    def _parse(self) -> float | None:
-        try:
-            v = float(self.query_one("#amount", Input).value)
-            return v if v > 0 else None
-        except (ValueError, TypeError):
-            return None
+    def _parse(self) -> tuple[float | None, bool, str]:
+        return self.query_one("#amount", AmountInput).parse()
 
     def _refresh_warn(self) -> None:
         warn = self.query_one("#warn-line", Static)
-        ok_btn = self.query_one("#ok", Button)
-        amt = self._parse()
-        if amt is None:
+        ok_btn = self.query_one("#confirm", Button)
+        amt, valid, reason = self._parse()
+        if valid:
             warn.update("")
-            ok_btn.disabled = True
+            ok_btn.disabled = False
             return
-        if amt > self._cash:
+        if reason == "above_max":
             warn.update(f"[red]超出可提金额[/red] (最多 ${self._cash:.2f})")
-            ok_btn.disabled = True
-            return
-        warn.update("")
-        ok_btn.disabled = False
+        else:
+            warn.update("")
+        ok_btn.disabled = True
 
     def _confirm(self) -> None:
-        amt = self._parse()
-        if amt is None or amt > self._cash:
+        amt, valid, _ = self._parse()
+        if not valid or amt is None:
             return
         try:
             self._service.withdraw(amt)
@@ -245,17 +261,16 @@ class WalletResetModal(ModalScreen[bool | None]):
     WalletResetModal #dialog-box {
         width: 68;
         height: auto;
-        border: thick $error;
-        background: $surface;
-        padding: 1 2;
     }
-    WalletResetModal .title { text-style: bold; color: $error; padding: 0 0 1 0; }
-    WalletResetModal .warn-block { padding: 0 0 1 0; }
-    WalletResetModal .daemon-block { padding: 0 0 1 0; color: $warning; }
+    WalletResetModal > #dialog-box > PolilyZone {
+        height: auto;
+        margin: 0;
+        border: round $error;
+    }
+    WalletResetModal .polily-zone-title { color: $error; }
     WalletResetModal #confirm-prompt { padding: 0 0 0 0; }
     WalletResetModal #confirm-input { width: 20; }
-    WalletResetModal #btn-row { height: auto; align: center middle; padding: 1 0 0 0; }
-    WalletResetModal .action-btn { min-width: 14; margin: 0 1; }
+    WalletResetModal ConfirmCancelBar Button { min-width: 14; }
     """
     BINDINGS = [("escape", "cancel", "取消")]
 
@@ -266,29 +281,39 @@ class WalletResetModal(ModalScreen[bool | None]):
         self._open_positions = len(service.positions.get_all_positions())
 
     def compose(self) -> ComposeResult:
+        starting = self._service.config.wallet.starting_balance
         with Vertical(id="dialog-box"):
-            yield Static("重置钱包", classes="title")
-            starting = self._service.config.wallet.starting_balance
-            warn_lines = [
-                "⚠️  不可撤销！将清除：",
-                f"    · 所有持仓 (当前 {self._open_positions} 个)",
-                "    · 所有交易流水",
-                f"    · 现金重置为初始 ${starting:.2f}",
-            ]
-            yield Static("\n".join(warn_lines), classes="warn-block")
-            if self._daemon_pid is not None:
-                daemon_text = (
-                    f"⚠️  后台监控正在运行 (PID {self._daemon_pid})\n"
-                    "    重置会先停止 daemon。完成后请手动执行：\n"
-                    "        polily scheduler restart"
+            with PolilyZone(title=f"{ICON_SETTINGS} 重置钱包"):
+                warn_lines = [
+                    "[b red]⚠  不可撤销！将清除：[/b red]",
+                    f"    · 所有持仓 (当前 {self._open_positions} 个)",
+                    "    · 所有交易流水",
+                    f"    · 现金重置为初始 ${starting:.2f}",
+                ]
+                yield Static("\n".join(warn_lines), classes="warn-block pb-sm")
+                if self._daemon_pid is not None:
+                    daemon_text = (
+                        f"⚠  后台监控正在运行 (PID {self._daemon_pid})\n"
+                        "    重置会先停止 daemon。完成后请手动执行：\n"
+                        "        polily scheduler restart"
+                    )
+                    yield Static(
+                        daemon_text,
+                        classes="daemon-block pb-sm text-warning",
+                    )
+                    yield Checkbox("我知道 daemon 会被停止", id="ack-daemon")
+                yield Static('确认请输入 [bold]reset[/bold] :', id="confirm-prompt")
+                yield Input(value="", id="confirm-input")
+                yield ConfirmCancelBar(
+                    confirm_label="重置",
+                    cancel_label="取消",
+                    destructive=True,
                 )
-                yield Static(daemon_text, classes="daemon-block")
-                yield Checkbox("我知道 daemon 会被停止", id="ack-daemon")
-            yield Static('确认请输入 [bold]reset[/bold] :', id="confirm-prompt")
-            yield Input(value="", id="confirm-input")
-            with Horizontal(id="btn-row"):
-                yield Button("重置", id="ok", variant="error", classes="action-btn", disabled=True)
-                yield Button("取消", id="cancel", classes="action-btn")
+
+    def on_mount(self) -> None:
+        # Gate starts locked; _refresh_ok_state enables it once typed "reset"
+        # (and daemon-ack if needed).
+        self.query_one("#confirm", Button).disabled = True
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self._refresh_ok_state()
@@ -296,11 +321,15 @@ class WalletResetModal(ModalScreen[bool | None]):
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         self._refresh_ok_state()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel":
-            self.dismiss(None)
-        elif event.button.id == "ok":
-            self._confirm()
+    def on_confirm_cancel_bar_confirmed(
+        self, event: ConfirmCancelBar.Confirmed,
+    ) -> None:
+        self._confirm()
+
+    def on_confirm_cancel_bar_cancelled(
+        self, event: ConfirmCancelBar.Cancelled,
+    ) -> None:
+        self.dismiss(None)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -317,7 +346,7 @@ class WalletResetModal(ModalScreen[bool | None]):
             return False
 
     def _refresh_ok_state(self) -> None:
-        self.query_one("#ok", Button).disabled = not (
+        self.query_one("#confirm", Button).disabled = not (
             self._typed_reset() and self._ack_daemon()
         )
 
@@ -325,7 +354,7 @@ class WalletResetModal(ModalScreen[bool | None]):
         if not (self._typed_reset() and self._ack_daemon()):
             return
         # Disable inputs while the worker runs so the user can't double-click.
-        self.query_one("#ok", Button).disabled = True
+        self.query_one("#confirm", Button).disabled = True
         self.query_one("#cancel", Button).disabled = True
         self.run_worker(self._do_reset, thread=True, exclusive=True)
 
@@ -381,5 +410,5 @@ class WalletResetModal(ModalScreen[bool | None]):
 
     def _on_reset_failed(self, err: str) -> None:
         self.notify(f"重置失败: {err}", severity="error")
-        self.query_one("#ok", Button).disabled = False
+        self.query_one("#confirm", Button).disabled = False
         self.query_one("#cancel", Button).disabled = False

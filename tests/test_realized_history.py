@@ -36,6 +36,9 @@ def _svc(tmp_path) -> ScanService:
         ),
         db,
     )
+    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    from scanner.core.monitor_store import upsert_event_monitor
+    upsert_event_monitor("e1", auto_monitor=True, db=db)
     return ScanService(config=ScannerConfig(), db=db)
 
 

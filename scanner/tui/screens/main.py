@@ -1,5 +1,19 @@
-"""MainScreen: Sidebar navigation + Content area with view switching."""
+"""MainScreen: Sidebar navigation + Content area with view switching.
 
+v0.8.0 Task 32 migration:
+- Sidebar menu items now carry Nerd Font glyphs (via
+  `scanner.tui.widgets.sidebar.MENU_ICONS`) — no colour / layout change.
+- MainScreen subscribes to `TOPIC_SCAN_UPDATED` so the status bar reflects
+  background scan progress without polling (bus callback hops through
+  `call_from_thread` because scans publish from worker / daemon threads).
+- Global bindings (`q`, `?`, `escape`) intentionally live on the App
+  (see `scanner.tui.bindings.GLOBAL_BINDINGS` + `PolilyApp.BINDINGS`).
+  MainScreen only declares screen-local bindings (digit menu jumps,
+  `r` refresh, up/down nav).
+"""
+
+
+import contextlib
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -7,13 +21,21 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
+from scanner.core.events import (
+    TOPIC_MONITOR_UPDATED,
+    TOPIC_POSITION_UPDATED,
+    TOPIC_PRICE_UPDATED,
+    TOPIC_SCAN_UPDATED,
+    TOPIC_WALLET_UPDATED,
+)
+from scanner.tui._dispatch import dispatch_to_ui
 from scanner.tui.service import AnalysisInProgressError, ScanService
 from scanner.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
-from scanner.tui.views.market_detail import (
+from scanner.tui.views.event_detail import (
     AnalyzeRequested,
     BackToList,
     CancelAnalysisRequested,
-    MarketDetailView,
+    EventDetailView,
     RescoreEventRequested,
     SwitchVersionRequested,
 )
@@ -23,7 +45,8 @@ from scanner.tui.views.scan_log import (
     AddEventRequested,
     BackToScanLog,
     CancelScanRequested,
-    OpenMarketFromLog,
+    OpenEventFromLog,
+    OpenEventScoreResult,
     RescoreRequested,
     ScanLogDetailView,
     ScanLogView,
@@ -38,23 +61,41 @@ from scanner.tui.views.score_result import (
 )
 from scanner.tui.widgets.sidebar import MenuSelected, Sidebar
 
+# Heartbeat cadence (seconds). Matches daemon poll_job interval — no
+# point going faster, the daemon only writes new prices every 30s. But
+# spacing it 5s makes the TUI feel responsive when the user DID change
+# something and a bus event is imminent.
+HEARTBEAT_SECONDS = 5
+
 
 class MainScreen(Screen):
     """Main screen with sidebar navigation and content area."""
 
     BINDINGS = [
         Binding("0", "show_tasks", show=False),
-        Binding("r", "refresh", show=False),
         Binding("1", "show_monitor", show=False),
         Binding("2", "show_paper", show=False),
         Binding("3", "show_wallet", show=False),
         Binding("4", "show_history", show=False),
         Binding("5", "show_archive", show=False),
+        Binding("6", "show_changelog", show=False),
         Binding("up", "menu_prev", show=False),
         Binding("down", "menu_next", show=False),
     ]
 
-    MENU_ORDER = ["tasks", "monitor", "paper", "wallet", "history", "archive"]
+    DEFAULT_CSS = """
+    MainScreen {
+        background: $surface;
+    }
+    MainScreen #status-bar {
+        background: $panel;
+        color: $text-muted;
+        padding: 0 1;
+        height: 1;
+    }
+    """
+
+    MENU_ORDER = ["tasks", "monitor", "paper", "wallet", "history", "archive", "changelog"]
 
     def __init__(self, service: ScanService):
         super().__init__()
@@ -70,7 +111,7 @@ class MainScreen(Screen):
         with Horizontal(id="main-container"):
             yield Sidebar(id="sidebar")
             with Vertical(id="content-area"):
-                yield ScanLogView(self.service.get_scan_logs())
+                yield ScanLogView(self.service)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -84,15 +125,85 @@ class MainScreen(Screen):
         # Poll heartbeat: check every 5s
         self.set_interval(5, self._check_poll_heartbeat)
         self._check_poll_heartbeat()
+        # Bus heartbeat: the EventBus is process-local, but the daemon
+        # runs in a SEPARATE process and writes prices / positions /
+        # scan_logs / monitor flags to SQLite on its own cadence. Without
+        # this heartbeat the TUI would never hear the daemon's changes
+        # (the daemon's bus publishes fall on deaf ears). Every few
+        # seconds we re-fire all the topics views subscribe to, so each
+        # view re-reads DB and picks up cross-process writes. Payloads
+        # omit `event_id` / `status` so per-event filters treat them as
+        # match-all (see EventDetailView._on_price_update,
+        # MainScreen._on_scan_updated).
+        self.set_interval(HEARTBEAT_SECONDS, self._bus_heartbeat)
+        # Scan lifecycle updates (running / completed / failed) publish
+        # to the event bus from worker threads; reflect them in the
+        # status bar + tasks sidebar pill without manual polling.
+        bus = getattr(self.service, "event_bus", None)
+        if bus is not None:
+            bus.subscribe(TOPIC_SCAN_UPDATED, self._on_scan_updated)
+
+    def on_unmount(self) -> None:
+        bus = getattr(self.service, "event_bus", None)
+        if bus is not None:
+            with contextlib.suppress(Exception):
+                bus.unsubscribe(TOPIC_SCAN_UPDATED, self._on_scan_updated)
+
+    def _on_scan_updated(self, payload: dict) -> None:
+        """Bus callback: runs on publisher thread — must hop to UI thread.
+
+        Payload shape (per scanner.core.events): {scan_id, event_id, status}.
+        We mark the 'tasks' sidebar pill 'has new data' on terminal status
+        transitions (completed/failed) so the user sees the pill without
+        navigating there first.
+        """
+        status = (payload or {}).get("status") or ""
+        if status not in ("completed", "failed"):
+            return
+        with contextlib.suppress(Exception):
+            dispatch_to_ui(self.app, self._mark_tasks_has_new)
+
+    def _mark_tasks_has_new(self) -> None:
+        if self._current_menu == "tasks":
+            return  # user's already looking at it — no pill needed
+        with contextlib.suppress(Exception):
+            self.query_one("#sidebar", Sidebar).mark_new_data("tasks")
+
+    def _bus_heartbeat(self) -> None:
+        """Bridge cross-process daemon writes to TUI views via bus fan-out.
+
+        The bus is in-memory per-process; daemon publishes to its own bus
+        and the TUI never hears. This re-publishes match-all heartbeats
+        on the TUI's bus so each subscribing view calls its own
+        `_render_all` path, re-reading whatever the daemon just wrote to
+        SQLite. Rendering with unchanged data is idempotent and cheap.
+        """
+        bus = getattr(self.service, "event_bus", None)
+        if bus is None:
+            return
+        payload = {"source": "heartbeat"}
+        for topic in (
+            TOPIC_PRICE_UPDATED,
+            TOPIC_POSITION_UPDATED,
+            TOPIC_WALLET_UPDATED,
+            TOPIC_MONITOR_UPDATED,
+            TOPIC_SCAN_UPDATED,
+        ):
+            with contextlib.suppress(Exception):
+                bus.publish(topic, payload)
 
     def _check_poll_heartbeat(self) -> None:
-        """Check if poll daemon process is alive via PID file."""
+        """Check if poll daemon process is alive via PID file.
+
+        Only updates the `● POLL` sidebar indicator. View refresh is
+        handled by `_bus_heartbeat` on the same cadence — keeping the
+        two concerns separated (PID liveness vs. DB re-read) avoids the
+        earlier inconsistency where half the views silently missed the
+        poll-heartbeat refresh because they didn't define `refresh_data`.
+        """
         try:
             alive = self._is_daemon_alive()
             self.query_one("#sidebar", Sidebar).set_poll_status(alive)
-
-            if alive and not self._loading and not self._analyzing:
-                self._refresh_current_view()
         except Exception:
             import logging
             logging.getLogger(__name__).debug("heartbeat error", exc_info=True)
@@ -112,14 +223,6 @@ class MainScreen(Screen):
         except (ValueError, ProcessLookupError, PermissionError, OSError):
             return False
 
-    def _refresh_current_view(self) -> None:
-        """Call refresh_data() on the current visible view if it supports it."""
-        content = self.query_one("#content-area")
-        # Walk all descendants, not just direct children
-        for widget in content.walk_children():
-            if hasattr(widget, "refresh_data"):
-                widget.refresh_data()
-                return
 
     def _update_progress(self, steps: list[StepInfo]):
         """Main thread: update live progress if ScanLogView is visible."""
@@ -215,7 +318,7 @@ class MainScreen(Screen):
 
     def on_switch_version_requested(self, message: SwitchVersionRequested) -> None:
         is_analyzing = self._analyzing and self._analyzing_event_id == message.event_id
-        self._switch_view(MarketDetailView(
+        self._switch_view(EventDetailView(
             event_id=message.event_id,
             service=self.service,
             analyzing=is_analyzing,
@@ -232,7 +335,7 @@ class MainScreen(Screen):
         detail = self.service.get_event_detail(message.event_id)
         title_short = (detail["event"].title[:30] if detail else message.event_id[:30])
         self.query_one("#status-bar", Static).update(f"AI 分析中: {title_short}...")
-        self._switch_view(MarketDetailView(
+        self._switch_view(EventDetailView(
             event_id=message.event_id, service=self.service, analyzing=True,
         ))
         self.run_worker(self._do_analyze, name="analyze", thread=True, exclusive=True)
@@ -245,7 +348,7 @@ class MainScreen(Screen):
         self.service.cancel_analysis()
         self.query_one("#status-bar", Static).update("分析已取消")
         if self._analyzing_event_id:
-            self._switch_view(MarketDetailView(
+            self._switch_view(EventDetailView(
                 event_id=self._analyzing_event_id, service=self.service,
             ))
             self._analyzing_event_id = None
@@ -310,13 +413,13 @@ class MainScreen(Screen):
     def _on_analysis_complete(self, event_id: str):
         self.query_one("#status-bar", Static).update("分析完成")
         self.query_one("#sidebar", Sidebar).mark_new_data("tasks")
-        self._switch_view(MarketDetailView(event_id=event_id, service=self.service))
+        self._switch_view(EventDetailView(event_id=event_id, service=self.service))
 
     def _on_analysis_failed(self, error: str):
         error_short = error[:80] if len(error) > 80 else error
         self.query_one("#status-bar", Static).update(f"分析失败: {error_short}")
         if self._analyzing_event_id:
-            self._switch_view(MarketDetailView(
+            self._switch_view(EventDetailView(
                 event_id=self._analyzing_event_id, service=self.service,
             ))
 
@@ -334,8 +437,20 @@ class MainScreen(Screen):
         if self._current_menu == "tasks":
             self._navigate_to("tasks")
 
-    def on_open_market_from_log(self, message: OpenMarketFromLog) -> None:
-        """Navigate to score result page from a log entry."""
+    def on_open_event_from_log(self, message: OpenEventFromLog) -> None:
+        """Navigate to EventDetailView from a log context.
+
+        Triggered by Enter in ScanLogDetailView (分析详情) and
+        ScoreResultView (评分结果). Both second-level detail pages hand
+        off here to show the full event.
+        """
+        self._switch_view(
+            EventDetailView(event_id=message.event_id, service=self.service)
+        )
+
+    def on_open_event_score_result(self, message: OpenEventScoreResult) -> None:
+        """Navigate directly to ScoreResultView (评分结果) from an
+        add_event scan_log row — shortcut for the scoring workflow."""
         self._switch_view(
             ScoreResultView(event_id=message.event_id, service=self.service)
         )
@@ -349,7 +464,7 @@ class MainScreen(Screen):
             self.on_add_event_requested(AddEventRequested(url))
 
     def on_rescore_event_requested(self, message: RescoreEventRequested) -> None:
-        """Re-score event from MarketDetailView button."""
+        """Re-score event from EventDetailView button."""
         self._rescore_by_event_id(message.event_id)
 
     def on_score_view_rescore(self, message: ScoreViewRescore) -> None:
@@ -385,19 +500,19 @@ class MainScreen(Screen):
     def on_view_monitor_detail(self, message: ViewMonitorDetail) -> None:
         """Navigate to event detail from monitor list."""
         self._switch_view(
-            MarketDetailView(event_id=message.event_id, service=self.service)
+            EventDetailView(event_id=message.event_id, service=self.service)
         )
 
     def on_view_archived_detail(self, message: ViewArchivedDetail) -> None:
-        """Row-click in ArchivedEventsView → push MarketDetailView for retrospective view."""
+        """Row-click in ArchivedEventsView → push EventDetailView for retrospective view."""
         self._switch_view(
-            MarketDetailView(event_id=message.event_id, service=self.service)
+            EventDetailView(event_id=message.event_id, service=self.service)
         )
 
     def on_view_trade_detail(self, message: ViewTradeDetail) -> None:
         """Navigate to event detail from portfolio."""
         self._switch_view(
-            MarketDetailView(event_id=message.event_id, service=self.service)
+            EventDetailView(event_id=message.event_id, service=self.service)
         )
 
     def on_back_to_scan_log(self, message: BackToScanLog) -> None:
@@ -408,9 +523,7 @@ class MainScreen(Screen):
 
     def _navigate_to(self, menu_id: str):
         if menu_id == "tasks":
-            logs = self.service.get_scan_logs()
-            current_steps = list(self.service._steps) if self._loading else None
-            self._switch_view(ScanLogView(logs, current_steps), "tasks")
+            self._switch_view(ScanLogView(self.service), "tasks")
         elif menu_id == "monitor":
             self._switch_view(MonitorListView(service=self.service), "monitor")
         elif menu_id == "paper":
@@ -423,6 +536,9 @@ class MainScreen(Screen):
             self._switch_view(HistoryView(self.service), "history")
         elif menu_id == "archive":
             self._switch_view(ArchivedEventsView(self.service), "archive")
+        elif menu_id == "changelog":
+            from scanner.tui.views.changelog import ChangelogView
+            self._switch_view(ChangelogView(), "changelog")
         self._current_menu = menu_id
 
     def action_show_tasks(self) -> None:
@@ -443,15 +559,8 @@ class MainScreen(Screen):
     def action_show_archive(self) -> None:
         self._navigate_to("archive")
 
-    def action_refresh(self) -> None:
-        content = self.query_one("#content-area")
-        for child in content.children:
-            if isinstance(child, MarketDetailView):
-                self._switch_view(MarketDetailView(
-                    event_id=child.event_id, service=self.service,
-                ))
-                return
-        self._navigate_to(self._current_menu)
+    def action_show_changelog(self) -> None:
+        self._navigate_to("changelog")
 
     def action_menu_prev(self) -> None:
         idx = self.MENU_ORDER.index(self._current_menu) if self._current_menu in self.MENU_ORDER else 0

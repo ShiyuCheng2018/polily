@@ -58,6 +58,10 @@ def _seed(db, event_id="ev1", market_id="m1", **event_kw):
         yes_price=0.55, no_price=0.45, updated_at="now",
     ), db)
 
+    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    from scanner.core.monitor_store import upsert_event_monitor
+    upsert_event_monitor(event_id, auto_monitor=True, db=db)
+
 
 class TestGetAllEvents:
     def test_returns_all_tiers(self, db, service):
@@ -86,7 +90,7 @@ class TestGetEventDetail:
         assert service.get_event_detail("nonexistent") is None
 
     def test_trades_reflects_v060_positions_not_legacy_paper_trades(self, db, service):
-        """Regression: after v0.6.0 the TUI MarketDetailView's 'trades' feed
+        """Regression: after v0.6.0 the TUI EventDetailView's 'trades' feed
         must reflect the live `positions` table (TradeEngine.execute_buy only
         writes there). Reading legacy `paper_trades` shows stale/empty data.
 
@@ -197,6 +201,39 @@ class TestAnalyzeEvent:
         analyses = get_event_analyses("ev1", db)
         assert len(analyses) == 1
         assert analyses[0].trigger_source == "manual"
+
+    def test_narrator_failure_marks_scan_logs_failed_and_stores_no_analysis(
+        self, db, service,
+    ):
+        """v0.8.0: narrator failures must flip scan_logs status to 'failed'
+        AND skip the `append_analysis` write, so the user doesn't see a
+        bogus 'completed' analysis version with the hardcoded "AI 不可用"
+        fallback text.
+
+        Reproduces the pre-fix bug where `narrator.generate()` returned
+        a fake fallback `NarrativeWriterOutput` on schema/CLI failure,
+        tricking `analyze_event` into the success path.
+        """
+        _seed(db, "ev1", "m1")
+        from scanner.scan_log import load_scan_logs
+
+        with patch("scanner.tui.service.NarrativeWriterAgent") as MockAgent:
+            instance = MockAgent.return_value
+            instance.generate = AsyncMock(
+                side_effect=RuntimeError("claude CLI timed out"),
+            )
+            with pytest.raises(RuntimeError, match="claude CLI timed out"):
+                asyncio.run(service.analyze_event("ev1"))
+
+        # scan_logs row for ev1 must exist with status='failed'.
+        logs = [e for e in load_scan_logs(db) if e.event_id == "ev1"]
+        assert len(logs) == 1
+        assert logs[0].status == "failed"
+        assert "claude CLI timed out" in (logs[0].error or "")
+
+        # No analysis version written (the "v2 AI 不可用" bug repro point).
+        analyses = get_event_analyses("ev1", db)
+        assert analyses == []
 
 
 class TestCancelAnalysis:

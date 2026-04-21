@@ -23,6 +23,24 @@ if TYPE_CHECKING:
 _VALID_SIDES = ("yes", "no")
 _SHARES_EPS = 1e-9  # Float precision guard for "fully closed" comparisons.
 
+# Below this threshold, a position is "dust": the share count is too small to
+# produce meaningful P&L (max value < $0.10 if the favorable outcome resolves,
+# realistically a couple of cents). Partial sells often leave these behind due
+# to floating-point arithmetic. Display layers (paper_status, wallet balance
+# card, event_detail PositionPanel) filter dust out so the user isn't confused
+# by 0.02-share stragglers. Accounting layers (trade_engine, narrator prompt,
+# trade guard, monitor toggle) still see the raw row — dust is real state,
+# just not worth surfacing.
+DUST_SHARE_THRESHOLD = 0.1
+
+
+def is_dust_position(position: dict) -> bool:
+    """True when the position's share count is below the dust threshold."""
+    try:
+        return float(position["shares"]) < DUST_SHARE_THRESHOLD
+    except (KeyError, TypeError, ValueError):
+        return False
+
 
 class PositionNotFound(Exception):  # noqa: N818  (plan-specified name; consistent with InsufficientFunds/InsufficientShares)
     """Raised when remove_shares is called on a non-existent position."""
