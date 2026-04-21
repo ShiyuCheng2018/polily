@@ -374,9 +374,14 @@ class ScanLogView(Widget):
             status_icon = STATUS_ICONS.get(log.status, "")
             status_label = f"{status_icon} {translate_status(log.status)}".strip()
             title = (log.market_title or "")[:40]
-            # HH:MM only
+            # YY-MM-DD HH:MM — user-friendly short local time with year.
+            # Previously `finished[-5:]` grabbed the wrong 5 characters
+            # (seconds:00 from the YYYY-MM-DD HH:MM:SS format).
             finished = _to_local(log.finished_at)
-            fin_short = finished[-5:] if finished != "?" else "?"
+            if finished != "?" and len(finished) >= 16:
+                fin_short = f"{finished[2:10]} {finished[11:16]}"  # e.g. "26-04-20 10:02"
+            else:
+                fin_short = "?"
             elapsed_str = _format_elapsed(log.total_elapsed) if log.status == "completed" else ""
             error_str = ""
             if log.error:
