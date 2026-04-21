@@ -24,7 +24,7 @@ from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, get_event_markets, upsert_event, upsert_market
 from scanner.tui.service import ScanService
-from scanner.tui.views.trade_dialog import TradeDialog
+from scanner.tui.views.trade_dialog import BuyPane, TradeDialog
 from scanner.tui.views.wallet import WalletView
 from scanner.tui.views.wallet_modals import TopupModal, WithdrawModal
 
@@ -90,8 +90,9 @@ async def test_trade_dialog_buy_action_buttons_render_with_height(tmp_path):
     async with host.run_test(size=_REALISTIC_SIZE) as pilot:
         await pilot.pause()
         dialog = host.screen
-        yes_btn = dialog.query_one("#btn-buy-yes", Button)
-        no_btn = dialog.query_one("#btn-buy-no", Button)
+        buy_pane = dialog.query_one(BuyPane)
+        yes_btn = buy_pane.query_one("#btn-yes", Button)
+        no_btn = buy_pane.query_one("#btn-no", Button)
         assert yes_btn.region.height > 0, "买 YES button collapsed to zero height"
         assert no_btn.region.height > 0, "买 NO button collapsed to zero height"
         # And the label must be the price-enriched one set by _refresh_button_labels.

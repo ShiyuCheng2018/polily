@@ -51,6 +51,7 @@ from scanner.tui.views._trade_preview import (
     compute_sell_preview,
     shares_from_pct,
 )
+from scanner.tui.widgets.buy_sell_action_row import BuySellActionRow
 from scanner.tui.widgets.polily_card import PolilyCard
 from scanner.tui.widgets.polily_zone import PolilyZone
 from scanner.tui.widgets.quick_amount_row import QuickAmountRow
@@ -75,6 +76,7 @@ class BuyPane(Widget):
         self._market = None
         self._cash: float = 0.0
         self._positions_here: list[dict] = []  # positions on currently-selected market
+        self._action_row = BuySellActionRow(side="buy")
 
     def compose(self) -> ComposeResult:
         with PolilyZone(title=f"{ICON_BUY} 买入", id="buy-zone"):
@@ -85,9 +87,7 @@ class BuyPane(Widget):
                 yield Static("", id="buy-preview", classes="preview")
             yield Static("", id="buy-fee-line", classes="preview-secondary")
             yield QuickAmountRow(amounts=_QUICK_AMOUNTS)
-            with Horizontal(id="buy-action-row"):
-                yield Button("买 YES", id="btn-buy-yes", variant="success", classes="trade-btn")
-                yield Button("买 NO", id="btn-buy-no", variant="error", classes="trade-btn")
+            yield self._action_row
 
     def update_context(
         self, *, market, cash: float, positions_here: list[dict],
@@ -101,18 +101,17 @@ class BuyPane(Widget):
         if event.input.id == "buy-amount":
             self._refresh()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id is None:
-            return
-        # YES / NO execute (quick-amount buttons are handled by QuickAmountRow
-        # via the dedicated Selected handler below)
-        if event.button.id in ("btn-buy-yes", "btn-buy-no"):
-            self._execute("yes" if event.button.id == "btn-buy-yes" else "no")
-
     def on_quick_amount_row_selected(
         self, event: QuickAmountRow.Selected,
     ) -> None:
         self.query_one("#buy-amount", Input).value = str(event.amount)
+
+    def on_buy_sell_action_row_pressed(
+        self, event: BuySellActionRow.Pressed,
+    ) -> None:
+        """YES/NO button press from the atom — dispatch to execute."""
+        if event.side == "buy":
+            self._execute(event.outcome)
 
     # ----- internals -----
 
@@ -154,12 +153,10 @@ class BuyPane(Widget):
     def _refresh_button_labels(self) -> None:
         yes_p = self._side_price("yes")
         no_p = self._side_price("no")
-        yes_btn = self.query_one("#btn-buy-yes", Button)
-        no_btn = self.query_one("#btn-buy-no", Button)
-        yes_btn.label = f"买 YES {yes_p * 100:.1f}¢" if yes_p else "YES (价格不可用)"
-        no_btn.label = f"买 NO {no_p * 100:.1f}¢" if no_p else "NO (价格不可用)"
-        yes_btn.disabled = yes_p is None
-        no_btn.disabled = no_p is None
+        # Atom owns label formatting + price-missing disable. The cash-insufficient
+        # disable override is applied in _refresh_preview() below.
+        self._action_row.update(yes_price=yes_p, no_price=no_p,
+                                yes_disabled=False, no_disabled=False)
 
     def _refresh_preview(self) -> None:
         preview = self.query_one("#buy-preview", Static)
@@ -202,8 +199,7 @@ class BuyPane(Widget):
                 f"[red]余额不足[/red] · 手续费 ≈ ${max_fee:.2f} · 需 ${max_cash_required:.2f} / 有 ${self._cash:.2f}",
             )
             # Disable both sides — TradeEngine would reject anyway.
-            self.query_one("#btn-buy-yes", Button).disabled = True
-            self.query_one("#btn-buy-no", Button).disabled = True
+            self._action_row.update(yes_disabled=True, no_disabled=True)
         else:
             fee_line.update(f"[dim]手续费 ≈ ${max_fee:.2f}[/dim]")
 
@@ -532,7 +528,7 @@ class TradeDialog(ModalScreen[dict | None]):
         min-width: 20;
         margin: 0 1;
     }}
-    TradeDialog #buy-action-row, TradeDialog #sell-action-row {{
+    TradeDialog #sell-action-row {{
         height: auto;
         align: center middle;
         padding: 1 0;

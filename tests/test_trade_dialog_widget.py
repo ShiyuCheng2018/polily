@@ -19,7 +19,7 @@ from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
 from scanner.tui.service import ScanService
-from scanner.tui.views.trade_dialog import TradeDialog
+from scanner.tui.views.trade_dialog import BuyPane, TradeDialog
 
 
 def _seed(
@@ -91,7 +91,7 @@ async def test_buy_flow_dispatches_execute_buy_and_dismisses(tmp_path):
             # Set amount to $20 (20 / 0.5 = 40 shares at YES 50¢).
             dialog.query_one("#buy-amount", Input).value = "20"
             await pilot.pause()
-            dialog.query_one("#btn-buy-yes", Button).press()
+            dialog.query_one(BuyPane).query_one("#btn-yes", Button).press()
             await pilot.pause()
 
     assert host.dismiss_result is not None
@@ -186,8 +186,9 @@ async def test_buy_disables_buttons_when_cash_insufficient(tmp_path):
         # Wallet seeded with $100; ask for $200.
         dialog.query_one("#buy-amount", Input).value = "200"
         await pilot.pause()
-        yes_btn = dialog.query_one("#btn-buy-yes", Button)
-        no_btn = dialog.query_one("#btn-buy-no", Button)
+        buy_pane = dialog.query_one(BuyPane)
+        yes_btn = buy_pane.query_one("#btn-yes", Button)
+        no_btn = buy_pane.query_one("#btn-no", Button)
         assert yes_btn.disabled
         assert no_btn.disabled
         fee_line = dialog.query_one("#buy-fee-line", Static).content
@@ -207,14 +208,16 @@ async def test_buy_buttons_re_enable_when_cash_becomes_sufficient(tmp_path):
         dialog = host.screen
         amount = dialog.query_one("#buy-amount", Input)
 
+        buy_pane = dialog.query_one(BuyPane)
+
         amount.value = "200"
         await pilot.pause()
-        assert dialog.query_one("#btn-buy-yes", Button).disabled
+        assert buy_pane.query_one("#btn-yes", Button).disabled
 
         amount.value = "10"
         await pilot.pause()
-        assert not dialog.query_one("#btn-buy-yes", Button).disabled
-        assert not dialog.query_one("#btn-buy-no", Button).disabled
+        assert not buy_pane.query_one("#btn-yes", Button).disabled
+        assert not buy_pane.query_one("#btn-no", Button).disabled
 
 
 @pytest.mark.asyncio

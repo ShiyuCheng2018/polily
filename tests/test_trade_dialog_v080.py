@@ -168,9 +168,14 @@ async def test_trade_dialog_price_bus_subscription(svc):
 
 async def test_trade_dialog_preserves_widget_ids(svc):
     """Regression: Existing tests use specific widget IDs (#buy-amount, #btn-sell, etc.)
-    that MUST be preserved through migration."""
+    that MUST be preserved through migration.
+
+    v0.8.0 Opt-A3: #btn-buy-yes / #btn-buy-no migrated to BuySellActionRow atom's
+    internal ids (#btn-yes / #btn-no). We scope the lookup via BuyPane so the atom
+    boundary is explicit.
+    """
     from scanner.tui.app import PolilyApp
-    from scanner.tui.views.trade_dialog import TradeDialog
+    from scanner.tui.views.trade_dialog import BuyPane, TradeDialog
     from textual.widgets import Button, Input
 
     app = PolilyApp(service=svc)
@@ -183,8 +188,9 @@ async def test_trade_dialog_preserves_widget_ids(svc):
 
         # BuyPane IDs used by existing test_trade_dialog_widget.py
         dialog.query_one("#buy-amount", Input)
-        dialog.query_one("#btn-buy-yes", Button)
-        dialog.query_one("#btn-buy-no", Button)
+        buy_pane = dialog.query_one(BuyPane)
+        buy_pane.query_one("#btn-yes", Button)
+        buy_pane.query_one("#btn-no", Button)
         dialog.query_one("#quick-20", Button)  # v0.8.0 Opt-A2: QuickAmountRow atom
 
         # SellPane IDs
