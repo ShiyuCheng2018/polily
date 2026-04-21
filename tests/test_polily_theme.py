@@ -20,3 +20,18 @@ async def test_builtin_themes_still_available():
         await pilot.pause()
         for name in ("textual-dark", "nord", "dracula"):
             assert name in app.available_themes, f"built-in {name} missing"
+
+
+async def test_polily_geek_is_registered_but_not_default():
+    """polily-geek phosphor-green theme available for Ctrl+P switch,
+    but polily-dark stays the default."""
+    app = PolilyApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert "polily-geek" in app.available_themes, \
+            f"polily-geek not registered. Available: {list(app.available_themes)}"
+        assert app.theme != "polily-geek", "geek should not be default"
+        # And verify we can switch to it
+        app.theme = "polily-geek"
+        await pilot.pause()
+        assert app.theme == "polily-geek"
