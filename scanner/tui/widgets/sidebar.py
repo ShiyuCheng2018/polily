@@ -87,7 +87,7 @@ class Sidebar(Widget):
 
     DEFAULT_CSS = """
     Sidebar {
-        width: 22;
+        width: 48;
         dock: left;
         border-right: tall $primary;
         background: $surface;
@@ -111,6 +111,7 @@ class Sidebar(Widget):
         color: $primary;
         text-style: bold;
         text-align: center;
+        padding: 1 0;
     }
     Sidebar .sidebar-hint {
         color: $text-muted;
@@ -125,8 +126,19 @@ class Sidebar(Widget):
     }
     """
 
+    # ANSI Regular figlet "POLILY" — 5 rows × ~44 cols.
+    # Theme-colored via .sidebar-title (`color: $primary`) — auto-follows
+    # polily-dark (blue) / polily-geek (phosphor green) / any built-in.
+    _LOGO = (
+        "██████   ██████  ██      ██ ██      ██    ██\n"
+        "██   ██ ██    ██ ██      ██ ██       ██  ██ \n"
+        "██████  ██    ██ ██      ██ ██        ████  \n"
+        "██      ██    ██ ██      ██ ██         ██   \n"
+        "██       ██████  ███████ ██ ███████    ██   "
+    )
+
     def compose(self) -> ComposeResult:
-        yield Static("  [bold]Polily[/bold]", classes="sidebar-title")
+        yield Static(self._LOGO, classes="sidebar-title")
         yield Static("")
         yield SidebarItem("任务记录", "tasks")
         yield SidebarItem("监控列表", "monitor")
