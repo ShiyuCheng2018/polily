@@ -32,6 +32,7 @@ class PolilyZone(Vertical):
         padding: 1 3;
         margin: 1 0;
         background: $surface;
+        height: auto;
     }
     PolilyZone .polily-zone-title {
         text-style: bold;
