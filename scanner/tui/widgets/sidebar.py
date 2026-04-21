@@ -115,9 +115,17 @@ class Sidebar(Widget):
     Sidebar .sidebar-hint {
         color: $text-muted;
     }
+    /* v0.8.0+: pin POLL status indicator to the sidebar bottom. */
+    Sidebar #poll-indicator {
+        dock: bottom;
+        height: 1;
+        padding: 0 1 1 1;
+        color: $text-muted;
+    }
     """
 
     def compose(self) -> ComposeResult:
+        yield Static("  [dim]POLL[/dim] --", id="poll-indicator")
         yield Static("  [bold]Polily[/bold]", classes="sidebar-title")
         yield Static("")
         yield SidebarItem("任务记录", "tasks")
@@ -126,15 +134,6 @@ class Sidebar(Widget):
         yield SidebarItem("钱包", "wallet")
         yield SidebarItem("历史", "history")
         yield SidebarItem("归档", "archive")
-        yield Static("")
-        yield Static("  快捷键", classes="sidebar-hint")
-        yield Static("  0-5  切换视图", classes="sidebar-hint")
-        yield Static("  r    刷新", classes="sidebar-hint")
-        yield Static("  q    退出", classes="sidebar-hint")
-        yield Static("")
-        yield Static("  其他见底栏", classes="sidebar-hint")
-        yield Static("")
-        yield Static("  [dim]POLL[/dim] --", id="poll-indicator")
 
     def set_poll_status(self, alive: bool) -> None:
         """Update poll indicator: green dot if alive, dim dot if not.
