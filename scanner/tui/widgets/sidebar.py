@@ -95,6 +95,7 @@ class Sidebar(Widget):
     Sidebar SidebarItem {
         height: 1;
         padding: 0 1;
+        margin-bottom: 1;
         color: $text;
     }
     Sidebar SidebarItem:hover {
