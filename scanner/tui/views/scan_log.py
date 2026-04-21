@@ -641,29 +641,16 @@ class ScanLogDetailView(Widget):
                             value=f"{stats['research_events']} 事件 / {stats['research_markets']} 市场",
                         )
 
-            # Analysis content — show summary + commentary for analyze+completed
+            # Analysis content — reuse the EventDetailView AnalysisPanel
+            # (markdown render + full narrative structure). AnalysisPanel
+            # supplies its own DashPanel border + "AI 分析" title, so no
+            # outer PolilyZone (avoid nested borders — see commit 93b23e1).
+            # Version number is already shown as KVRow in the meta zone above.
             if analysis_version is not None:
-                narrative = analysis_version.narrative_output or {}
-                summary = narrative.get("summary", "").strip()
-                analysis_text = narrative.get("analysis", "").strip()
-                ops_commentary = narrative.get("operations_commentary", "").strip()
-                risk_commentary = narrative.get("risk_commentary", "").strip()
-
-                with PolilyZone(title=f"分析内容 (v{analysis_version.version})"):
-                    if summary:
-                        yield Static("[bold]总结[/bold]", classes="pb-sm")
-                        yield Static(summary, classes="pb-sm")
-                    if analysis_text:
-                        yield Static("[bold]分析[/bold]", classes="pb-sm")
-                        yield Static(analysis_text, classes="pb-sm")
-                    if ops_commentary:
-                        yield Static("[bold]操作建议[/bold]", classes="pb-sm")
-                        yield Static(ops_commentary, classes="pb-sm")
-                    if risk_commentary:
-                        yield Static("[bold]风险[/bold]", classes="pb-sm")
-                        yield Static(risk_commentary, classes="pb-sm")
-                    if not any([summary, analysis_text, ops_commentary, risk_commentary]):
-                        yield Static("[dim]分析内容为空[/dim]")
+                from scanner.tui.components import AnalysisPanel
+                yield AnalysisPanel(
+                    analyses=[analysis_version], version_idx=0, analyzing=False,
+                )
 
             # Steps zone
             if log.steps:
