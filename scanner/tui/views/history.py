@@ -79,9 +79,10 @@ class HistoryView(Widget):
     DEFAULT_CSS = """
     HistoryView { height: 1fr; }
     HistoryView > VerticalScroll { height: 1fr; }
-    HistoryView > VerticalScroll > PolilyZone { height: auto; }
+    /* v0.8.0+: stretch zone + table to screen bottom (match paper_status). */
+    HistoryView > VerticalScroll > PolilyZone { height: 1fr; }
     HistoryView #history-empty { padding: 2; }
-    HistoryView DataTable { height: auto; }
+    HistoryView DataTable { height: 1fr; }
     """
 
     def __init__(self, service: ScanService):
