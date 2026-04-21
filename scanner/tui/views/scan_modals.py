@@ -4,15 +4,17 @@ v0.8.0 migration:
 - ConfirmCancelScanModal wraps the destructive-confirm flow in PolilyZone
   (ICON_CANCELLED) with a red border override — cancelling a running
   analysis is destructive (scan_log becomes `cancelled`).
-- Widget IDs preserved (#confirm, #keep, #btn-row) — dismiss protocol
-  (True on confirm, False on keep/Escape) untouched.
+- Button row replaced with ConfirmCancelBar atom (Opt-A1). Button ids are
+  now `#confirm` + `#cancel` (previously `#confirm` + `#keep`).
+- dismiss protocol (True on confirm, False on cancel/Escape) untouched.
 """
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Static
+from textual.widgets import Static
 
 from scanner.tui.icons import ICON_CANCELLED
+from scanner.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 from scanner.tui.widgets.polily_zone import PolilyZone
 
 
@@ -37,12 +39,7 @@ class ConfirmCancelScanModal(ModalScreen[bool]):
     }
     ConfirmCancelScanModal .polily-zone-title { color: $error; }
     ConfirmCancelScanModal .row { padding: 0 0 1 0; }
-    ConfirmCancelScanModal #btn-row {
-        height: auto;
-        align: center middle;
-        padding: 1 0 0 0;
-    }
-    ConfirmCancelScanModal .action-btn { min-width: 14; margin: 0 1; }
+    ConfirmCancelScanModal ConfirmCancelBar Button { min-width: 14; }
     """
 
     BINDINGS = [("escape", "dismiss_false", "取消")]
@@ -68,22 +65,21 @@ class ConfirmCancelScanModal(ModalScreen[bool]):
                     "[dim]    分析记录将标记为已取消。[/dim]",
                     classes="row",
                 )
-                with Horizontal(id="btn-row"):
-                    yield Button(
-                        "确认取消",
-                        id="confirm",
-                        variant="error",
-                        classes="action-btn",
-                    )
-                    yield Button(
-                        "继续分析",
-                        id="keep",
-                        variant="primary",
-                        classes="action-btn",
-                    )
+                yield ConfirmCancelBar(
+                    confirm_label="确认取消",
+                    cancel_label="继续分析",
+                    destructive=True,
+                )
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss(event.button.id == "confirm")
+    def on_confirm_cancel_bar_confirmed(
+        self, event: ConfirmCancelBar.Confirmed,
+    ) -> None:
+        self.dismiss(True)
+
+    def on_confirm_cancel_bar_cancelled(
+        self, event: ConfirmCancelBar.Cancelled,
+    ) -> None:
+        self.dismiss(False)
 
     def action_dismiss_false(self) -> None:
         self.dismiss(False)

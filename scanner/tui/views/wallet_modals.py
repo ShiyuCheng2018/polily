@@ -25,6 +25,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, Static
 
 from scanner.tui.icons import ICON_BUY, ICON_SELL, ICON_SETTINGS, ICON_WALLET
+from scanner.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 from scanner.tui.widgets.polily_card import PolilyCard
 from scanner.tui.widgets.polily_zone import PolilyZone
 
@@ -67,8 +68,7 @@ class TopupModal(ModalScreen[float | None]):
     TopupModal #amount {{ width: 14; }}
     TopupModal #quick-row {{ height: auto; padding: 0 0 1 0; }}
     TopupModal .quick-btn {{ min-width: 7; margin: 0 1 0 0; }}
-    TopupModal #btn-row {{ height: auto; align: center middle; padding: 1 0 0 0; }}
-    TopupModal .action-btn {{ min-width: 14; margin: 0 1; }}
+    TopupModal ConfirmCancelBar Button {{ min-width: 14; }}
     """
     BINDINGS = [("escape", "cancel", "取消")]
 
@@ -91,21 +91,25 @@ class TopupModal(ModalScreen[float | None]):
                     yield Label("快捷", classes="field-label")
                     for amt in (50, 100, 500):
                         yield Button(f"${amt}", id=f"q{amt}", classes="quick-btn")
-                with Horizontal(id="btn-row"):
-                    yield Button("确认", id="ok", variant="primary", classes="action-btn")
-                    yield Button("取消", id="cancel", classes="action-btn")
+                yield ConfirmCancelBar()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        # ConfirmCancelBar buttons stop their event; only quick-amount buttons
+        # reach here.
         if event.button.id is None:
             return
         if event.button.id.startswith("q"):
             self.query_one("#amount", Input).value = event.button.id[1:]
-            return
-        if event.button.id == "cancel":
-            self.dismiss(None)
-            return
-        if event.button.id == "ok":
-            self._confirm()
+
+    def on_confirm_cancel_bar_confirmed(
+        self, event: ConfirmCancelBar.Confirmed,
+    ) -> None:
+        self._confirm()
+
+    def on_confirm_cancel_bar_cancelled(
+        self, event: ConfirmCancelBar.Cancelled,
+    ) -> None:
+        self.dismiss(None)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -153,8 +157,7 @@ class WithdrawModal(ModalScreen[float | None]):
     WithdrawModal #quick-row {{ height: auto; padding: 0 0 1 0; }}
     WithdrawModal .quick-btn {{ min-width: 7; margin: 0 1 0 0; }}
     WithdrawModal #warn-line {{ padding: 0 0 1 0; }}
-    WithdrawModal #btn-row {{ height: auto; align: center middle; padding: 1 0 0 0; }}
-    WithdrawModal .action-btn {{ min-width: 14; margin: 0 1; }}
+    WithdrawModal ConfirmCancelBar Button {{ min-width: 14; }}
     """
     BINDINGS = [("escape", "cancel", "取消")]
 
@@ -180,9 +183,7 @@ class WithdrawModal(ModalScreen[float | None]):
                     yield Button("$50", id="q50", classes="quick-btn")
                     yield Button("全部", id="qall", classes="quick-btn")
                 yield Static("", id="warn-line")
-                with Horizontal(id="btn-row"):
-                    yield Button("确认", id="ok", variant="primary", classes="action-btn")
-                    yield Button("取消", id="cancel", classes="action-btn")
+                yield ConfirmCancelBar()
 
     def on_mount(self) -> None:
         # Empty input on open → confirm must start disabled.
@@ -192,6 +193,8 @@ class WithdrawModal(ModalScreen[float | None]):
         self._refresh_warn()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        # ConfirmCancelBar buttons stop their event; only quick-amount buttons
+        # reach here.
         if event.button.id is None:
             return
         if event.button.id.startswith("q"):
@@ -199,12 +202,16 @@ class WithdrawModal(ModalScreen[float | None]):
                 self.query_one("#amount", Input).value = f"{self._cash:.2f}"
             else:
                 self.query_one("#amount", Input).value = event.button.id[1:]
-            return
-        if event.button.id == "cancel":
-            self.dismiss(None)
-            return
-        if event.button.id == "ok":
-            self._confirm()
+
+    def on_confirm_cancel_bar_confirmed(
+        self, event: ConfirmCancelBar.Confirmed,
+    ) -> None:
+        self._confirm()
+
+    def on_confirm_cancel_bar_cancelled(
+        self, event: ConfirmCancelBar.Cancelled,
+    ) -> None:
+        self.dismiss(None)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -218,7 +225,7 @@ class WithdrawModal(ModalScreen[float | None]):
 
     def _refresh_warn(self) -> None:
         warn = self.query_one("#warn-line", Static)
-        ok_btn = self.query_one("#ok", Button)
+        ok_btn = self.query_one("#confirm", Button)
         amt = self._parse()
         if amt is None:
             warn.update("")
@@ -273,8 +280,7 @@ class WalletResetModal(ModalScreen[bool | None]):
     WalletResetModal .daemon-block { padding: 0 0 1 0; color: $warning; }
     WalletResetModal #confirm-prompt { padding: 0 0 0 0; }
     WalletResetModal #confirm-input { width: 20; }
-    WalletResetModal #btn-row { height: auto; align: center middle; padding: 1 0 0 0; }
-    WalletResetModal .action-btn { min-width: 14; margin: 0 1; }
+    WalletResetModal ConfirmCancelBar Button { min-width: 14; }
     """
     BINDINGS = [("escape", "cancel", "取消")]
 
@@ -305,9 +311,16 @@ class WalletResetModal(ModalScreen[bool | None]):
                     yield Checkbox("我知道 daemon 会被停止", id="ack-daemon")
                 yield Static('确认请输入 [bold]reset[/bold] :', id="confirm-prompt")
                 yield Input(value="", id="confirm-input")
-                with Horizontal(id="btn-row"):
-                    yield Button("重置", id="ok", variant="error", classes="action-btn", disabled=True)
-                    yield Button("取消", id="cancel", classes="action-btn")
+                yield ConfirmCancelBar(
+                    confirm_label="重置",
+                    cancel_label="取消",
+                    destructive=True,
+                )
+
+    def on_mount(self) -> None:
+        # Gate starts locked; _refresh_ok_state enables it once typed "reset"
+        # (and daemon-ack if needed).
+        self.query_one("#confirm", Button).disabled = True
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self._refresh_ok_state()
@@ -315,11 +328,15 @@ class WalletResetModal(ModalScreen[bool | None]):
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         self._refresh_ok_state()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel":
-            self.dismiss(None)
-        elif event.button.id == "ok":
-            self._confirm()
+    def on_confirm_cancel_bar_confirmed(
+        self, event: ConfirmCancelBar.Confirmed,
+    ) -> None:
+        self._confirm()
+
+    def on_confirm_cancel_bar_cancelled(
+        self, event: ConfirmCancelBar.Cancelled,
+    ) -> None:
+        self.dismiss(None)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -336,7 +353,7 @@ class WalletResetModal(ModalScreen[bool | None]):
             return False
 
     def _refresh_ok_state(self) -> None:
-        self.query_one("#ok", Button).disabled = not (
+        self.query_one("#confirm", Button).disabled = not (
             self._typed_reset() and self._ack_daemon()
         )
 
@@ -344,7 +361,7 @@ class WalletResetModal(ModalScreen[bool | None]):
         if not (self._typed_reset() and self._ack_daemon()):
             return
         # Disable inputs while the worker runs so the user can't double-click.
-        self.query_one("#ok", Button).disabled = True
+        self.query_one("#confirm", Button).disabled = True
         self.query_one("#cancel", Button).disabled = True
         self.run_worker(self._do_reset, thread=True, exclusive=True)
 
@@ -400,5 +417,5 @@ class WalletResetModal(ModalScreen[bool | None]):
 
     def _on_reset_failed(self, err: str) -> None:
         self.notify(f"重置失败: {err}", severity="error")
-        self.query_one("#ok", Button).disabled = False
+        self.query_one("#confirm", Button).disabled = False
         self.query_one("#cancel", Button).disabled = False

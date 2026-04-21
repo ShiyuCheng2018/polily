@@ -153,7 +153,7 @@ async def test_topup_modal_amount_row_is_not_stretched(tmp_path):
             f"amount input unexpectedly tall: {amount_input.region.height}"
         )
         # Confirm button must be visible on screen.
-        ok_btn = modal.query_one("#ok", Button)
+        ok_btn = modal.query_one("#confirm", Button)
         assert ok_btn.region.height > 0
 
 
@@ -166,7 +166,7 @@ async def test_withdraw_modal_amount_row_is_not_stretched(tmp_path):
         modal = host.screen
         amount_input = modal.query_one("#amount")
         assert amount_input.region.height <= 4
-        ok_btn = modal.query_one("#ok", Button)
+        ok_btn = modal.query_one("#confirm", Button)
         assert ok_btn.region.height > 0
 
 

@@ -4,19 +4,21 @@ v0.8.0 migration:
 - ConfirmUnmonitorModal wraps the destructive-confirm flow in PolilyZone
   (ICON_CANCELLED) with a red border override — stopping monitoring is a
   user-workflow destructive action (event drops out of the poll rotation).
-- Widget IDs preserved (#dialog-box, #confirm, #keep, #btn-row) — dismiss
-  protocol (True on confirm, False on keep/Escape) untouched so existing
-  tests + callers in market_detail.py / monitor_list.py keep working.
+- Button row replaced with ConfirmCancelBar atom (Opt-A1). Button ids are
+  now `#confirm` + `#cancel` (previously `#confirm` + `#keep`).
+- dismiss protocol (True on confirm, False on cancel/Escape) untouched so
+  existing callers in market_detail.py / monitor_list.py keep working.
 """
 
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Static
+from textual.widgets import Static
 
 from scanner.tui.icons import ICON_CANCELLED
+from scanner.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 from scanner.tui.widgets.polily_zone import PolilyZone
 
 _MODAL_WIDTH = 62
@@ -25,8 +27,8 @@ _TITLE_TRIM = 40
 
 class ConfirmUnmonitorModal(ModalScreen[bool]):
     """Confirm-before-disable monitor. Dismisses True on confirm, False on
-    keep / Esc. No destructive action happens inside the modal — the caller
-    does the actual toggle once True is received.
+    cancel / Esc. No destructive action happens inside the modal — the
+    caller does the actual toggle once True is received.
     """
 
     DEFAULT_CSS = f"""
@@ -44,12 +46,7 @@ class ConfirmUnmonitorModal(ModalScreen[bool]):
     }}
     ConfirmUnmonitorModal .polily-zone-title {{ color: $error; }}
     ConfirmUnmonitorModal .event-line {{ color: $text-muted; padding: 0 0 1 0; }}
-    ConfirmUnmonitorModal #btn-row {{
-        height: auto;
-        align: center middle;
-        padding: 1 0 0 0;
-    }}
-    ConfirmUnmonitorModal .action-btn {{ min-width: 16; margin: 0 1; }}
+    ConfirmUnmonitorModal ConfirmCancelBar Button {{ min-width: 16; }}
     """
     BINDINGS = [("escape", "keep", "继续监控")]
 
@@ -65,25 +62,21 @@ class ConfirmUnmonitorModal(ModalScreen[bool]):
                     "[dim]取消后此事件将从监控轮询中移除。[/dim]",
                     classes="event-line",
                 )
-                with Horizontal(id="btn-row"):
-                    yield Button(
-                        "确认取消",
-                        id="confirm",
-                        variant="error",
-                        classes="action-btn",
-                    )
-                    yield Button(
-                        "继续监控",
-                        id="keep",
-                        variant="primary",
-                        classes="action-btn",
-                    )
+                yield ConfirmCancelBar(
+                    confirm_label="确认取消",
+                    cancel_label="继续监控",
+                    destructive=True,
+                )
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "confirm":
-            self.dismiss(True)
-        elif event.button.id == "keep":
-            self.dismiss(False)
+    def on_confirm_cancel_bar_confirmed(
+        self, event: ConfirmCancelBar.Confirmed,
+    ) -> None:
+        self.dismiss(True)
+
+    def on_confirm_cancel_bar_cancelled(
+        self, event: ConfirmCancelBar.Cancelled,
+    ) -> None:
+        self.dismiss(False)
 
     def action_keep(self) -> None:
         self.dismiss(False)

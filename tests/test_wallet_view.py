@@ -194,7 +194,7 @@ async def test_topup_modal_confirm_calls_service_and_dismisses(tmp_path):
         modal = host.screen
         modal.query_one("#amount", Input).value = "25"
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         await pilot.pause()
 
     assert host.dismiss_result == 25.0
@@ -226,7 +226,7 @@ async def test_withdraw_modal_rejects_over_cash(tmp_path):
         modal = host.screen
         modal.query_one("#amount", Input).value = "200"
         await pilot.pause()
-        assert modal.query_one("#ok", Button).disabled
+        assert modal.query_one("#confirm", Button).disabled
         warn = modal.query_one("#warn-line", Static).content
         assert "超出" in str(warn)
 
@@ -252,7 +252,7 @@ async def test_withdraw_modal_confirm_deducts_cash(tmp_path):
         modal = host.screen
         modal.query_one("#amount", Input).value = "30"
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         await pilot.pause()
 
     assert host.dismiss_result == 30.0
@@ -285,7 +285,7 @@ async def test_reset_modal_requires_reset_keyword(tmp_path, monkeypatch):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         modal = host.screen
-        ok = modal.query_one("#ok", Button)
+        ok = modal.query_one("#confirm", Button)
         assert ok.disabled  # initial state
         modal.query_one("#confirm-input", Input).value = "not-reset"
         await pilot.pause()
@@ -321,7 +321,7 @@ async def test_reset_modal_confirm_clears_state(tmp_path, monkeypatch):
         modal = host.screen
         modal.query_one("#confirm-input", Input).value = "reset"
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         # Wait for the worker thread to complete the reset and dismiss.
         for _ in range(20):
             await pilot.pause()
@@ -359,7 +359,7 @@ async def test_reset_modal_sigterms_daemon_before_reset(tmp_path, monkeypatch):
         modal.query_one("#confirm-input", Input).value = "reset"
         modal.query_one("#ack-daemon", Checkbox).value = True
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         for _ in range(20):
             await pilot.pause()
             if host.dismiss_result is not None:
@@ -389,10 +389,10 @@ async def test_reset_modal_shows_daemon_warning_when_running(tmp_path, monkeypat
         # Typing reset alone is not enough; checkbox must also be checked.
         modal.query_one("#confirm-input", Input).value = "reset"
         await pilot.pause()
-        assert modal.query_one("#ok", Button).disabled
+        assert modal.query_one("#confirm", Button).disabled
         checkbox.value = True
         await pilot.pause()
-        assert not modal.query_one("#ok", Button).disabled
+        assert not modal.query_one("#confirm", Button).disabled
 
 
 # --- WalletResetModal: auto-restart daemon (follow-up hardening) -------
@@ -442,7 +442,7 @@ async def test_reset_modal_auto_restarts_daemon_when_monitors_exist(
         modal.query_one("#confirm-input", Input).value = "reset"
         modal.query_one("#ack-daemon", Checkbox).value = True
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         for _ in range(20):
             await pilot.pause()
             if host.dismiss_result is not None:
@@ -477,7 +477,7 @@ async def test_reset_modal_skips_restart_when_no_active_monitors(
         modal.query_one("#confirm-input", Input).value = "reset"
         modal.query_one("#ack-daemon", Checkbox).value = True
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         for _ in range(20):
             await pilot.pause()
             if host.dismiss_result is not None:
@@ -524,7 +524,7 @@ async def test_reset_modal_restart_failure_still_dismisses_truthy(
         modal.query_one("#confirm-input", Input).value = "reset"
         modal.query_one("#ack-daemon", Checkbox).value = True
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         for _ in range(20):
             await pilot.pause()
             if host.dismiss_result is not None:
