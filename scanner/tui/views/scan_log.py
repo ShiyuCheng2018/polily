@@ -230,11 +230,11 @@ class ScanLogView(Widget):
     ScanLogView #url-row { height: auto; padding: 1 1; }
     ScanLogView #url-input { width: 1fr; }
     ScanLogView #score-btn { width: 10; min-width: 10; }
-    /* v0.8.0+: pending zone auto-sizes (usually 0-3 rows); history zone
-       stretches to fill remaining viewport — user wants to see the log. */
-    ScanLogView #pending-zone { height: auto; }
+    /* v0.8.0+: pending zone sizes to its rows (natural); history zone
+       stretches to fill remaining viewport. */
+    ScanLogView #pending-zone { height: auto; max-height: 40%; }
     ScanLogView #history-zone { height: 1fr; }
-    ScanLogView #upcoming-table { height: auto; max-height: 40%; }
+    ScanLogView #upcoming-table { height: auto; }
     ScanLogView #history-table { height: 1fr; }
     """
 
