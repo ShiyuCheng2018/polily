@@ -18,7 +18,13 @@
 
 .py-xs { padding-top: 0; padding-bottom: 0; }
 .py-sm { padding-top: 1; padding-bottom: 1; }
-.py-md { padding-top: 1; padding-bottom: 1; }
+.py-md { padding-top: 2; padding-bottom: 2; }
+.py-lg { padding-top: 3; padding-bottom: 3; }
+
+.pt-sm { padding-top: 1; }
+.pt-md { padding-top: 2; }
+.pb-sm { padding-bottom: 1; }
+.pb-md { padding-bottom: 2; }
 
 /* --- Margin utilities --- */
 .m-xs { margin: 0 1; }
@@ -33,6 +39,15 @@
 .body { color: $text; }
 .caption { color: $text-muted; }
 .code { color: $accent; }
+
+.bold { text-style: bold; }
+.dim { text-style: dim; }
+
+/* --- Alignment utilities (v0.8.0+) --- */
+.center { align: center middle; }
+.text-center { text-align: center; }
+.text-left { text-align: left; }
+.text-right { text-align: right; }
 
 /* --- Text semantic colors --- */
 .text-success { color: $success; }
