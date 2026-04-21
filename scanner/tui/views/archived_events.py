@@ -60,8 +60,9 @@ class ArchivedEventsView(Widget):
     DEFAULT_CSS = """
     ArchivedEventsView { height: 1fr; }
     ArchivedEventsView > VerticalScroll { height: 1fr; }
-    ArchivedEventsView > VerticalScroll > PolilyZone { height: auto; }
-    ArchivedEventsView DataTable { height: auto; }
+    /* v0.8.0+: stretch zone + table to screen bottom (match paper_status/history). */
+    ArchivedEventsView > VerticalScroll > PolilyZone { height: 1fr; }
+    ArchivedEventsView DataTable { height: 1fr; }
     ArchivedEventsView .empty-msg { padding: 2; }
     """
 
