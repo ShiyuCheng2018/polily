@@ -458,7 +458,7 @@ class ScanLogDetailView(Widget):
 
     BINDINGS = [
         Binding("escape", "go_back", "返回列表"),
-        Binding("enter", "open_market", "打开事件", show=True),
+        Binding("enter", "open_event", "打开事件", show=True),
     ]
 
     DEFAULT_CSS = """
@@ -608,7 +608,7 @@ class ScanLogDetailView(Widget):
     def action_go_back(self) -> None:
         self.post_message(BackToScanLog())
 
-    def action_open_market(self) -> None:
+    def action_open_event(self) -> None:
         if self.log_entry.event_id:
             self.post_message(OpenEventFromLog(self.log_entry.event_id))
 
