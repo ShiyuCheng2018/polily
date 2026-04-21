@@ -391,13 +391,10 @@ class ScanLogView(Widget):
         if row_idx is None or row_idx >= len(rows):
             return
         log = rows[row_idx]
-        # Enter from the scan_log list goes straight to the event (market
-        # detail). Scan detail page is reachable via a separate action if
-        # needed.
-        if log.event_id:
-            self.post_message(OpenMarketFromLog(log.event_id))
-        else:
-            self.post_message(ViewScanLogDetail(log))
+        # Enter from the scan_log list enters the scan detail page (分析详情).
+        # From there, pressing Enter again opens the market (event) detail.
+        # Two-level navigation: list → scan detail → event detail.
+        self.post_message(ViewScanLogDetail(log))
 
     def action_cancel_running(self) -> None:
         from scanner.tui.views.scan_modals import ConfirmCancelScanModal
