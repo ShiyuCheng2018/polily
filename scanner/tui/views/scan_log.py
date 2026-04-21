@@ -126,6 +126,31 @@ def _trigger_icon(source: str) -> str:
     }.get(source, "")
 
 
+def _trigger_who_label(source: str) -> str:
+    """Who initiated this scan — user-friendly collapsed label.
+
+    manual → 手动 (user-initiated)
+    everything else (scheduled / movement / scan) → AI (system-initiated)
+    """
+    if source == "manual":
+        return f"{ICON_USER} 手动"
+    return "AI"
+
+
+def _scan_kind_label(type_: str) -> str:
+    """What this scan did — user-friendly collapsed label.
+
+    analyze   → 分析 (AI narrative)
+    add_event → 评分 (URL-pasted event scoring)
+    scan      → 评分 (batch scoring of many events)
+    """
+    return {
+        "analyze": "分析",
+        "add_event": "评分",
+        "scan": "评分",
+    }.get(type_, type_)
+
+
 @dataclass
 class StepInfo:
     """A single progress step (live, in-memory)."""
@@ -287,30 +312,30 @@ class ScanLogView(Widget):
         for child in list(zone.query(DataTable)):
             child.remove()
 
+        def _add_upcoming_columns(t: DataTable) -> None:
+            t.add_column("触发", key="触发")
+            t.add_column("类型", key="类型")
+            t.add_column("状态", key="状态")
+            t.add_column("事件", key="事件")
+            t.add_column("预定时间", key="预定时间")
+            t.add_column("原因", key="原因")
+
         if not self._upcoming:
             # Keep zone visible with empty table (columns only) so test can find it
             table = DataTable(id="upcoming-table")
             zone.mount(table)
             table.cursor_type = "row"
-            table.add_column("类型", key="类型")
-            table.add_column("状态", key="状态")
-            table.add_column("事件", key="事件")
-            table.add_column("预定时间", key="预定时间")
-            table.add_column("原因", key="原因")
+            _add_upcoming_columns(table)
             return
 
         table = DataTable(id="upcoming-table")
         zone.mount(table)
         table.cursor_type = "row"
-        table.add_column("类型", key="类型")
-        table.add_column("状态", key="状态")
-        table.add_column("事件", key="事件")
-        table.add_column("预定时间", key="预定时间")
-        table.add_column("原因", key="原因")
+        _add_upcoming_columns(table)
 
         for log in self._upcoming:
-            icon = _trigger_icon(log.trigger_source)
-            type_label = f"{icon} {translate_trigger(log.trigger_source)}".strip()
+            who = _trigger_who_label(log.trigger_source)
+            kind = _scan_kind_label(log.type)
             status_icon = STATUS_ICONS.get(log.status, "")
             status_label = f"{status_icon} {translate_status(log.status)}".strip()
             title = (log.market_title or "")[:40]
@@ -318,7 +343,7 @@ class ScanLogView(Widget):
             reason = log.scheduled_reason or ""
             if len(reason) > 15:
                 reason = reason[:14] + "…"
-            table.add_row(type_label, status_label, title, when, reason, key=log.scan_id)
+            table.add_row(who, kind, status_label, title, when, reason, key=log.scan_id)
 
     def _rebuild_history_zone(self) -> None:
         try:
@@ -332,6 +357,7 @@ class ScanLogView(Widget):
         table = DataTable(id="history-table")
         zone.mount(table)
         table.cursor_type = "row"
+        table.add_column("触发", key="触发")
         table.add_column("类型", key="类型")
         table.add_column("状态", key="状态")
         table.add_column("事件", key="事件")
@@ -340,8 +366,8 @@ class ScanLogView(Widget):
         table.add_column("错误", key="错误")
 
         for log in self._history:
-            icon = _trigger_icon(log.trigger_source)
-            type_label = f"{icon} {translate_trigger(log.trigger_source)}".strip()
+            who = _trigger_who_label(log.trigger_source)
+            kind = _scan_kind_label(log.type)
             status_icon = STATUS_ICONS.get(log.status, "")
             status_label = f"{status_icon} {translate_status(log.status)}".strip()
             title = (log.market_title or "")[:40]
@@ -352,7 +378,7 @@ class ScanLogView(Widget):
             error_str = ""
             if log.error:
                 error_str = log.error[:40]
-            table.add_row(type_label, status_label, title, fin_short, elapsed_str, error_str, key=log.scan_id)
+            table.add_row(who, kind, status_label, title, fin_short, elapsed_str, error_str, key=log.scan_id)
 
     def _submit_url(self) -> None:
         try:

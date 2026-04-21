@@ -107,9 +107,9 @@ async def test_scan_log_preserves_approved_columns(svc):
         up_cols = {str(c.label.plain if hasattr(c.label, 'plain') else c.label) for c in upcoming.columns.values()}
         hist_cols = {str(c.label.plain if hasattr(c.label, 'plain') else c.label) for c in history.columns.values()}
 
-        assert {"类型", "状态", "事件", "预定时间", "原因"}.issubset(up_cols), \
+        assert {"触发", "类型", "状态", "事件", "预定时间", "原因"}.issubset(up_cols), \
             f"upcoming columns incomplete: {up_cols}"
-        assert {"类型", "状态", "事件", "结束时间", "耗时", "错误"}.issubset(hist_cols), \
+        assert {"触发", "类型", "状态", "事件", "结束时间", "耗时", "错误"}.issubset(hist_cols), \
             f"history columns incomplete: {hist_cols}"
 
 
