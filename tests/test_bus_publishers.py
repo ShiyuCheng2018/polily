@@ -196,6 +196,39 @@ async def test_event_detail_price_handler_accepts_heartbeat(svc, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_event_detail_price_handler_filters_missing_event_id_without_heartbeat(svc):
+    """v0.8.0 tightening: a publish without BOTH event_id AND source=heartbeat
+    must be filtered (used to be treated as match-all via `event_id is None`).
+    Prevents a future publisher that forgets event_id from silently refreshing
+    every open EventDetailView."""
+    from scanner.tui.app import PolilyApp
+    from scanner.tui.views.event_detail import EventDetailView
+
+    app = PolilyApp(service=svc)
+    app._restart_daemon = lambda: None
+
+    calls: list[str] = []
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = EventDetailView("ev1", svc)
+        await app.mount(view)
+        await pilot.pause()
+
+        # Call the handler directly to isolate from the app-level heartbeat
+        # timer that publishes TOPIC_PRICE_UPDATED on its own cadence.
+        original_call_later = app.call_later
+        app.call_later = lambda *a, **kw: calls.append("dispatched")
+        try:
+            view._on_price_update({"mid": 0.5})  # no event_id, no source
+        finally:
+            app.call_later = original_call_later
+    assert not calls, (
+        f"ambiguous payload (no event_id, no source=heartbeat) leaked "
+        f"through filter: {calls}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_event_detail_price_handler_still_filters_other_events(svc):
     """Regression on E: a payload with a DIFFERENT event_id must still
     be filtered out (only this view's event_id or missing counts).

@@ -131,6 +131,43 @@ async def test_wallet_view_has_no_redundant_keyhint_line(svc):
             f"expected no '.hint' Static (key hints duplicate footer), found {len(hint_statics)}"
 
 
+async def test_wallet_balance_card_stable_ids_no_duplication_on_refresh(svc):
+    """Regression: rapid _render_all calls (bus callbacks, heartbeat) must
+    not leak KVRow / .wallet-dynamic widgets. Pre-fix the card used
+    remove+remount which raced Textual's deferred removal."""
+    from scanner.tui.app import PolilyApp
+    from scanner.tui.views.wallet import WalletView
+    from scanner.tui.widgets.kv_row import KVRow
+
+    app = PolilyApp(service=svc)
+    app._restart_daemon = lambda: None
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = WalletView(svc)
+        await app.mount(view)
+        await pilot.pause()
+
+        # Repeatedly force sync renders — bypass @once_per_tick to simulate
+        # multiple bus ticks having actually run.
+        render = type(view)._render_all.__wrapped__
+        for _ in range(5):
+            render(view)
+        await pilot.pause()
+
+        kv_rows = list(view.query(KVRow))
+        # Exactly 5: cash, available, positions_value, unrealized, realized.
+        assert len(kv_rows) == 5, (
+            f"expected exactly 5 KVRows in wallet balance card after 5 "
+            f"refreshes, got {len(kv_rows)} — remove+remount pattern "
+            f"leaked stale widgets"
+        )
+        # And exactly 2 .wallet-dynamic Statics (headline + footnote).
+        dynamics = list(view.query(".wallet-dynamic"))
+        assert len(dynamics) == 2, (
+            f"expected 2 .wallet-dynamic Statics, got {len(dynamics)}"
+        )
+
+
 def test_every_content_view_declares_visible_r_refresh():
     """Per v0.8.0 polish: every content view binds `r` → action_refresh
     with show=True so the footer surfaces it uniformly. Intentionally

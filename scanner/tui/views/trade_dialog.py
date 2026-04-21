@@ -650,11 +650,11 @@ class TradeDialog(ModalScreen[dict | None]):
     def _on_price_update(self, payload: dict) -> None:
         """Bus callback — thread-safe via dispatch_to_ui.
 
-        Missing `event_id` = match-all heartbeat (MainScreen's bridge
-        for cross-process daemon writes).
+        Matches either this dialog's event or a heartbeat broadcast
+        (`source="heartbeat"` signals MainScreen's cross-process bridge).
         """
-        ev = payload.get("event_id")
-        if ev is not None and ev != self.event_id:
+        is_heartbeat = payload.get("source") == "heartbeat"
+        if not is_heartbeat and payload.get("event_id") != self.event_id:
             return
         dispatch_to_ui(self.app, self._refresh_prices_periodic)
 
@@ -663,12 +663,20 @@ class TradeDialog(ModalScreen[dict | None]):
             self._push_context_to_panes()
 
     def on_buy_pane_buy_confirmed(self, event: BuyPane.BuyConfirmed) -> None:
+        from scanner.tui.service import MonitorRequiredError
         try:
             result = self._service.execute_buy(
                 market_id=event.market_id,
                 side=event.side,
                 shares=event.shares,
             )
+        except MonitorRequiredError:
+            # Race: monitor got disabled between dialog open and confirm.
+            self.notify(
+                "需要先激活监控才能进行交易 — 按 m 开启监控",
+                severity="warning",
+            )
+            return
         except Exception as e:
             self.notify(f"买入失败: {e}", severity="error")
             return
@@ -679,12 +687,22 @@ class TradeDialog(ModalScreen[dict | None]):
         self.dismiss({"action": "buy", **result, "side": event.side, "shares": event.shares})
 
     def on_sell_pane_sell_confirmed(self, event: SellPane.SellConfirmed) -> None:
+        from scanner.tui.service import MonitorRequiredError
         try:
             result = self._service.execute_sell(
                 market_id=event.market_id,
                 side=event.side,
                 shares=event.shares,
             )
+        except MonitorRequiredError:
+            # Defence-in-depth — `toggle_monitor` blocks disabling when
+            # positions exist, so reaching here means DB drift. Surface
+            # it as a monitor-activation prompt.
+            self.notify(
+                "需要先激活监控才能进行交易 — 按 m 开启监控",
+                severity="warning",
+            )
+            return
         except Exception as e:
             self.notify(f"卖出失败: {e}", severity="error")
             return

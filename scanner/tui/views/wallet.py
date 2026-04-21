@@ -34,7 +34,7 @@ from scanner.core.events import (
     TOPIC_POSITION_UPDATED,
     TOPIC_WALLET_UPDATED,
 )
-from scanner.tui._dispatch import dispatch_to_ui
+from scanner.tui._dispatch import once_per_tick
 from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_WALLET
 from scanner.tui.service import ScanService
@@ -142,7 +142,20 @@ class WalletView(Widget):
             yield Button("重置钱包", id="reset-btn", variant="error", classes="bold")
 
     def on_mount(self) -> None:
-        # Set up ledger table inside ledger zone
+        # --- Balance card: mount ONCE with stable IDs so `_render_balance_card`
+        # can update in place via `.set_value()` / `.update()`. Remount-style
+        # refresh would leave stale widgets behind because Textual's
+        # `remove()` is deferred (see v0.8.0 bus-fix commit).
+        card = self.query_one("#balance-card", PolilyCard)
+        card.mount(Static("", id="wallet-headline", classes="wallet-dynamic"))
+        card.mount(KVRow(id="wallet-cash", label="余额", value="—"))
+        card.mount(KVRow(id="wallet-available", label="可用", value="—"))
+        card.mount(KVRow(id="wallet-positions-value", label="持仓市值", value="—"))
+        card.mount(KVRow(id="wallet-unrealized", label="浮动盈亏", value="—"))
+        card.mount(KVRow(id="wallet-realized", label="累计已实现", value="—"))
+        card.mount(Static("", id="wallet-footnote", classes="wallet-dynamic"))
+
+        # --- Ledger table
         ledger_zone = self.query_one("#ledger-zone", PolilyZone)
         table = DataTable(id="wallet-table")
         ledger_zone.mount(table)
@@ -153,25 +166,33 @@ class WalletView(Widget):
             ("金额", "amount"),
             ("余额", "balance"),
         )
+
         # Subscribe to event bus topics
         self.service.event_bus.subscribe(TOPIC_WALLET_UPDATED, self._on_wallet_update)
         self.service.event_bus.subscribe(TOPIC_POSITION_UPDATED, self._on_position_update)
-        self._render_all()
+        # Initial render bypasses @once_per_tick — callers expect
+        # synchronous population by the time on_mount returns.
+        type(self)._render_all.__wrapped__(self)
 
     def on_unmount(self) -> None:
         self.service.event_bus.unsubscribe(TOPIC_WALLET_UPDATED, self._on_wallet_update)
         self.service.event_bus.unsubscribe(TOPIC_POSITION_UPDATED, self._on_position_update)
 
     def _on_wallet_update(self, payload: dict) -> None:
-        """Bus callback — MUST use call_from_thread (called from non-UI thread)."""
-        dispatch_to_ui(self.app, self._render_all)
+        """Bus callback — refresh coalesced by @once_per_tick on _render_all."""
+        self._render_all()
 
     def _on_position_update(self, payload: dict) -> None:
-        """Bus callback — MUST use call_from_thread (called from non-UI thread)."""
-        dispatch_to_ui(self.app, self._render_all)
+        """Bus callback — refresh coalesced by @once_per_tick on _render_all."""
+        self._render_all()
 
+    @once_per_tick
     def _render_all(self) -> None:
-        """Fetch snapshot + repopulate balance card + ledger table."""
+        """Fetch snapshot + repopulate balance card + ledger table.
+
+        `@once_per_tick`: subscribes to WALLET+POSITION — heartbeat
+        fan-out would otherwise trigger 2× per tick.
+        """
         self._render_balance_card()
         self._render_ledger()
 
@@ -198,24 +219,22 @@ class WalletView(Widget):
         return no_p if 0 < no_p < 1 else None
 
     def _render_balance_card(self) -> None:
-        try:
-            card = self.query_one("#balance-card", PolilyCard)
-        except Exception:
-            return
+        """Update the 7 balance-card widgets in place.
 
+        Widgets are mounted once in `on_mount` with stable IDs
+        (`#wallet-headline`, `#wallet-cash`, `#wallet-available`,
+        `#wallet-positions-value`, `#wallet-unrealized`,
+        `#wallet-realized`, `#wallet-footnote`). Updating in place
+        avoids the remove+remount race where Textual's deferred
+        `remove()` could leave duplicate KVRows briefly visible under
+        rapid bus callbacks.
+        """
         snapshot = self.service.get_wallet_snapshot()
         positions = self.service.get_all_positions()
         ov = compute_wallet_overview(
             snapshot=snapshot, positions=positions,
             price_lookup=self._price_lookup,
         )
-
-        # Remove existing KVRow / Static children (keep title Static)
-        for child in list(card.query(KVRow)):
-            child.remove()
-        # Remove dynamic headline/metrics statics added previously
-        for child in list(card.query(".wallet-dynamic")):
-            child.remove()
 
         total_color = "green" if ov["total_pnl"] > 0 else "red" if ov["total_pnl"] < 0 else "dim"
         total_sign = "+" if ov["total_pnl"] > 0 else ""
@@ -233,28 +252,31 @@ class WalletView(Widget):
         real_sign = "+" if real > 0 else ""
         unreal_sign = "+" if unreal > 0 else ""
 
-        card.mount(Static(headline, classes="wallet-dynamic"))
-        card.mount(KVRow(label="余额", value=f"${ov['cash_usd']:.2f}"))
-        card.mount(KVRow(label="可用", value=f"${ov['cash_usd']:.2f}"))
-        card.mount(KVRow(
-            label="持仓市值",
-            value=f"${ov['positions_market_value']:.2f}   ({ov['open_positions_count']} 个持仓)",
-        ))
-        card.mount(KVRow(
-            label="浮动盈亏",
-            value=f"[{unreal_color}]{unreal_sign}${unreal:.2f}[/{unreal_color}]",
-        ))
-        card.mount(KVRow(
-            label="累计已实现",
-            value=f"[{real_color}]{real_sign}${real:.2f}[/{real_color}]",
-        ))
-        card.mount(Static(
+        footnote = (
             f"净投入 ${ov['net_inflow']:.2f}  =  "
             f"初始 ${ov['starting_balance']:.2f}  +  "
             f"充值 ${ov['topup_total']:.2f}  -  "
-            f"提现 ${ov['withdraw_total']:.2f}",
-            classes="wallet-dynamic",
-        ))
+            f"提现 ${ov['withdraw_total']:.2f}"
+        )
+
+        try:
+            self.query_one("#wallet-headline", Static).update(headline)
+            self.query_one("#wallet-cash", KVRow).set_value(f"${ov['cash_usd']:.2f}")
+            self.query_one("#wallet-available", KVRow).set_value(f"${ov['cash_usd']:.2f}")
+            self.query_one("#wallet-positions-value", KVRow).set_value(
+                f"${ov['positions_market_value']:.2f}   ({ov['open_positions_count']} 个持仓)",
+            )
+            self.query_one("#wallet-unrealized", KVRow).set_value(
+                f"[{unreal_color}]{unreal_sign}${unreal:.2f}[/{unreal_color}]",
+            )
+            self.query_one("#wallet-realized", KVRow).set_value(
+                f"[{real_color}]{real_sign}${real:.2f}[/{real_color}]",
+            )
+            self.query_one("#wallet-footnote", Static).update(footnote)
+        except Exception:
+            # Card children aren't mounted yet — on_mount will retry after
+            # mounting. Safe to no-op here.
+            return
 
     def _render_ledger(self) -> None:
         try:

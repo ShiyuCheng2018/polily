@@ -22,7 +22,7 @@ from scanner.core.events import (
     TOPIC_POSITION_UPDATED,
     TOPIC_PRICE_UPDATED,
 )
-from scanner.tui._dispatch import dispatch_to_ui
+from scanner.tui._dispatch import once_per_tick
 from scanner.tui.components import (
     AnalysisPanel,
     BinaryMarketStructurePanel,
@@ -170,25 +170,36 @@ class EventDetailView(Widget):
         self.service.event_bus.unsubscribe(TOPIC_POSITION_UPDATED, self._on_position_update)
 
     def _on_price_update(self, payload: dict) -> None:
-        """Bus callback — dispatch via `dispatch_to_ui` for thread safety.
+        """Bus callback — refresh dispatched via `@once_per_tick` decorator.
 
-        A missing `event_id` means a "match-all" heartbeat (MainScreen's
-        5s bridge for cross-process daemon writes) — treat as relevant.
+        A `"source": "heartbeat"` payload is a match-all broadcast
+        (MainScreen's 5s bridge for cross-process daemon writes) —
+        treat as relevant to this view. Tightening from the pre-v0.8.0
+        "event_id is None = match-all" rule so future publishers that
+        accidentally omit event_id don't silently refresh every open
+        EventDetailView.
         """
-        ev = payload.get("event_id")
-        if ev is None or ev == self.event_id:
-            dispatch_to_ui(self.app, self.refresh_data)
+        if payload.get("source") == "heartbeat" or payload.get("event_id") == self.event_id:
+            self.refresh_data()
 
     def _on_position_update(self, payload: dict) -> None:
-        """Bus callback — dispatch via `dispatch_to_ui` for thread safety."""
-        dispatch_to_ui(self.app, self.refresh_data)
+        """Bus callback — dedup'd via `@once_per_tick` on refresh_data."""
+        self.refresh_data()
 
     # ------------------------------------------------------------------
     # Refresh
     # ------------------------------------------------------------------
 
+    @once_per_tick
     def refresh_data(self) -> None:
-        """Re-fetch data from DB and recompose the view."""
+        """Re-fetch data from DB and recompose the view.
+
+        `@once_per_tick`: multiple synchronous calls on the same view
+        within a tick coalesce to one execution (React 18 batching
+        pattern). Each `_bus_heartbeat` fans out PRICE + POSITION which
+        both subscribe here — without coalescing, `recompose()` would
+        run twice per heartbeat.
+        """
         new_detail = self.service.get_event_detail(self.event_id)
         if new_detail is None:
             return

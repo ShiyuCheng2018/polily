@@ -31,7 +31,7 @@ from scanner.core.events import (
     TOPIC_PRICE_UPDATED,
     TOPIC_WALLET_UPDATED,
 )
-from scanner.tui._dispatch import dispatch_to_ui
+from scanner.tui._dispatch import once_per_tick
 from scanner.pnl import calc_unrealized_pnl
 from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_POSITION
@@ -116,7 +116,9 @@ class PaperStatusView(Widget):
         self.service.event_bus.subscribe(
             TOPIC_PRICE_UPDATED, self._on_price_update,
         )
-        self._render_all()
+        # Initial render bypasses @once_per_tick — callers expect
+        # synchronous population by the time on_mount returns.
+        type(self)._render_all.__wrapped__(self)
 
     def on_unmount(self) -> None:
         self.service.event_bus.unsubscribe(
@@ -133,15 +135,15 @@ class PaperStatusView(Widget):
 
     def _on_wallet_update(self, payload: dict) -> None:
         with contextlib.suppress(Exception):
-            dispatch_to_ui(self.app, self._render_all)
+            self._render_all()  # coalesced by @once_per_tick
 
     def _on_position_update(self, payload: dict) -> None:
         with contextlib.suppress(Exception):
-            dispatch_to_ui(self.app, self._render_all)
+            self._render_all()  # coalesced by @once_per_tick
 
     def _on_price_update(self, payload: dict) -> None:
         with contextlib.suppress(Exception):
-            dispatch_to_ui(self.app, self._render_all)
+            self._render_all()  # coalesced by @once_per_tick
 
     # -- Rendering --
 
@@ -152,12 +154,16 @@ class PaperStatusView(Widget):
         m = get_market(market_id, self.service.db)
         return m.yes_price if m else None
 
+    @once_per_tick
     def _render_all(self) -> None:
         """Refresh the summary + DataTable contents in place.
 
         Table + summary are mounted once in `on_mount`; here we just clear
         rows + update summary text. This avoids remove() race conditions
         with Textual's deferred node removal.
+
+        `@once_per_tick`: subscribes to 3 bus topics (WALLET+POSITION+
+        PRICE) — heartbeat fan-out would otherwise trigger 3× per tick.
         """
         try:
             table = self.query_one("#portfolio-table", DataTable)
@@ -282,7 +288,7 @@ class PaperStatusView(Widget):
         except Exception:
             # Table absent → either empty state mounted or not composed yet.
             # Fall back to full render which handles both paths.
-            self._render_all()
+            type(self)._render_all.__wrapped__(self)  # sync: bypass @once_per_tick
             return
 
         fresh = self.service.get_open_trades()
@@ -293,7 +299,7 @@ class PaperStatusView(Widget):
         if old_keys != new_keys:
             # Row set changed → rebuild everything so DataTable doesn't hold
             # stale row_keys pointing at deleted / missing positions.
-            self._render_all()
+            type(self)._render_all.__wrapped__(self)  # sync: bypass @once_per_tick
             return
 
         if not self._trades:

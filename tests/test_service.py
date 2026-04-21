@@ -58,6 +58,10 @@ def _seed(db, event_id="ev1", market_id="m1", **event_kw):
         yes_price=0.55, no_price=0.45, updated_at="now",
     ), db)
 
+    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    from scanner.core.monitor_store import upsert_event_monitor
+    upsert_event_monitor(event_id, auto_monitor=True, db=db)
+
 
 class TestGetAllEvents:
     def test_returns_all_tiers(self, db, service):

@@ -21,7 +21,7 @@ from scanner.tui.views.wallet import WalletView
 from scanner.tui.views.wallet_modals import TopupModal, WalletResetModal, WithdrawModal
 
 
-def _seed(tmp_path) -> ScanService:
+def _seed(tmp_path, *, auto_monitor: bool = True) -> ScanService:
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(
         EventRow(event_id="e1", title="BTC April", updated_at="now"),
@@ -38,6 +38,12 @@ def _seed(tmp_path) -> ScanService:
         ),
         db,
     )
+    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    # Tests that specifically cover the "no active monitors" path
+    # (e.g. reset modal's skip-restart check) can pass auto_monitor=False.
+    if auto_monitor:
+        from scanner.core.monitor_store import upsert_event_monitor
+        upsert_event_monitor("e1", auto_monitor=True, db=db)
     return ScanService(config=ScannerConfig(), db=db)
 
 
@@ -463,8 +469,8 @@ async def test_reset_modal_skips_restart_when_no_active_monitors(
     """Reset while daemon running + NO active monitors → don't start daemon
     back up. Follows the same rule as TUI on_mount: no monitors = no daemon.
     """
-    svc = _seed(tmp_path)
-    # Intentionally do NOT upsert an event monitor.
+    svc = _seed(tmp_path, auto_monitor=False)
+    # Intentionally no active monitor — tests the "skip restart" path.
     _prime_daemon_mocks(monkeypatch)
     calls: list[str] = []
     monkeypatch.setattr(

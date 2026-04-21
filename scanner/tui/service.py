@@ -81,6 +81,30 @@ class ActivePositionsError(Exception):
     monitor on an event the user still holds shares in)."""
 
 
+class MonitorRequiredError(Exception):
+    """Raised by `ScanService.execute_buy / execute_sell` when the target
+    event has `auto_monitor` off.
+
+    Positions on an unmonitored event would silently rot (no price
+    polling, no movement scoring, no narrator attention). `toggle_monitor`
+    already blocks disabling monitor when positions exist (see
+    `ActivePositionsError`), so by invariant sell should never hit an
+    unmonitored event — a raise here on sell surfaces DB drift rather
+    than trading against stale state.
+
+    Policy lives in the service layer (not `TradeEngine`) so the engine
+    stays a pure atomic primitive. Any future caller (e.g. a live-money
+    trading service) MUST replicate this guard — wire it via service
+    methods, not direct engine calls.
+    """
+
+    def __init__(self, event_id: str) -> None:
+        self.event_id = event_id
+        super().__init__(
+            f"Event {event_id} has monitoring disabled; enable it before trading",
+        )
+
+
 class ScanService:
     """DB-first bridge between TUI views, scan pipeline, AI agent, and DB."""
 
@@ -651,7 +675,29 @@ class ScanService:
     # Wallet / positions / trade proxies (v0.6.0)
     # ------------------------------------------------------------------
 
+    def _assert_monitor_active_for_market(self, market_id: str) -> None:
+        """Raise `MonitorRequiredError` when the market's owning event has
+        `auto_monitor` off or no monitor row. Policy guard in front of
+        every trade so autopilot / external callers inherit the check.
+        """
+        row = self.db.conn.execute(
+            "SELECT em.auto_monitor FROM markets m "
+            "LEFT JOIN event_monitors em ON em.event_id = m.event_id "
+            "WHERE m.market_id = ?",
+            (market_id,),
+        ).fetchone()
+        if row is None:
+            # Market doesn't exist — let downstream raise a more specific error.
+            return
+        if not row["auto_monitor"]:
+            event_row = self.db.conn.execute(
+                "SELECT event_id FROM markets WHERE market_id = ?",
+                (market_id,),
+            ).fetchone()
+            raise MonitorRequiredError(event_row["event_id"])
+
     def execute_buy(self, *, market_id: str, side: str, shares: float) -> dict:
+        self._assert_monitor_active_for_market(market_id)
         result = self.trade_engine.execute_buy(
             market_id=market_id, side=side, shares=shares,
         )
@@ -668,6 +714,7 @@ class ScanService:
         return result
 
     def execute_sell(self, *, market_id: str, side: str, shares: float) -> dict:
+        self._assert_monitor_active_for_market(market_id)
         result = self.trade_engine.execute_sell(
             market_id=market_id, side=side, shares=shares,
         )

@@ -17,6 +17,7 @@ from textual.widgets import DataTable, Static
 from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from scanner.core.monitor_store import upsert_event_monitor
 from scanner.tui.service import ScanService
 from scanner.tui.views.history import HistoryView
 
@@ -33,6 +34,8 @@ def _svc(tmp_path) -> ScanService:
         ),
         db,
     )
+    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    upsert_event_monitor("e1", auto_monitor=True, db=db)
     return ScanService(config=ScannerConfig(), db=db)
 
 

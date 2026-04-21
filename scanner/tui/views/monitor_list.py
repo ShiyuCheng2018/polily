@@ -26,7 +26,7 @@ from scanner.core.events import (
     TOPIC_PRICE_UPDATED,
     TOPIC_SCAN_UPDATED,
 )
-from scanner.tui._dispatch import dispatch_to_ui
+from scanner.tui._dispatch import once_per_tick
 from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_AUTO_MONITOR
 from scanner.tui.monitor_format import (
@@ -109,7 +109,10 @@ class MonitorListView(Widget):
         self.service.event_bus.subscribe(
             TOPIC_SCAN_UPDATED, self._on_scan_update,
         )
-        self._render_all()
+        # Initial render bypasses the @once_per_tick decorator — callers
+        # (and tests) expect the table to be populated synchronously by
+        # the time on_mount returns.
+        type(self)._render_all.__wrapped__(self)
 
     def on_unmount(self):
         self.service.event_bus.unsubscribe(
@@ -126,24 +129,29 @@ class MonitorListView(Widget):
 
     def _on_monitor_update(self, payload: dict) -> None:
         with contextlib.suppress(Exception):
-            dispatch_to_ui(self.app, self._render_all)
+            self._render_all()  # coalesced by @once_per_tick
 
     def _on_price_update(self, payload: dict) -> None:
         with contextlib.suppress(Exception):
-            dispatch_to_ui(self.app, self._render_all)
+            self._render_all()
 
     def _on_scan_update(self, payload: dict) -> None:
         with contextlib.suppress(Exception):
-            dispatch_to_ui(self.app, self._render_all)
+            self._render_all()
 
     # -- Rendering --
 
+    @once_per_tick
     def _render_all(self) -> None:
         """Refresh the DataTable rows from fresh service data (in place).
 
         The table itself is mounted once in `on_mount`; this method only
         clears and repopulates rows so manual `r` refresh doesn't race
         Textual's deferred remove.
+
+        `@once_per_tick`: subscribes to 3 bus topics — each heartbeat
+        fan-out would otherwise fire this 3× per 5s. The decorator
+        coalesces same-tick invocations to a single execution.
         """
         try:
             table = self.query_one("#monitor-table", DataTable)

@@ -40,3 +40,19 @@ class KVRow(Horizontal):
     def compose(self) -> ComposeResult:
         yield Static(self._label, classes="kv-label")
         yield Static(self._value, classes="kv-value")
+
+    def set_value(self, value: str) -> None:
+        """Update the value Static in place.
+
+        Enables the "mount once, refresh in place" pattern — callers
+        can re-render periodically without leaving stale KVRow widgets
+        behind (Textual's `remove()` is deferred, so remount-style
+        re-renders can briefly double-display).
+        """
+        self._value = value
+        try:
+            self.query_one(".kv-value", Static).update(value)
+        except Exception:
+            # Not yet mounted — `compose` will pick up the new _value
+            # when it runs.
+            pass

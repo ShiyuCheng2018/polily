@@ -22,10 +22,64 @@ publish that happened on the UI thread would raise `RuntimeError` and
 from __future__ import annotations
 
 import contextlib
+import functools
 import logging
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+
+def once_per_tick(method: Callable) -> Callable:
+    """Decorator that coalesces same-instance, same-method calls within a
+    tick into a single deferred execution.
+
+    When a view subscribes to N bus topics, a single `_bus_heartbeat`
+    fan-out fires its handler N times in the same sync stack. Without
+    coalescing, each handler schedules a separate `_render_all` →
+    wasted work. This decorator turns N calls into 1 by flipping a
+    per-instance, per-method flag on the first call and bailing on
+    subsequent ones until the scheduled execution clears it.
+
+    React 18's automatic batching + the `useRef(scheduledFlag) +
+    queueMicrotask` pattern, adapted to Textual's dispatch model.
+
+    Must decorate an instance method whose owning class has `self.app`
+    pointing at the Textual `App` (same precondition as
+    `dispatch_to_ui`).
+
+    Example:
+
+        class MyView(Widget):
+            @once_per_tick
+            def refresh_data(self):
+                self.recompose()
+
+            def _on_price_update(self, payload):
+                self.refresh_data()
+
+            def _on_position_update(self, payload):
+                self.refresh_data()  # coalesces with the above
+    """
+    flag_attr = f"_once_per_tick__{method.__name__}"
+
+    @functools.wraps(method)
+    def wrapper(self, *args: Any, **kwargs: Any) -> None:
+        if getattr(self, flag_attr, False):
+            # A refresh is already scheduled for the next tick — bail.
+            return
+        setattr(self, flag_attr, True)
+
+        # Give the scheduled callable the underlying method's name so
+        # debuggers / assertion spies that match on function name
+        # (e.g. `"refresh" in fn.__name__`) still see meaningful output.
+        @functools.wraps(method)
+        def deferred(*da: Any, **dk: Any) -> None:
+            setattr(self, flag_attr, False)
+            method(self, *args, **kwargs)
+
+        dispatch_to_ui(self.app, deferred)
+
+    return wrapper
 
 
 def dispatch_to_ui(app, callable_: Callable[[], Any]) -> None:
