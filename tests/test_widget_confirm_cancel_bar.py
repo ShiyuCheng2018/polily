@@ -1,5 +1,4 @@
 """v0.8.0 Opt-A1: ConfirmCancelBar atom."""
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button
 

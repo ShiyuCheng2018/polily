@@ -1,4 +1,5 @@
 """v0.8.0 Task 24: archived_events view migrated to atoms + i18n."""
+import contextlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -53,9 +54,10 @@ async def test_archived_events_uses_polily_zone(svc):
 
 @pytest.mark.asyncio
 async def test_archived_events_chinese_labels(svc):
+    from textual.widgets import Static
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.archived_events import ArchivedEventsView
-    from textual.widgets import Static
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -77,9 +79,10 @@ async def test_archived_events_chinese_labels(svc):
 @pytest.mark.asyncio
 async def test_archived_events_preserves_title(svc):
     """Q1: seeded event title should appear in the list."""
+    from textual.widgets import DataTable, Static
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.archived_events import ArchivedEventsView
-    from textual.widgets import DataTable, Static
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -97,10 +100,8 @@ async def test_archived_events_preserves_title(svc):
         for t in view.query(DataTable):
             for row_key in t.rows:
                 for col_key in t.columns:
-                    try:
+                    with contextlib.suppress(Exception):
                         texts.append(str(t.get_cell(row_key, col_key)))
-                    except Exception:
-                        pass
         joined = " ".join(texts)
         # Either the event title or an empty-state message should appear
         # (empty-state is acceptable if service.get_archived_events() returns [] for seed)

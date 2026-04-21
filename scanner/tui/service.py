@@ -12,18 +12,18 @@ from scanner.agents.narrative_writer import NarrativeWriterAgent
 from scanner.analysis_store import AnalysisVersion, append_analysis, get_event_analyses
 from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
-from scanner.core.events import (
-    EventBus,
-    TOPIC_MONITOR_UPDATED,
-    TOPIC_POSITION_UPDATED,
-    TOPIC_SCAN_UPDATED,
-    TOPIC_WALLET_UPDATED,
-    get_event_bus,
-)
 from scanner.core.event_store import (
     EventRow,
     get_event,
     get_event_markets,
+)
+from scanner.core.events import (
+    TOPIC_MONITOR_UPDATED,
+    TOPIC_POSITION_UPDATED,
+    TOPIC_SCAN_UPDATED,
+    TOPIC_WALLET_UPDATED,
+    EventBus,
+    get_event_bus,
 )
 from scanner.core.monitor_store import get_event_monitor
 from scanner.core.positions import PositionManager

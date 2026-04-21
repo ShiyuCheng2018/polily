@@ -22,8 +22,8 @@ async def test_topup_modal_uses_atoms(svc):
     """TopupModal uses PolilyZone/PolilyCard for layout."""
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.wallet_modals import TopupModal
-    from scanner.tui.widgets.polily_zone import PolilyZone
     from scanner.tui.widgets.polily_card import PolilyCard
+    from scanner.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -41,8 +41,8 @@ async def test_topup_modal_uses_atoms(svc):
 async def test_withdraw_modal_uses_atoms(svc):
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.wallet_modals import WithdrawModal
-    from scanner.tui.widgets.polily_zone import PolilyZone
     from scanner.tui.widgets.polily_card import PolilyCard
+    from scanner.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -59,8 +59,8 @@ async def test_reset_modal_uses_atoms_and_destructive_style(svc):
     """WalletResetModal: uses atoms + destructive-safe confirm flow."""
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.wallet_modals import WalletResetModal
-    from scanner.tui.widgets.polily_zone import PolilyZone
     from scanner.tui.widgets.polily_card import PolilyCard
+    from scanner.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -75,9 +75,10 @@ async def test_reset_modal_uses_atoms_and_destructive_style(svc):
 @pytest.mark.asyncio
 async def test_modal_chinese_labels(svc):
     """Chinese labels on at least one of the modals."""
+    from textual.widgets import Button, Label, Static
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.wallet_modals import TopupModal
-    from textual.widgets import Static, Button, Label
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None

@@ -9,8 +9,18 @@ N times per heartbeat when a view subscribes to N topics.
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import MagicMock
+
+import pytest
+
+from scanner.core.db import PolilyDB
+from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from scanner.core.events import (
+    TOPIC_POSITION_UPDATED,
+    TOPIC_PRICE_UPDATED,
+    EventBus,
+)
+from scanner.core.monitor_store import upsert_event_monitor
 
 
 def test_same_instance_three_rapid_calls_coalesce_to_one():
@@ -143,22 +153,6 @@ def test_decorator_preserves_method_name_and_docstring():
 # -------------------------------------------------------------------------
 
 
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock
-
-import pytest
-
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.events import (
-    EventBus,
-    TOPIC_POSITION_UPDATED,
-    TOPIC_PRICE_UPDATED,
-)
-from scanner.core.monitor_store import upsert_event_monitor
-
-
 @pytest.fixture
 def svc(tmp_path):
     cfg = MagicMock()
@@ -188,7 +182,8 @@ async def _assert_view_coalesces(
     so no background view subscribers pollute the call_later counter),
     publish every topic, assert call_later is invoked exactly once.
     """
-    from textual.app import App as TextualApp, ComposeResult
+    from textual.app import App as TextualApp
+    from textual.app import ComposeResult
 
     view_kwargs = view_kwargs or {"service": svc}
 
@@ -231,7 +226,9 @@ async def test_monitor_list_coalesces_heartbeat_fan_out(svc, monkeypatch):
     """MonitorListView subscribes to 3 topics — heartbeat pre-fix fired
     _render_all 3×. Now coalesced to 1."""
     from scanner.core.events import (
-        TOPIC_MONITOR_UPDATED, TOPIC_PRICE_UPDATED, TOPIC_SCAN_UPDATED,
+        TOPIC_MONITOR_UPDATED,
+        TOPIC_PRICE_UPDATED,
+        TOPIC_SCAN_UPDATED,
     )
     from scanner.tui.views.monitor_list import MonitorListView
     await _assert_view_coalesces(
@@ -244,7 +241,9 @@ async def test_monitor_list_coalesces_heartbeat_fan_out(svc, monkeypatch):
 async def test_paper_status_coalesces_heartbeat_fan_out(svc, monkeypatch):
     """PaperStatusView subscribes to 3 topics (WALLET+POSITION+PRICE)."""
     from scanner.core.events import (
-        TOPIC_POSITION_UPDATED, TOPIC_PRICE_UPDATED, TOPIC_WALLET_UPDATED,
+        TOPIC_POSITION_UPDATED,
+        TOPIC_PRICE_UPDATED,
+        TOPIC_WALLET_UPDATED,
     )
     from scanner.tui.views.paper_status import PaperStatusView
     await _assert_view_coalesces(

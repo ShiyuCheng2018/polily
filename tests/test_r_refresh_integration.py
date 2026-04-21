@@ -14,7 +14,7 @@ from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
 from scanner.core.events import EventBus
 from scanner.core.monitor_store import upsert_event_monitor
-from scanner.scan_log import ScanLogEntry, insert_pending_scan
+from scanner.scan_log import insert_pending_scan
 from scanner.tui.service import ScanService
 
 
@@ -211,6 +211,7 @@ async def test_r_refresh_repeated_does_not_duplicate_tables_monitor():
     Textual's `remove()` is deferred, so manual sync refresh raced the
     new mount and tripped DuplicateIds('monitor-table')."""
     from textual.widgets import DataTable
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.monitor_list import MonitorListView
 

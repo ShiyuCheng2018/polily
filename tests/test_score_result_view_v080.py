@@ -41,9 +41,10 @@ async def test_score_result_uses_polily_zone(svc):
 
 
 async def test_score_result_chinese_labels(svc):
+    from textual.widgets import Static
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.score_result import ScoreResultView
-    from textual.widgets import Static
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None

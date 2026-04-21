@@ -20,7 +20,7 @@ class _Harness(App):
 
 
 @pytest.mark.asyncio
-async def test_buy_side_renders_two_buttons_labeled_买():
+async def test_buy_side_renders_two_buttons_labeled_买():  # noqa: N802 — intentional Chinese label in test name
     row = BuySellActionRow(side="buy")
     async with _Harness(row).run_test() as pilot:
         await pilot.pause()
@@ -35,7 +35,7 @@ async def test_buy_side_renders_two_buttons_labeled_买():
 
 
 @pytest.mark.asyncio
-async def test_sell_side_renders_卖_verb():
+async def test_sell_side_renders_卖_verb():  # noqa: N802 — intentional Chinese label in test name
     row = BuySellActionRow(side="sell")
     async with _Harness(row).run_test() as pilot:
         await pilot.pause()

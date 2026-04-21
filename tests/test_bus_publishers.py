@@ -12,8 +12,6 @@ contract:
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -21,12 +19,12 @@ import pytest
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
 from scanner.core.events import (
-    EventBus,
     TOPIC_MONITOR_UPDATED,
     TOPIC_POSITION_UPDATED,
     TOPIC_PRICE_UPDATED,
     TOPIC_SCAN_UPDATED,
     TOPIC_WALLET_UPDATED,
+    EventBus,
 )
 from scanner.core.monitor_store import upsert_event_monitor
 from scanner.tui.service import ScanService
@@ -265,13 +263,15 @@ def test_dispatch_to_ui_falls_back_to_call_later_on_ui_thread():
     uses to signal 'you're on the event-loop thread'), `dispatch_to_ui`
     falls through to `call_later(0, fn)`."""
     from unittest.mock import MagicMock
+
     from scanner.tui._dispatch import dispatch_to_ui
 
     app = MagicMock()
     app.call_from_thread.side_effect = RuntimeError(
         "The `call_from_thread` method must run in a different thread",
     )
-    fn = lambda: None
+    def fn() -> None:
+        pass
     dispatch_to_ui(app, fn)
     app.call_from_thread.assert_called_once_with(fn)
     app.call_later.assert_called_once_with(0, fn)
@@ -281,11 +281,13 @@ def test_dispatch_to_ui_uses_call_from_thread_when_it_works():
     """When `call_from_thread` succeeds (caller is on a worker thread),
     `call_later` must NOT be called — no double-dispatch."""
     from unittest.mock import MagicMock
+
     from scanner.tui._dispatch import dispatch_to_ui
 
     app = MagicMock()
     # call_from_thread returns normally (default MagicMock behavior)
-    fn = lambda: None
+    def fn() -> None:
+        pass
     dispatch_to_ui(app, fn)
     app.call_from_thread.assert_called_once_with(fn)
     app.call_later.assert_not_called()
@@ -296,11 +298,14 @@ def test_dispatch_to_ui_generic_exception_is_logged_not_fatal():
     RuntimeError), dispatch_to_ui must not fall through to call_later
     (which could double-dispatch) nor bubble up the exception."""
     from unittest.mock import MagicMock
+
     from scanner.tui._dispatch import dispatch_to_ui
 
     app = MagicMock()
     app.call_from_thread.side_effect = ValueError("unexpected")
-    fn = lambda: None
+
+    def fn() -> None:
+        pass
     # Must not raise
     dispatch_to_ui(app, fn)
     app.call_from_thread.assert_called_once_with(fn)

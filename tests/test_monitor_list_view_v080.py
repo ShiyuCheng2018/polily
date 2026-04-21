@@ -1,4 +1,5 @@
 """v0.8.0 Task 21: monitor_list view migrated to atoms + events + i18n."""
+import contextlib
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -6,7 +7,7 @@ from textual.widgets import DataTable, Static
 
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.events import EventBus, TOPIC_MONITOR_UPDATED
+from scanner.core.events import TOPIC_MONITOR_UPDATED, EventBus
 from scanner.core.monitor_store import upsert_event_monitor
 from scanner.tui.service import ScanService
 
@@ -128,10 +129,8 @@ async def test_monitor_list_preserves_existing_fields(svc):
         for t in tables:
             for row_key in t.rows:
                 for col_key in t.columns:
-                    try:
+                    with contextlib.suppress(Exception):
                         texts.append(str(t.get_cell(row_key, col_key)))
-                    except Exception:
-                        pass
         joined = " ".join(texts)
         # Only auto-monitored event is ev1 with title 'Test Event A'.
         assert "Test Event A" in joined, (

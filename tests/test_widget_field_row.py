@@ -6,7 +6,7 @@ outside an active App context raises ``NoActiveAppError``. Each test
 therefore builds its FieldRow (and the Input inside it) in the harness's
 ``compose`` hook, where the App context is active.
 """
-from typing import Callable
+from collections.abc import Callable
 
 from textual.app import App, ComposeResult
 from textual.widgets import Input, Label, Static

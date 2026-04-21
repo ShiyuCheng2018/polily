@@ -5,13 +5,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from scanner.core.db import PolilyDB
+from scanner.core.event_store import EventRow, upsert_event
 from scanner.core.events import (
-    EventBus,
     TOPIC_SCAN_UPDATED,
     TOPIC_WALLET_UPDATED,
+    EventBus,
 )
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.scan_log import insert_pending_scan, claim_pending_scan
+from scanner.scan_log import claim_pending_scan, insert_pending_scan
 from scanner.tui.service import ScanService
 
 

@@ -9,16 +9,16 @@ user into thinking they have an open bet when they effectively don't.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from scanner.core.db import PolilyDB
+from scanner.core.event_store import MarketRow, upsert_event, upsert_market
 from scanner.core.monitor_store import upsert_event_monitor
 from scanner.core.positions import DUST_SHARE_THRESHOLD, is_dust_position
 from scanner.tui.service import ScanService
 from tests.conftest import make_event
-from scanner.core.event_store import MarketRow, upsert_event, upsert_market
 
 
 def _svc(tmp_path):

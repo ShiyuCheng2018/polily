@@ -4,7 +4,7 @@ Textual ``Input`` runs reactive setup that touches ``self.app`` during
 ``__init__``, so we build the widget inside ``compose`` where the App
 context is active (same pattern as test_widget_field_row.py).
 """
-from typing import Callable
+from collections.abc import Callable
 
 from textual.app import App, ComposeResult
 from textual.widgets import Input

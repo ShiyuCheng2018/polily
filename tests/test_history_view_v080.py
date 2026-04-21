@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from scanner.core.db import PolilyDB
-from scanner.core.events import EventBus, TOPIC_WALLET_UPDATED
+from scanner.core.events import TOPIC_WALLET_UPDATED, EventBus
 from scanner.tui.service import ScanService
 
 
@@ -34,9 +34,10 @@ async def test_history_uses_polily_zone(svc):
 
 
 async def test_history_chinese_labels(svc):
+    from textual.widgets import Static
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.history import HistoryView
-    from textual.widgets import Static
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None

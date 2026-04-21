@@ -25,7 +25,6 @@ go through modal confirm; modal declares y/n or enter/escape.
 """
 from textual.binding import Binding
 
-
 # --- Global (App level) ---
 GLOBAL_BINDINGS = [
     Binding("q", "quit", "退出", show=True),

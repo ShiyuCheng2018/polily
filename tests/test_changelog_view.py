@@ -83,6 +83,7 @@ async def test_changelog_view_mounts_and_shows_markdown(tmp_path):
     """View mounts cleanly and the Markdown widget receives non-empty content."""
     from textual.app import App, ComposeResult
     from textual.widgets import Markdown
+
     from scanner.tui.views.changelog import ChangelogView
     from scanner.tui.widgets.polily_zone import PolilyZone
 
@@ -113,7 +114,7 @@ async def test_action_refresh_rereads_content(tmp_path, monkeypatch):
     """Calling `action_refresh()` re-invokes `_load_changelog`, so a dev
     edit to CHANGELOG.md in the repo shows up without restarting TUI."""
     from textual.app import App, ComposeResult
-    from textual.widgets import Markdown
+
     from scanner.tui.views import changelog as changelog_mod
 
     call_count = [0]

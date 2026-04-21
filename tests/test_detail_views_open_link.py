@@ -11,8 +11,6 @@ Contract:
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,7 +20,6 @@ from scanner.core.event_store import EventRow, upsert_event
 from scanner.core.events import EventBus
 from scanner.scan_log import ScanLogEntry
 from scanner.tui.service import ScanService
-
 
 # ----------------- Shared fixtures -----------------
 

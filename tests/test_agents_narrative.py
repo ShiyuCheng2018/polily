@@ -77,7 +77,7 @@ class TestNarrativeWriterAgent:
             proc.returncode = 1
             mock_exec.return_value = proc
 
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017 — base agent raises arbitrary Exception on retry-exhaust
                 await agent.generate(event_id="ev_test")
 
     @pytest.mark.asyncio
@@ -98,7 +98,7 @@ class TestNarrativeWriterAgent:
             proc.returncode = 0
             mock_exec.return_value = proc
 
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017 — narrator raises RuntimeError via schema-fail wrapper
                 await agent.generate(event_id="ev_test")
 
 

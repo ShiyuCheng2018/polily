@@ -1,6 +1,5 @@
 # tests/test_widget_polily_zone.py
 """v0.8.0 Task 4: PolilyZone atom widget."""
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 

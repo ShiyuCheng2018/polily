@@ -5,7 +5,7 @@ import pytest
 
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.events import EventBus, TOPIC_PRICE_UPDATED
+from scanner.core.events import TOPIC_PRICE_UPDATED, EventBus
 from scanner.tui.service import ScanService
 
 
@@ -41,9 +41,10 @@ async def test_event_detail_uses_multiple_polily_zones(svc):
 
 async def test_event_detail_chinese_labels_in_rendered(svc):
     """Core Chinese labels visible."""
+    from textual.widgets import Static
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.event_detail import EventDetailView
-    from textual.widgets import Static
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -117,11 +118,12 @@ async def test_event_detail_scroll_container_bounded(svc):
     When EventDetailView contains an analysis, the VerticalScroll must
     be height-bounded so all zones remain accessible without overflowing.
     """
+    from textual.containers import VerticalScroll
+
     from scanner.analysis_store import AnalysisVersion, append_analysis
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.event_detail import EventDetailView
     from scanner.tui.widgets.polily_zone import PolilyZone
-    from textual.containers import VerticalScroll
 
     # Seed a minimal analysis so the analysis zone is rendered
     av = AnalysisVersion(

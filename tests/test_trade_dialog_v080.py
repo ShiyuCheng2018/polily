@@ -10,7 +10,7 @@ from scanner.core.event_store import (
     upsert_event,
     upsert_market,
 )
-from scanner.core.events import EventBus, TOPIC_PRICE_UPDATED
+from scanner.core.events import TOPIC_PRICE_UPDATED, EventBus
 from scanner.tui.service import ScanService
 
 
@@ -85,9 +85,10 @@ async def test_sell_pane_uses_atoms(svc):
 
 
 async def test_trade_dialog_chinese_labels(svc):
+    from textual.widgets import Button, Static
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.trade_dialog import TradeDialog
-    from textual.widgets import Button, Static
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -111,9 +112,10 @@ async def test_trade_dialog_chinese_labels(svc):
 
 async def test_trade_dialog_has_market_title_not_ids(svc):
     """Dialog must show market title text, never expose internal event_id / market_id."""
+    from textual.widgets import Static
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.trade_dialog import TradeDialog
-    from textual.widgets import Static
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -178,9 +180,10 @@ async def test_trade_dialog_preserves_widget_ids(svc):
     internal ids (#btn-yes / #btn-no). We scope the lookup via BuyPane so the atom
     boundary is explicit.
     """
+    from textual.widgets import Button, Input
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.trade_dialog import BuyPane, TradeDialog
-    from textual.widgets import Button, Input
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None

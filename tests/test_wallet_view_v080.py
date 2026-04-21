@@ -1,9 +1,10 @@
 """v0.8.0 Task 18: wallet view migrated to atoms + events + footer hints."""
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from scanner.core.db import PolilyDB
-from scanner.core.events import EventBus, TOPIC_WALLET_UPDATED
+from scanner.core.events import TOPIC_WALLET_UPDATED, EventBus
 from scanner.tui.service import ScanService
 
 
@@ -38,9 +39,10 @@ async def test_wallet_view_uses_atoms(svc):
 
 async def test_wallet_view_chinese_labels_rendered(svc):
     """Labels appear in actual mounted widgets."""
+    from textual.widgets import Label, Static
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.wallet import WalletView
-    from textual.widgets import Static, Label
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None

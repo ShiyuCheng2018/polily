@@ -1,4 +1,5 @@
 """v0.8.0 Task 23: paper_status view migrated to atoms + events + i18n."""
+import contextlib
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -7,9 +8,9 @@ from textual.widgets import DataTable, Static
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
 from scanner.core.events import (
-    EventBus,
     TOPIC_POSITION_UPDATED,
     TOPIC_WALLET_UPDATED,
+    EventBus,
 )
 from scanner.tui.service import ScanService
 
@@ -102,10 +103,8 @@ async def test_paper_status_chinese_labels(svc):
                 texts.append(str(getattr(col, "label", "")))
             for row_key in t.rows:
                 for col_key in t.columns:
-                    try:
+                    with contextlib.suppress(Exception):
                         texts.append(str(t.get_cell(row_key, col_key)))
-                    except Exception:
-                        pass
         joined = " ".join(texts)
         found = any(lbl in joined for lbl in ("持仓", "余额", "已实现", "浮动", "事件"))
         assert found, f"no Chinese label found. Sample: {joined[:300]}"
@@ -206,10 +205,8 @@ async def test_paper_status_no_internal_ids_leaked(svc):
         for t in tables:
             for row_key in t.rows:
                 for col_key in t.columns:
-                    try:
+                    with contextlib.suppress(Exception):
                         texts.append(str(t.get_cell(row_key, col_key)))
-                    except Exception:
-                        pass
 
         joined = " ".join(texts)
         # Market question (human-readable label) shown, not internal IDs.

@@ -50,9 +50,8 @@ class KVRow(Horizontal):
         re-renders can briefly double-display).
         """
         self._value = value
-        try:
+        # Not yet mounted → `compose` will pick up the new `_value` when
+        # it runs; swallow query errors until then.
+        import contextlib
+        with contextlib.suppress(Exception):
             self.query_one(".kv-value", Static).update(value)
-        except Exception:
-            # Not yet mounted — `compose` will pick up the new _value
-            # when it runs.
-            pass

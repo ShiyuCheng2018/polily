@@ -54,7 +54,7 @@ class FieldRow(Horizontal):
         unit: str = "",
         helper: str = "",
         helper_id: str | None = None,
-        id: str | None = None,
+        id: str | None = None,  # noqa: A002 — Textual widget API convention
     ) -> None:
         super().__init__(id=id)
         self._label = label

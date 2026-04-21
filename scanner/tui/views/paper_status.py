@@ -31,8 +31,8 @@ from scanner.core.events import (
     TOPIC_PRICE_UPDATED,
     TOPIC_WALLET_UPDATED,
 )
-from scanner.tui._dispatch import once_per_tick
 from scanner.pnl import calc_unrealized_pnl
+from scanner.tui._dispatch import once_per_tick
 from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_POSITION
 from scanner.tui.service import ScanService

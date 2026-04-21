@@ -1,11 +1,11 @@
 # tests/test_event_bus.py
 """v0.8.0 Task 10: EventBus publish/subscribe + topic constants."""
 from scanner.core.events import (
-    EventBus,
-    TOPIC_SCAN_UPDATED,
-    TOPIC_WALLET_UPDATED,
     TOPIC_MONITOR_UPDATED,
     TOPIC_POSITION_UPDATED,
+    TOPIC_SCAN_UPDATED,
+    TOPIC_WALLET_UPDATED,
+    EventBus,
 )
 
 

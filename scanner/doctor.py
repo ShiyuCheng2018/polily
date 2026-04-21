@@ -21,8 +21,12 @@ from rich.console import Console
 from rich.panel import Panel
 
 from scanner.tui.icons import (
-    ICON_EVENT, ICON_WALLET, ICON_SCAN,
-    ICON_COMPLETED, ICON_FAILED, ICON_PENDING,
+    ICON_COMPLETED,
+    ICON_EVENT,
+    ICON_FAILED,
+    ICON_PENDING,
+    ICON_SCAN,
+    ICON_WALLET,
 )
 
 MIN_COLS = 100
@@ -74,7 +78,7 @@ def _section_db(console: Console) -> None:
     console.rule("[bold]3. 数据库[/]")
     db_path = Path("data/polily.db")
     if not db_path.exists():
-        console.print(f"[yellow]data/polily.db 不存在[/] — 首次启动会自动创建")
+        console.print("[yellow]data/polily.db 不存在[/] — 首次启动会自动创建")
     else:
         console.print(f"[green]data/polily.db OK[/]  ({db_path.stat().st_size / 1024:.1f} KB)")
     console.print()

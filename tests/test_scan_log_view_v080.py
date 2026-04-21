@@ -1,4 +1,5 @@
 """v0.8.0 Task 17: scan_log view migrated to atoms + events + i18n."""
+import contextlib
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -6,8 +7,8 @@ from textual.widgets import DataTable
 
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.events import EventBus, TOPIC_SCAN_UPDATED
-from scanner.scan_log import insert_pending_scan, claim_pending_scan, load_scan_logs
+from scanner.core.events import TOPIC_SCAN_UPDATED, EventBus
+from scanner.scan_log import insert_pending_scan, load_scan_logs
 from scanner.tui.service import ScanService
 
 
@@ -69,10 +70,8 @@ async def test_scan_log_shows_chinese_status_in_rendered_cells(svc):
         for t in tables:
             for row_key in t.rows:
                 for col_key in t.columns:
-                    try:
+                    with contextlib.suppress(Exception):
                         rendered_cells.append(str(t.get_cell(row_key, col_key)))
-                    except Exception:
-                        pass
         joined = " ".join(rendered_cells)
         assert "待执行" in joined, f"Chinese pending label missing. Cells: {joined[:300]}"
         assert "pending" not in joined.lower() or "待执行" in joined, "Raw English status leaked"
@@ -173,6 +172,7 @@ async def test_running_add_event_shows_scoring_label(svc):
     The queue includes scoring tasks too; their live label must reflect what
     they're doing, otherwise it misleads the user."""
     from datetime import UTC, datetime
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.scan_log import ScanLogView
 
@@ -198,10 +198,8 @@ async def test_running_add_event_shows_scoring_label(svc):
         for t in tables:
             for row_key in t.rows:
                 for col_key in t.columns:
-                    try:
+                    with contextlib.suppress(Exception):
                         rendered_cells.append(str(t.get_cell(row_key, col_key)))
-                    except Exception:
-                        pass
         joined = " ".join(rendered_cells)
         assert "正在评分" in joined, f"add_event running row missing '正在评分' label. Cells: {joined[:300]}"
         assert "正在分析" not in joined, \
@@ -211,6 +209,7 @@ async def test_running_add_event_shows_scoring_label(svc):
 async def test_running_analyze_still_shows_analysis_label(svc):
     """Regression: analyze running rows must still say '正在分析...'."""
     from datetime import UTC, datetime
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.scan_log import ScanLogView
 
@@ -235,10 +234,8 @@ async def test_running_analyze_still_shows_analysis_label(svc):
         for t in tables:
             for row_key in t.rows:
                 for col_key in t.columns:
-                    try:
+                    with contextlib.suppress(Exception):
                         rendered_cells.append(str(t.get_cell(row_key, col_key)))
-                    except Exception:
-                        pass
         joined = " ".join(rendered_cells)
         assert "正在分析" in joined, f"analyze running row missing '正在分析': {joined[:300]}"
 
@@ -254,9 +251,10 @@ async def test_scan_log_detail_view_no_scan_id(svc):
     assert logs, "setup failed"
     log_entry = logs[0]
 
+    from textual.widgets import Static
+
     from scanner.tui.app import PolilyApp
     from scanner.tui.views.scan_log import ScanLogDetailView
-    from textual.widgets import Static
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -277,5 +275,5 @@ async def test_scan_log_detail_view_no_scan_id(svc):
         assert log_entry.scan_id not in joined, \
             f"scan_id '{log_entry.scan_id}' leaked into detail view"
         # event_id should also not appear as standalone
-        assert f"事件 : ev1" not in joined and f"event_id : ev1" not in joined, \
-            f"event_id leaked into detail view"
+        assert "事件 : ev1" not in joined and "event_id : ev1" not in joined, \
+            "event_id leaked into detail view"

@@ -50,7 +50,7 @@ class AmountInput(Input):
     def __init__(
         self,
         *,
-        id: str | None = None,
+        id: str | None = None,  # noqa: A002 — Textual widget API convention
         value: str = "",
         placeholder: str = "",
         min_value: float | None = None,
