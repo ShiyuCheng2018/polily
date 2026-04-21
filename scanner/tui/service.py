@@ -504,12 +504,17 @@ class ScanService:
         table, which TradeEngine stopped writing in v0.6.0 — causing
         EventDetailView to show "无持仓" for live positions.
         """
+        from scanner.core.positions import is_dust_position
+
         event = get_event(event_id, self.db)
         if event is None:
             return None
         markets = get_event_markets(event_id, self.db)
         analyses = get_event_analyses(event_id, self.db)
         _positions = self.positions.get_event_positions(event_id)
+        # Filter dust from the display-facing trades list. Accounting
+        # (_compute_position_context, get_event_position_count) keeps
+        # raw rows via `self.positions.get_event_positions(...)`.
         trades = [
             {
                 "market_id": p["market_id"],
@@ -519,6 +524,7 @@ class ScanService:
                 "position_size_usd": p["cost_basis"],
             }
             for p in _positions
+            if not is_dust_position(p)
         ]
         monitor = get_event_monitor(event_id, self.db)
         movements = get_event_movements(event_id, self.db, hours=24)
@@ -580,7 +586,14 @@ class ScanService:
         Source of truth is `positions` post-v0.6.0. Synthetic `id` preserves
         the DataTable row_key logic in paper_status.py. Callers needing the
         native position shape should use `get_all_positions` instead.
+
+        Dust positions (`shares < DUST_SHARE_THRESHOLD`) are filtered out so
+        `paper_status` doesn't display 0.02-share stragglers that partial
+        sells leave behind. Accounting layers still see them via
+        `self.positions.get_all_positions()`.
         """
+        from scanner.core.positions import is_dust_position
+
         positions = self.positions.get_all_positions()
         return [
             {
@@ -593,6 +606,7 @@ class ScanService:
                 "position_size_usd": p["cost_basis"],
             }
             for p in positions
+            if not is_dust_position(p)
         ]
 
     # ------------------------------------------------------------------
@@ -756,7 +770,15 @@ class ScanService:
         return self.wallet.list_transactions(limit=limit)
 
     def get_all_positions(self) -> list[dict]:
-        return self.positions.get_all_positions()
+        """Display-layer positions, with dust (`shares < DUST_SHARE_THRESHOLD`)
+        filtered. Use `self.positions.get_all_positions()` for accounting
+        where dust must still count (trade engine, narrator prompt).
+        """
+        from scanner.core.positions import is_dust_position
+        return [
+            p for p in self.positions.get_all_positions()
+            if not is_dust_position(p)
+        ]
 
     def get_event_positions(self, event_id: str) -> list[dict]:
         return self.positions.get_event_positions(event_id)
