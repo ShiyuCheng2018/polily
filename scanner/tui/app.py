@@ -9,10 +9,10 @@ from scanner.tui.theme import register_polily_theme
 
 
 class PolilyApp(App):
-    """Polily Decision Copilot — interactive terminal UI."""
+    """Polily — A Polymarket Monitoring Agent That Actually Works (interactive TUI)."""
 
     TITLE = "Polily"
-    SUB_TITLE = "Polymarket Decision Copilot"
+    SUB_TITLE = "A Polymarket Monitoring Agent That Actually Works"
     CSS_PATH = ["css/tokens.tcss", "css/app.tcss"]
 
     BINDINGS = GLOBAL_BINDINGS

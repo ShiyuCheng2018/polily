@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "polily"
 version = "0.7.0"
-description = "Polymarket Decision Copilot — finds structure, shows direction lean, sizes risk"
+description = "A Polymarket monitoring agent that actually works — finds structure, watches movement, sizes risk"
 requires-python = ">=3.11"
 license = "MIT"
 readme = "README.md"

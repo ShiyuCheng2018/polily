@@ -1,4 +1,4 @@
-"""Polily — Polymarket Decision Copilot.
+"""Polily — A Polymarket Monitoring Agent That Actually Works.
 
 Public API for programmatic use (without CLI).
 """

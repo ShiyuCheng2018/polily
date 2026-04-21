@@ -9,12 +9,12 @@ from pathlib import Path
 
 import typer
 
-app = typer.Typer(help="Polily — Polymarket Decision Copilot", invoke_without_command=True)
+app = typer.Typer(help="Polily — A Polymarket Monitoring Agent That Actually Works", invoke_without_command=True)
 
 
 @app.callback()
 def main(ctx: typer.Context):
-    """Polily — Polymarket Decision Copilot. Launches TUI when no subcommand given."""
+    """Polily — A Polymarket Monitoring Agent That Actually Works. Launches TUI when no subcommand given."""
     if ctx.invoked_subcommand is None:
         from scanner.tui.app import run_tui
         run_tui()
