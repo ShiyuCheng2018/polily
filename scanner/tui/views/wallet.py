@@ -30,7 +30,11 @@ from textual.containers import Horizontal
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Static
 
-from scanner.core.events import TOPIC_POSITION_UPDATED, TOPIC_WALLET_UPDATED
+from scanner.core.events import (
+    TOPIC_POSITION_UPDATED,
+    TOPIC_WALLET_UPDATED,
+    dispatch_to_ui,
+)
 from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_WALLET
 from scanner.tui.service import ScanService
@@ -160,11 +164,11 @@ class WalletView(Widget):
 
     def _on_wallet_update(self, payload: dict) -> None:
         """Bus callback — MUST use call_from_thread (called from non-UI thread)."""
-        self.app.call_from_thread(self._render_all)
+        dispatch_to_ui(self.app, self._render_all)
 
     def _on_position_update(self, payload: dict) -> None:
         """Bus callback — MUST use call_from_thread (called from non-UI thread)."""
-        self.app.call_from_thread(self._render_all)
+        dispatch_to_ui(self.app, self._render_all)
 
     def _render_all(self) -> None:
         """Fetch snapshot + repopulate balance card + ledger table."""

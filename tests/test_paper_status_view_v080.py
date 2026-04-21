@@ -122,13 +122,17 @@ async def test_paper_status_wallet_bus_callback(svc):
         view = PaperStatusView(svc)
         await app.mount(view)
         await pilot.pause()
-        original = app.call_from_thread
-
-        def spy(fn, *a, **kw):
+        # v0.8.0 dispatch_to_ui picks call_later on UI thread or
+        # call_from_thread on worker — patch both.
+        def spy_ct(fn, *a, **kw):
             called.append(getattr(fn, "__name__", str(fn)))
-            return original(fn, *a, **kw)
 
-        with patch.object(app, "call_from_thread", side_effect=spy):
+        def spy_cl(*args, **kw):
+            if len(args) >= 2:
+                called.append(getattr(args[1], "__name__", str(args[1])))
+
+        with patch.object(app, "call_from_thread", side_effect=spy_ct), \
+             patch.object(app, "call_later", side_effect=spy_cl):
             svc.event_bus.publish(
                 TOPIC_WALLET_UPDATED,
                 {"balance": 150.0, "source": "test"},
@@ -154,13 +158,17 @@ async def test_paper_status_position_bus_callback(svc):
         view = PaperStatusView(svc)
         await app.mount(view)
         await pilot.pause()
-        original = app.call_from_thread
-
-        def spy(fn, *a, **kw):
+        # v0.8.0 dispatch_to_ui picks call_later on UI thread or
+        # call_from_thread on worker — patch both.
+        def spy_ct(fn, *a, **kw):
             called.append(getattr(fn, "__name__", str(fn)))
-            return original(fn, *a, **kw)
 
-        with patch.object(app, "call_from_thread", side_effect=spy):
+        def spy_cl(*args, **kw):
+            if len(args) >= 2:
+                called.append(getattr(args[1], "__name__", str(args[1])))
+
+        with patch.object(app, "call_from_thread", side_effect=spy_ct), \
+             patch.object(app, "call_later", side_effect=spy_cl):
             svc.event_bus.publish(
                 TOPIC_POSITION_UPDATED,
                 {"market_id": "m1", "side": "yes", "size": 20.0},

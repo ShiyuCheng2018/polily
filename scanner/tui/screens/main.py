@@ -21,7 +21,20 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
-from scanner.core.events import TOPIC_SCAN_UPDATED
+from scanner.core.events import (
+    TOPIC_MONITOR_UPDATED,
+    TOPIC_POSITION_UPDATED,
+    TOPIC_PRICE_UPDATED,
+    TOPIC_SCAN_UPDATED,
+    TOPIC_WALLET_UPDATED,
+    dispatch_to_ui,
+)
+
+# Heartbeat cadence (seconds). Matches daemon poll_job interval — no
+# point going faster, the daemon only writes new prices every 30s. But
+# spacing it 5s makes the TUI feel responsive when the user DID change
+# something and a bus event is imminent.
+HEARTBEAT_SECONDS = 5
 from scanner.tui.service import AnalysisInProgressError, ScanService
 from scanner.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 from scanner.tui.views.event_detail import (
@@ -111,6 +124,17 @@ class MainScreen(Screen):
         # Poll heartbeat: check every 5s
         self.set_interval(5, self._check_poll_heartbeat)
         self._check_poll_heartbeat()
+        # Bus heartbeat: the EventBus is process-local, but the daemon
+        # runs in a SEPARATE process and writes prices / positions /
+        # scan_logs / monitor flags to SQLite on its own cadence. Without
+        # this heartbeat the TUI would never hear the daemon's changes
+        # (the daemon's bus publishes fall on deaf ears). Every few
+        # seconds we re-fire all the topics views subscribe to, so each
+        # view re-reads DB and picks up cross-process writes. Payloads
+        # omit `event_id` / `status` so per-event filters treat them as
+        # match-all (see EventDetailView._on_price_update,
+        # MainScreen._on_scan_updated).
+        self.set_interval(HEARTBEAT_SECONDS, self._bus_heartbeat)
         # Scan lifecycle updates (running / completed / failed) publish
         # to the event bus from worker threads; reflect them in the
         # status bar + tasks sidebar pill without manual polling.
@@ -136,13 +160,36 @@ class MainScreen(Screen):
         if status not in ("completed", "failed"):
             return
         with contextlib.suppress(Exception):
-            self.app.call_from_thread(self._mark_tasks_has_new)
+            dispatch_to_ui(self.app, self._mark_tasks_has_new)
 
     def _mark_tasks_has_new(self) -> None:
         if self._current_menu == "tasks":
             return  # user's already looking at it — no pill needed
         with contextlib.suppress(Exception):
             self.query_one("#sidebar", Sidebar).mark_new_data("tasks")
+
+    def _bus_heartbeat(self) -> None:
+        """Bridge cross-process daemon writes to TUI views via bus fan-out.
+
+        The bus is in-memory per-process; daemon publishes to its own bus
+        and the TUI never hears. This re-publishes match-all heartbeats
+        on the TUI's bus so each subscribing view calls its own
+        `_render_all` path, re-reading whatever the daemon just wrote to
+        SQLite. Rendering with unchanged data is idempotent and cheap.
+        """
+        bus = getattr(self.service, "event_bus", None)
+        if bus is None:
+            return
+        payload = {"source": "heartbeat"}
+        for topic in (
+            TOPIC_PRICE_UPDATED,
+            TOPIC_POSITION_UPDATED,
+            TOPIC_WALLET_UPDATED,
+            TOPIC_MONITOR_UPDATED,
+            TOPIC_SCAN_UPDATED,
+        ):
+            with contextlib.suppress(Exception):
+                bus.publish(topic, payload)
 
     def _check_poll_heartbeat(self) -> None:
         """Check if poll daemon process is alive via PID file."""

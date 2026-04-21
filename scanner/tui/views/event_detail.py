@@ -18,7 +18,11 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static
 
-from scanner.core.events import TOPIC_POSITION_UPDATED, TOPIC_PRICE_UPDATED
+from scanner.core.events import (
+    TOPIC_POSITION_UPDATED,
+    TOPIC_PRICE_UPDATED,
+    dispatch_to_ui,
+)
 from scanner.tui.components import (
     AnalysisPanel,
     BinaryMarketStructurePanel,
@@ -166,13 +170,18 @@ class EventDetailView(Widget):
         self.service.event_bus.unsubscribe(TOPIC_POSITION_UPDATED, self._on_position_update)
 
     def _on_price_update(self, payload: dict) -> None:
-        """Bus callback — MUST use call_from_thread (called from non-UI thread)."""
-        if payload.get("event_id") == self.event_id:
-            self.app.call_from_thread(self.refresh_data)
+        """Bus callback — dispatch via `dispatch_to_ui` for thread safety.
+
+        A missing `event_id` means a "match-all" heartbeat (MainScreen's
+        5s bridge for cross-process daemon writes) — treat as relevant.
+        """
+        ev = payload.get("event_id")
+        if ev is None or ev == self.event_id:
+            dispatch_to_ui(self.app, self.refresh_data)
 
     def _on_position_update(self, payload: dict) -> None:
-        """Bus callback — MUST use call_from_thread (called from non-UI thread)."""
-        self.app.call_from_thread(self.refresh_data)
+        """Bus callback — dispatch via `dispatch_to_ui` for thread safety."""
+        dispatch_to_ui(self.app, self.refresh_data)
 
     # ------------------------------------------------------------------
     # Refresh

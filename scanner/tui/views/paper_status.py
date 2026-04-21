@@ -30,6 +30,7 @@ from scanner.core.events import (
     TOPIC_POSITION_UPDATED,
     TOPIC_PRICE_UPDATED,
     TOPIC_WALLET_UPDATED,
+    dispatch_to_ui,
 )
 from scanner.pnl import calc_unrealized_pnl
 from scanner.tui.bindings import NAV_BINDINGS
@@ -132,15 +133,15 @@ class PaperStatusView(Widget):
 
     def _on_wallet_update(self, payload: dict) -> None:
         with contextlib.suppress(Exception):
-            self.app.call_from_thread(self._render_all)
+            dispatch_to_ui(self.app, self._render_all)
 
     def _on_position_update(self, payload: dict) -> None:
         with contextlib.suppress(Exception):
-            self.app.call_from_thread(self._render_all)
+            dispatch_to_ui(self.app, self._render_all)
 
     def _on_price_update(self, payload: dict) -> None:
         with contextlib.suppress(Exception):
-            self.app.call_from_thread(self._render_all)
+            dispatch_to_ui(self.app, self._render_all)
 
     # -- Rendering --
 

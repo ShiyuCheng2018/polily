@@ -44,7 +44,7 @@ from textual.widgets import (
 )
 
 from scanner.core.event_store import get_event_markets
-from scanner.core.events import TOPIC_PRICE_UPDATED
+from scanner.core.events import TOPIC_PRICE_UPDATED, dispatch_to_ui
 from scanner.tui.icons import ICON_BUY, ICON_MARKET, ICON_SELL, ICON_WALLET
 from scanner.tui.views._trade_preview import (
     compute_buy_preview,
@@ -647,11 +647,15 @@ class TradeDialog(ModalScreen[dict | None]):
             )
 
     def _on_price_update(self, payload: dict) -> None:
-        """Bus callback — published from non-UI threads (daemon poll job)."""
-        if payload.get("event_id") != self.event_id:
+        """Bus callback — thread-safe via dispatch_to_ui.
+
+        Missing `event_id` = match-all heartbeat (MainScreen's bridge
+        for cross-process daemon writes).
+        """
+        ev = payload.get("event_id")
+        if ev is not None and ev != self.event_id:
             return
-        with contextlib.suppress(Exception):
-            self.app.call_from_thread(self._refresh_prices_periodic)
+        dispatch_to_ui(self.app, self._refresh_prices_periodic)
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         if event.radio_set.id == "market-radios":

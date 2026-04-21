@@ -25,6 +25,7 @@ from scanner.core.events import (
     TOPIC_MONITOR_UPDATED,
     TOPIC_PRICE_UPDATED,
     TOPIC_SCAN_UPDATED,
+    dispatch_to_ui,
 )
 from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_AUTO_MONITOR
@@ -125,15 +126,15 @@ class MonitorListView(Widget):
 
     def _on_monitor_update(self, payload: dict) -> None:
         with contextlib.suppress(Exception):
-            self.app.call_from_thread(self._render_all)
+            dispatch_to_ui(self.app, self._render_all)
 
     def _on_price_update(self, payload: dict) -> None:
         with contextlib.suppress(Exception):
-            self.app.call_from_thread(self._render_all)
+            dispatch_to_ui(self.app, self._render_all)
 
     def _on_scan_update(self, payload: dict) -> None:
         with contextlib.suppress(Exception):
-            self.app.call_from_thread(self._render_all)
+            dispatch_to_ui(self.app, self._render_all)
 
     # -- Rendering --
 

@@ -76,11 +76,17 @@ async def test_event_detail_bus_callback_uses_call_from_thread(svc):
         view = EventDetailView(event_id="ev1", service=svc)
         await app.mount(view)
         await pilot.pause()
-        original = app.call_from_thread
-        def spy(fn, *a, **kw):
+        # v0.8.0 dispatch_to_ui picks `call_later` on UI thread,
+        # `call_from_thread` on worker thread. Patch both so either path
+        # is captured.
+        def spy_ct(fn, *a, **kw):
             called.append(getattr(fn, "__name__", str(fn)))
-            return original(fn, *a, **kw)
-        with patch.object(app, "call_from_thread", side_effect=spy):
+        def spy_cl(*args, **kw):
+            # call_later(delay, fn) — fn is args[1]
+            if len(args) >= 2:
+                called.append(getattr(args[1], "__name__", str(args[1])))
+        with patch.object(app, "call_from_thread", side_effect=spy_ct), \
+             patch.object(app, "call_later", side_effect=spy_cl):
             svc.event_bus.publish(
                 TOPIC_PRICE_UPDATED,
                 {"event_id": "ev1", "market_id": "m1", "mid": 0.5, "spread": 0.02},

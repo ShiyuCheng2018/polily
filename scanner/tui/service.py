@@ -14,6 +14,8 @@ from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
 from scanner.core.events import (
     EventBus,
+    TOPIC_MONITOR_UPDATED,
+    TOPIC_POSITION_UPDATED,
     TOPIC_SCAN_UPDATED,
     TOPIC_WALLET_UPDATED,
     get_event_bus,
@@ -650,14 +652,34 @@ class ScanService:
     # ------------------------------------------------------------------
 
     def execute_buy(self, *, market_id: str, side: str, shares: float) -> dict:
-        return self.trade_engine.execute_buy(
+        result = self.trade_engine.execute_buy(
             market_id=market_id, side=side, shares=shares,
         )
+        # v0.8.0: let wallet / paper_status / event_detail views refresh
+        # without waiting for the next heartbeat.
+        self.event_bus.publish(
+            TOPIC_POSITION_UPDATED,
+            {"market_id": market_id, "side": side, "size": shares, "source": "buy"},
+        )
+        self.event_bus.publish(
+            TOPIC_WALLET_UPDATED,
+            {"balance": self.wallet.get_cash(), "source": "buy"},
+        )
+        return result
 
     def execute_sell(self, *, market_id: str, side: str, shares: float) -> dict:
-        return self.trade_engine.execute_sell(
+        result = self.trade_engine.execute_sell(
             market_id=market_id, side=side, shares=shares,
         )
+        self.event_bus.publish(
+            TOPIC_POSITION_UPDATED,
+            {"market_id": market_id, "side": side, "size": shares, "source": "sell"},
+        )
+        self.event_bus.publish(
+            TOPIC_WALLET_UPDATED,
+            {"balance": self.wallet.get_cash(), "source": "sell"},
+        )
+        return result
 
     def topup(self, amount: float) -> None:
         self.wallet.topup(amount)
@@ -724,6 +746,11 @@ class ScanService:
         if not enable:
             from scanner.scan_log import supersede_pending_for_event
             supersede_pending_for_event(event_id, self.db)
+        # v0.8.0: let monitor_list / event_detail refresh immediately.
+        self.event_bus.publish(
+            TOPIC_MONITOR_UPDATED,
+            {"event_id": event_id, "auto_monitor": enable},
+        )
 
     def get_event_position_count(self, event_id: str) -> int:
         """Count open positions across every market in the event."""

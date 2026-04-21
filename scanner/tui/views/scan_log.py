@@ -22,7 +22,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, Static
 
-from scanner.core.events import TOPIC_SCAN_UPDATED
+from scanner.core.events import TOPIC_SCAN_UPDATED, dispatch_to_ui
 from scanner.scan_log import ScanLogEntry
 from scanner.tui.i18n import translate_status, translate_trigger
 from scanner.tui.icons import (
@@ -331,7 +331,7 @@ class ScanLogView(Widget):
 
     def _on_scan_update(self, payload: dict) -> None:
         """Bus callback — MUST use call_from_thread (called from non-UI thread)."""
-        self.app.call_from_thread(self._render_all)
+        dispatch_to_ui(self.app, self._render_all)
 
     def _render_all(self) -> None:
         """Re-fetch logs from service and repopulate both tables."""

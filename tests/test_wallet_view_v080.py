@@ -78,11 +78,15 @@ async def test_wallet_view_bus_callback_uses_call_from_thread(svc):
         view = WalletView(svc)
         await app.mount(view)
         await pilot.pause()
-        original = app.call_from_thread
-        def spy(fn, *a, **kw):
+        # v0.8.0 dispatch_to_ui picks `call_later` on UI thread or
+        # `call_from_thread` on worker. Patch both so either path is captured.
+        def spy_ct(fn, *a, **kw):
             called.append(getattr(fn, "__name__", str(fn)))
-            return original(fn, *a, **kw)
-        with patch.object(app, "call_from_thread", side_effect=spy):
+        def spy_cl(*args, **kw):
+            if len(args) >= 2:
+                called.append(getattr(args[1], "__name__", str(args[1])))
+        with patch.object(app, "call_from_thread", side_effect=spy_ct), \
+             patch.object(app, "call_later", side_effect=spy_cl):
             svc.event_bus.publish(TOPIC_WALLET_UPDATED, {"balance": 200.0, "source": "topup"})
             await pilot.pause()
         assert any("render" in n.lower() or "refresh" in n.lower() or "update" in n.lower() for n in called), \
