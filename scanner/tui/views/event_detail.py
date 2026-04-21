@@ -217,6 +217,17 @@ class EventDetailView(Widget):
         if not markets:
             self.notify("无可交易市场")
             return
+        # Trading requires an active monitor — positions on an unmonitored
+        # event would drift without price polling / narrator attention,
+        # silently rotting until the user toggles monitor back on. Block
+        # here with a clear toast rather than letting the modal open.
+        monitor = self._detail.get("monitor") if self._detail else None
+        if not (monitor and monitor.get("auto_monitor")):
+            self.notify(
+                "需要先激活监控才能进行交易 — 按 m 开启监控",
+                severity="warning",
+            )
+            return
         from scanner.tui.views.trade_dialog import TradeDialog
 
         def _on_dismiss(payload: dict | None) -> None:
