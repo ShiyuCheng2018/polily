@@ -23,12 +23,13 @@ import time
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Label, Static
+from textual.widgets import Button, Checkbox, Input, Static
 
 from scanner.tui.icons import ICON_BUY, ICON_SELL, ICON_SETTINGS, ICON_WALLET
 from scanner.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
+from scanner.tui.widgets.field_row import FieldRow
 from scanner.tui.widgets.polily_card import PolilyCard
 from scanner.tui.widgets.polily_zone import PolilyZone
 from scanner.tui.widgets.quick_amount_row import QuickAmountRow
@@ -68,7 +69,6 @@ class TopupModal(ModalScreen[float | None]):
         margin: 0;
     }}
     TopupModal .balance-line {{ padding: 0 0 1 0; color: $text-muted; }}
-    TopupModal .amount-row {{ height: auto; padding: 0 0 1 0; }}
     TopupModal #amount {{ width: 14; }}
     TopupModal QuickAmountRow {{ padding: 0 0 1 0; }}
     TopupModal QuickAmountRow Button {{ min-width: 7; }}
@@ -88,9 +88,11 @@ class TopupModal(ModalScreen[float | None]):
                     f"{ICON_WALLET} 当前余额: ${cash:.2f}",
                     classes="balance-line",
                 )
-                with Horizontal(classes="amount-row"):
-                    yield Label("金额 $", classes="field-label")
-                    yield Input(value="50", id="amount", type="number")
+                yield FieldRow(
+                    label="金额",
+                    unit="$",
+                    input_widget=Input(value="50", id="amount", type="number"),
+                )
                 yield QuickAmountRow(amounts=[50, 100, 500])
                 yield ConfirmCancelBar()
 
@@ -150,7 +152,6 @@ class WithdrawModal(ModalScreen[float | None]):
     }}
     WithdrawModal .balance-line {{ padding: 0 0 0 0; color: $text-muted; }}
     WithdrawModal .hint {{ padding: 0 0 1 0; color: $text-muted; }}
-    WithdrawModal .amount-row {{ height: auto; padding: 0 0 1 0; }}
     WithdrawModal #amount {{ width: 14; }}
     WithdrawModal QuickAmountRow {{ padding: 0 0 1 0; }}
     WithdrawModal QuickAmountRow Button {{ min-width: 7; }}
@@ -172,9 +173,11 @@ class WithdrawModal(ModalScreen[float | None]):
                     classes="balance-line",
                 )
                 yield Static("[dim]持仓市值不可提现[/dim]", classes="hint")
-                with Horizontal(classes="amount-row"):
-                    yield Label("金额 $", classes="field-label")
-                    yield Input(value="", id="amount", type="number")
+                yield FieldRow(
+                    label="金额",
+                    unit="$",
+                    input_widget=Input(value="", id="amount", type="number"),
+                )
                 yield QuickAmountRow(amounts=[20, 50, "全部"])
                 yield Static("", id="warn-line")
                 yield ConfirmCancelBar()

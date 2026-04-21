@@ -52,6 +52,7 @@ from scanner.tui.views._trade_preview import (
     shares_from_pct,
 )
 from scanner.tui.widgets.buy_sell_action_row import BuySellActionRow
+from scanner.tui.widgets.field_row import FieldRow
 from scanner.tui.widgets.polily_card import PolilyCard
 from scanner.tui.widgets.polily_zone import PolilyZone
 from scanner.tui.widgets.quick_amount_row import QuickAmountRow
@@ -81,10 +82,14 @@ class BuyPane(Widget):
     def compose(self) -> ComposeResult:
         with PolilyZone(title=f"{ICON_BUY} 买入", id="buy-zone"):
             yield Static("", id="buy-holding-line")
-            with Horizontal(id="buy-amount-row"):
-                yield Label("金额 $", classes="field-label")
-                yield Input(value="10", id="buy-amount", type="number")
-                yield Static("", id="buy-preview", classes="preview")
+            yield FieldRow(
+                label="金额",
+                unit="$",
+                input_widget=Input(value="10", id="buy-amount", type="number"),
+                helper="",
+                helper_id="buy-preview",
+                id="buy-amount-row",
+            )
             yield Static("", id="buy-fee-line", classes="preview-secondary")
             yield QuickAmountRow(amounts=_QUICK_AMOUNTS)
             yield self._action_row
@@ -254,10 +259,13 @@ class SellPane(Widget):
                 yield Label("卖出比例", classes="field-label")
                 for pct in _QUICK_PCTS:
                     yield Button(f"{pct}%", id=f"sell-pct-{pct}", classes="quick-btn")
-            with Horizontal(id="sell-shares-row"):
-                yield Label("股数 ", classes="field-label")
-                yield Input(value="", id="sell-shares", type="number")
-                yield Static("", id="sell-preview", classes="preview")
+            yield FieldRow(
+                label="股数",
+                input_widget=Input(value="", id="sell-shares", type="number"),
+                helper="",
+                helper_id="sell-preview",
+                id="sell-shares-row",
+            )
             yield Static("", id="sell-pnl-line", classes="preview-secondary")
             with Horizontal(id="sell-action-row"):
                 yield Button("卖出", id="btn-sell", variant="warning", classes="trade-btn")
