@@ -35,6 +35,7 @@ ICON_NOTIFY = "\uf0f3"        # fa-bell
 
 # User / source
 ICON_USER = "\uf007"          # fa-user (manual-trigger scans, user-initiated actions)
+ICON_AI = "\uf544"            # fa-robot (AI / system-initiated triggers)
 
 
 STATUS_ICONS = {

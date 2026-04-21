@@ -26,6 +26,7 @@ from scanner.core.events import TOPIC_SCAN_UPDATED
 from scanner.scan_log import ScanLogEntry
 from scanner.tui.i18n import translate_status, translate_trigger
 from scanner.tui.icons import (
+    ICON_AI,
     ICON_COMPLETED,
     ICON_EVENT,
     ICON_FAILED,
@@ -134,7 +135,7 @@ def _trigger_who_label(source: str) -> str:
     """
     if source == "manual":
         return f"{ICON_USER} 手动"
-    return "AI"
+    return f"{ICON_AI} AI"
 
 
 def _scan_kind_label(type_: str) -> str:
