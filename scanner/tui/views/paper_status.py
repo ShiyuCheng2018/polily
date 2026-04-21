@@ -71,8 +71,10 @@ class PaperStatusView(Widget):
     DEFAULT_CSS = """
     PaperStatusView { height: 1fr; }
     PaperStatusView > VerticalScroll { height: 1fr; }
-    PaperStatusView > VerticalScroll > PolilyZone { height: auto; }
-    PaperStatusView DataTable { height: auto; }
+    /* v0.8.0+: stretch 持仓 zone to screen bottom so the list extends
+       naturally instead of collapsing to content height. */
+    PaperStatusView > VerticalScroll > PolilyZone { height: 1fr; }
+    PaperStatusView DataTable { height: 1fr; }
     """
 
     def __init__(self, service: ScanService):
