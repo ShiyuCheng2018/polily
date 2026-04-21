@@ -1,7 +1,7 @@
 # scanner/tui/widgets/kv_row.py
 """v0.8.0 atom: KVRow — label:value row with consistent spacing and alignment.
 
-Standard pattern for key-value display in detail views (wallet, market_detail).
+Standard pattern for key-value display in detail views (wallet, event_detail).
 Label right-aligned with fixed width so multiple KVRows visually align.
 """
 from textual.app import ComposeResult

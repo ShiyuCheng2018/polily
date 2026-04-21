@@ -69,7 +69,7 @@ modal.
 
 - **scan_log:** `c` 取消运行中的分析
 - **wallet:** `t` 充值 / `w` 提现 / `r` 重置（重置要求输入 `RESET` 二次确认）
-- **market_detail:** `a` AI 分析 / `t` 交易 / `m` 监控切换 / `v` 版本历史 / `o` 打开 Polymarket 链接 / `r` 刷新
+- **event_detail:** `a` AI 分析 / `t` 交易 / `m` 监控切换 / `v` 版本历史 / `o` 打开 Polymarket 链接 / `r` 刷新
 
 ### Modals
 
@@ -225,5 +225,5 @@ minimum.
 ### Event detail panel covered other zones
 
 Fixed during v0.8.0 beta in commit `47454a5` (bounded `VerticalScroll`
-height in `market_detail`). If you still see this on v0.8.0+, file an
+height in `event_detail`). If you still see this on v0.8.0+, file an
 issue.

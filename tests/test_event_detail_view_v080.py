@@ -1,4 +1,4 @@
-"""v0.8.0 Task 19: market_detail view migrated to atoms + EventBus + r binding."""
+"""v0.8.0 Task 19: event_detail view migrated to atoms + EventBus + r binding."""
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,37 +19,37 @@ def svc(tmp_path):
     db.close()
 
 
-async def test_market_detail_uses_multiple_polily_zones(svc):
-    """market_detail is densest view — expects multiple PolilyZone sections."""
+async def test_event_detail_uses_multiple_polily_zones(svc):
+    """event_detail is densest view — expects multiple PolilyZone sections."""
     from scanner.tui.app import PolilyApp
-    from scanner.tui.views.market_detail import MarketDetailView
+    from scanner.tui.views.event_detail import EventDetailView
     from scanner.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
     async with app.run_test() as pilot:
         await pilot.pause()
-        view = MarketDetailView(event_id="ev1", service=svc)
+        view = EventDetailView(event_id="ev1", service=svc)
         await app.mount(view)
         await pilot.pause()
         zones = list(view.query(PolilyZone))
         assert len(zones) >= 2, (
-            f"market_detail should have 2+ PolilyZones (market info / score / etc.), "
+            f"event_detail should have 2+ PolilyZones (market info / score / etc.), "
             f"got {len(zones)}"
         )
 
 
-async def test_market_detail_chinese_labels_in_rendered(svc):
+async def test_event_detail_chinese_labels_in_rendered(svc):
     """Core Chinese labels visible."""
     from scanner.tui.app import PolilyApp
-    from scanner.tui.views.market_detail import MarketDetailView
+    from scanner.tui.views.event_detail import EventDetailView
     from textual.widgets import Static
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
     async with app.run_test() as pilot:
         await pilot.pause()
-        view = MarketDetailView(event_id="ev1", service=svc)
+        view = EventDetailView(event_id="ev1", service=svc)
         await app.mount(view)
         await pilot.pause()
         texts = []
@@ -63,17 +63,17 @@ async def test_market_detail_chinese_labels_in_rendered(svc):
             assert lbl in joined, f"label {lbl} missing from rendered view"
 
 
-async def test_market_detail_bus_callback_uses_call_from_thread(svc):
+async def test_event_detail_bus_callback_uses_call_from_thread(svc):
     """Publish TOPIC_PRICE_UPDATED; verify real handler uses call_from_thread."""
     from scanner.tui.app import PolilyApp
-    from scanner.tui.views.market_detail import MarketDetailView
+    from scanner.tui.views.event_detail import EventDetailView
 
     called = []
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
     async with app.run_test() as pilot:
         await pilot.pause()
-        view = MarketDetailView(event_id="ev1", service=svc)
+        view = EventDetailView(event_id="ev1", service=svc)
         await app.mount(view)
         await pilot.pause()
         original = app.call_from_thread
@@ -90,30 +90,30 @@ async def test_market_detail_bus_callback_uses_call_from_thread(svc):
             f"price bus callback did not trigger re-render: {called}"
 
 
-def test_market_detail_has_r_refresh_binding():
-    """SF4: 'r' added to MarketDetailView.BINDINGS with show=True."""
-    from scanner.tui.views.market_detail import MarketDetailView
-    keys = {b.key: b.show for b in MarketDetailView.BINDINGS}
+def test_event_detail_has_r_refresh_binding():
+    """SF4: 'r' added to EventDetailView.BINDINGS with show=True."""
+    from scanner.tui.views.event_detail import EventDetailView
+    keys = {b.key: b.show for b in EventDetailView.BINDINGS}
     assert keys.get("r") is True, f"'r' refresh binding missing/hidden: {keys}"
 
 
-def test_market_detail_preserves_existing_bindings():
+def test_event_detail_preserves_existing_bindings():
     """Q1: a/t/m/v/o still present."""
-    from scanner.tui.views.market_detail import MarketDetailView
-    keys = {b.key for b in MarketDetailView.BINDINGS}
+    from scanner.tui.views.event_detail import EventDetailView
+    keys = {b.key for b in EventDetailView.BINDINGS}
     for k in ("a", "t", "m", "v", "o", "escape"):
         assert k in keys, f"existing binding '{k}' missing"
 
 
-async def test_market_detail_scroll_container_bounded(svc):
+async def test_event_detail_scroll_container_bounded(svc):
     """Regression for: AI 分析 zone covering other zones.
 
-    When MarketDetailView contains an analysis, the VerticalScroll must
+    When EventDetailView contains an analysis, the VerticalScroll must
     be height-bounded so all zones remain accessible without overflowing.
     """
     from scanner.analysis_store import AnalysisVersion, append_analysis
     from scanner.tui.app import PolilyApp
-    from scanner.tui.views.market_detail import MarketDetailView
+    from scanner.tui.views.event_detail import EventDetailView
     from scanner.tui.widgets.polily_zone import PolilyZone
     from textual.containers import VerticalScroll
 
@@ -129,13 +129,13 @@ async def test_market_detail_scroll_container_bounded(svc):
     app._restart_daemon = lambda: None
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
-        view = MarketDetailView(event_id="ev1", service=svc)
+        view = EventDetailView(event_id="ev1", service=svc)
         await app.mount(view)
         await pilot.pause()
 
-        # VerticalScroll must exist inside MarketDetailView
+        # VerticalScroll must exist inside EventDetailView
         scrolls = list(view.query(VerticalScroll))
-        assert len(scrolls) >= 1, "MarketDetailView must contain a VerticalScroll"
+        assert len(scrolls) >= 1, "EventDetailView must contain a VerticalScroll"
 
         # All expected zones must be in the DOM (not hidden/overflowed away)
         zones = list(view.query(PolilyZone))

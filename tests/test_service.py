@@ -86,7 +86,7 @@ class TestGetEventDetail:
         assert service.get_event_detail("nonexistent") is None
 
     def test_trades_reflects_v060_positions_not_legacy_paper_trades(self, db, service):
-        """Regression: after v0.6.0 the TUI MarketDetailView's 'trades' feed
+        """Regression: after v0.6.0 the TUI EventDetailView's 'trades' feed
         must reflect the live `positions` table (TradeEngine.execute_buy only
         writes there). Reading legacy `paper_trades` shows stale/empty data.
 

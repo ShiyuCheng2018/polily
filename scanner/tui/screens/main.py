@@ -24,11 +24,11 @@ from textual.widgets import Footer, Header, Static
 from scanner.core.events import TOPIC_SCAN_UPDATED
 from scanner.tui.service import AnalysisInProgressError, ScanService
 from scanner.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
-from scanner.tui.views.market_detail import (
+from scanner.tui.views.event_detail import (
     AnalyzeRequested,
     BackToList,
     CancelAnalysisRequested,
-    MarketDetailView,
+    EventDetailView,
     RescoreEventRequested,
     SwitchVersionRequested,
 )
@@ -38,7 +38,7 @@ from scanner.tui.views.scan_log import (
     AddEventRequested,
     BackToScanLog,
     CancelScanRequested,
-    OpenMarketFromLog,
+    OpenEventFromLog,
     RescoreRequested,
     ScanLogDetailView,
     ScanLogView,
@@ -274,7 +274,7 @@ class MainScreen(Screen):
 
     def on_switch_version_requested(self, message: SwitchVersionRequested) -> None:
         is_analyzing = self._analyzing and self._analyzing_event_id == message.event_id
-        self._switch_view(MarketDetailView(
+        self._switch_view(EventDetailView(
             event_id=message.event_id,
             service=self.service,
             analyzing=is_analyzing,
@@ -291,7 +291,7 @@ class MainScreen(Screen):
         detail = self.service.get_event_detail(message.event_id)
         title_short = (detail["event"].title[:30] if detail else message.event_id[:30])
         self.query_one("#status-bar", Static).update(f"AI 分析中: {title_short}...")
-        self._switch_view(MarketDetailView(
+        self._switch_view(EventDetailView(
             event_id=message.event_id, service=self.service, analyzing=True,
         ))
         self.run_worker(self._do_analyze, name="analyze", thread=True, exclusive=True)
@@ -304,7 +304,7 @@ class MainScreen(Screen):
         self.service.cancel_analysis()
         self.query_one("#status-bar", Static).update("分析已取消")
         if self._analyzing_event_id:
-            self._switch_view(MarketDetailView(
+            self._switch_view(EventDetailView(
                 event_id=self._analyzing_event_id, service=self.service,
             ))
             self._analyzing_event_id = None
@@ -369,13 +369,13 @@ class MainScreen(Screen):
     def _on_analysis_complete(self, event_id: str):
         self.query_one("#status-bar", Static).update("分析完成")
         self.query_one("#sidebar", Sidebar).mark_new_data("tasks")
-        self._switch_view(MarketDetailView(event_id=event_id, service=self.service))
+        self._switch_view(EventDetailView(event_id=event_id, service=self.service))
 
     def _on_analysis_failed(self, error: str):
         error_short = error[:80] if len(error) > 80 else error
         self.query_one("#status-bar", Static).update(f"分析失败: {error_short}")
         if self._analyzing_event_id:
-            self._switch_view(MarketDetailView(
+            self._switch_view(EventDetailView(
                 event_id=self._analyzing_event_id, service=self.service,
             ))
 
@@ -393,7 +393,7 @@ class MainScreen(Screen):
         if self._current_menu == "tasks":
             self._navigate_to("tasks")
 
-    def on_open_market_from_log(self, message: OpenMarketFromLog) -> None:
+    def on_open_event_from_log(self, message: OpenEventFromLog) -> None:
         """Navigate to score result page from a log entry."""
         self._switch_view(
             ScoreResultView(event_id=message.event_id, service=self.service)
@@ -408,7 +408,7 @@ class MainScreen(Screen):
             self.on_add_event_requested(AddEventRequested(url))
 
     def on_rescore_event_requested(self, message: RescoreEventRequested) -> None:
-        """Re-score event from MarketDetailView button."""
+        """Re-score event from EventDetailView button."""
         self._rescore_by_event_id(message.event_id)
 
     def on_score_view_rescore(self, message: ScoreViewRescore) -> None:
@@ -444,19 +444,19 @@ class MainScreen(Screen):
     def on_view_monitor_detail(self, message: ViewMonitorDetail) -> None:
         """Navigate to event detail from monitor list."""
         self._switch_view(
-            MarketDetailView(event_id=message.event_id, service=self.service)
+            EventDetailView(event_id=message.event_id, service=self.service)
         )
 
     def on_view_archived_detail(self, message: ViewArchivedDetail) -> None:
-        """Row-click in ArchivedEventsView → push MarketDetailView for retrospective view."""
+        """Row-click in ArchivedEventsView → push EventDetailView for retrospective view."""
         self._switch_view(
-            MarketDetailView(event_id=message.event_id, service=self.service)
+            EventDetailView(event_id=message.event_id, service=self.service)
         )
 
     def on_view_trade_detail(self, message: ViewTradeDetail) -> None:
         """Navigate to event detail from portfolio."""
         self._switch_view(
-            MarketDetailView(event_id=message.event_id, service=self.service)
+            EventDetailView(event_id=message.event_id, service=self.service)
         )
 
     def on_back_to_scan_log(self, message: BackToScanLog) -> None:
@@ -503,8 +503,8 @@ class MainScreen(Screen):
     def action_refresh(self) -> None:
         content = self.query_one("#content-area")
         for child in content.children:
-            if isinstance(child, MarketDetailView):
-                self._switch_view(MarketDetailView(
+            if isinstance(child, EventDetailView):
+                self._switch_view(EventDetailView(
                     event_id=child.event_id, service=self.service,
                 ))
                 return

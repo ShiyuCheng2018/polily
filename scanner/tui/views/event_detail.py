@@ -1,4 +1,4 @@
-"""MarketDetailView: event detail page composed from reusable components.
+"""EventDetailView: event detail page composed from reusable components.
 
 v0.8.0 migration:
 - PolilyZone atoms for 事件信息 / 市场 / 持仓 / 叙事分析 sections
@@ -67,11 +67,11 @@ class SwitchVersionRequested(Message):
 
 
 # ---------------------------------------------------------------------------
-# MarketDetailView
+# EventDetailView
 # ---------------------------------------------------------------------------
 
 
-class MarketDetailView(Widget):
+class EventDetailView(Widget):
     """Event detail dashboard composed from reusable components."""
 
     BINDINGS = [
@@ -86,9 +86,9 @@ class MarketDetailView(Widget):
     ]
 
     DEFAULT_CSS = """
-    MarketDetailView { height: 1fr; }
-    MarketDetailView > VerticalScroll { height: 1fr; }
-    MarketDetailView > VerticalScroll > PolilyZone { height: auto; }
+    EventDetailView { height: 1fr; }
+    EventDetailView > VerticalScroll { height: 1fr; }
+    EventDetailView > VerticalScroll > PolilyZone { height: auto; }
     """
 
     def __init__(

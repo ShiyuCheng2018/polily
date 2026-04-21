@@ -1,4 +1,4 @@
-"""MarketDetailView — `m` key behavior for the monitor lifecycle.
+"""EventDetailView — `m` key behavior for the monitor lifecycle.
 
 Contract:
 - Enabling monitor is silent (no modal, no block).
@@ -67,11 +67,11 @@ class _Host(App):
 
 @pytest.mark.asyncio
 async def test_pressing_m_on_unmonitored_enables_silently():
-    from scanner.tui.views.market_detail import MarketDetailView
+    from scanner.tui.views.event_detail import EventDetailView
 
     svc = _service()
     _seed(svc, with_position=False, monitored=False)
-    view = MarketDetailView("ev1", svc)
+    view = EventDetailView("ev1", svc)
     host = _Host(view)
 
     async with host.run_test(size=(160, 40)) as pilot:
@@ -88,11 +88,11 @@ async def test_pressing_m_on_unmonitored_enables_silently():
 
 @pytest.mark.asyncio
 async def test_pressing_m_with_positions_is_blocked(monkeypatch):
-    from scanner.tui.views.market_detail import MarketDetailView
+    from scanner.tui.views.event_detail import EventDetailView
 
     svc = _service()
     _seed(svc, with_position=True, monitored=True)
-    view = MarketDetailView("ev1", svc)
+    view = EventDetailView("ev1", svc)
     host = _Host(view)
 
     async with host.run_test(size=(160, 40)) as pilot:
@@ -117,12 +117,12 @@ async def test_pressing_m_with_positions_is_blocked(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_pressing_m_without_positions_pushes_modal():
-    from scanner.tui.views.market_detail import MarketDetailView
+    from scanner.tui.views.event_detail import EventDetailView
     from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
 
     svc = _service()
     _seed(svc, with_position=False, monitored=True)
-    view = MarketDetailView("ev1", svc)
+    view = EventDetailView("ev1", svc)
     host = _Host(view)
 
     async with host.run_test(size=(160, 40)) as pilot:
@@ -142,11 +142,11 @@ async def test_pressing_m_without_positions_pushes_modal():
 @pytest.mark.asyncio
 async def test_modal_confirm_flips_monitor_off():
     """The dismiss callback — called with True — is what actually toggles."""
-    from scanner.tui.views.market_detail import MarketDetailView
+    from scanner.tui.views.event_detail import EventDetailView
 
     svc = _service()
     _seed(svc, with_position=False, monitored=True)
-    view = MarketDetailView("ev1", svc)
+    view = EventDetailView("ev1", svc)
 
     async with _Host(view).run_test(size=(160, 40)) as pilot:
         await pilot.pause()
@@ -163,11 +163,11 @@ async def test_modal_confirm_flips_monitor_off():
 
 @pytest.mark.asyncio
 async def test_modal_cancel_keeps_monitor_on():
-    from scanner.tui.views.market_detail import MarketDetailView
+    from scanner.tui.views.event_detail import EventDetailView
 
     svc = _service()
     _seed(svc, with_position=False, monitored=True)
-    view = MarketDetailView("ev1", svc)
+    view = EventDetailView("ev1", svc)
 
     async with _Host(view).run_test(size=(160, 40)) as pilot:
         await pilot.pause()

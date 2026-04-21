@@ -7,7 +7,7 @@ v0.8.0 migration:
 - Button row replaced with ConfirmCancelBar atom (Opt-A1). Button ids are
   now `#confirm` + `#cancel` (previously `#confirm` + `#keep`).
 - dismiss protocol (True on confirm, False on cancel/Escape) untouched so
-  existing callers in market_detail.py / monitor_list.py keep working.
+  existing callers in event_detail.py / monitor_list.py keep working.
 """
 
 from __future__ import annotations

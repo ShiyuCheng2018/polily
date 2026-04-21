@@ -1,7 +1,7 @@
 """ArchivedEventsView: list of events the user was monitoring when they closed.
 
 Data source: `events` + `event_monitors` join (no dedicated archive table).
-Rows clickable → navigate to MarketDetailView for retrospective view.
+Rows clickable → navigate to EventDetailView for retrospective view.
 
 v0.8.0 migration:
 - PolilyZone atom wraps the list (title: 归档事件)

@@ -1,7 +1,7 @@
 """PositionPanel: paper trade positions with visual P&L cards.
 
 v0.8.0: Removed inner DashPanel wrapper — the outer PolilyZone
-(market_detail.py line 142) already provides the "持仓" section border +
+(event_detail.py line 142) already provides the "持仓" section border +
 title, so nesting a DashPanel with the same title inside was redundant.
 Cards now render directly inside the zone; each pos-card keeps its
 accent border to distinguish individual positions.

@@ -435,7 +435,7 @@ class ScanLogView(Widget):
 
 # --- Detail View ---
 
-class OpenMarketFromLog(Message):
+class OpenEventFromLog(Message):
     """Request to open event detail from a log entry."""
     def __init__(self, event_id: str):
         super().__init__()
@@ -610,7 +610,7 @@ class ScanLogDetailView(Widget):
 
     def action_open_market(self) -> None:
         if self.log_entry.event_id:
-            self.post_message(OpenMarketFromLog(self.log_entry.event_id))
+            self.post_message(OpenEventFromLog(self.log_entry.event_id))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "rescore-btn" and self.log_entry.event_id:

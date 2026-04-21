@@ -1,5 +1,5 @@
 """ConfirmUnmonitorModal — asks for explicit confirmation before stopping
-monitoring of an event. Used by both MarketDetailView and MonitorListView.
+monitoring of an event. Used by both EventDetailView and MonitorListView.
 """
 
 import pytest

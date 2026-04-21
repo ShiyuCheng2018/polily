@@ -476,7 +476,7 @@ class ScanService:
         the PositionPanel schema (market_id/side/title/entry_price/
         position_size_usd). Previously this read the legacy `paper_trades`
         table, which TradeEngine stopped writing in v0.6.0 — causing
-        MarketDetailView to show "无持仓" for live positions.
+        EventDetailView to show "无持仓" for live positions.
         """
         event = get_event(event_id, self.db)
         if event is None:
