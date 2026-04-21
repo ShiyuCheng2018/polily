@@ -141,16 +141,16 @@ class ScoreResultView(Widget):
         return None
 
     def _is_expired(self, event) -> bool:
-        if not event or not event.end_date:
+        """An event is expired only when Polymarket officially closes it.
+
+        Previously this used `end_date < now` which flagged as expired the
+        moment the resolution date passed — but Polymarket events often
+        remain tradable during the resolution window. Using `event.closed`
+        (synced from gamma API) is the authoritative signal.
+        """
+        if not event:
             return False
-        from datetime import UTC, datetime
-        try:
-            end = datetime.fromisoformat(event.end_date.replace("Z", "+00:00"))
-            if end.tzinfo is None:
-                end = end.replace(tzinfo=UTC)
-            return end < datetime.now(UTC)
-        except (ValueError, TypeError):
-            return False
+        return bool(getattr(event, "closed", 0))
 
     def _is_monitored(self) -> bool:
         return self.service.is_event_monitored(self.event_id)
