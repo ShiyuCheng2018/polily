@@ -9,12 +9,12 @@ from pathlib import Path
 
 import typer
 
-app = typer.Typer(help="Polily — Polymarket Decision Copilot", invoke_without_command=True)
+app = typer.Typer(help="Polily — A Polymarket Monitoring Agent That Actually Works", invoke_without_command=True)
 
 
 @app.callback()
 def main(ctx: typer.Context):
-    """Polily — Polymarket Decision Copilot. Launches TUI when no subcommand given."""
+    """Polily — A Polymarket Monitoring Agent That Actually Works. Launches TUI when no subcommand given."""
     if ctx.invoked_subcommand is None:
         from scanner.tui.app import run_tui
         run_tui()
@@ -226,6 +226,13 @@ def reset(
             deleted += 1
 
     console.print(f"[green]Deleted {deleted} files. Database will be recreated on next launch.[/green]")
+
+
+@app.command()
+def doctor():
+    """运行环境诊断。检查 Nerd Font、终端尺寸、数据库、Claude CLI。"""
+    from scanner.doctor import run_doctor
+    run_doctor()
 
 
 if __name__ == "__main__":

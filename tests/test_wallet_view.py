@@ -21,7 +21,7 @@ from scanner.tui.views.wallet import WalletView
 from scanner.tui.views.wallet_modals import TopupModal, WalletResetModal, WithdrawModal
 
 
-def _seed(tmp_path) -> ScanService:
+def _seed(tmp_path, *, auto_monitor: bool = True) -> ScanService:
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(
         EventRow(event_id="e1", title="BTC April", updated_at="now"),
@@ -38,6 +38,12 @@ def _seed(tmp_path) -> ScanService:
         ),
         db,
     )
+    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    # Tests that specifically cover the "no active monitors" path
+    # (e.g. reset modal's skip-restart check) can pass auto_monitor=False.
+    if auto_monitor:
+        from scanner.core.monitor_store import upsert_event_monitor
+        upsert_event_monitor("e1", auto_monitor=True, db=db)
     return ScanService(config=ScannerConfig(), db=db)
 
 
@@ -91,9 +97,12 @@ async def test_wallet_view_fresh_wallet_shows_starting_balance(tmp_path):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = host.screen.query_one(WalletView)
-        headline = view.query_one("#headline", Static).content
-        assert "$100.00" in str(headline)
-        assert "+0.00%" in str(headline) or "0.00%" in str(headline)
+        # v0.8.0: balance card replaced #headline — collect all Static content
+        all_text = " ".join(
+            str(s.content) for s in view.query(Static) if s.content
+        )
+        assert "$100.00" in all_text
+        assert "+0.00%" in all_text or "0.00%" in all_text
 
 
 @pytest.mark.asyncio
@@ -110,10 +119,13 @@ async def test_wallet_view_after_buy_shows_position_value(tmp_path):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = host.screen.query_one(WalletView)
-        metrics = view.query_one("#metrics", Static).content
-        assert "1 个持仓" in str(metrics)
+        # v0.8.0: metrics live inside balance card KVRows — collect all Static content
+        all_text = " ".join(
+            str(s.content) for s in view.query(Static) if s.content
+        )
+        assert "1 个持仓" in all_text
         # Cash ≈ 100 - 10 - 0.36 fee = 89.64; market value ≈ 10.00
-        assert "89." in str(metrics) or "89" in str(metrics)
+        assert "89." in all_text or "89" in all_text
 
 
 @pytest.mark.asyncio
@@ -155,9 +167,12 @@ async def test_wallet_view_realized_pnl_after_profitable_sell(tmp_path):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view = host.screen.query_one(WalletView)
-        metrics = view.query_one("#metrics", Static).content
+        # v0.8.0: realized P&L in balance card KVRows — collect all Static content
+        all_text = " ".join(
+            str(s.content) for s in view.query(Static) if s.content
+        )
         # realized = (0.6 - 0.5) × 10 = 1.0
-        assert "$1.00" in str(metrics)
+        assert "$1.00" in all_text
 
 
 # --- TopupModal ---------------------------------------------------------
@@ -185,7 +200,7 @@ async def test_topup_modal_confirm_calls_service_and_dismisses(tmp_path):
         modal = host.screen
         modal.query_one("#amount", Input).value = "25"
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         await pilot.pause()
 
     assert host.dismiss_result == 25.0
@@ -199,7 +214,7 @@ async def test_topup_modal_quick_button_fills_amount(tmp_path):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         modal = host.screen
-        modal.query_one("#q100", Button).press()
+        modal.query_one("#quick-100", Button).press()
         await pilot.pause()
         assert modal.query_one("#amount", Input).value == "100"
 
@@ -217,7 +232,7 @@ async def test_withdraw_modal_rejects_over_cash(tmp_path):
         modal = host.screen
         modal.query_one("#amount", Input).value = "200"
         await pilot.pause()
-        assert modal.query_one("#ok", Button).disabled
+        assert modal.query_one("#confirm", Button).disabled
         warn = modal.query_one("#warn-line", Static).content
         assert "超出" in str(warn)
 
@@ -229,7 +244,9 @@ async def test_withdraw_modal_qall_fills_cash(tmp_path):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         modal = host.screen
-        modal.query_one("#qall", Button).press()
+        # "全部" is a non-ASCII token → QuickAmountRow assigns a positional
+        # id (#quick-tok-2 for the third button at index 2).
+        modal.query_one("#quick-tok-2", Button).press()
         await pilot.pause()
         assert modal.query_one("#amount", Input).value == "100.00"
 
@@ -243,7 +260,7 @@ async def test_withdraw_modal_confirm_deducts_cash(tmp_path):
         modal = host.screen
         modal.query_one("#amount", Input).value = "30"
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         await pilot.pause()
 
     assert host.dismiss_result == 30.0
@@ -276,7 +293,7 @@ async def test_reset_modal_requires_reset_keyword(tmp_path, monkeypatch):
     async with host.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         modal = host.screen
-        ok = modal.query_one("#ok", Button)
+        ok = modal.query_one("#confirm", Button)
         assert ok.disabled  # initial state
         modal.query_one("#confirm-input", Input).value = "not-reset"
         await pilot.pause()
@@ -312,7 +329,7 @@ async def test_reset_modal_confirm_clears_state(tmp_path, monkeypatch):
         modal = host.screen
         modal.query_one("#confirm-input", Input).value = "reset"
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         # Wait for the worker thread to complete the reset and dismiss.
         for _ in range(20):
             await pilot.pause()
@@ -350,7 +367,7 @@ async def test_reset_modal_sigterms_daemon_before_reset(tmp_path, monkeypatch):
         modal.query_one("#confirm-input", Input).value = "reset"
         modal.query_one("#ack-daemon", Checkbox).value = True
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         for _ in range(20):
             await pilot.pause()
             if host.dismiss_result is not None:
@@ -380,10 +397,10 @@ async def test_reset_modal_shows_daemon_warning_when_running(tmp_path, monkeypat
         # Typing reset alone is not enough; checkbox must also be checked.
         modal.query_one("#confirm-input", Input).value = "reset"
         await pilot.pause()
-        assert modal.query_one("#ok", Button).disabled
+        assert modal.query_one("#confirm", Button).disabled
         checkbox.value = True
         await pilot.pause()
-        assert not modal.query_one("#ok", Button).disabled
+        assert not modal.query_one("#confirm", Button).disabled
 
 
 # --- WalletResetModal: auto-restart daemon (follow-up hardening) -------
@@ -433,7 +450,7 @@ async def test_reset_modal_auto_restarts_daemon_when_monitors_exist(
         modal.query_one("#confirm-input", Input).value = "reset"
         modal.query_one("#ack-daemon", Checkbox).value = True
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         for _ in range(20):
             await pilot.pause()
             if host.dismiss_result is not None:
@@ -452,8 +469,8 @@ async def test_reset_modal_skips_restart_when_no_active_monitors(
     """Reset while daemon running + NO active monitors → don't start daemon
     back up. Follows the same rule as TUI on_mount: no monitors = no daemon.
     """
-    svc = _seed(tmp_path)
-    # Intentionally do NOT upsert an event monitor.
+    svc = _seed(tmp_path, auto_monitor=False)
+    # Intentionally no active monitor — tests the "skip restart" path.
     _prime_daemon_mocks(monkeypatch)
     calls: list[str] = []
     monkeypatch.setattr(
@@ -468,7 +485,7 @@ async def test_reset_modal_skips_restart_when_no_active_monitors(
         modal.query_one("#confirm-input", Input).value = "reset"
         modal.query_one("#ack-daemon", Checkbox).value = True
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         for _ in range(20):
             await pilot.pause()
             if host.dismiss_result is not None:
@@ -515,7 +532,7 @@ async def test_reset_modal_restart_failure_still_dismisses_truthy(
         modal.query_one("#confirm-input", Input).value = "reset"
         modal.query_one("#ack-daemon", Checkbox).value = True
         await pilot.pause()
-        modal.query_one("#ok", Button).press()
+        modal.query_one("#confirm", Button).press()
         for _ in range(20):
             await pilot.pause()
             if host.dismiss_result is not None:

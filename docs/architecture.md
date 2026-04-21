@@ -271,7 +271,7 @@ Built with [Textual](https://textual.textualize.io/). Single screen + sidebar na
 
 | View | Role |
 |------|------|
-| 任务记录 (menu 0) | URL input + **分析队列** (pending/running) + **历史** (completed/failed/cancelled/superseded, with 类型 column for AI 分析 / 评分 / 扫描). `c` on a running row opens cancel-confirm modal. |
+| 任务记录 (menu 0) | URL input + **任务队列** (pending/running — mixes 分析 and 评分 tasks; running rows show type-aware live label `正在分析... / 正在评分...`) + **历史** (completed/failed/cancelled/superseded, with 触发 / 类型 columns distinguishing 手动/定时/监控 × 分析/评分). `c` on a running row opens cancel-confirm modal. |
 | Monitor List (menu 1) | Auto-monitored events — 结构分 / 子市场 / AI版 / 异动 / 结算 / 下次检查. `下次检查` column reads the earliest pending `scan_logs.scheduled_at` per event (v0.7.0 data source change; same column, new backing store). |
 | 持仓 (Positions) | Live positions across markets with floating P&L |
 | Wallet | Cash + positions equity + ledger (topup / withdraw / reset) |

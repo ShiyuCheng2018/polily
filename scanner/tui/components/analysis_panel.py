@@ -186,8 +186,7 @@ class AnalysisPanel(Widget):
             ts = v.created_at[5:16].replace("T", " ")
 
         trigger_map = {
-            "manual": "手动", "scheduled": "定时",
-            "movement": "异动", "scan": "扫描",
+            "manual": "手动", "scheduled": "定时", "movement": "监控",
         }
         trigger_label = trigger_map.get(v.trigger_source, v.trigger_source)
         yield Static(f"[dim]v{v.version} ({ts}) [{trigger_label}] ({idx}/{total}) 按v切换[/dim]", classes="row")

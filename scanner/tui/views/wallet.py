@@ -1,9 +1,17 @@
 """WalletView: balance panel + transactions ledger.
 
+v0.8.0 changes:
+- PolilyCard for balance summary (余额概览)
+- PolilyZone for transactions ledger (交易流水)
+- Event bus subscription (TOPIC_WALLET_UPDATED, TOPIC_POSITION_UPDATED) for auto-refresh
+- BINDINGS: keep t/w, add r (reset) with show=True per SF4 decision
+- NAV_BINDINGS appended for Q11 key spec compliance
+
 Keybindings
-    t  TopupModal
-    w  WithdrawModal
-Reset button (bottom-right) → WalletResetModal.
+    t        TopupModal
+    w        WithdrawModal
+    shift+r  WalletResetModal (r is reserved for global refresh;
+             Shift modifier prevents accidental destructive resets)
 
 Data lives in `positions` and `wallet_transactions`; prices are read from
 `markets.yes_price` (poll-updated ~30s). The `cumulative_realized_pnl`
@@ -22,8 +30,18 @@ from textual.containers import Horizontal
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Static
 
+from scanner.core.events import (
+    TOPIC_POSITION_UPDATED,
+    TOPIC_WALLET_UPDATED,
+)
+from scanner.tui._dispatch import once_per_tick
+from scanner.tui.bindings import NAV_BINDINGS
+from scanner.tui.icons import ICON_WALLET
 from scanner.tui.service import ScanService
 from scanner.tui.views._wallet_overview import compute_wallet_overview
+from scanner.tui.widgets.kv_row import KVRow
+from scanner.tui.widgets.polily_card import PolilyCard
+from scanner.tui.widgets.polily_zone import PolilyZone
 
 logger = logging.getLogger(__name__)
 
@@ -87,25 +105,26 @@ class WalletView(Widget):
 
     DEFAULT_CSS = """
     WalletView { height: 1fr; padding: 1 2; }
-    WalletView #wallet-title { text-style: bold; padding: 0 0 1 0; }
-    WalletView #headline { padding: 0 0 1 0; }
-    WalletView #metrics { padding: 0 0 1 2; }
-    WalletView #net-inflow-line { padding: 0 0 1 2; color: $text-muted; }
-    WalletView #ledger-title { text-style: bold; padding: 1 0 0 0; }
-    WalletView #wallet-table { height: 1fr; margin: 1 0; }
-    WalletView #action-row { height: 3; padding: 0; }
-    WalletView .hint { width: 1fr; padding: 1 1 0 0; color: $text-muted; }
+    WalletView #balance-card { margin: 0 0 1 0; }
+    WalletView #ledger-zone { height: 1fr; }
+    WalletView #wallet-table { height: 1fr; }
+    WalletView #action-row { height: 3; padding: 0; align: right middle; }
     WalletView #reset-btn {
         width: 14;
         background: $error 20%;
         color: white;
-        text-style: bold;
     }
     """
 
     BINDINGS = [
-        Binding("t", "topup", "充值"),
-        Binding("w", "withdraw", "提现"),
+        Binding("t", "topup", "充值", show=True),
+        Binding("w", "withdraw", "提现", show=True),
+        Binding("r", "refresh", "刷新", show=True),
+        # v0.8.0: `r` is page refresh (every view has it) — reset moves
+        # to shift+r so the destructive op keeps a mnemonic key but
+        # requires a modifier.
+        Binding("shift+r", "reset", "重置", show=True),
+        *NAV_BINDINGS,
     ]
 
     def __init__(self, service: ScanService) -> None:
@@ -113,19 +132,33 @@ class WalletView(Widget):
         self.service = service
 
     def compose(self) -> ComposeResult:
-        yield Static("钱包", id="wallet-title")
-        yield Static("", id="headline")
-        yield Static("", id="metrics")
-        yield Static("", id="net-inflow-line")
-        yield Static("── 交易流水 ──", id="ledger-title")
-        yield DataTable(id="wallet-table")
+        yield PolilyCard(title=f"{ICON_WALLET} 余额概览", id="balance-card")
+        yield PolilyZone(title="交易流水", id="ledger-zone")
         with Horizontal(id="action-row"):
-            # Escape the square brackets so Rich doesn't treat [t] / [w] as tags.
-            yield Static(r"[dim]\[t] 充值   \[w] 提现[/dim]", classes="hint")
-            yield Button("重置钱包", id="reset-btn", variant="error")
+            # v0.8.0: the redundant `[t] 充值   [w] 提现   [r] 重置`
+            # hint Static was removed — the Footer already surfaces
+            # every binding. Only the destructive red button remains
+            # as the primary reset entry point.
+            yield Button("重置钱包", id="reset-btn", variant="error", classes="bold")
 
     def on_mount(self) -> None:
-        table = self.query_one("#wallet-table", DataTable)
+        # --- Balance card: mount ONCE with stable IDs so `_render_balance_card`
+        # can update in place via `.set_value()` / `.update()`. Remount-style
+        # refresh would leave stale widgets behind because Textual's
+        # `remove()` is deferred (see v0.8.0 bus-fix commit).
+        card = self.query_one("#balance-card", PolilyCard)
+        card.mount(Static("", id="wallet-headline", classes="wallet-dynamic"))
+        card.mount(KVRow(id="wallet-cash", label="余额", value="—"))
+        card.mount(KVRow(id="wallet-available", label="可用", value="—"))
+        card.mount(KVRow(id="wallet-positions-value", label="持仓市值", value="—"))
+        card.mount(KVRow(id="wallet-unrealized", label="浮动盈亏", value="—"))
+        card.mount(KVRow(id="wallet-realized", label="累计已实现", value="—"))
+        card.mount(Static("", id="wallet-footnote", classes="wallet-dynamic"))
+
+        # --- Ledger table
+        ledger_zone = self.query_one("#ledger-zone", PolilyZone)
+        table = DataTable(id="wallet-table")
+        ledger_zone.mount(table)
         table.cursor_type = "row"
         table.add_columns(
             ("时间", "time"),
@@ -133,11 +166,47 @@ class WalletView(Widget):
             ("金额", "amount"),
             ("余额", "balance"),
         )
-        self.refresh_data()
+
+        # Subscribe to event bus topics
+        self.service.event_bus.subscribe(TOPIC_WALLET_UPDATED, self._on_wallet_update)
+        self.service.event_bus.subscribe(TOPIC_POSITION_UPDATED, self._on_position_update)
+        # Initial render bypasses @once_per_tick — callers expect
+        # synchronous population by the time on_mount returns.
+        type(self)._render_all.__wrapped__(self)
+
+    def on_unmount(self) -> None:
+        self.service.event_bus.unsubscribe(TOPIC_WALLET_UPDATED, self._on_wallet_update)
+        self.service.event_bus.unsubscribe(TOPIC_POSITION_UPDATED, self._on_position_update)
+
+    def _on_wallet_update(self, payload: dict) -> None:
+        """Bus callback — refresh coalesced by @once_per_tick on _render_all."""
+        self._render_all()
+
+    def _on_position_update(self, payload: dict) -> None:
+        """Bus callback — refresh coalesced by @once_per_tick on _render_all."""
+        self._render_all()
+
+    @once_per_tick
+    def _render_all(self) -> None:
+        """Fetch snapshot + repopulate balance card + ledger table.
+
+        `@once_per_tick`: subscribes to WALLET+POSITION — heartbeat
+        fan-out would otherwise trigger 2× per tick.
+        """
+        self._render_balance_card()
+        self._render_ledger()
 
     def refresh_data(self) -> None:
-        self._render_headline_metrics()
-        self._render_ledger()
+        self._render_all()
+
+    def action_refresh(self) -> None:
+        """Manual refresh — rerender balance card + ledger from the DB.
+
+        Bus subscriptions already update on trades / topup / withdraw;
+        `r` is a manual lever for edge cases (external writer, suspected
+        stale display).
+        """
+        self._render_all()
 
     def _price_lookup(self, market_id: str, side: str) -> float | None:
         from scanner.core.event_store import get_market
@@ -149,7 +218,17 @@ class WalletView(Widget):
         no_p = m.no_price or round(1 - m.yes_price, 4)
         return no_p if 0 < no_p < 1 else None
 
-    def _render_headline_metrics(self) -> None:
+    def _render_balance_card(self) -> None:
+        """Update the 7 balance-card widgets in place.
+
+        Widgets are mounted once in `on_mount` with stable IDs
+        (`#wallet-headline`, `#wallet-cash`, `#wallet-available`,
+        `#wallet-positions-value`, `#wallet-unrealized`,
+        `#wallet-realized`, `#wallet-footnote`). Updating in place
+        avoids the remove+remount race where Textual's deferred
+        `remove()` could leave duplicate KVRows briefly visible under
+        rapid bus callbacks.
+        """
         snapshot = self.service.get_wallet_snapshot()
         positions = self.service.get_all_positions()
         ov = compute_wallet_overview(
@@ -165,7 +244,6 @@ class WalletView(Widget):
             f"[{total_color}]{total_sign}${ov['total_pnl']:.2f} "
             f"({ov['roi_pct']:+.2f}%)[/{total_color}]"
         )
-        self.query_one("#headline", Static).update(headline)
 
         real = ov["realized_pnl"]
         unreal = ov["unrealized_pnl"]
@@ -174,23 +252,37 @@ class WalletView(Widget):
         real_sign = "+" if real > 0 else ""
         unreal_sign = "+" if unreal > 0 else ""
 
-        metrics_lines = [
-            f"  现金             ${ov['cash_usd']:.2f}",
-            f"  持仓市值         ${ov['positions_market_value']:.2f}   ({ov['open_positions_count']} 个持仓)",
-            f"  已实现           [{real_color}]{real_sign}${real:.2f}[/{real_color}]",
-            f"  未实现           [{unreal_color}]{unreal_sign}${unreal:.2f}[/{unreal_color}]",
-        ]
-        self.query_one("#metrics", Static).update("\n".join(metrics_lines))
-
-        self.query_one("#net-inflow-line", Static).update(
+        footnote = (
             f"净投入 ${ov['net_inflow']:.2f}  =  "
             f"初始 ${ov['starting_balance']:.2f}  +  "
             f"充值 ${ov['topup_total']:.2f}  -  "
-            f"提现 ${ov['withdraw_total']:.2f}",
+            f"提现 ${ov['withdraw_total']:.2f}"
         )
 
+        try:
+            self.query_one("#wallet-headline", Static).update(headline)
+            self.query_one("#wallet-cash", KVRow).set_value(f"${ov['cash_usd']:.2f}")
+            self.query_one("#wallet-available", KVRow).set_value(f"${ov['cash_usd']:.2f}")
+            self.query_one("#wallet-positions-value", KVRow).set_value(
+                f"${ov['positions_market_value']:.2f}   ({ov['open_positions_count']} 个持仓)",
+            )
+            self.query_one("#wallet-unrealized", KVRow).set_value(
+                f"[{unreal_color}]{unreal_sign}${unreal:.2f}[/{unreal_color}]",
+            )
+            self.query_one("#wallet-realized", KVRow).set_value(
+                f"[{real_color}]{real_sign}${real:.2f}[/{real_color}]",
+            )
+            self.query_one("#wallet-footnote", Static).update(footnote)
+        except Exception:
+            # Card children aren't mounted yet — on_mount will retry after
+            # mounting. Safe to no-op here.
+            return
+
     def _render_ledger(self) -> None:
-        table = self.query_one("#wallet-table", DataTable)
+        try:
+            table = self.query_one("#wallet-table", DataTable)
+        except Exception:
+            return
         table.clear()
         txs = self.service.get_wallet_transactions(limit=50)
         if not txs:
@@ -219,6 +311,9 @@ class WalletView(Widget):
     def action_withdraw(self) -> None:
         from scanner.tui.views.wallet_modals import WithdrawModal
         self.app.push_screen(WithdrawModal(self.service), self._on_modal_dismissed)
+
+    def action_reset(self) -> None:
+        self._on_reset_clicked()
 
     def _on_reset_clicked(self) -> None:
         from scanner.tui.views.wallet_modals import WalletResetModal

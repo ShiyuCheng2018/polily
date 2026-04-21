@@ -4,7 +4,7 @@ Instructions for Claude Code when working on this codebase.
 
 ## Product Identity
 
-**Polily — Polymarket Decision Copilot**
+**Polily — A Polymarket Monitoring Agent That Actually Works**
 
 Finds structure, surfaces risk, sizes friction, watches positions. The user pulls the trigger today. Autopilot is on the roadmap but not the current default — design new features so they remain compatible with both modes.
 
@@ -34,8 +34,8 @@ Finds structure, surfaces risk, sizes friction, watches positions. The user pull
 
 **Daemon:** Dual-executor APScheduler daemon (`scanner/daemon/scheduler.py`). Poll executor (1 thread) for price polling. AI executor (5 threads) for concurrent analysis jobs. Managed via `polily scheduler run/stop/restart/status`. Started via launchd in production.
 
-**Why Decision Copilot, not Research Assistant?**
-Users don't want data dumps. They want help making decisions. Conditional advice ("if you're bullish, this may have edge") is OK. Definitive signals are not.
+**Why "monitoring agent" rather than research assistant / signal generator?**
+Users don't want data dumps (research) or commands (signals). They want something that keeps watching on their behalf and surfaces what actually changed — price moves, structure shifts, position risk, end-dates coming up. Conditional advice ("if you're bullish, this may have edge") is OK. Definitive signals are not.
 
 **Why Structure Score ≠ trade quality?**
 Score measures tradability (spread, depth, objectivity, time, friction). Not profitability. Always communicate it that way to users.
@@ -105,7 +105,8 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `scanner/tui/app.py` | Textual TUI entry point |
 | `scanner/tui/screens/main.py` | Main screen: sidebar + content + worker (menu: tasks/monitor/paper/wallet/history/notifications) |
 | `scanner/tui/service.py` | `ScanService` — bridge between TUI views and backend; owns wallet/positions/trade_engine |
-| `scanner/tui/views/` | Per-pane views (scan_log, monitor_list, paper_status, market_detail, wallet, notification_list, history) |
+| `scanner/tui/views/` | Per-pane views (scan_log, monitor_list, paper_status, event_detail, wallet, history, archived_events, changelog) |
+| `scanner/tui/views/changelog.py` | ChangelogView — renders CHANGELOG.md via Markdown widget; reads from repo root in dev or from packaged resource (see `pyproject.toml` `force-include`) in installed wheels |
 | `scanner/tui/views/trade_dialog.py` | Modal with Buy/Sell tabs — calls TradeEngine.execute_buy/sell |
 | `scanner/tui/views/wallet.py` | WalletView — balance + transactions ledger + topup/withdraw/reset |
 | `scanner/tui/views/wallet_modals.py` | TopupModal / WithdrawModal / WalletResetModal |

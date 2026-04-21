@@ -1,5 +1,5 @@
 """ConfirmUnmonitorModal — asks for explicit confirmation before stopping
-monitoring of an event. Used by both MarketDetailView and MonitorListView.
+monitoring of an event. Used by both EventDetailView and MonitorListView.
 """
 
 import pytest
@@ -44,7 +44,7 @@ async def test_keep_monitoring_button_dismisses_false():
     app = _Host(modal)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
-        await pilot.click("#keep")
+        await pilot.click("#cancel")
         await pilot.pause()
 
     assert app.last_dismissed is False

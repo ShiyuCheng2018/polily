@@ -15,9 +15,17 @@ fresh CLOB price at execution time, so actual fill may deviate a cent or
 two from the preview. The post-execution `notify(...)` shows the actual
 fill price and fee, so users see any drift after the fact. For a paper
 trader this is acceptable; no slippage guard is enforced.
+
+v0.8.0 migration:
+- BuyPane / SellPane wrap inputs in PolilyZone atoms (ICON_BUY / ICON_SELL)
+- TradeDialog market header uses PolilyCard with KVRow for balance line
+- EventBus subscription to TOPIC_PRICE_UPDATED replaces the 3s polling timer
+- All widget IDs preserved (referenced by existing widget tests)
 """
 
 from __future__ import annotations
+
+import contextlib
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -36,14 +44,23 @@ from textual.widgets import (
 )
 
 from scanner.core.event_store import get_event_markets
+from scanner.core.events import TOPIC_PRICE_UPDATED
+from scanner.tui._dispatch import dispatch_to_ui
+from scanner.tui.icons import ICON_BUY, ICON_MARKET, ICON_SELL, ICON_WALLET
 from scanner.tui.views._trade_preview import (
     compute_buy_preview,
     compute_sell_preview,
     shares_from_pct,
 )
+from scanner.tui.widgets.amount_input import AmountInput
+from scanner.tui.widgets.buy_sell_action_row import BuySellActionRow
+from scanner.tui.widgets.field_row import FieldRow
+from scanner.tui.widgets.polily_card import PolilyCard
+from scanner.tui.widgets.polily_zone import PolilyZone
+from scanner.tui.widgets.quick_amount_row import QuickAmountRow
 
-_DIALOG_WIDTH = 82
-_QUICK_AMOUNTS = (10, 20, 50)
+_DIALOG_WIDTH = 100
+_QUICK_AMOUNTS = [10, 20, 50]
 _QUICK_PCTS = (25, 50, 75, 100)
 
 
@@ -62,21 +79,22 @@ class BuyPane(Widget):
         self._market = None
         self._cash: float = 0.0
         self._positions_here: list[dict] = []  # positions on currently-selected market
+        self._action_row = BuySellActionRow(side="buy")
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="buy-holding-line")
-        with Horizontal(id="buy-amount-row"):
-            yield Label("金额 $", classes="field-label")
-            yield Input(value="10", id="buy-amount", type="number")
-            yield Static("", id="buy-preview", classes="preview")
-        yield Static("", id="buy-fee-line", classes="preview-secondary")
-        with Horizontal(id="buy-quick-row"):
-            yield Label("快捷金额", classes="field-label")
-            for amt in _QUICK_AMOUNTS:
-                yield Button(f"${amt}", id=f"buy-quick-{amt}", classes="quick-btn")
-        with Horizontal(id="buy-action-row"):
-            yield Button("买 YES", id="btn-buy-yes", variant="success", classes="trade-btn")
-            yield Button("买 NO", id="btn-buy-no", variant="error", classes="trade-btn")
+        with PolilyZone(title=f"{ICON_BUY} 买入", id="buy-zone"):
+            yield Static("", id="buy-holding-line")
+            yield FieldRow(
+                label="金额",
+                unit="$",
+                input_widget=AmountInput(value="10", id="buy-amount"),
+                helper="",
+                helper_id="buy-preview",
+                id="buy-amount-row",
+            )
+            yield Static("", id="buy-fee-line", classes="preview-secondary")
+            yield QuickAmountRow(amounts=_QUICK_AMOUNTS)
+            yield self._action_row
 
     def update_context(
         self, *, market, cash: float, positions_here: list[dict],
@@ -86,30 +104,30 @@ class BuyPane(Widget):
         self._positions_here = positions_here
         self._refresh()
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "buy-amount":
+    def on_amount_input_amount_changed(
+        self, event: AmountInput.AmountChanged,
+    ) -> None:
+        if event.input_id == "buy-amount":
             self._refresh()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id is None:
-            return
-        # Quick-amount buttons
-        if event.button.id.startswith("buy-quick-"):
-            amt = event.button.id.replace("buy-quick-", "")
-            self.query_one("#buy-amount", Input).value = amt
-            return
-        # YES / NO execute
-        if event.button.id in ("btn-buy-yes", "btn-buy-no"):
-            self._execute("yes" if event.button.id == "btn-buy-yes" else "no")
+    def on_quick_amount_row_selected(
+        self, event: QuickAmountRow.Selected,
+    ) -> None:
+        # AmountInput IS-A Input — querying via Input still finds it.
+        self.query_one("#buy-amount", Input).value = str(event.amount)
+
+    def on_buy_sell_action_row_pressed(
+        self, event: BuySellActionRow.Pressed,
+    ) -> None:
+        """YES/NO button press from the atom — dispatch to execute."""
+        if event.side == "buy":
+            self._execute(event.outcome)
 
     # ----- internals -----
 
     def _parse_amount(self) -> float | None:
-        try:
-            v = float(self.query_one("#buy-amount", Input).value)
-            return v if v > 0 else None
-        except (ValueError, TypeError):
-            return None
+        v, valid, _ = self.query_one("#buy-amount", AmountInput).parse()
+        return v if valid else None
 
     def _side_price(self, side: str) -> float | None:
         if self._market is None or self._market.yes_price is None:
@@ -142,12 +160,10 @@ class BuyPane(Widget):
     def _refresh_button_labels(self) -> None:
         yes_p = self._side_price("yes")
         no_p = self._side_price("no")
-        yes_btn = self.query_one("#btn-buy-yes", Button)
-        no_btn = self.query_one("#btn-buy-no", Button)
-        yes_btn.label = f"买 YES {yes_p * 100:.1f}¢" if yes_p else "YES (价格不可用)"
-        no_btn.label = f"买 NO {no_p * 100:.1f}¢" if no_p else "NO (价格不可用)"
-        yes_btn.disabled = yes_p is None
-        no_btn.disabled = no_p is None
+        # Atom owns label formatting + price-missing disable. The cash-insufficient
+        # disable override is applied in _refresh_preview() below.
+        self._action_row.update(yes_price=yes_p, no_price=no_p,
+                                yes_disabled=False, no_disabled=False)
 
     def _refresh_preview(self) -> None:
         preview = self.query_one("#buy-preview", Static)
@@ -190,8 +206,7 @@ class BuyPane(Widget):
                 f"[red]余额不足[/red] · 手续费 ≈ ${max_fee:.2f} · 需 ${max_cash_required:.2f} / 有 ${self._cash:.2f}",
             )
             # Disable both sides — TradeEngine would reject anyway.
-            self.query_one("#btn-buy-yes", Button).disabled = True
-            self.query_one("#btn-buy-no", Button).disabled = True
+            self._action_row.update(yes_disabled=True, no_disabled=True)
         else:
             fee_line.update(f"[dim]手续费 ≈ ${max_fee:.2f}[/dim]")
 
@@ -238,20 +253,29 @@ class SellPane(Widget):
         self._positions_sig: tuple | None = None  # change-detection for _rebuild_radio
 
     def compose(self) -> ComposeResult:
-        # No "持仓:" static label — the radio set is self-evident, saving a row.
-        yield RadioSet(id="sell-side-radio")
-        yield Static("", id="sell-empty-hint")
-        with Horizontal(id="sell-pct-row"):
-            yield Label("卖出比例", classes="field-label")
-            for pct in _QUICK_PCTS:
-                yield Button(f"{pct}%", id=f"sell-pct-{pct}", classes="quick-btn")
-        with Horizontal(id="sell-shares-row"):
-            yield Label("股数 ", classes="field-label")
-            yield Input(value="", id="sell-shares", type="number")
-            yield Static("", id="sell-preview", classes="preview")
-        yield Static("", id="sell-pnl-line", classes="preview-secondary")
-        with Horizontal(id="sell-action-row"):
-            yield Button("卖出", id="btn-sell", variant="warning", classes="trade-btn")
+        with PolilyZone(title=f"{ICON_SELL} 卖出", id="sell-zone"):
+            # No "持仓:" static label — the radio set is self-evident, saving a row.
+            yield RadioSet(id="sell-side-radio")
+            yield Static("", id="sell-empty-hint")
+            with Horizontal(id="sell-pct-row"):
+                yield Label("卖出比例", classes="field-label")
+                for pct in _QUICK_PCTS:
+                    yield Button(f"{pct}%", id=f"sell-pct-{pct}", classes="quick-btn")
+            yield FieldRow(
+                label="股数",
+                input_widget=AmountInput(value="", id="sell-shares"),
+                helper="",
+                helper_id="sell-preview",
+                id="sell-shares-row",
+            )
+            yield Static("", id="sell-pnl-line", classes="preview-secondary")
+            with Horizontal(id="sell-action-row"):
+                yield Button(
+                    "卖出",
+                    id="btn-sell",
+                    variant="warning",
+                    classes="trade-btn bold",
+                )
 
     def update_context(
         self, *, market, positions_here: list[dict],
@@ -289,8 +313,10 @@ class SellPane(Widget):
             self._selected_side = self._positions_here[idx]["side"]
             self._refresh()
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "sell-shares":
+    def on_amount_input_amount_changed(
+        self, event: AmountInput.AmountChanged,
+    ) -> None:
+        if event.input_id == "sell-shares":
             self._refresh_preview()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -324,11 +350,8 @@ class SellPane(Widget):
         return no if 0 < no < 1 else None
 
     def _parse_shares(self) -> float | None:
-        try:
-            v = float(self.query_one("#sell-shares", Input).value)
-            return v if v > 0 else None
-        except (ValueError, TypeError):
-            return None
+        v, valid, _ = self.query_one("#sell-shares", AmountInput).parse()
+        return v if valid else None
 
     def _rebuild_radio(self) -> None:
         radio = self.query_one("#sell-side-radio", RadioSet)
@@ -456,7 +479,13 @@ class SellPane(Widget):
 
 
 class TradeDialog(ModalScreen[dict | None]):
-    """Modal dialog for paper trade entry (Buy/Sell)."""
+    """Modal dialog for paper trade entry (Buy/Sell).
+
+    v0.8.0: market info header uses PolilyCard; buy/sell tab panes wrap their
+    inputs in PolilyZone atoms (BuyPane, SellPane). EventBus subscription to
+    TOPIC_PRICE_UPDATED replaces the 3s polling timer — prices refresh as soon
+    as the daemon publishes new prices.
+    """
 
     DEFAULT_CSS = f"""
     TradeDialog {{
@@ -470,18 +499,19 @@ class TradeDialog(ModalScreen[dict | None]):
         background: $surface;
         padding: 0 2;
     }}
-    TradeDialog #dialog-header {{
-        height: auto;
-        padding: 0 0 1 0;
+    /* v0.8.0: explicit fixed height — auto resolves to 1fr in this nesting
+       (Vertical inside dialog-box with align: center middle + max-height: 100%),
+       which made header-card stretch and push everything else off-screen. */
+    TradeDialog #header-card {{
+        height: 5;
+        margin: 0 0 1 0;
     }}
     TradeDialog #dialog-title {{
-        text-style: bold;
         width: 1fr;
     }}
     TradeDialog #balance-label {{
         width: auto;
         color: $accent;
-        text-style: bold;
     }}
     TradeDialog #market-radios {{
         height: auto;
@@ -510,12 +540,12 @@ class TradeDialog(ModalScreen[dict | None]):
         min-width: 20;
         margin: 0 1;
     }}
-    TradeDialog #buy-action-row, TradeDialog #sell-action-row {{
+    TradeDialog #sell-action-row {{
         height: auto;
         align: center middle;
         padding: 1 0;
     }}
-    TradeDialog #buy-quick-row, TradeDialog #sell-pct-row {{
+    TradeDialog #sell-pct-row {{
         height: auto;
         padding: 0 0 1 0;
     }}
@@ -535,7 +565,6 @@ class TradeDialog(ModalScreen[dict | None]):
         min-width: 28;
         height: 3;
         color: white;
-        text-style: bold;
     }}
     /* TabbedContent inside an auto-height parent must itself be auto or
        its inner ContentSwitcher collapses to zero (tab headers visible,
@@ -551,6 +580,12 @@ class TradeDialog(ModalScreen[dict | None]):
     }}
     TradeDialog BuyPane, TradeDialog SellPane {{
         height: auto;
+    }}
+    /* Panes own a single PolilyZone each — keep it auto-sized. */
+    TradeDialog BuyPane > PolilyZone,
+    TradeDialog SellPane > PolilyZone {{
+        height: auto;
+        margin: 0;
     }}
     """
 
@@ -573,9 +608,13 @@ class TradeDialog(ModalScreen[dict | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog-box"):
-            with Horizontal(id="dialog-header"):
-                yield Static("交易", id="dialog-title")
-                yield Static("", id="balance-label")
+            # Header card: title + live balance. PolilyCard gives us a softer
+            # secondary-bordered frame so the header doesn't compete visually
+            # with the thick primary outer dialog border.
+            with PolilyCard(id="header-card"):
+                with Horizontal(id="dialog-header"):
+                    yield Static(f"{ICON_MARKET} 交易", id="dialog-title", classes="bold")
+                    yield Static("", id="balance-label", classes="bold")
             yield Static("子市场:", classes="field-label")
             with RadioSet(id="market-radios"):
                 for i, m in enumerate(self._markets):
@@ -593,19 +632,51 @@ class TradeDialog(ModalScreen[dict | None]):
     def on_mount(self) -> None:
         self._refresh_balance()
         self._push_context_to_panes()
+        # v0.8.0: subscribe to price bus for event-driven refresh.
+        # Kept the 3s timer as a fallback for when the daemon isn't running
+        # (e.g. ad-hoc TUI session without scheduler) — bus + timer coalesce
+        # on the same refresh method.
+        self._service.event_bus.subscribe(
+            TOPIC_PRICE_UPDATED, self._on_price_update,
+        )
         self._refresh_timer = self.set_interval(3, self._refresh_prices_periodic)
+
+    def on_unmount(self) -> None:
+        with contextlib.suppress(Exception):
+            self._service.event_bus.unsubscribe(
+                TOPIC_PRICE_UPDATED, self._on_price_update,
+            )
+
+    def _on_price_update(self, payload: dict) -> None:
+        """Bus callback — thread-safe via dispatch_to_ui.
+
+        Matches either this dialog's event or a heartbeat broadcast
+        (`source="heartbeat"` signals MainScreen's cross-process bridge).
+        """
+        is_heartbeat = payload.get("source") == "heartbeat"
+        if not is_heartbeat and payload.get("event_id") != self.event_id:
+            return
+        dispatch_to_ui(self.app, self._refresh_prices_periodic)
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         if event.radio_set.id == "market-radios":
             self._push_context_to_panes()
 
     def on_buy_pane_buy_confirmed(self, event: BuyPane.BuyConfirmed) -> None:
+        from scanner.tui.service import MonitorRequiredError
         try:
             result = self._service.execute_buy(
                 market_id=event.market_id,
                 side=event.side,
                 shares=event.shares,
             )
+        except MonitorRequiredError:
+            # Race: monitor got disabled between dialog open and confirm.
+            self.notify(
+                "需要先激活监控才能进行交易 — 按 m 开启监控",
+                severity="warning",
+            )
+            return
         except Exception as e:
             self.notify(f"买入失败: {e}", severity="error")
             return
@@ -616,12 +687,22 @@ class TradeDialog(ModalScreen[dict | None]):
         self.dismiss({"action": "buy", **result, "side": event.side, "shares": event.shares})
 
     def on_sell_pane_sell_confirmed(self, event: SellPane.SellConfirmed) -> None:
+        from scanner.tui.service import MonitorRequiredError
         try:
             result = self._service.execute_sell(
                 market_id=event.market_id,
                 side=event.side,
                 shares=event.shares,
             )
+        except MonitorRequiredError:
+            # Defence-in-depth — `toggle_monitor` blocks disabling when
+            # positions exist, so reaching here means DB drift. Surface
+            # it as a monitor-activation prompt.
+            self.notify(
+                "需要先激活监控才能进行交易 — 按 m 开启监控",
+                severity="warning",
+            )
+            return
         except Exception as e:
             self.notify(f"卖出失败: {e}", severity="error")
             return
@@ -651,7 +732,9 @@ class TradeDialog(ModalScreen[dict | None]):
     def _refresh_balance(self) -> None:
         try:
             cash = self._service.wallet.get_cash()
-            self.query_one("#balance-label", Static).update(f"💰 余额 ${cash:.2f}")
+            self.query_one("#balance-label", Static).update(
+                f"{ICON_WALLET} 余额 ${cash:.2f}",
+            )
         except Exception:
             pass
 
@@ -663,7 +746,6 @@ class TradeDialog(ModalScreen[dict | None]):
             p for p in self._service.positions.get_event_positions(self.event_id)
             if p["market_id"] == market.market_id
         ]
-        import contextlib
         cash = 0.0
         with contextlib.suppress(Exception):
             cash = self._service.wallet.get_cash()
@@ -677,7 +759,11 @@ class TradeDialog(ModalScreen[dict | None]):
         )
 
     def _refresh_prices_periodic(self) -> None:
-        """Re-read prices from DB and update radio labels + pane context."""
+        """Re-read prices from DB and update radio labels + pane context.
+
+        Invoked by both the 3s timer (timer fallback) and TOPIC_PRICE_UPDATED
+        (bus-driven refresh). Idempotent.
+        """
         try:
             fresh = get_event_markets(self.event_id, self._service.db)
         except Exception:

@@ -102,8 +102,14 @@ def load_scan_logs(db, limit: int = 100) -> list[ScanLogEntry]:
     return result
 
 
-def create_log_entry(log_type: str = "scan") -> ScanLogEntry:
-    """Create a new running log entry with current timestamp."""
+def create_log_entry(log_type: str = "analyze") -> ScanLogEntry:
+    """Create a new running log entry with current timestamp.
+
+    Default is "analyze" since that's the common path; "add_event"
+    caller overrides explicitly (URL-paste evaluation flow). The legacy
+    "scan" value stays in the DB CHECK constraint for back-compat but
+    no code path produces it.
+    """
     now = datetime.now(UTC)
     return ScanLogEntry(
         scan_id=now.strftime("%Y%m%d_%H%M%S"),

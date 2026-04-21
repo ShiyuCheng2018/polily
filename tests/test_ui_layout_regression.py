@@ -24,7 +24,7 @@ from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, get_event_markets, upsert_event, upsert_market
 from scanner.tui.service import ScanService
-from scanner.tui.views.trade_dialog import TradeDialog
+from scanner.tui.views.trade_dialog import BuyPane, TradeDialog
 from scanner.tui.views.wallet import WalletView
 from scanner.tui.views.wallet_modals import TopupModal, WithdrawModal
 
@@ -45,6 +45,9 @@ def _seed(tmp_path, *, buy_yes: bool = False, buy_no: bool = False) -> ScanServi
         ),
         db,
     )
+    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    from scanner.core.monitor_store import upsert_event_monitor
+    upsert_event_monitor("e1", auto_monitor=True, db=db)
     svc = ScanService(config=ScannerConfig(), db=db)
     if buy_yes or buy_no:
         with patch("scanner.core.trade_engine.TradeEngine._fetch_live_price", return_value=0.5):
@@ -90,8 +93,9 @@ async def test_trade_dialog_buy_action_buttons_render_with_height(tmp_path):
     async with host.run_test(size=_REALISTIC_SIZE) as pilot:
         await pilot.pause()
         dialog = host.screen
-        yes_btn = dialog.query_one("#btn-buy-yes", Button)
-        no_btn = dialog.query_one("#btn-buy-no", Button)
+        buy_pane = dialog.query_one(BuyPane)
+        yes_btn = buy_pane.query_one("#btn-yes", Button)
+        no_btn = buy_pane.query_one("#btn-no", Button)
         assert yes_btn.region.height > 0, "买 YES button collapsed to zero height"
         assert no_btn.region.height > 0, "买 NO button collapsed to zero height"
         # And the label must be the price-enriched one set by _refresh_button_labels.
@@ -153,7 +157,7 @@ async def test_topup_modal_amount_row_is_not_stretched(tmp_path):
             f"amount input unexpectedly tall: {amount_input.region.height}"
         )
         # Confirm button must be visible on screen.
-        ok_btn = modal.query_one("#ok", Button)
+        ok_btn = modal.query_one("#confirm", Button)
         assert ok_btn.region.height > 0
 
 
@@ -166,7 +170,7 @@ async def test_withdraw_modal_amount_row_is_not_stretched(tmp_path):
         modal = host.screen
         amount_input = modal.query_one("#amount")
         assert amount_input.region.height <= 4
-        ok_btn = modal.query_one("#ok", Button)
+        ok_btn = modal.query_one("#confirm", Button)
         assert ok_btn.region.height > 0
 
 

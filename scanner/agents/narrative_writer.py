@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from scanner.agents.base import BaseAgent
-from scanner.agents.schemas import NarrativeWriterOutput, RiskFlag
+from scanner.agents.schemas import NarrativeWriterOutput
 from scanner.core.config import AgentConfig
 
 logger = logging.getLogger(__name__)
@@ -32,13 +32,18 @@ class NarrativeWriterAgent:
 
     def __init__(self, config: AgentConfig):
         self.config = config
+        # No `fallback_fn` — v0.8.0 stopped masking failures with a fake
+        # "AI 不可用" NarrativeWriterOutput. Both CLI invocation failures
+        # and schema-validation failures now raise so that
+        # `ScanService.analyze_event`'s exception handler marks the
+        # scan_logs row as status='failed' instead of storing a degraded
+        # "completed" analysis version that misleads the user.
         self._agent = BaseAgent(
             system_prompt=SYSTEM_PROMPT,
             json_schema=NarrativeWriterOutput.model_json_schema(),
             model=config.model,
             timeout_seconds=config.timeout_seconds,
             allowed_tools=AGENT_TOOLS,
-            fallback_fn=lambda prompt: self._fallback_from_prompt(prompt),
         )
 
     def cancel(self):
@@ -77,7 +82,14 @@ class NarrativeWriterAgent:
             except Exception as e:
                 from scanner.agents.base import _dump_debug
                 _dump_debug("schema_fail", f"{e}\n---raw---\n{raw}")
-                return narrative_fallback(event_id)
+                # v0.8.0: raise instead of returning a fake fallback
+                # output. The calling `analyze_event` will catch this
+                # and flip scan_logs row to 'failed', which is the
+                # truthful state — the AI output was unusable.
+                raise RuntimeError(
+                    f"narrator output failed schema validation: {e}; "
+                    f"raw preview: {str(raw)[:200]}",
+                ) from e
 
             errors = output.semantic_errors()
             if not errors:
@@ -116,16 +128,6 @@ Prompt 指令: scanner/agents/prompts/narrative_writer.md
 
         return prompt
 
-    def _fallback_from_prompt(self, prompt: str) -> dict:
-        from scanner.utils import extract_event_id_from_prompt
-        event_id = extract_event_id_from_prompt(prompt)
-        return NarrativeWriterOutput(
-            event_id=event_id,
-            mode="discovery",
-            summary="AI 分析不可用，请手动查看。",
-            risk_flags=[RiskFlag(text="AI 不可用", severity="warning")],
-        ).model_dump()
-
 
 def _write_dev_feedback(
     event_id: str,
@@ -162,17 +164,3 @@ def _write_dev_feedback(
         pass
 
 
-def narrative_fallback(event_id: str) -> NarrativeWriterOutput:
-    """Rule-based fallback when AI agent is unavailable."""
-    from datetime import UTC, datetime, timedelta
-
-    next_check = (datetime.now(UTC) + timedelta(days=1)).isoformat()
-
-    return NarrativeWriterOutput(
-        event_id=event_id,
-        mode="discovery",
-        summary="AI 分析不可用，建议手动查看事件详情后决定。",
-        risk_flags=[RiskFlag(text="AI 分析失败，结果不可靠", severity="warning")],
-        next_check_at=next_check,
-        next_check_reason="AI 失败后默认 24h 重试",
-    )

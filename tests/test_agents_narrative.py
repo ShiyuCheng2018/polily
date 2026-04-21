@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scanner.agents.narrative_writer import NarrativeWriterAgent, narrative_fallback
+from scanner.agents.narrative_writer import NarrativeWriterAgent
 from scanner.agents.schemas import NarrativeWriterOutput
 from scanner.core.config import AgentConfig
 from tests.conftest import make_cli_response_structured
@@ -64,7 +64,11 @@ class TestNarrativeWriterAgent:
             assert len(result.research_findings) > 0
 
     @pytest.mark.asyncio
-    async def test_fallback_on_failure(self):
+    async def test_cli_failure_raises_not_fallback(self):
+        """v0.8.0: narrator no longer masquerades CLI failures as a
+        degraded "completed" analysis. CLI failures must surface as
+        exceptions so `ScanService.analyze_event`'s error handler can
+        mark the scan_logs row as status='failed'."""
         agent = NarrativeWriterAgent(AgentConfig(model="sonnet"))
 
         with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
@@ -73,34 +77,29 @@ class TestNarrativeWriterAgent:
             proc.returncode = 1
             mock_exec.return_value = proc
 
-            result = await agent.generate(event_id="ev_test")
-            assert isinstance(result, NarrativeWriterOutput)
-            assert len(result.summary) > 0
+            with pytest.raises(Exception):  # noqa: B017 — base agent raises arbitrary Exception on retry-exhaust
+                await agent.generate(event_id="ev_test")
 
+    @pytest.mark.asyncio
+    async def test_schema_validation_failure_raises_not_fallback(self):
+        """Schema-invalid CLI output should raise, not return a fake
+        "AI 不可用" NarrativeWriterOutput that ends up stored as a
+        valid analysis version."""
+        agent = NarrativeWriterAgent(AgentConfig(model="sonnet"))
 
-class TestNarrativeFallback:
-    def test_fallback_returns_valid_output(self):
-        result = narrative_fallback("ev_test")
-        assert isinstance(result, NarrativeWriterOutput)
-        assert result.event_id == "ev_test"
-        assert len(result.summary) > 0
-        assert len(result.summary) > 0
+        # CLI returns valid JSON wrapper but the `result` payload fails
+        # `NarrativeWriterOutput.model_validate` (missing required fields).
+        garbage = {"unexpected_field": "value"}
+        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.communicate.return_value = (
+                make_cli_response_structured(garbage), b"",
+            )
+            proc.returncode = 0
+            mock_exec.return_value = proc
 
-    def test_fallback_has_risk_flags_with_severity(self):
-        result = narrative_fallback("ev_test")
-        assert len(result.risk_flags) > 0
-        for rf in result.risk_flags:
-            assert rf.severity in ("critical", "warning", "info")
-
-    def test_fallback_operations_empty(self):
-        """Fallback returns empty operations since AI was unavailable."""
-        result = narrative_fallback("ev_test")
-        assert result.operations == []
-
-    def test_fallback_has_next_check(self):
-        result = narrative_fallback("ev_test")
-        assert result.next_check_at is not None
-        assert result.next_check_reason != ""
+            with pytest.raises(Exception):  # noqa: B017 — narrator raises RuntimeError via schema-fail wrapper
+                await agent.generate(event_id="ev_test")
 
 
 class TestDevFeedbackLogFormat:
