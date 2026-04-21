@@ -141,6 +141,104 @@ async def test_scan_log_subscribes_via_real_bus_publish(svc):
             f"bus callback did not invoke render/refresh via call_from_thread: {called}"
 
 
+async def test_pending_zone_title_is_task_queue(svc):
+    """Zone title should be '任务队列' (not '分析队列') — it holds all running tasks,
+    including add_event (评分) and analyze (分析), not just analyses."""
+    from scanner.tui.app import PolilyApp
+    from scanner.tui.views.scan_log import ScanLogView
+    from scanner.tui.widgets.polily_zone import PolilyZone
+
+    app = PolilyApp(service=svc)
+    app._restart_daemon = lambda: None
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = ScanLogView(svc)
+        await app.mount(view)
+        await pilot.pause()
+        pending_zone = view.query_one("#pending-zone", PolilyZone)
+        # PolilyZone stores the title via the constructor; it's mounted as the
+        # first child Static with class 'polily-zone-title' on on_mount.
+        assert pending_zone._title == "任务队列", \
+            f"pending zone title is '{pending_zone._title}', expected '任务队列'"
+        assert pending_zone._title != "分析队列", "stale '分析队列' title still present"
+
+
+async def test_running_add_event_shows_scoring_label(svc):
+    """Running add_event rows should display '正在评分...' (not '正在分析...').
+
+    The queue includes scoring tasks too; their live label must reflect what
+    they're doing, otherwise it misleads the user."""
+    from datetime import UTC, datetime
+    from scanner.tui.app import PolilyApp
+    from scanner.tui.views.scan_log import ScanLogView
+
+    # Direct SQL insert — insert_pending_scan hard-codes type='analyze'.
+    now = datetime.now(UTC).isoformat()
+    svc.db.conn.execute(
+        "INSERT INTO scan_logs(scan_id, type, event_id, market_title, "
+        "started_at, status, trigger_source) "
+        "VALUES (?, 'add_event', ?, ?, ?, 'running', 'manual')",
+        ("live_score_1", "ev1", "Test Market Event", now),
+    )
+    svc.db.conn.commit()
+
+    app = PolilyApp(service=svc)
+    app._restart_daemon = lambda: None
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = ScanLogView(svc)
+        await app.mount(view)
+        await pilot.pause()
+        tables = list(view.query(DataTable))
+        rendered_cells = []
+        for t in tables:
+            for row_key in t.rows:
+                for col_key in t.columns:
+                    try:
+                        rendered_cells.append(str(t.get_cell(row_key, col_key)))
+                    except Exception:
+                        pass
+        joined = " ".join(rendered_cells)
+        assert "正在评分" in joined, f"add_event running row missing '正在评分' label. Cells: {joined[:300]}"
+        assert "正在分析" not in joined, \
+            f"add_event row wrongly labeled as '正在分析': {joined[:300]}"
+
+
+async def test_running_analyze_still_shows_analysis_label(svc):
+    """Regression: analyze running rows must still say '正在分析...'."""
+    from datetime import UTC, datetime
+    from scanner.tui.app import PolilyApp
+    from scanner.tui.views.scan_log import ScanLogView
+
+    now = datetime.now(UTC).isoformat()
+    svc.db.conn.execute(
+        "INSERT INTO scan_logs(scan_id, type, event_id, market_title, "
+        "started_at, status, trigger_source) "
+        "VALUES (?, 'analyze', ?, ?, ?, 'running', 'manual')",
+        ("live_analyze_1", "ev1", "Test Market Event", now),
+    )
+    svc.db.conn.commit()
+
+    app = PolilyApp(service=svc)
+    app._restart_daemon = lambda: None
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        view = ScanLogView(svc)
+        await app.mount(view)
+        await pilot.pause()
+        tables = list(view.query(DataTable))
+        rendered_cells = []
+        for t in tables:
+            for row_key in t.rows:
+                for col_key in t.columns:
+                    try:
+                        rendered_cells.append(str(t.get_cell(row_key, col_key)))
+                    except Exception:
+                        pass
+        joined = " ".join(rendered_cells)
+        assert "正在分析" in joined, f"analyze running row missing '正在分析': {joined[:300]}"
+
+
 async def test_scan_log_detail_view_no_scan_id(svc):
     """Detail view hides scan_id and event_id per user approval (Task 16)."""
     insert_pending_scan(

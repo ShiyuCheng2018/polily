@@ -72,7 +72,12 @@ def _history(logs: list[ScanLogEntry]) -> list[ScanLogEntry]:
 
 
 def _format_pending_when(log: ScanLogEntry) -> str:
-    """Human-friendly 'when' string for 待办 zone. Running rows compute elapsed live."""
+    """Human-friendly 'when' string for 任务队列 zone. Running rows compute elapsed live.
+
+    The queue mixes `analyze` (分析) and `add_event` (评分) tasks; the live
+    label must reflect what the task actually does so the user isn't told
+    "正在分析" while a scoring task is running.
+    """
     if log.status == "running":
         # total_elapsed persists only at finish_scan; compute live for UI
         try:
@@ -83,7 +88,8 @@ def _format_pending_when(log: ScanLogEntry) -> str:
             live = (datetime.now(UTC) - started).total_seconds()
         except (ValueError, TypeError):
             live = 0.0
-        return f"正在分析... ({live:.0f}s)"
+        verb = "评分" if log.type == "add_event" else "分析"
+        return f"正在{verb}... ({live:.0f}s)"
     if log.scheduled_at:
         try:
             from datetime import UTC, datetime
@@ -281,7 +287,7 @@ class ScanLogView(Widget):
         yield Static("", id="live-section-placeholder")
 
         # Tables are inside PolilyZone atoms
-        yield PolilyZone(title="分析队列", id="pending-zone")
+        yield PolilyZone(title="任务队列", id="pending-zone")
         yield PolilyZone(title="历史", id="history-zone")
 
     def on_mount(self) -> None:
