@@ -128,10 +128,9 @@ class Sidebar(Widget):
 
     # Theme-colored via .sidebar-title (`color: $primary`) — auto-follows
     # polily-dark (blue) / polily-geek (phosphor green) / any built-in.
-    _LOGO = "  [bold]Polily[/bold]"  # placeholder — to be replaced w/ figlet logo
 
     def compose(self) -> ComposeResult:
-        yield Static(self._LOGO, classes="sidebar-title")
+        yield Static("[bold]POLILY[/bold]", classes="sidebar-title")
         yield Static("")
         yield SidebarItem("任务记录", "tasks")
         yield SidebarItem("监控列表", "monitor")
