@@ -77,13 +77,6 @@ async def _fetch_gamma_market(market_id: str) -> dict | None:
         return None
 
 
-def _has_positions(db: PolilyDB, market_id: str) -> bool:
-    row = db.conn.execute(
-        "SELECT 1 FROM positions WHERE market_id=? LIMIT 1", (market_id,)
-    ).fetchone()
-    return row is not None
-
-
 async def _run_resolution_pass(
     market_ids: list[str],
     db: PolilyDB,
@@ -119,10 +112,19 @@ async def _resolve_closed_market_if_position(
     positions: "PositionManager",
     resolver: "ResolutionHandler",
 ) -> None:
-    """Gated on user holding a position — zero-Gamma-request path for closed
-    markets the user doesn't care about (the vast majority)."""
-    if not _has_positions(db, market_id):
-        return
+    """Resolve a closed market — writes `markets.resolved_outcome` and
+    (if user holds positions) credits wallet via RESOLVE tx.
+
+    v0.8.5: `_has_positions` early-return removed so `resolved_outcome`
+    is authoritative on `closed=1` markets regardless of user position.
+    This is required by the lifecycle state model: `resolved_outcome IS
+    NULL` unambiguously means "SETTLING" (UMA 2h window). Wallet credit
+    is still position-gated inside `ResolutionHandler.resolve_market`
+    (empty `positions` rows → no credit loop iterations).
+
+    Function name kept for backwards compat with existing callers /
+    tests; `_if_position` is now a historical suffix.
+    """
     data = await _fetch_gamma_market(market_id)
     if data is None:
         return  # transient HTTP error or timeout — retry next tick
@@ -130,9 +132,6 @@ async def _resolve_closed_market_if_position(
     prices = (
         json.loads(prices_raw) if isinstance(prices_raw, str) else (prices_raw or [])
     )
-    # Gamma's umaResolutionStatuses is a history array. During the UMA
-    # challenge window (last entry "proposed"), outcomePrices already
-    # reflects the proposer's guess but can still flip. Gate below.
     uma_raw = data.get("umaResolutionStatuses", "[]")
     try:
         uma_statuses = (
@@ -144,15 +143,61 @@ async def _resolve_closed_market_if_position(
     if winner is None:
         return  # UMA pre-finalization, dispute in progress, or malformed response
     n_settled, credited = resolver.resolve_market(market_id, winner)
-    # Operator-facing audit line (logger.info inside resolver goes to Python
-    # root logger which has no handler in daemon mode — poll.log is the only
-    # persistent trail). Skip when no positions settled to avoid noise.
     if n_settled > 0:
         _get_poll_log().info(
             f"           resolved| {market_id} -> {winner} "
             f"| {n_settled} position{'s' if n_settled != 1 else ''} "
             f"credited ${credited:.2f}"
         )
+
+
+async def backfill_stuck_resolutions(
+    db: PolilyDB,
+    wallet: "WalletService",
+    positions: "PositionManager",
+    resolver: "ResolutionHandler",
+) -> int:
+    """One-time startup pass: heal `closed=1 AND resolved_outcome IS NULL` rows.
+
+    Pre-v0.8.5 the resolver early-returned on no-position markets, leaving
+    their `resolved_outcome` at NULL forever. Post-v0.8.5 the live flow
+    handles new closures correctly, but legacy rows stay stuck. This pass
+    walks stuck markets at daemon startup and feeds each through the
+    standard resolver path.
+
+    **Concurrency safety**: this function writes `markets.resolved_outcome`
+    via `ResolutionHandler.resolve_market`, whose atomic tx is idempotent
+    under retry (SQLite serializes on write lock; already-resolved rows
+    are excluded by the `WHERE resolved_outcome IS NULL` filter). Safe to
+    run alongside other writers (TUI scan, poll ticks), though in practice
+    `scheduler.run_daemon` invokes this **before** `scheduler.start()` to
+    avoid thrashing.
+
+    **Blast-radius cap**: limited to 100 rows per invocation so daemon
+    startup stays under ~40s worst case (100 / _GAMMA_CONCURRENCY × Gamma
+    timeout). Remaining stuck rows heal on subsequent restarts — this is
+    a legacy-data migration path, not a live-operation dependency.
+
+    Returns the number of markets processed (for logging).
+    """
+    rows = db.conn.execute(
+        "SELECT market_id FROM markets "
+        "WHERE closed = 1 AND resolved_outcome IS NULL "
+        "LIMIT 100"
+    ).fetchall()
+    if not rows:
+        return 0
+
+    sem = asyncio.Semaphore(_GAMMA_CONCURRENCY)
+
+    async def _one(mid: str) -> None:
+        async with sem:
+            await _resolve_closed_market_if_position(
+                mid, db, wallet, positions, resolver,
+            )
+
+    await asyncio.gather(*[_one(r["market_id"]) for r in rows])
+    return len(rows)
 
 
 def _build_poll_log_path(project_root: "Path | None" = None) -> "Path":  # noqa: F821

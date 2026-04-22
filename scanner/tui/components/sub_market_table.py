@@ -2,10 +2,29 @@
 
 import contextlib
 import json as _json
+from datetime import datetime
 
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
+
+from scanner.core.lifecycle import MarketState, market_state, market_state_label
+
+
+def _settlement_cell_text(market, *, now: datetime | None = None) -> str:
+    """Render the '结算' column cell for a sub-market.
+
+    TRADING → countdown string (e.g. '04-25 10:00 (3天0小时)').
+    Non-TRADING → bracketed state label (e.g. '[即将结算]').
+
+    Column is narrow so SETTLED does NOT include winner suffix — that
+    lives in the '市场' zone title (single market) or the breadcrumb.
+    """
+    state = market_state(market, now=now)
+    if state == MarketState.TRADING:
+        from scanner.tui.utils import format_countdown
+        return format_countdown(market.end_date) if market.end_date else "?"
+    return f"[{market_state_label(state)}]"
 
 
 class SubMarketTable(Widget):
@@ -44,8 +63,6 @@ class SubMarketTable(Widget):
         table.clear()
         self._row_map = []
 
-        from scanner.tui.utils import format_countdown
-
         for mr in self._markets:
             label = mr.group_item_title or mr.question[:40]
             is_expanded = mr.market_id in self._expanded
@@ -55,7 +72,7 @@ class SubMarketTable(Widget):
             no = f"{mr.no_price * 100:.1f}¢" if mr.no_price is not None else "?"
             spread = f"{mr.spread * 100:.1f}¢" if mr.spread else "?"
             vol = f"${mr.volume:,.0f}" if mr.volume else "?"
-            end = format_countdown(mr.end_date) if mr.end_date else "?"
+            end = _settlement_cell_text(mr)
 
             score_str = "?"
             if mr.structure_score:

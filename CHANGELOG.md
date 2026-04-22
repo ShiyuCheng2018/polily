@@ -10,6 +10,32 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Added
+
+- `scanner/core/lifecycle.py` — market / event lifecycle state derivation. `MarketState` 4 states: TRADING / PENDING_SETTLEMENT / SETTLING / SETTLED, derived from `markets.closed` + `end_date` + `resolved_outcome`. `EventState` 3 states (ACTIVE / AWAITING_FULL_SETTLEMENT / RESOLVED) derived from child market states. Zero DB schema changes — purely a derive-on-read helper + label catalog + winner-suffix helper.
+- `resolved_outcome` field exposed on `MarketRow` Pydantic model (`scanner/core/event_store.py`). DB column already existed; ORM layer was dropping it silently. No migration needed.
+- `backfill_stuck_resolutions()` — daemon-startup one-time pass that heals legacy `closed=1 AND resolved_outcome IS NULL` rows left over from the pre-v0.8.5 `_has_positions` gate era. Capped at 100 rows per invocation so startup stays fast; remaining rows heal on subsequent restarts.
+
+### Changed
+
+- **Resolver: `scanner.daemon.poll_job._resolve_closed_market_if_position` no longer gates on user position.** `markets.resolved_outcome` is now written for every `closed=1` market whose Gamma UMA state reaches `resolved` with clean outcomePrices, regardless of whether the user had a position. Wallet credit is still position-gated inside `ResolutionHandler.resolve_market`. This brings the code in line with the module's docstring ("persisted even when the user held no positions — keeps the DB authoritative for replay / dashboards") and makes `resolved_outcome IS NULL` the unambiguous SETTLING-state signal for the lifecycle UI.
+- `SubMarketTable` 结算 column: non-TRADING markets show state label (`[即将结算]` / `[结算中]` / `[已结算]`) instead of the misleading "已过期" countdown.
+- `EventDetailView` 市场 zone title: multi-market events show `(活跃 N, 即将结算 N, 结算中 N, 已结算 N)`; binary events show single-state badge including winner for SETTLED (`(已结算 NO 获胜)`). SETTLED markets without `resolved_outcome` (legacy rows) fall back to `(已结算)` with no winner suffix.
+- `EventKpiRow` 子市场 card: drops the `(N过期)` suffix — card is a plain total now, since breakdown lives in the 市场 zone title.
+- `EventKpiRow` 结算 card: uses event lifecycle state (`待全部结算` / `已结算`) instead of `format_countdown_range` returning "已过期" for past dates.
+- `EventHeader` on binary events: settlement line renders as a Rich-markup progress breadcrumb (`{countdown} | 即将结算 | 结算中 | 已结算`) with current state highlighted (`[b $primary]`), past states checkmark-dim (`[dim]... ✓[/]`), and future states plain dim (`[dim]...[/]`).
+- `EventHeader` on multi-market events: settlement label switches to `待全部结算` / `已结算` once event state advances past ACTIVE.
+- `monitor_list` 结算 column: uses event lifecycle state via a single aggregate `json_group_array` SQL query (no N+1 child loads); shows `待全部结算` / `已结算` instead of "已过期 ~ 已过期" range.
+- `score_result` view: banner text derived from event state; replaces old `_is_expired` boolean path.
+- `ScanService._query_events` returns a new `markets_summary` list per event (compact `{closed, end_date, resolved_outcome}` dicts) used by the monitor_list settlement cell.
+- `ChangelogView` (更新日志 page) now shows a version header — `当前版本: vX · 最新稳定版: Y` — with the latest stable tag fetched asynchronously from GitHub releases on mount (and on `r` refresh). Offline / timeout fallback to `无法获取` so the page never blocks.
+
+### Fixed
+
+- `MarketRow` was silently dropping the DB `resolved_outcome` column due to ORM-schema drift (column existed in `scanner/core/db.py` but not in `_MARKET_ALL_COLS` tuple); now aligned, allowing lifecycle state to derive correctly from DB rows.
+- `ChangelogView` page is now scrollable. Previously `PolilyZone { height: 1fr }` clamped the inner zone to the viewport, truncating long changelogs. Changed to `height: auto` so the outer `VerticalScroll` actually scrolls.
+- `derive_winner` now accepts `umaResolutionStatuses=["proposed"]` as terminal (was previously blocked by the strict `last == "resolved"` gate). POC data showed 98/100 recently-resolved markets stay at `["proposed"]` forever — Gamma's metadata doesn't tick to `"resolved"` for the common optimistic-flow case. Caller still gates on `closed=1` which Polymarket sets only after the UMA 2h challenge window elapses, so `["proposed"]` at that point is effectively terminal. Deferring still applies when `last == "disputed"` (active vote) or unknown states.
+
 ## [0.8.0] — 2026-04-22
 
 ### Added

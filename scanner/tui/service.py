@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import UTC, datetime
@@ -420,6 +421,35 @@ class ScanService:
             ORDER BY COALESCE(e.structure_score, 0) DESC
         """
         rows = self.db.conn.execute(sql).fetchall()
+
+        # Single aggregate query for per-event market summaries, scoped
+        # to the events the outer query just returned (avoids scanning
+        # historical archived events whose markets we won't display).
+        event_ids = [r["event_id"] for r in rows]
+        summary_by_event: dict[str, list] = {}
+        if event_ids:
+            placeholders = ",".join("?" for _ in event_ids)
+            summary_rows = self.db.conn.execute(
+                f"""
+                SELECT event_id,
+                       json_group_array(
+                           json_object(
+                               'closed', closed,
+                               'end_date', end_date,
+                               'resolved_outcome', resolved_outcome
+                           )
+                       ) AS summary_json
+                FROM markets
+                WHERE event_id IN ({placeholders})
+                GROUP BY event_id
+                """,
+                tuple(event_ids),
+            ).fetchall()
+            summary_by_event = {
+                r["event_id"]: json.loads(r["summary_json"] or "[]")
+                for r in summary_rows
+            }
+
         results = []
         for row in rows:
             d = dict(row)
@@ -438,6 +468,7 @@ class ScanService:
                 "analysis_count": d["analysis_count"],
                 "markets_end_min": d.get("markets_end_min"),
                 "markets_end_max": d.get("markets_end_max"),
+                "markets_summary": summary_by_event.get(event.event_id, []),
                 "movement": self._fetch_movement(event.event_id) if is_monitored else None,
             })
         return results
