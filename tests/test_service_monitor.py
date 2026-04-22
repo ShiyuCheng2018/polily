@@ -43,9 +43,10 @@ def test_query_events_reflects_market_state_changes(tmp_path):
     """Subsequent _query_events calls pick up markets_summary changes —
     regression guard that monitor_list's incremental refresh has fresh data
     to consume on each tick."""
+    from datetime import UTC, datetime, timedelta
+
     from scanner.core.db import PolilyDB
     from scanner.tui.service import ScanService
-    from datetime import UTC, datetime, timedelta
 
     db = PolilyDB(tmp_path / "t.db")
     now = datetime.now(UTC)

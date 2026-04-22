@@ -2,8 +2,7 @@
 
 import contextlib
 import json as _json
-
-from datetime import UTC, datetime
+from datetime import datetime
 
 from textual.app import ComposeResult
 from textual.widget import Widget

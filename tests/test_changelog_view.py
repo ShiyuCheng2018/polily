@@ -328,7 +328,6 @@ async def test_changelog_view_shows_version_placeholder_on_mount(tmp_path):
     from scanner.tui.views import changelog as changelog_mod
 
     # Stub the fetch so the worker doesn't actually hit GitHub during the test.
-    monkeypatch_applied = False
     original = changelog_mod._fetch_latest_release_tag
 
     def _no_network():

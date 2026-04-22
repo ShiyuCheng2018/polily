@@ -15,6 +15,7 @@ block.
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 from textual.app import ComposeResult
@@ -139,12 +140,10 @@ class ChangelogView(Widget):
 
     def _apply_version(self, latest: str) -> None:
         from scanner import __version__ as current
-        try:
+        with contextlib.suppress(Exception):
             self.query_one("#changelog-versions", Static).update(
                 _format_version_line(current, latest),
             )
-        except Exception:
-            pass
 
     def action_refresh(self) -> None:
         """Manual refresh — re-read CHANGELOG.md + re-query latest release."""
@@ -155,10 +154,8 @@ class ChangelogView(Widget):
             return
 
         from scanner import __version__ as current
-        try:
+        with contextlib.suppress(Exception):
             self.query_one("#changelog-versions", Static).update(
                 _format_version_line(current, "查询中..."),
             )
-        except Exception:
-            pass
         self.run_worker(self._fetch_and_update_version, thread=True, exclusive=True)

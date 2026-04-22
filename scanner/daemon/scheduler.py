@@ -204,6 +204,7 @@ def run_daemon(db, config=None) -> None:
 
     # v0.8.5: one-time backfill of rows stuck in SETTLING from pre-v0.8.5 gate
     import asyncio as _asyncio
+
     from scanner.daemon.poll_job import backfill_stuck_resolutions
     try:
         n = _asyncio.run(

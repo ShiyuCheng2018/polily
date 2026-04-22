@@ -433,7 +433,8 @@ async def test_resolve_closed_market_writes_resolved_outcome_without_position(
 
     monkeypatch.setattr(poll_job, "_fetch_gamma_market", fake_fetch_gamma)
 
-    wallet = WalletService(db); wallet.initialize(100.0)
+    wallet = WalletService(db)
+    wallet.initialize(100.0)
     positions = PositionManager(db)
     resolver = ResolutionHandler(db, wallet, positions)
 
@@ -470,7 +471,8 @@ async def test_resolve_closed_market_without_position_does_not_credit_wallet(
 
     monkeypatch.setattr(poll_job, "_fetch_gamma_market", fake_fetch_gamma)
 
-    wallet = WalletService(db); wallet.initialize(100.0)
+    wallet = WalletService(db)
+    wallet.initialize(100.0)
     before_cash = wallet.get_cash()
     before_tx_count = db.conn.execute(
         "SELECT COUNT(*) c FROM wallet_transactions"
@@ -494,12 +496,13 @@ async def test_resolve_closed_market_without_position_does_not_credit_wallet(
 async def test_backfill_stuck_resolutions_heals_legacy_rows(tmp_path, monkeypatch):
     """Daemon-startup backfill walks every closed=1 AND resolved_outcome IS NULL
     market and feeds it through _resolve_closed_market_if_position once."""
+    from datetime import UTC, datetime
+
     from scanner.core.db import PolilyDB
     from scanner.core.positions import PositionManager
     from scanner.core.wallet import WalletService
     from scanner.daemon import poll_job
     from scanner.daemon.resolution import ResolutionHandler
-    from datetime import UTC, datetime
 
     db = PolilyDB(tmp_path / "t.db")
     now = datetime.now(UTC).isoformat()
@@ -532,7 +535,8 @@ async def test_backfill_stuck_resolutions_heals_legacy_rows(tmp_path, monkeypatc
         }
 
     monkeypatch.setattr(poll_job, "_fetch_gamma_market", fake_fetch_gamma)
-    wallet = WalletService(db); wallet.initialize(100.0)
+    wallet = WalletService(db)
+    wallet.initialize(100.0)
     positions = PositionManager(db)
     resolver = ResolutionHandler(db, wallet, positions)
 
@@ -557,12 +561,13 @@ async def test_backfill_stuck_resolutions_heals_legacy_rows(tmp_path, monkeypatc
 @pytest.mark.asyncio
 async def test_backfill_stuck_resolutions_caps_at_100(tmp_path, monkeypatch):
     """Backfill should LIMIT 100 rows per invocation to keep startup fast."""
+    from datetime import UTC, datetime
+
     from scanner.core.db import PolilyDB
     from scanner.core.positions import PositionManager
     from scanner.core.wallet import WalletService
     from scanner.daemon import poll_job
     from scanner.daemon.resolution import ResolutionHandler
-    from datetime import UTC, datetime
 
     db = PolilyDB(tmp_path / "t.db")
     now = datetime.now(UTC).isoformat()
@@ -595,7 +600,8 @@ async def test_backfill_stuck_resolutions_caps_at_100(tmp_path, monkeypatch):
 
     monkeypatch.setattr(poll_job, "_fetch_gamma_market", fake_fetch_gamma)
 
-    wallet = WalletService(db); wallet.initialize(100.0)
+    wallet = WalletService(db)
+    wallet.initialize(100.0)
     positions = PositionManager(db)
     resolver = ResolutionHandler(db, wallet, positions)
 

@@ -39,7 +39,9 @@ def test_kpi_end_label_active_uses_countdown_range():
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     near = (now + timedelta(days=3)).isoformat()
     far = (now + timedelta(days=40)).isoformat()
-    event = MagicMock(); event.closed = 0; event.end_date = far
+    event = MagicMock()
+    event.closed = 0
+    event.end_date = far
     markets = [_mk_market(end_date=near), _mk_market(end_date=far)]
     label = _kpi_end_label(event, markets, now=now)
     # Countdown range renders as e.g. '3天0小时 ~ 40天0小时'
@@ -52,14 +54,18 @@ def test_kpi_end_label_awaiting_full_settlement():
     from scanner.tui.components.event_kpi import _kpi_end_label
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     past = (now - timedelta(hours=1)).isoformat()
-    event = MagicMock(); event.closed = 0; event.end_date = past
+    event = MagicMock()
+    event.closed = 0
+    event.end_date = past
     markets = [_mk_market(closed=1, resolved_outcome=None)]  # SETTLING
     assert _kpi_end_label(event, markets, now=now) == "待全部结算"
 
 
 def test_kpi_end_label_resolved():
     from scanner.tui.components.event_kpi import _kpi_end_label
-    event = MagicMock(); event.closed = 1; event.end_date = None
+    event = MagicMock()
+    event.closed = 1
+    event.end_date = None
     markets = [_mk_market(closed=1, resolved_outcome="no")]
     assert _kpi_end_label(event, markets) == "已结算"
 
@@ -76,7 +82,9 @@ def test_kpi_end_label_active_excludes_pending_settlement_markets():
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     past = (now - timedelta(hours=1)).isoformat()      # PENDING_SETTLEMENT
     future = (now + timedelta(days=7)).isoformat()     # TRADING
-    event = MagicMock(); event.closed = 0; event.end_date = future
+    event = MagicMock()
+    event.closed = 0
+    event.end_date = future
     markets = [
         _mk_market(closed=0, end_date=past),           # PENDING_SETTLEMENT
         _mk_market(closed=0, end_date=future),         # TRADING

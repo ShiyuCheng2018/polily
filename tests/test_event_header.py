@@ -71,7 +71,9 @@ def test_multi_event_settlement_label_active():
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     future = (now + timedelta(days=7)).isoformat()
     past = (now - timedelta(hours=1)).isoformat()
-    event = MagicMock(); event.closed = 0; event.end_date = future
+    event = MagicMock()
+    event.closed = 0
+    event.end_date = future
     markets = [_mk_market(end_date=future), _mk_market(end_date=past)]
     label = _multi_event_settlement_label(event, markets, now=now)
     # Event countdown renders via format_countdown
@@ -82,7 +84,9 @@ def test_multi_event_settlement_label_awaiting_full():
     from scanner.tui.components.event_header import _multi_event_settlement_label
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     past = (now - timedelta(hours=1)).isoformat()
-    event = MagicMock(); event.closed = 0; event.end_date = past
+    event = MagicMock()
+    event.closed = 0
+    event.end_date = past
     markets = [_mk_market(closed=1, resolved_outcome=None)]  # SETTLING
     assert _multi_event_settlement_label(event, markets, now=now) == "待全部结算"
 
@@ -90,6 +94,8 @@ def test_multi_event_settlement_label_awaiting_full():
 def test_multi_event_settlement_label_resolved():
     from scanner.tui.components.event_header import _multi_event_settlement_label
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
-    event = MagicMock(); event.closed = 1; event.end_date = None
+    event = MagicMock()
+    event.closed = 1
+    event.end_date = None
     markets = [_mk_market(closed=1, resolved_outcome="no")]
     assert _multi_event_settlement_label(event, markets, now=now) == "已结算"

@@ -41,29 +41,34 @@ def test_event_state_labels_chinese():
 
 
 def test_settled_winner_suffix_yes():
-    m = MagicMock(); m.resolved_outcome = "yes"
+    m = MagicMock()
+    m.resolved_outcome = "yes"
     assert settled_winner_suffix(m) == " YES 获胜"
 
 
 def test_settled_winner_suffix_no():
-    m = MagicMock(); m.resolved_outcome = "no"
+    m = MagicMock()
+    m.resolved_outcome = "no"
     assert settled_winner_suffix(m) == " NO 获胜"
 
 
 def test_settled_winner_suffix_split():
-    m = MagicMock(); m.resolved_outcome = "split"
+    m = MagicMock()
+    m.resolved_outcome = "split"
     assert settled_winner_suffix(m) == " 平局"
 
 
 def test_settled_winner_suffix_none():
     """resolved_outcome=None → empty string (caller shows plain label)."""
-    m = MagicMock(); m.resolved_outcome = None
+    m = MagicMock()
+    m.resolved_outcome = None
     assert settled_winner_suffix(m) == ""
 
 
 def test_settled_winner_suffix_void():
     """resolved_outcome='void' → ' 市场作废' (market was canceled)."""
-    m = MagicMock(); m.resolved_outcome = "void"
+    m = MagicMock()
+    m.resolved_outcome = "void"
     assert settled_winner_suffix(m) == " 市场作废"
 
 

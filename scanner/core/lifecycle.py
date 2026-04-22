@@ -61,7 +61,7 @@ def event_state_label(state: EventState) -> str:
     return _EVENT_LABELS_CN[state]
 
 
-def settled_winner_suffix(market: "MarketRow") -> str:
+def settled_winner_suffix(market: MarketRow) -> str:
     """Render ' YES 获胜' / ' NO 获胜' / ' 平局' / ' 市场作废' / '' from resolved_outcome.
 
     Single source of truth; called from both event_header breadcrumb and

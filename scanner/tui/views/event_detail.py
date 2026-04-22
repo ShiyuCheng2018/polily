@@ -9,7 +9,7 @@ v0.8.0 migration:
 from __future__ import annotations
 
 import contextlib
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
