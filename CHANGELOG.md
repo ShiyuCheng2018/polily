@@ -10,6 +10,8 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.8.5] — 2026-04-22
+
 ### Added
 
 - `scanner/core/lifecycle.py` — market / event lifecycle state derivation. `MarketState` 4 states: TRADING / PENDING_SETTLEMENT / SETTLING / SETTLED, derived from `markets.closed` + `end_date` + `resolved_outcome`. `EventState` 3 states (ACTIVE / AWAITING_FULL_SETTLEMENT / RESOLVED) derived from child market states. Zero DB schema changes — purely a derive-on-read helper + label catalog + winner-suffix helper.
@@ -407,7 +409,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.8.0...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.8.5...dev
+[0.8.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.8.5
 [0.8.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.8.0
 [0.7.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.7.0
 [0.6.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.6.1
