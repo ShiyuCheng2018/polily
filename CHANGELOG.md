@@ -34,6 +34,7 @@ structured release notes — see `git log` for history.
 
 - `MarketRow` was silently dropping the DB `resolved_outcome` column due to ORM-schema drift (column existed in `scanner/core/db.py` but not in `_MARKET_ALL_COLS` tuple); now aligned, allowing lifecycle state to derive correctly from DB rows.
 - `ChangelogView` page is now scrollable. Previously `PolilyZone { height: 1fr }` clamped the inner zone to the viewport, truncating long changelogs. Changed to `height: auto` so the outer `VerticalScroll` actually scrolls.
+- `derive_winner` now accepts `umaResolutionStatuses=["proposed"]` as terminal (was previously blocked by the strict `last == "resolved"` gate). POC data showed 98/100 recently-resolved markets stay at `["proposed"]` forever — Gamma's metadata doesn't tick to `"resolved"` for the common optimistic-flow case. Caller still gates on `closed=1` which Polymarket sets only after the UMA 2h challenge window elapses, so `["proposed"]` at that point is effectively terminal. Deferring still applies when `last == "disputed"` (active vote) or unknown states.
 
 ## [0.8.0] — 2026-04-22
 
