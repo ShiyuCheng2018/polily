@@ -275,11 +275,18 @@ class ScanService:
                 scan_id, event_id, agent_error,
                 exc_info=agent_error,
             )
+            # Normalize the Textual internal exception the user hits when
+            # they close TUI mid-analysis — class name string-match keeps
+            # this file decoupled from the textual package.
+            if type(agent_error).__name__ == "NoActiveAppError":
+                error_text = "TUI 已关闭，分析中断"
+            else:
+                error_text = f"{type(agent_error).__name__}: {agent_error}"[:200]
             try:
                 finish_scan(
                     scan_id,
                     status="failed",
-                    error=f"{type(agent_error).__name__}: {agent_error}"[:200],
+                    error=error_text,
                     db=self.db,
                 )
                 self.publish_scan_update(scan_id, event_id=event_id, status="failed")
