@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scanner.agents.base import BaseAgent
+from polily.agents.base import BaseAgent
 from tests.conftest import make_cli_response
 
 
@@ -19,7 +19,7 @@ class TestBaseAgentInvoke:
         expected = {"score": 42}
         stdout = make_cli_response(expected)
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (stdout, b"")
             proc.returncode = 0
@@ -37,7 +37,7 @@ class TestBaseAgentInvoke:
         )
         stdout = make_cli_response({"ok": True})
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (stdout, b"")
             proc.returncode = 0
@@ -66,7 +66,7 @@ class TestBaseAgentInvoke:
         long_prompt = "A" * 200
         stdout = make_cli_response({"ok": True})
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (stdout, b"")
             proc.returncode = 0
@@ -93,7 +93,7 @@ class TestBaseAgentFallback:
             fallback_fn=lambda prompt: fallback_result,
         )
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (b"", b"error occurred")
             proc.returncode = 1
@@ -112,7 +112,7 @@ class TestBaseAgentFallback:
             fallback_fn=lambda prompt: fallback_result,
         )
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (b"not json at all", b"")
             proc.returncode = 0
@@ -130,7 +130,7 @@ class TestBaseAgentFallback:
             fallback_fn=None,
         )
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (b"", b"error")
             proc.returncode = 1
@@ -151,7 +151,7 @@ class TestBaseAgentToolMode:
         )
         stdout = make_cli_response({"ok": True})
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (stdout, b"")
             proc.returncode = 0
@@ -177,7 +177,7 @@ class TestBaseAgentToolMode:
         )
         stdout = make_cli_response({"ok": True})
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (stdout, b"")
             proc.returncode = 0
@@ -200,7 +200,7 @@ class TestBaseAgentToolMode:
         )
         stdout = make_cli_response({"ok": True})
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (stdout, b"")
             proc.returncode = 0
@@ -239,7 +239,7 @@ class TestBaseAgentBatch:
             proc.returncode = 0
             return proc
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec", side_effect=mock_exec):
+        with patch("polily.agents.base.asyncio.create_subprocess_exec", side_effect=mock_exec):
             results = await agent.invoke_batch(
                 ["prompt1", "prompt2", "prompt3"],
                 max_concurrent=2,
@@ -272,7 +272,7 @@ class TestBaseAgentBatch:
                 proc.returncode = 0
             return proc
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec", side_effect=mock_exec):
+        with patch("polily.agents.base.asyncio.create_subprocess_exec", side_effect=mock_exec):
             results = await agent.invoke_batch(["a", "b", "c"], max_concurrent=3)
 
         assert len(results) == 3

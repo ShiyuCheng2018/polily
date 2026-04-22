@@ -1,6 +1,6 @@
 """Tests for decision assistant schema."""
 
-from scanner.agents.schemas import (
+from polily.agents.schemas import (
     CryptoContext,
     NarrativeWriterOutput,
     Operation,

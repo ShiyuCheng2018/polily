@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from scanner.core.db import PolilyDB
+from polily.core.db import PolilyDB
 
 
 @pytest.fixture
@@ -72,7 +72,7 @@ def test_markets_has_fees_enabled_and_fee_rate(db):
 
 def test_markets_fee_fields_round_trip(db):
     """upsert_market → get_market must round-trip the new fee columns."""
-    from scanner.core.event_store import (
+    from polily.core.event_store import (
         EventRow,
         MarketRow,
         get_market,

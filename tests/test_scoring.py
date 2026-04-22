@@ -2,8 +2,8 @@
 
 from datetime import UTC, datetime
 
-from scanner.core.models import BookLevel
-from scanner.scan.scoring import compute_structure_score
+from polily.core.models import BookLevel
+from polily.scan.scoring import compute_structure_score
 from tests.conftest import make_market
 
 

@@ -8,10 +8,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.scan_log import insert_pending_scan
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.monitor_store import upsert_event_monitor
+from polily.scan_log import insert_pending_scan
+from polily.tui.service import PolilyService
 from tests.conftest import make_event, setup_event_and_market
 
 
@@ -24,7 +24,7 @@ def svc(tmp_path):
     setup_event_and_market(db, event_id="ev1", market_id="m-ev1")
     setup_event_and_market(db, event_id="ev2", market_id="m-ev2")
     # Override titles
-    from scanner.core.event_store import upsert_event
+    from polily.core.event_store import upsert_event
     upsert_event(make_event(event_id="ev1", title="Iran hormuz"), db)
     upsert_event(make_event(event_id="ev2", title="BTC > 100k"), db)
     upsert_event_monitor("ev1", auto_monitor=True, db=db)

@@ -3,7 +3,7 @@
 import plistlib
 import sys
 
-from scanner.daemon.scheduler import generate_launchd_plist
+from polily.daemon.scheduler import generate_launchd_plist
 
 
 def test_generate_plist_structure():
@@ -27,7 +27,7 @@ def test_generate_plist_program_args():
     args = plist["ProgramArguments"]
     assert args[0] == "/opt/venv/bin/python"
     assert "-m" in args
-    assert "scanner.cli" in args
+    assert "polily.cli" in args
 
 
 def test_generate_plist_log_paths():

@@ -2,11 +2,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.monitor.models import MovementResult, MovementSignals
-from scanner.monitor.store import append_movement
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.monitor_store import upsert_event_monitor
+from polily.monitor.models import MovementResult, MovementSignals
+from polily.monitor.store import append_movement
 
 
 @pytest.fixture
@@ -71,7 +71,7 @@ class TestMovementDataGuard:
 
     def test_cold_start_writes_noise(self, db):
         """No movement_log history → should write noise, not compute signals."""
-        from scanner.daemon.poll_job import _run_intelligence_layer
+        from polily.daemon.poll_job import _run_intelligence_layer
 
         self._setup_monitored_event(db)
         _run_intelligence_layer(db)
@@ -82,7 +82,7 @@ class TestMovementDataGuard:
 
     def test_insufficient_data_writes_noise(self, db):
         """Less than MIN_HISTORY entries → noise."""
-        from scanner.daemon.poll_job import _run_intelligence_layer
+        from polily.daemon.poll_job import _run_intelligence_layer
 
         self._setup_monitored_event(db)
         # Add only 2 entries (less than threshold)
@@ -101,7 +101,7 @@ class TestMovementDataGuard:
 
     def test_stale_data_writes_noise(self, db):
         """Old movement_log entries (> staleness threshold) → noise even with big price gap."""
-        from scanner.daemon.poll_job import _run_intelligence_layer
+        from polily.daemon.poll_job import _run_intelligence_layer
 
         self._setup_monitored_event(db)
         # Insert 10 entries but all 15 min ago, with varying prices around 0.30
@@ -130,7 +130,7 @@ class TestMovementDataGuard:
 
     def test_sufficient_fresh_data_computes_signals(self, db):
         """Enough recent entries → should compute real signals (not all zero)."""
-        from scanner.daemon.poll_job import _run_intelligence_layer
+        from polily.daemon.poll_job import _run_intelligence_layer
 
         self._setup_monitored_event(db)
         # Add enough recent entries with varying prices

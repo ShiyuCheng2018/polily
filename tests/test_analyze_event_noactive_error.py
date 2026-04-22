@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scanner.core.config import PolilyConfig
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.scan_log import load_scan_logs
-from scanner.tui.service import PolilyService
+from polily.core.config import PolilyConfig
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.scan_log import load_scan_logs
+from polily.tui.service import PolilyService
 
 
 class _FakeNoActiveAppError(Exception):
@@ -34,7 +34,7 @@ async def test_noactive_app_error_normalized_in_scan_log(tmp_path):
     svc = PolilyService(config=PolilyConfig(), db=db)
 
     with patch(
-        "scanner.tui.service.NarrativeWriterAgent",
+        "polily.tui.service.NarrativeWriterAgent",
         autospec=False,
     ) as mock_agent_cls:
         mock_agent = mock_agent_cls.return_value
@@ -65,7 +65,7 @@ async def test_regular_exception_still_formatted_as_before(tmp_path):
     svc = PolilyService(config=PolilyConfig(), db=db)
 
     with patch(
-        "scanner.tui.service.NarrativeWriterAgent",
+        "polily.tui.service.NarrativeWriterAgent",
         autospec=False,
     ) as mock_agent_cls:
         mock_agent = mock_agent_cls.return_value

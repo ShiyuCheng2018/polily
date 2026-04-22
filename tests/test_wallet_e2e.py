@@ -9,11 +9,11 @@ from unittest.mock import patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.positions import PositionManager
-from scanner.core.trade_engine import TradeEngine
-from scanner.core.wallet import WalletService
-from scanner.core.wallet_reset import reset_wallet
+from polily.core.db import PolilyDB
+from polily.core.positions import PositionManager
+from polily.core.trade_engine import TradeEngine
+from polily.core.wallet import WalletService
+from polily.core.wallet_reset import reset_wallet
 
 
 def _seed_crypto_market(db: PolilyDB) -> None:
@@ -37,7 +37,7 @@ def _services(db: PolilyDB) -> tuple[WalletService, PositionManager, TradeEngine
 
 def _mock_price(value: float):
     return patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=value,
     )
 
@@ -159,7 +159,7 @@ def test_insufficient_cash_rollback_preserves_all_state_e2e(tmp_path):
     good_shares = pm.get_position("m1", "yes")["shares"]
 
     # Attempt a trade that exceeds available cash.
-    from scanner.core.wallet import InsufficientFunds
+    from polily.core.wallet import InsufficientFunds
     with _mock_price(0.9), pytest.raises(InsufficientFunds):
         engine.execute_buy(market_id="m1", side="yes", shares=10000.0)
 

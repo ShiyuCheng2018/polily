@@ -2,8 +2,8 @@
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.positions import (
+from polily.core.db import PolilyDB
+from polily.core.positions import (
     InsufficientShares,
     PositionManager,
     PositionNotFound,

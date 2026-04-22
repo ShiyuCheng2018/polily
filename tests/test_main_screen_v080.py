@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.events import EventBus
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.events import EventBus
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -30,8 +30,8 @@ def svc(tmp_path):
 @pytest.mark.asyncio
 async def test_main_screen_mounts_sidebar_and_content(svc):
     """Main screen must have Sidebar + content area."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.widgets.sidebar import Sidebar
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.sidebar import Sidebar
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -44,7 +44,7 @@ async def test_main_screen_mounts_sidebar_and_content(svc):
 @pytest.mark.asyncio
 async def test_main_screen_menu_digit_shortcuts_preserved(svc):
     """Menu digit shortcuts (0, 1, 2, 3, 4, 5) still bound for navigation."""
-    from scanner.tui.screens.main import MainScreen
+    from polily.tui.screens.main import MainScreen
 
     keys = {b.key for b in MainScreen.BINDINGS}
     # 0 = tasks, 1 = monitor, 2 = paper, 3 = wallet, 4 = history, 5 = archive
@@ -55,7 +55,7 @@ async def test_main_screen_menu_digit_shortcuts_preserved(svc):
 @pytest.mark.asyncio
 async def test_main_screen_has_no_conflicting_global_bindings(svc):
     """MainScreen must NOT redeclare q / ? / escape (Task 9 moved those to App level)."""
-    from scanner.tui.screens.main import MainScreen
+    from polily.tui.screens.main import MainScreen
 
     keys = {b.key for b in MainScreen.BINDINGS}
     for conflict in ("q", "question_mark", "escape"):
@@ -70,7 +70,7 @@ async def test_main_screen_status_bar_mounted(svc):
     """Status bar Static must exist at #status-bar."""
     from textual.widgets import Static
 
-    from scanner.tui.app import PolilyApp
+    from polily.tui.app import PolilyApp
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -87,8 +87,8 @@ async def test_main_screen_status_bar_mounted(svc):
 @pytest.mark.asyncio
 async def test_sidebar_items_have_nerd_font_icons(svc):
     """SidebarItem menu entries should show Nerd Font glyphs (not plain emoji)."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.widgets.sidebar import SidebarItem
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.sidebar import SidebarItem
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -113,8 +113,8 @@ async def test_sidebar_items_have_nerd_font_icons(svc):
 @pytest.mark.asyncio
 async def test_sidebar_menu_order_preserved(svc):
     """All menu entries present in expected order (v0.8.0+: changelog added last)."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.widgets.sidebar import Sidebar, SidebarItem
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.sidebar import Sidebar, SidebarItem
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -130,8 +130,8 @@ async def test_sidebar_menu_order_preserved(svc):
 @pytest.mark.asyncio
 async def test_sidebar_active_menu_highlights_correctly(svc):
     """set_active_menu should mark only one item with -active class."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.widgets.sidebar import Sidebar, SidebarItem
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.sidebar import Sidebar, SidebarItem
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -154,8 +154,8 @@ async def test_sidebar_active_menu_highlights_correctly(svc):
 @pytest.mark.asyncio
 async def test_metric_card_still_works(svc):
     """MetricCard preserved as legacy widget (Q7b: don't delete)."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.widgets.cards import MetricCard
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.cards import MetricCard
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -171,8 +171,8 @@ async def test_metric_card_still_works(svc):
 @pytest.mark.asyncio
 async def test_dash_panel_still_works(svc):
     """DashPanel preserved as legacy widget (Q7b: don't delete)."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.widgets.cards import DashPanel
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.cards import DashPanel
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -190,7 +190,7 @@ def test_cards_css_uses_theme_variables():
     theme var."""
     import re
 
-    from scanner.tui.widgets.cards import DashPanel, MetricCard
+    from polily.tui.widgets.cards import DashPanel, MetricCard
 
     for cls in (MetricCard, DashPanel):
         css = cls.DEFAULT_CSS or ""

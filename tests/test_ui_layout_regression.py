@@ -20,13 +20,13 @@ from textual.app import App
 from textual.screen import Screen
 from textual.widgets import Button
 
-from scanner.core.config import PolilyConfig
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, get_event_markets, upsert_event, upsert_market
-from scanner.tui.service import PolilyService
-from scanner.tui.views.trade_dialog import BuyPane, TradeDialog
-from scanner.tui.views.wallet import WalletView
-from scanner.tui.views.wallet_modals import TopupModal, WithdrawModal
+from polily.core.config import PolilyConfig
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, get_event_markets, upsert_event, upsert_market
+from polily.tui.service import PolilyService
+from polily.tui.views.trade_dialog import BuyPane, TradeDialog
+from polily.tui.views.wallet import WalletView
+from polily.tui.views.wallet_modals import TopupModal, WithdrawModal
 
 _REALISTIC_SIZE = (100, 30)  # typical laptop terminal
 
@@ -46,11 +46,11 @@ def _seed(tmp_path, *, buy_yes: bool = False, buy_no: bool = False) -> PolilySer
         db,
     )
     # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
-    from scanner.core.monitor_store import upsert_event_monitor
+    from polily.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("e1", auto_monitor=True, db=db)
     svc = PolilyService(config=PolilyConfig(), db=db)
     if buy_yes or buy_no:
-        with patch("scanner.core.trade_engine.TradeEngine._fetch_live_price", return_value=0.5):
+        with patch("polily.core.trade_engine.TradeEngine._fetch_live_price", return_value=0.5):
             if buy_yes:
                 svc.execute_buy(market_id="m1", side="yes", shares=10.0)
             if buy_no:

@@ -1,4 +1,4 @@
-from scanner.core.config import MovementConfig, PolilyConfig
+from polily.core.config import MovementConfig, PolilyConfig
 
 
 def test_movement_config_defaults():

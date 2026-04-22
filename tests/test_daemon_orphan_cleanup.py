@@ -1,7 +1,7 @@
 """Q2: daemon startup marks orphan running rows as failed."""
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.scan_log import claim_pending_scan, fail_orphan_running, insert_pending_scan
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.scan_log import claim_pending_scan, fail_orphan_running, insert_pending_scan
 
 
 def test_fail_orphan_running_marks_all_running_rows_failed(tmp_path):

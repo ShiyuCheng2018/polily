@@ -1,6 +1,6 @@
 """Tests for SQLite-backed scan log."""
 
-from scanner.scan_log import (
+from polily.scan_log import (
     ScanStepRecord,
     create_log_entry,
     finish_log_entry,

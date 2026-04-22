@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -19,9 +19,9 @@ class TestAddEventByUrl:
     @pytest.mark.asyncio
     async def test_adds_event_to_db(self, db):
         service = PolilyService(db=db)
-        with patch("scanner.scan.pipeline.fetch_and_score_event") as mock:
-            from scanner.core.event_store import EventRow
-            from scanner.scan.event_scoring import EventQualityScore
+        with patch("polily.scan.pipeline.fetch_and_score_event") as mock:
+            from polily.core.event_store import EventRow
+            from polily.scan.event_scoring import EventQualityScore
             mock.return_value = {
                 "event": EventRow(event_id="ev1", title="Test", updated_at="now"),
                 "markets": [],
@@ -42,7 +42,7 @@ class TestAddEventByUrl:
     @pytest.mark.asyncio
     async def test_not_found_returns_none(self, db):
         service = PolilyService(db=db)
-        with patch("scanner.scan.pipeline.fetch_and_score_event") as mock:
+        with patch("polily.scan.pipeline.fetch_and_score_event") as mock:
             mock.return_value = None
             result = await service.add_event_by_url("https://polymarket.com/event/nonexistent")
         assert result is None
@@ -50,9 +50,9 @@ class TestAddEventByUrl:
     @pytest.mark.asyncio
     async def test_logs_action_to_scan_logs(self, db):
         service = PolilyService(db=db)
-        with patch("scanner.scan.pipeline.fetch_and_score_event") as mock:
-            from scanner.core.event_store import EventRow
-            from scanner.scan.event_scoring import EventQualityScore
+        with patch("polily.scan.pipeline.fetch_and_score_event") as mock:
+            from polily.core.event_store import EventRow
+            from polily.scan.event_scoring import EventQualityScore
             mock.return_value = {
                 "event": EventRow(event_id="ev1", title="Test Event", updated_at="now"),
                 "markets": [],

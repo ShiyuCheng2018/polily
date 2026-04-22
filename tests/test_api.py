@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from scanner.api import PolymarketClient, parse_clob_book, parse_gamma_event
-from scanner.core.config import ApiConfig
-from scanner.core.event_store import EventRow
+from polily.api import PolymarketClient, parse_clob_book, parse_gamma_event
+from polily.core.config import ApiConfig
+from polily.core.event_store import EventRow
 
 # --- Fixture data mimicking real API responses ---
 

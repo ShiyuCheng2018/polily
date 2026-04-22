@@ -20,10 +20,10 @@ from unittest.mock import MagicMock
 import pytest
 from textual.app import App, ComposeResult
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.monitor_store import upsert_event_monitor
+from polily.tui.service import PolilyService
 
 
 def _service():
@@ -64,7 +64,7 @@ class _Host(App):
 @pytest.mark.asyncio
 async def test_trade_blocked_when_event_not_monitored(monkeypatch):
     """Pressing `t` on an unmonitored event must notify + NOT push modal."""
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.views.event_detail import EventDetailView
 
     svc = _service()
     _seed(svc, monitored=False)
@@ -96,8 +96,8 @@ async def test_trade_blocked_when_event_not_monitored(monkeypatch):
 @pytest.mark.asyncio
 async def test_trade_opens_dialog_when_event_is_monitored():
     """Regression: pressing `t` on a monitored event still opens TradeDialog."""
-    from scanner.tui.views.event_detail import EventDetailView
-    from scanner.tui.views.trade_dialog import TradeDialog
+    from polily.tui.views.event_detail import EventDetailView
+    from polily.tui.views.trade_dialog import TradeDialog
 
     svc = _service()
     _seed(svc, monitored=True)

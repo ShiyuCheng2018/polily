@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from scanner.daemon.poll_job import _fetch_trades_batch
+from polily.daemon.poll_job import _fetch_trades_batch
 
 
 def _make_market(market_id="m1", condition_id="0xabc"):

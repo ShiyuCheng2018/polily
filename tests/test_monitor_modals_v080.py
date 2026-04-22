@@ -3,9 +3,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.events import EventBus
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.events import EventBus
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -20,10 +20,10 @@ def svc(tmp_path):
 @pytest.mark.asyncio
 async def test_confirm_unmonitor_modal_uses_atoms(svc):
     """Modal uses PolilyZone (destructive) or PolilyCard for layout."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
-    from scanner.tui.widgets.polily_card import PolilyCard
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.monitor_modals import ConfirmUnmonitorModal
+    from polily.tui.widgets.polily_card import PolilyCard
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -41,8 +41,8 @@ async def test_confirm_unmonitor_modal_uses_atoms(svc):
 async def test_confirm_unmonitor_chinese_labels(svc):
     from textual.widgets import Button, Label, Static
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.monitor_modals import ConfirmUnmonitorModal
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None

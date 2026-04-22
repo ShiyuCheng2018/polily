@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.monitor.store import append_movement
-from scanner.tui.service import PolilyService
+from polily.monitor.store import append_movement
+from polily.tui.service import PolilyService
 from tests.conftest import setup_event_and_market
 
 
@@ -18,7 +18,7 @@ def _service(db) -> PolilyService:
 
 @pytest.fixture
 def db_with_two_events(polily_db):
-    from scanner.core.monitor_store import upsert_event_monitor
+    from polily.core.monitor_store import upsert_event_monitor
 
     setup_event_and_market(polily_db, event_id="evA", market_id="mA", question="Event A")
     setup_event_and_market(polily_db, event_id="evB", market_id="mB", question="Event B")
@@ -119,7 +119,7 @@ class TestMovementField:
         so the Watchlist can render a settlement-window column."""
         db = db_with_two_events
         # Add a second market to evA with a later end_date
-        from scanner.core.event_store import MarketRow, upsert_market
+        from polily.core.event_store import MarketRow, upsert_market
 
         upsert_market(
             MarketRow(

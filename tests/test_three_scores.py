@@ -1,7 +1,7 @@
 """Tests for three-score system: market quality, trade value, direction edge."""
 
-from scanner.scan.mispricing import MispricingResult
-from scanner.scan.scoring import ScoreBreakdown, compute_three_scores
+from polily.scan.mispricing import MispricingResult
+from polily.scan.scoring import ScoreBreakdown, compute_three_scores
 from tests.conftest import make_market
 
 

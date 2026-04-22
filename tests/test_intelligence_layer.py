@@ -3,17 +3,17 @@ import json
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import (
+from polily.core.db import PolilyDB
+from polily.core.event_store import (
     EventRow,
     MarketRow,
     update_market_prices,
     upsert_event,
     upsert_market,
 )
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.daemon.poll_job import _run_intelligence_layer
-from scanner.monitor.store import get_event_movements
+from polily.core.monitor_store import upsert_event_monitor
+from polily.daemon.poll_job import _run_intelligence_layer
+from polily.monitor.store import get_event_movements
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-from scanner.core.config import PolilyConfig, load_config
+from polily.core.config import PolilyConfig, load_config
 
 
 def test_wallet_config_default():

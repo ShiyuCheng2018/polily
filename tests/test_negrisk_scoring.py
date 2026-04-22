@@ -7,7 +7,7 @@ on liquidity and friction dimensions than with 98% spread.
 
 import pytest
 
-from scanner.scan.scoring import compute_structure_score
+from polily.scan.scoring import compute_structure_score
 from tests.conftest import make_market
 
 

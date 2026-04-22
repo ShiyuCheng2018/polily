@@ -13,12 +13,12 @@ import pytest
 from textual.app import App
 from textual.widgets import Button, Checkbox, Input, Static
 
-from scanner.core.config import PolilyConfig
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.tui.service import PolilyService
-from scanner.tui.views.wallet import WalletView
-from scanner.tui.views.wallet_modals import TopupModal, WalletResetModal, WithdrawModal
+from polily.core.config import PolilyConfig
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.tui.service import PolilyService
+from polily.tui.views.wallet import WalletView
+from polily.tui.views.wallet_modals import TopupModal, WalletResetModal, WithdrawModal
 
 
 def _seed(tmp_path, *, auto_monitor: bool = True) -> PolilyService:
@@ -42,7 +42,7 @@ def _seed(tmp_path, *, auto_monitor: bool = True) -> PolilyService:
     # Tests that specifically cover the "no active monitors" path
     # (e.g. reset modal's skip-restart check) can pass auto_monitor=False.
     if auto_monitor:
-        from scanner.core.monitor_store import upsert_event_monitor
+        from polily.core.monitor_store import upsert_event_monitor
         upsert_event_monitor("e1", auto_monitor=True, db=db)
     return PolilyService(config=PolilyConfig(), db=db)
 
@@ -110,7 +110,7 @@ async def test_wallet_view_after_buy_shows_position_value(tmp_path):
     """Buy 20 shares at 50¢ → cash drops, positions market value ≈ $10."""
     svc = _seed(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=20.0)
@@ -133,7 +133,7 @@ async def test_wallet_view_ledger_shows_buy_then_fee_rows(tmp_path):
     """A single execute_buy produces BUY + FEE rows in the ledger."""
     svc = _seed(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=20.0)
@@ -153,12 +153,12 @@ async def test_wallet_view_realized_pnl_after_profitable_sell(tmp_path):
     """Sell at higher price → cumulative realized P&L positive on view."""
     svc = _seed(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=20.0)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.6,
     ):
         svc.execute_sell(market_id="m1", side="yes", shares=10.0)
@@ -279,12 +279,12 @@ async def test_reset_modal_requires_reset_keyword(tmp_path, monkeypatch):
     gate kicks in and 'reset' alone isn't enough).
     """
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals._daemon_pid", lambda: None,
+        "polily.tui.views.wallet_modals._daemon_pid", lambda: None,
     )
     svc = _seed(tmp_path)
     # Seed a position so the warning reflects real state.
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)
@@ -313,11 +313,11 @@ async def test_reset_modal_confirm_clears_state(tmp_path, monkeypatch):
     real scheduler running locally.
     """
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals._daemon_pid", lambda: None,
+        "polily.tui.views.wallet_modals._daemon_pid", lambda: None,
     )
     svc = _seed(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)
@@ -348,7 +348,7 @@ async def test_reset_modal_sigterms_daemon_before_reset(tmp_path, monkeypatch):
 
     svc = _seed(tmp_path)
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals._daemon_pid", lambda: 99999,
+        "polily.tui.views.wallet_modals._daemon_pid", lambda: 99999,
     )
     kills: list[tuple] = []
 
@@ -356,9 +356,9 @@ async def test_reset_modal_sigterms_daemon_before_reset(tmp_path, monkeypatch):
         kills.append((pid, sig))
         # Keep the worker moving — don't actually kill anything.
 
-    monkeypatch.setattr("scanner.tui.views.wallet_modals.os.kill", _fake_kill)
+    monkeypatch.setattr("polily.tui.views.wallet_modals.os.kill", _fake_kill)
     # Skip the 1s grace in tests.
-    monkeypatch.setattr("scanner.tui.views.wallet_modals.time.sleep", lambda _s: None)
+    monkeypatch.setattr("polily.tui.views.wallet_modals.time.sleep", lambda _s: None)
 
     host = _ModalHost(svc, WalletResetModal)
     async with host.run_test(size=(120, 40)) as pilot:
@@ -383,7 +383,7 @@ async def test_reset_modal_shows_daemon_warning_when_running(tmp_path, monkeypat
     """When PID file exists with a live PID, modal shows checkbox gate."""
     svc = _seed(tmp_path)
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals._daemon_pid", lambda: 12345,
+        "polily.tui.views.wallet_modals._daemon_pid", lambda: 12345,
     )
     # Also pretend os.kill succeeds so nothing crashes on confirm (we don't
     # confirm in this test).
@@ -411,15 +411,15 @@ def _prime_daemon_mocks(monkeypatch, pid: int = 99999) -> list[tuple]:
     caller gets back the kills list for assertions.
     """
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals._daemon_pid", lambda: pid,
+        "polily.tui.views.wallet_modals._daemon_pid", lambda: pid,
     )
     kills: list[tuple] = []
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals.os.kill",
+        "polily.tui.views.wallet_modals.os.kill",
         lambda p, s: kills.append((p, s)),
     )
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals.time.sleep", lambda _s: None,
+        "polily.tui.views.wallet_modals.time.sleep", lambda _s: None,
     )
     return kills
 
@@ -432,14 +432,14 @@ async def test_reset_modal_auto_restarts_daemon_when_monitors_exist(
     automatically after reset succeeds. User shouldn't need to `polily
     scheduler restart` by hand.
     """
-    from scanner.core.monitor_store import upsert_event_monitor
+    from polily.core.monitor_store import upsert_event_monitor
 
     svc = _seed(tmp_path)
     upsert_event_monitor("e1", auto_monitor=True, db=svc.db)
     _prime_daemon_mocks(monkeypatch)
     calls: list[str] = []
     monkeypatch.setattr(
-        "scanner.daemon.scheduler.restart_daemon",
+        "polily.daemon.scheduler.restart_daemon",
         lambda: calls.append("restart") or True,
     )
 
@@ -474,7 +474,7 @@ async def test_reset_modal_skips_restart_when_no_active_monitors(
     _prime_daemon_mocks(monkeypatch)
     calls: list[str] = []
     monkeypatch.setattr(
-        "scanner.daemon.scheduler.restart_daemon",
+        "polily.daemon.scheduler.restart_daemon",
         lambda: calls.append("restart") or True,
     )
 
@@ -505,7 +505,7 @@ async def test_reset_modal_restart_failure_still_dismisses_truthy(
     succeeded (dismiss=True + cash restored). We log a warning via notify
     but don't fail the whole flow — the DB work is already committed.
     """
-    from scanner.core.monitor_store import upsert_event_monitor
+    from polily.core.monitor_store import upsert_event_monitor
 
     svc = _seed(tmp_path)
     upsert_event_monitor("e1", auto_monitor=True, db=svc.db)
@@ -515,11 +515,11 @@ async def test_reset_modal_restart_failure_still_dismisses_truthy(
         raise RuntimeError("launchctl load failed")
 
     monkeypatch.setattr(
-        "scanner.daemon.scheduler.restart_daemon", _boom,
+        "polily.daemon.scheduler.restart_daemon", _boom,
     )
     # Buy something so the reset has state to clear + we can observe rollback.
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)

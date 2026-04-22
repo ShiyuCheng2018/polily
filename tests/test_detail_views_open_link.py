@@ -15,11 +15,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.events import EventBus
-from scanner.scan_log import ScanLogEntry
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.core.events import EventBus
+from polily.scan_log import ScanLogEntry
+from polily.tui.service import PolilyService
 
 # ----------------- Shared fixtures -----------------
 
@@ -54,15 +54,15 @@ def svc_no_slug(tmp_path):
 
 
 async def test_score_result_has_o_open_link_binding(svc_with_slug):
-    from scanner.tui.views.score_result import ScoreResultView
+    from polily.tui.views.score_result import ScoreResultView
 
     keys = {b.key for b in ScoreResultView.BINDINGS}
     assert "o" in keys, f"`o` binding missing on ScoreResultView. Keys: {keys}"
 
 
 async def test_score_result_o_opens_polymarket_url(svc_with_slug):
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.score_result import ScoreResultView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.score_result import ScoreResultView
 
     app = PolilyApp(service=svc_with_slug)
     app._restart_daemon = lambda: None
@@ -79,8 +79,8 @@ async def test_score_result_o_opens_polymarket_url(svc_with_slug):
 
 
 async def test_score_result_o_without_slug_notifies(svc_no_slug, monkeypatch):
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.score_result import ScoreResultView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.score_result import ScoreResultView
 
     app = PolilyApp(service=svc_no_slug)
     app._restart_daemon = lambda: None
@@ -115,15 +115,15 @@ def _entry(event_id: str | None) -> ScanLogEntry:
 
 
 async def test_scan_log_detail_has_o_open_link_binding(svc_with_slug):
-    from scanner.tui.views.scan_log import ScanLogDetailView
+    from polily.tui.views.scan_log import ScanLogDetailView
 
     keys = {b.key for b in ScanLogDetailView.BINDINGS}
     assert "o" in keys, f"`o` binding missing on ScanLogDetailView. Keys: {keys}"
 
 
 async def test_scan_log_detail_o_opens_polymarket_url(svc_with_slug):
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogDetailView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogDetailView
 
     app = PolilyApp(service=svc_with_slug)
     app._restart_daemon = lambda: None
@@ -140,8 +140,8 @@ async def test_scan_log_detail_o_opens_polymarket_url(svc_with_slug):
 
 
 async def test_scan_log_detail_o_without_event_id_notifies(svc_with_slug, monkeypatch):
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogDetailView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogDetailView
 
     app = PolilyApp(service=svc_with_slug)
     app._restart_daemon = lambda: None

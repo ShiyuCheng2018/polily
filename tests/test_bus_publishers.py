@@ -16,9 +16,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.events import (
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.events import (
     TOPIC_MONITOR_UPDATED,
     TOPIC_POSITION_UPDATED,
     TOPIC_PRICE_UPDATED,
@@ -26,8 +26,8 @@ from scanner.core.events import (
     TOPIC_WALLET_UPDATED,
     EventBus,
 )
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.tui.service import PolilyService
+from polily.core.monitor_store import upsert_event_monitor
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -117,8 +117,8 @@ def test_toggle_monitor_publishes_monitor(svc):
 
 @pytest.mark.asyncio
 async def test_main_screen_heartbeat_publishes_all_bridge_topics(svc):
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.screens.main import MainScreen
+    from polily.tui.app import PolilyApp
+    from polily.tui.screens.main import MainScreen
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -145,8 +145,8 @@ async def test_main_screen_heartbeat_publishes_all_bridge_topics(svc):
 async def test_main_screen_installs_heartbeat_timer(svc):
     """Regression: on_mount must set the heartbeat interval (not just the
     poll heartbeat for daemon liveness)."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.screens.main import MainScreen
+    from polily.tui.app import PolilyApp
+    from polily.tui.screens.main import MainScreen
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -170,8 +170,8 @@ async def test_event_detail_price_handler_accepts_heartbeat(svc, monkeypatch):
 
     Pre-fix the handler returned early when `event_id` was absent; the
     daemon's heartbeat would have been silently dropped."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.event_detail import EventDetailView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -199,8 +199,8 @@ async def test_event_detail_price_handler_filters_missing_event_id_without_heart
     must be filtered (used to be treated as match-all via `event_id is None`).
     Prevents a future publisher that forgets event_id from silently refreshing
     every open EventDetailView."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.event_detail import EventDetailView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -233,8 +233,8 @@ async def test_event_detail_price_handler_still_filters_other_events(svc):
 
     Call the handler directly so MainScreen's match-all heartbeat doesn't
     pollute the signal we're verifying."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.event_detail import EventDetailView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -264,7 +264,7 @@ def test_dispatch_to_ui_falls_back_to_call_later_on_ui_thread():
     falls through to `call_later(0, fn)`."""
     from unittest.mock import MagicMock
 
-    from scanner.tui._dispatch import dispatch_to_ui
+    from polily.tui._dispatch import dispatch_to_ui
 
     app = MagicMock()
     app.call_from_thread.side_effect = RuntimeError(
@@ -282,7 +282,7 @@ def test_dispatch_to_ui_uses_call_from_thread_when_it_works():
     `call_later` must NOT be called — no double-dispatch."""
     from unittest.mock import MagicMock
 
-    from scanner.tui._dispatch import dispatch_to_ui
+    from polily.tui._dispatch import dispatch_to_ui
 
     app = MagicMock()
     # call_from_thread returns normally (default MagicMock behavior)
@@ -299,7 +299,7 @@ def test_dispatch_to_ui_generic_exception_is_logged_not_fatal():
     (which could double-dispatch) nor bubble up the exception."""
     from unittest.mock import MagicMock
 
-    from scanner.tui._dispatch import dispatch_to_ui
+    from polily.tui._dispatch import dispatch_to_ui
 
     app = MagicMock()
     app.call_from_thread.side_effect = ValueError("unexpected")

@@ -11,7 +11,7 @@ from collections.abc import Callable
 from textual.app import App, ComposeResult
 from textual.widgets import Input, Label, Static
 
-from scanner.tui.widgets.field_row import FieldRow
+from polily.tui.widgets.field_row import FieldRow
 
 
 class _Harness(App):

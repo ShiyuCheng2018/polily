@@ -3,9 +3,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.events import TOPIC_WALLET_UPDATED, EventBus
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.events import TOPIC_WALLET_UPDATED, EventBus
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -19,10 +19,10 @@ def svc(tmp_path):
 
 async def test_wallet_view_uses_atoms(svc):
     """Both PolilyCard AND PolilyZone must appear (balance=card, ledger=zone)."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.wallet import WalletView
-    from scanner.tui.widgets.polily_card import PolilyCard
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.wallet import WalletView
+    from polily.tui.widgets.polily_card import PolilyCard
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -41,8 +41,8 @@ async def test_wallet_view_chinese_labels_rendered(svc):
     """Labels appear in actual mounted widgets."""
     from textual.widgets import Label, Static
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.wallet import WalletView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.wallet import WalletView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -69,8 +69,8 @@ async def test_wallet_view_chinese_labels_rendered(svc):
 
 async def test_wallet_view_bus_callback_uses_call_from_thread(svc):
     """Publish TOPIC_WALLET_UPDATED; verify view's callback invokes call_from_thread."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.wallet import WalletView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.wallet import WalletView
 
     called = []
     app = PolilyApp(service=svc)
@@ -100,7 +100,7 @@ def test_wallet_view_bindings_match_sf4_decision():
     view declares its own `r` so the footer reliably shows it). Wallet
     reset moved to `shift+r` so the destructive op keeps a mnemonic key
     but requires a modifier."""
-    from scanner.tui.views.wallet import WalletView
+    from polily.tui.views.wallet import WalletView
     keys = {b.key: (b.show, b.action) for b in WalletView.BINDINGS}
     t = keys.get("t")
     w = keys.get("w")
@@ -118,8 +118,8 @@ async def test_wallet_view_has_no_redundant_keyhint_line(svc):
     """The '[t] 充值   [w] 提现   [r] 重置' Static was removed — footer
     already surfaces the keys. Checked by absence of the `.hint` class
     Static that previously held the line."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.wallet import WalletView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.wallet import WalletView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -137,9 +137,9 @@ async def test_wallet_balance_card_stable_ids_no_duplication_on_refresh(svc):
     """Regression: rapid _render_all calls (bus callbacks, heartbeat) must
     not leak KVRow / .wallet-dynamic widgets. Pre-fix the card used
     remove+remount which raced Textual's deferred removal."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.wallet import WalletView
-    from scanner.tui.widgets.kv_row import KVRow
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.wallet import WalletView
+    from polily.tui.widgets.kv_row import KVRow
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -175,14 +175,14 @@ def test_every_content_view_declares_visible_r_refresh():
     with show=True so the footer surfaces it uniformly. Intentionally
     page-level (not global): each view owns its refresh semantics, even
     though most already auto-update via EventBus."""
-    from scanner.tui.views.archived_events import ArchivedEventsView
-    from scanner.tui.views.event_detail import EventDetailView
-    from scanner.tui.views.history import HistoryView
-    from scanner.tui.views.monitor_list import MonitorListView
-    from scanner.tui.views.paper_status import PaperStatusView
-    from scanner.tui.views.scan_log import ScanLogDetailView, ScanLogView
-    from scanner.tui.views.score_result import ScoreResultView
-    from scanner.tui.views.wallet import WalletView
+    from polily.tui.views.archived_events import ArchivedEventsView
+    from polily.tui.views.event_detail import EventDetailView
+    from polily.tui.views.history import HistoryView
+    from polily.tui.views.monitor_list import MonitorListView
+    from polily.tui.views.paper_status import PaperStatusView
+    from polily.tui.views.scan_log import ScanLogDetailView, ScanLogView
+    from polily.tui.views.score_result import ScoreResultView
+    from polily.tui.views.wallet import WalletView
 
     views = [
         ArchivedEventsView, EventDetailView, HistoryView, MonitorListView,

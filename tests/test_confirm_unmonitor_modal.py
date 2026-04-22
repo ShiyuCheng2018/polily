@@ -24,7 +24,7 @@ class _Host(App):
 
 @pytest.mark.asyncio
 async def test_confirm_button_dismisses_true():
-    from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
+    from polily.tui.views.monitor_modals import ConfirmUnmonitorModal
 
     modal = ConfirmUnmonitorModal("US × Iran peace deal")
     app = _Host(modal)
@@ -38,7 +38,7 @@ async def test_confirm_button_dismisses_true():
 
 @pytest.mark.asyncio
 async def test_keep_monitoring_button_dismisses_false():
-    from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
+    from polily.tui.views.monitor_modals import ConfirmUnmonitorModal
 
     modal = ConfirmUnmonitorModal("US × Iran peace deal")
     app = _Host(modal)
@@ -52,7 +52,7 @@ async def test_keep_monitoring_button_dismisses_false():
 
 @pytest.mark.asyncio
 async def test_escape_dismisses_false():
-    from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
+    from polily.tui.views.monitor_modals import ConfirmUnmonitorModal
 
     modal = ConfirmUnmonitorModal("US × Iran peace deal")
     app = _Host(modal)
@@ -70,7 +70,7 @@ async def test_shows_event_title_in_prompt():
     they're about to stop monitoring."""
     from textual.widgets import Static
 
-    from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
+    from polily.tui.views.monitor_modals import ConfirmUnmonitorModal
 
     title = "US-Iran nuclear deal by April 30?"
     modal = ConfirmUnmonitorModal(title)

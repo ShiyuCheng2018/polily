@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scanner.core.config import PolilyConfig
-from scanner.core.models import BookLevel
-from scanner.scan.pipeline import enrich_with_orderbook
+from polily.core.config import PolilyConfig
+from polily.core.models import BookLevel
+from polily.scan.pipeline import enrich_with_orderbook
 from tests.conftest import make_market
 
 
@@ -47,7 +47,7 @@ class TestEnrichWithOrderbook:
             book_depth_asks=None,
         )
 
-        with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = _clob_result()
             config = PolilyConfig()
             enriched = await enrich_with_orderbook([market], config)
@@ -69,7 +69,7 @@ class TestEnrichWithOrderbook:
             best_ask_yes=None,
         )
 
-        with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = _clob_result(best_bid=0.54, best_ask=0.56, spread=0.02)
             config = PolilyConfig()
             enriched = await enrich_with_orderbook([market], config)
@@ -85,7 +85,7 @@ class TestEnrichWithOrderbook:
         market = make_market(market_id="m-neg", clob_token_id_yes="tok-neg",
                             book_depth_bids=None, book_depth_asks=None)
 
-        with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = _clob_result(
                 best_bid=0.54,    # from /price (correct)
                 best_ask=0.56,    # from /price (correct)
@@ -109,7 +109,7 @@ class TestEnrichWithOrderbook:
         market = make_market(market_id="m-fail", clob_token_id_yes="tok-fail",
                             book_depth_bids=None, book_depth_asks=None)
 
-        with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.side_effect = Exception("API error")
             config = PolilyConfig()
             enriched = await enrich_with_orderbook([market], config)
@@ -125,7 +125,7 @@ class TestEnrichWithOrderbook:
             for i in range(10)
         ]
 
-        with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = _clob_result()
             config = PolilyConfig()
             enriched = await enrich_with_orderbook(markets, config)
@@ -137,7 +137,7 @@ class TestEnrichWithOrderbook:
 
 class TestOrderBookIntegrationWithScoring:
     def test_market_with_depth_scores_higher_liquidity(self):
-        from scanner.scan.scoring import compute_structure_score
+        from polily.scan.scoring import compute_structure_score
 
         m_with_depth = make_market(
             best_bid_yes=0.54, best_ask_yes=0.56,
@@ -155,8 +155,8 @@ class TestOrderBookIntegrationWithScoring:
         assert s1.liquidity_structure > s2.liquidity_structure
 
     def test_depth_filter_rejects_shallow_book(self):
-        from scanner.core.config import FiltersConfig, HeuristicsConfig
-        from scanner.scan.filters import apply_hard_filters
+        from polily.core.config import FiltersConfig, HeuristicsConfig
+        from polily.scan.filters import apply_hard_filters
 
         m = make_market(
             book_depth_bids=[BookLevel(price=0.54, size=30)],

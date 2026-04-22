@@ -2,7 +2,7 @@
 """v0.8.0 Task 6: StatusBadge atom."""
 from textual.app import App, ComposeResult
 
-from scanner.tui.widgets.status_badge import StatusBadge
+from polily.tui.widgets.status_badge import StatusBadge
 
 
 class _Harness(App):

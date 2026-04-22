@@ -1,6 +1,6 @@
 """Menu 0 splits into 待办 / 历史 zones."""
-from scanner.scan_log import ScanLogEntry
-from scanner.tui.views.scan_log import _history, _upcoming
+from polily.scan_log import ScanLogEntry
+from polily.tui.views.scan_log import _history, _upcoming
 
 
 def _mk_row(status, scan_id="s1", started="2026-04-10T00:00:00+00:00"):

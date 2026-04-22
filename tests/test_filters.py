@@ -2,8 +2,8 @@
 
 from datetime import UTC, datetime
 
-from scanner.core.config import FiltersConfig, HeuristicsConfig
-from scanner.scan.filters import apply_hard_filters
+from polily.core.config import FiltersConfig, HeuristicsConfig
+from polily.scan.filters import apply_hard_filters
 from tests.conftest import make_market
 
 

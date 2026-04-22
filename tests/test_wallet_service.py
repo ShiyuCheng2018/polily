@@ -2,8 +2,8 @@
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.wallet import InsufficientFunds, WalletService
+from polily.core.db import PolilyDB
+from polily.core.wallet import InsufficientFunds, WalletService
 
 
 @pytest.fixture

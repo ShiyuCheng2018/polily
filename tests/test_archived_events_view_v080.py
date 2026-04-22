@@ -4,11 +4,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.events import EventBus
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.core.events import EventBus
+from polily.core.monitor_store import upsert_event_monitor
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -37,9 +37,9 @@ def svc(tmp_path):
 
 @pytest.mark.asyncio
 async def test_archived_events_uses_polily_zone(svc):
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.archived_events import ArchivedEventsView
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.archived_events import ArchivedEventsView
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -56,8 +56,8 @@ async def test_archived_events_uses_polily_zone(svc):
 async def test_archived_events_chinese_labels(svc):
     from textual.widgets import Static
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.archived_events import ArchivedEventsView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.archived_events import ArchivedEventsView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -81,8 +81,8 @@ async def test_archived_events_preserves_title(svc):
     """Q1: seeded event title should appear in the list."""
     from textual.widgets import DataTable, Static
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.archived_events import ArchivedEventsView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.archived_events import ArchivedEventsView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None

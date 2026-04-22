@@ -17,10 +17,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.tui.service import MonitorRequiredError, PolilyService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.monitor_store import upsert_event_monitor
+from polily.tui.service import MonitorRequiredError, PolilyService
 
 
 @pytest.fixture

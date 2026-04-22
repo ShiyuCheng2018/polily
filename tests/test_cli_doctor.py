@@ -2,7 +2,7 @@
 """v0.8.0 Task 13: `polily doctor` subcommand."""
 from typer.testing import CliRunner
 
-from scanner.cli import app
+from polily.cli import app
 
 runner = CliRunner()
 

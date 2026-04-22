@@ -13,11 +13,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import MarketRow, upsert_event, upsert_market
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.core.positions import DUST_SHARE_THRESHOLD, is_dust_position
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.event_store import MarketRow, upsert_event, upsert_market
+from polily.core.monitor_store import upsert_event_monitor
+from polily.core.positions import DUST_SHARE_THRESHOLD, is_dust_position
+from polily.tui.service import PolilyService
 from tests.conftest import make_event
 
 

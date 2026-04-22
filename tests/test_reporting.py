@@ -2,14 +2,14 @@
 
 import json
 
-from scanner.core.config import ScoringThresholds
-from scanner.scan.mispricing import MispricingResult
-from scanner.scan.reporting import (
+from polily.core.config import ScoringThresholds
+from polily.scan.mispricing import MispricingResult
+from polily.scan.reporting import (
     ScoredCandidate,
     classify_tiers,
     render_candidate_json,
 )
-from scanner.scan.scoring import ScoreBreakdown
+from polily.scan.scoring import ScoreBreakdown
 from tests.conftest import make_market
 
 

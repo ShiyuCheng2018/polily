@@ -17,10 +17,10 @@ from unittest.mock import MagicMock
 import pytest
 from textual.app import App, ComposeResult
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.monitor_store import get_event_monitor, upsert_event_monitor
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.monitor_store import get_event_monitor, upsert_event_monitor
+from polily.tui.service import PolilyService
 
 
 def _service():
@@ -67,7 +67,7 @@ class _Host(App):
 
 @pytest.mark.asyncio
 async def test_pressing_m_on_unmonitored_enables_silently():
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.views.event_detail import EventDetailView
 
     svc = _service()
     _seed(svc, with_position=False, monitored=False)
@@ -88,7 +88,7 @@ async def test_pressing_m_on_unmonitored_enables_silently():
 
 @pytest.mark.asyncio
 async def test_pressing_m_with_positions_is_blocked(monkeypatch):
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.views.event_detail import EventDetailView
 
     svc = _service()
     _seed(svc, with_position=True, monitored=True)
@@ -117,8 +117,8 @@ async def test_pressing_m_with_positions_is_blocked(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_pressing_m_without_positions_pushes_modal():
-    from scanner.tui.views.event_detail import EventDetailView
-    from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
+    from polily.tui.views.event_detail import EventDetailView
+    from polily.tui.views.monitor_modals import ConfirmUnmonitorModal
 
     svc = _service()
     _seed(svc, with_position=False, monitored=True)
@@ -142,7 +142,7 @@ async def test_pressing_m_without_positions_pushes_modal():
 @pytest.mark.asyncio
 async def test_modal_confirm_flips_monitor_off():
     """The dismiss callback — called with True — is what actually toggles."""
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.views.event_detail import EventDetailView
 
     svc = _service()
     _seed(svc, with_position=False, monitored=True)
@@ -163,7 +163,7 @@ async def test_modal_confirm_flips_monitor_off():
 
 @pytest.mark.asyncio
 async def test_modal_cancel_keeps_monitor_on():
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.views.event_detail import EventDetailView
 
     svc = _service()
     _seed(svc, with_position=False, monitored=True)

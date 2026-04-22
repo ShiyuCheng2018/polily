@@ -13,19 +13,19 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.events import (
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.events import (
     TOPIC_POSITION_UPDATED,
     TOPIC_PRICE_UPDATED,
     EventBus,
 )
-from scanner.core.monitor_store import upsert_event_monitor
+from polily.core.monitor_store import upsert_event_monitor
 
 
 def test_same_instance_three_rapid_calls_coalesce_to_one():
     """3 sync calls on the same instance within a tick → 1 execution."""
-    from scanner.tui._dispatch import once_per_tick
+    from polily.tui._dispatch import once_per_tick
 
     class View:
         def __init__(self):
@@ -55,7 +55,7 @@ def test_same_instance_three_rapid_calls_coalesce_to_one():
 
 def test_across_tick_boundary_allows_second_refresh():
     """After a tick runs, the next bus event schedules fresh."""
-    from scanner.tui._dispatch import once_per_tick
+    from polily.tui._dispatch import once_per_tick
 
     class View:
         def __init__(self):
@@ -86,7 +86,7 @@ def test_across_tick_boundary_allows_second_refresh():
 
 def test_different_instances_do_not_share_state():
     """Per-instance flag: view A's pending refresh must not block view B."""
-    from scanner.tui._dispatch import once_per_tick
+    from polily.tui._dispatch import once_per_tick
 
     class View:
         def __init__(self):
@@ -111,7 +111,7 @@ def test_different_instances_do_not_share_state():
 def test_worker_thread_path_also_coalesces():
     """From a worker thread dispatch goes through `call_from_thread` — the
     dedup flag must still apply before the scheduling call is made."""
-    from scanner.tui._dispatch import once_per_tick
+    from polily.tui._dispatch import once_per_tick
 
     class View:
         def __init__(self):
@@ -136,7 +136,7 @@ def test_worker_thread_path_also_coalesces():
 def test_decorator_preserves_method_name_and_docstring():
     """Smoke: functools.wraps should preserve the wrapped function's
     identity so debugger / traceback still shows the original name."""
-    from scanner.tui._dispatch import once_per_tick
+    from polily.tui._dispatch import once_per_tick
 
     class View:
         @once_per_tick
@@ -170,7 +170,7 @@ def svc(tmp_path):
         db,
     )
     upsert_event_monitor("ev1", auto_monitor=True, db=db)
-    from scanner.tui.service import PolilyService
+    from polily.tui.service import PolilyService
     yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
@@ -225,12 +225,12 @@ async def _assert_view_coalesces(
 async def test_monitor_list_coalesces_heartbeat_fan_out(svc, monkeypatch):
     """MonitorListView subscribes to 3 topics — heartbeat pre-fix fired
     _render_all 3×. Now coalesced to 1."""
-    from scanner.core.events import (
+    from polily.core.events import (
         TOPIC_MONITOR_UPDATED,
         TOPIC_PRICE_UPDATED,
         TOPIC_SCAN_UPDATED,
     )
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.views.monitor_list import MonitorListView
     await _assert_view_coalesces(
         svc, monkeypatch, MonitorListView,
         [TOPIC_MONITOR_UPDATED, TOPIC_PRICE_UPDATED, TOPIC_SCAN_UPDATED],
@@ -240,12 +240,12 @@ async def test_monitor_list_coalesces_heartbeat_fan_out(svc, monkeypatch):
 @pytest.mark.asyncio
 async def test_paper_status_coalesces_heartbeat_fan_out(svc, monkeypatch):
     """PaperStatusView subscribes to 3 topics (WALLET+POSITION+PRICE)."""
-    from scanner.core.events import (
+    from polily.core.events import (
         TOPIC_POSITION_UPDATED,
         TOPIC_PRICE_UPDATED,
         TOPIC_WALLET_UPDATED,
     )
-    from scanner.tui.views.paper_status import PaperStatusView
+    from polily.tui.views.paper_status import PaperStatusView
     await _assert_view_coalesces(
         svc, monkeypatch, PaperStatusView,
         [TOPIC_WALLET_UPDATED, TOPIC_POSITION_UPDATED, TOPIC_PRICE_UPDATED],
@@ -255,8 +255,8 @@ async def test_paper_status_coalesces_heartbeat_fan_out(svc, monkeypatch):
 @pytest.mark.asyncio
 async def test_wallet_coalesces_heartbeat_fan_out(svc, monkeypatch):
     """WalletView subscribes to 2 topics (WALLET+POSITION)."""
-    from scanner.core.events import TOPIC_POSITION_UPDATED, TOPIC_WALLET_UPDATED
-    from scanner.tui.views.wallet import WalletView
+    from polily.core.events import TOPIC_POSITION_UPDATED, TOPIC_WALLET_UPDATED
+    from polily.tui.views.wallet import WalletView
     await _assert_view_coalesces(
         svc, monkeypatch, WalletView,
         [TOPIC_WALLET_UPDATED, TOPIC_POSITION_UPDATED],
@@ -273,8 +273,8 @@ async def test_event_detail_coalesces_heartbeat_fan_out(svc, monkeypatch):
     Proof point: count how many times `app.call_later` is invoked with
     the decorator's `run` callable. Pre-fix: 2. Post-fix: 1.
     """
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.event_detail import EventDetailView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None

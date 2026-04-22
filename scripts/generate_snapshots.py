@@ -93,10 +93,10 @@ def _seed_full_fixture(db):
     Positions: 2 open.
     Analyses: 1 version on the primary event.
     """
-    from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-    from scanner.core.monitor_store import upsert_event_monitor
-    from scanner.analysis_store import AnalysisVersion, append_analysis
-    from scanner.scan_log import insert_pending_scan, finish_scan, _make_scan_id
+    from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+    from polily.core.monitor_store import upsert_event_monitor
+    from polily.analysis_store import AnalysisVersion, append_analysis
+    from polily.scan_log import insert_pending_scan, finish_scan, _make_scan_id
 
     # --- Events (3 live + 1 archived) ---
     ev_btc = EventRow(
@@ -350,7 +350,7 @@ def _seed_wallet_ledger(svc):
 def _seed_position(svc):
     """Seed one open BUY position via TradeEngine (mocked live price)."""
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.62,
     ):
         svc.execute_buy(market_id="m_btc_70k", side="yes", shares=20.0)
@@ -363,7 +363,7 @@ def _seed_realized_trade(svc):
     Realized P&L = (0.22 - 0.18) × 10 = $0.40 before fees
     """
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         side_effect=[0.18, 0.22],
     ):
         svc.execute_buy(market_id="m_iran", side="yes", shares=10.0)
@@ -375,9 +375,9 @@ def _seed_realized_trade(svc):
 # ---------------------------------------------------------------------------
 
 def _make_service(tmpdb_path: Path):
-    from scanner.core.db import PolilyDB
-    from scanner.core.events import EventBus
-    from scanner.tui.service import PolilyService
+    from polily.core.db import PolilyDB
+    from polily.core.events import EventBus
+    from polily.tui.service import PolilyService
 
     cfg = _make_cfg()
     db = PolilyDB(tmpdb_path)
@@ -391,8 +391,8 @@ def _make_service(tmpdb_path: Path):
 
 async def _capture_one(target: str, svc):
     """Capture one snapshot target. Returns (name, svg_path, error_or_None)."""
-    from scanner.tui.app import PolilyApp
-    import scanner.tui.screens.main as main_screen_mod
+    from polily.tui.app import PolilyApp
+    import polily.tui.screens.main as main_screen_mod
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -418,7 +418,7 @@ async def _capture_one(target: str, svc):
 
 async def _setup_target(app, pilot, target: str, svc):
     """Per-target navigation / mount steps."""
-    from scanner.tui.screens.main import MainScreen
+    from polily.tui.screens.main import MainScreen
 
     main = app.screen
     assert isinstance(main, MainScreen), f"expected MainScreen, got {type(main)}"
@@ -440,7 +440,7 @@ async def _setup_target(app, pilot, target: str, svc):
         return
 
     if target == "event_detail":
-        from scanner.tui.views.event_detail import EventDetailView
+        from polily.tui.views.event_detail import EventDetailView
         view = EventDetailView(event_id="ev_btc", service=svc)
         main._switch_view(view)
         await pilot.pause()
@@ -467,15 +467,15 @@ async def _setup_target(app, pilot, target: str, svc):
         return
 
     if target == "score_result":
-        from scanner.tui.views.score_result import ScoreResultView
+        from polily.tui.views.score_result import ScoreResultView
         view = ScoreResultView(event_id="ev_btc", service=svc)
         main._switch_view(view)
         await pilot.pause()
         return
 
     if target == "trade_dialog_buy":
-        from scanner.core.event_store import get_event_markets
-        from scanner.tui.views.trade_dialog import TradeDialog
+        from polily.core.event_store import get_event_markets
+        from polily.tui.views.trade_dialog import TradeDialog
         markets = get_event_markets("ev_btc", svc.db)
         dialog = TradeDialog("ev_btc", markets, svc, default_tab="buy")
         await app.push_screen(dialog)
@@ -483,8 +483,8 @@ async def _setup_target(app, pilot, target: str, svc):
         return
 
     if target == "trade_dialog_sell":
-        from scanner.core.event_store import get_event_markets
-        from scanner.tui.views.trade_dialog import TradeDialog
+        from polily.core.event_store import get_event_markets
+        from polily.tui.views.trade_dialog import TradeDialog
         markets = get_event_markets("ev_btc", svc.db)
         dialog = TradeDialog("ev_btc", markets, svc, default_tab="sell")
         await app.push_screen(dialog)
@@ -492,25 +492,25 @@ async def _setup_target(app, pilot, target: str, svc):
         return
 
     if target == "wallet_topup":
-        from scanner.tui.views.wallet_modals import TopupModal
+        from polily.tui.views.wallet_modals import TopupModal
         await app.push_screen(TopupModal(service=svc))
         await pilot.pause(0.4)
         return
 
     if target == "wallet_withdraw":
-        from scanner.tui.views.wallet_modals import WithdrawModal
+        from polily.tui.views.wallet_modals import WithdrawModal
         await app.push_screen(WithdrawModal(service=svc))
         await pilot.pause(0.4)
         return
 
     if target == "wallet_reset":
-        from scanner.tui.views.wallet_modals import WalletResetModal
+        from polily.tui.views.wallet_modals import WalletResetModal
         await app.push_screen(WalletResetModal(service=svc))
         await pilot.pause(0.4)
         return
 
     if target == "scan_modals_cancel":
-        from scanner.tui.views.scan_modals import ConfirmCancelScanModal
+        from polily.tui.views.scan_modals import ConfirmCancelScanModal
         await app.push_screen(ConfirmCancelScanModal(
             event_title="What price will Bitcoin hit in April?",
             elapsed_seconds=42.5,
@@ -519,7 +519,7 @@ async def _setup_target(app, pilot, target: str, svc):
         return
 
     if target == "monitor_modals_unmonitor":
-        from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
+        from polily.tui.views.monitor_modals import ConfirmUnmonitorModal
         await app.push_screen(ConfirmUnmonitorModal(
             "US-Iran nuclear deal by April 30?"
         ))

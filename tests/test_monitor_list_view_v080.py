@@ -5,11 +5,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from textual.widgets import DataTable, Static
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.events import TOPIC_MONITOR_UPDATED, EventBus
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.core.events import TOPIC_MONITOR_UPDATED, EventBus
+from polily.core.monitor_store import upsert_event_monitor
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -30,9 +30,9 @@ def svc(tmp_path):
 
 async def test_monitor_list_uses_polily_zones(svc):
     """Verify PolilyZone atoms are used in layout."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.monitor_list import MonitorListView
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.monitor_list import MonitorListView
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -47,8 +47,8 @@ async def test_monitor_list_uses_polily_zones(svc):
 
 async def test_monitor_list_chinese_labels(svc):
     """Core Chinese labels visible in rendered widgets."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.monitor_list import MonitorListView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -74,8 +74,8 @@ async def test_monitor_list_chinese_labels(svc):
 
 async def test_monitor_list_subscribes_to_monitor_updated(svc):
     """Publish TOPIC_MONITOR_UPDATED; verify view calls call_from_thread."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.monitor_list import MonitorListView
 
     called = []
     app = PolilyApp(service=svc)
@@ -109,8 +109,8 @@ async def test_monitor_list_subscribes_to_monitor_updated(svc):
 
 async def test_monitor_list_preserves_existing_fields(svc):
     """Q1 density: monitored events displayed with key fields intact."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.monitor_list import MonitorListView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None

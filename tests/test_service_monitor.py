@@ -23,8 +23,8 @@ def _seed_event_with_markets(db, *, event_id="e1", market_count=3):
 
 def test_query_events_returns_markets_summary(tmp_path):
     """_query_events must return a compact markets_summary dict per event."""
-    from scanner.core.db import PolilyDB
-    from scanner.tui.service import PolilyService
+    from polily.core.db import PolilyDB
+    from polily.tui.service import PolilyService
 
     db = PolilyDB(tmp_path / "t.db")
     _seed_event_with_markets(db, event_id="e1", market_count=3)
@@ -45,8 +45,8 @@ def test_query_events_reflects_market_state_changes(tmp_path):
     to consume on each tick."""
     from datetime import UTC, datetime, timedelta
 
-    from scanner.core.db import PolilyDB
-    from scanner.tui.service import PolilyService
+    from polily.core.db import PolilyDB
+    from polily.tui.service import PolilyService
 
     db = PolilyDB(tmp_path / "t.db")
     now = datetime.now(UTC)

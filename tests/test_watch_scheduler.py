@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.daemon.scheduler import WatchScheduler
+from polily.core.db import PolilyDB
+from polily.daemon.scheduler import WatchScheduler
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ class TestSchedulerCreation:
         ws.shutdown()
 
     def test_registers_global_poll_job(self, db):
-        with patch("scanner.daemon.scheduler.global_poll"):
+        with patch("polily.daemon.scheduler.global_poll"):
             ws = WatchScheduler(db)
             ws.start()
             jobs = ws.scheduler.get_jobs()
@@ -34,7 +34,7 @@ class TestSchedulerCreation:
             ws.shutdown()
 
     def test_global_poll_uses_poll_executor(self, db):
-        with patch("scanner.daemon.scheduler.global_poll"):
+        with patch("polily.daemon.scheduler.global_poll"):
             ws = WatchScheduler(db)
             ws.start()
             poll_job = ws.scheduler.get_job("global_poll")

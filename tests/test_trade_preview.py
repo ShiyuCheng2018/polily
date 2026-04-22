@@ -7,7 +7,7 @@ runs in <10ms per case.
 
 import pytest
 
-from scanner.tui.views._trade_preview import (
+from polily.tui.views._trade_preview import (
     compute_buy_preview,
     compute_sell_preview,
     shares_from_pct,

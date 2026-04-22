@@ -3,15 +3,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import (
+from polily.core.db import PolilyDB
+from polily.core.event_store import (
     EventRow,
     MarketRow,
     upsert_event,
     upsert_market,
 )
-from scanner.core.events import TOPIC_PRICE_UPDATED, EventBus
-from scanner.tui.service import PolilyService
+from polily.core.events import TOPIC_PRICE_UPDATED, EventBus
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -39,16 +39,16 @@ def svc(tmp_path):
 
 
 def _markets(svc):
-    from scanner.core.event_store import get_event_markets
+    from polily.core.event_store import get_event_markets
     return get_event_markets("ev1", svc.db)
 
 
 async def test_buy_pane_uses_atoms(svc):
     """BuyPane uses PolilyZone or PolilyCard for structured layout."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.trade_dialog import TradeDialog
-    from scanner.tui.widgets.polily_card import PolilyCard
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.trade_dialog import TradeDialog
+    from polily.tui.widgets.polily_card import PolilyCard
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -65,10 +65,10 @@ async def test_buy_pane_uses_atoms(svc):
 
 
 async def test_sell_pane_uses_atoms(svc):
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.trade_dialog import TradeDialog
-    from scanner.tui.widgets.polily_card import PolilyCard
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.trade_dialog import TradeDialog
+    from polily.tui.widgets.polily_card import PolilyCard
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -87,8 +87,8 @@ async def test_sell_pane_uses_atoms(svc):
 async def test_trade_dialog_chinese_labels(svc):
     from textual.widgets import Button, Static
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.trade_dialog import TradeDialog
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.trade_dialog import TradeDialog
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -114,8 +114,8 @@ async def test_trade_dialog_has_market_title_not_ids(svc):
     """Dialog must show market title text, never expose internal event_id / market_id."""
     from textual.widgets import Static
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.trade_dialog import TradeDialog
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.trade_dialog import TradeDialog
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -138,8 +138,8 @@ async def test_trade_dialog_has_market_title_not_ids(svc):
 
 async def test_trade_dialog_price_bus_subscription(svc):
     """Panes subscribe to TOPIC_PRICE_UPDATED; publishing triggers call_from_thread."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.trade_dialog import TradeDialog
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.trade_dialog import TradeDialog
 
     called: list[str] = []
     app = PolilyApp(service=svc)
@@ -182,8 +182,8 @@ async def test_trade_dialog_preserves_widget_ids(svc):
     """
     from textual.widgets import Button, Input
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.trade_dialog import BuyPane, TradeDialog
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.trade_dialog import BuyPane, TradeDialog
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None

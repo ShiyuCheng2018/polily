@@ -2,7 +2,7 @@
 from textual.app import App, ComposeResult
 from textual.widgets import Button
 
-from scanner.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
+from polily.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 
 
 class _Harness(App):

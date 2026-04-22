@@ -18,10 +18,10 @@ from unittest.mock import patch
 
 import pytest
 
-from scanner.core.config import PolilyConfig
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.tui.service import PolilyService
+from polily.core.config import PolilyConfig
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.tui.service import PolilyService
 
 
 def _svc(tmp_path) -> PolilyService:
@@ -37,7 +37,7 @@ def _svc(tmp_path) -> PolilyService:
         db,
     )
     # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
-    from scanner.core.monitor_store import upsert_event_monitor
+    from polily.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("e1", auto_monitor=True, db=db)
     return PolilyService(config=PolilyConfig(), db=db)
 
@@ -54,7 +54,7 @@ def test_realized_history_excludes_pure_buys(tmp_path):
     """A BUY alone doesn't realize P&L — must NOT show up in history."""
     svc = _svc(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)
@@ -66,12 +66,12 @@ def test_realized_history_returns_sell_row_with_fields(tmp_path):
     """Buy then full sell → history has 1 row with realized_pnl + fee."""
     svc = _svc(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.6,
     ):
         svc.execute_sell(market_id="m1", side="yes", shares=10.0)
@@ -96,18 +96,18 @@ def test_realized_history_orders_by_created_at_desc(tmp_path):
     svc = _svc(tmp_path)
     # First round-trip — oldest.
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.6,
     ):
         svc.execute_sell(market_id="m1", side="yes", shares=5.0)
     # Second partial sell — newest.
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.7,
     ):
         svc.execute_sell(market_id="m1", side="yes", shares=5.0)
@@ -121,11 +121,11 @@ def test_realized_history_orders_by_created_at_desc(tmp_path):
 
 def test_realized_history_includes_resolve_rows(tmp_path):
     """RESOLVE rows (from oracle settlement) must appear alongside SELL."""
-    from scanner.daemon.resolution import ResolutionHandler
+    from polily.daemon.resolution import ResolutionHandler
 
     svc = _svc(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)
@@ -159,16 +159,16 @@ def test_realized_summary_empty_state(tmp_path):
 def test_realized_summary_aggregates_sell_and_resolve(tmp_path):
     """Summary: count of realize events, sum of realized_pnl, sum of FEE rows
     (FEE is a separate row type but belongs to this scope conceptually)."""
-    from scanner.daemon.resolution import ResolutionHandler
+    from polily.daemon.resolution import ResolutionHandler
 
     svc = _svc(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.6,
     ):
         svc.execute_sell(market_id="m1", side="yes", shares=5.0)

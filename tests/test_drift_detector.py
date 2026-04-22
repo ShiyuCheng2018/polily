@@ -1,7 +1,7 @@
 """Tests for drift detection — rolling windows + CUSUM."""
 
 
-from scanner.monitor.drift import CusumAccumulator, build_price_history, check_rolling_windows
+from polily.monitor.drift import CusumAccumulator, build_price_history, check_rolling_windows
 
 
 class TestRollingWindows:
@@ -128,8 +128,8 @@ class TestCusum:
 
 class TestBuildPriceHistory:
     def test_builds_from_movement_log(self, tmp_path):
-        from scanner.core.db import PolilyDB
-        from scanner.monitor.store import append_movement
+        from polily.core.db import PolilyDB
+        from polily.monitor.store import append_movement
 
         db = PolilyDB(tmp_path / "test.db")
         for price in [0.50, 0.51, 0.52]:
@@ -146,7 +146,7 @@ class TestBuildPriceHistory:
         db.close()
 
     def test_empty_market(self, tmp_path):
-        from scanner.core.db import PolilyDB
+        from polily.core.db import PolilyDB
 
         db = PolilyDB(tmp_path / "test.db")
         history = build_price_history("nonexistent", db)
@@ -157,7 +157,7 @@ class TestBuildPriceHistory:
         """Gradual 12% drift over 4 hours triggers rolling window."""
         from datetime import UTC, datetime, timedelta
 
-        from scanner.core.db import PolilyDB
+        from polily.core.db import PolilyDB
 
         db = PolilyDB(tmp_path / "test.db")
         now = datetime.now(UTC)

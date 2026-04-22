@@ -8,9 +8,9 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import DataTable
 
-from scanner.core.db import PolilyDB
-from scanner.monitor.store import append_movement
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.monitor.store import append_movement
+from polily.tui.service import PolilyService
 from tests.conftest import make_event, setup_event_and_market
 
 
@@ -26,9 +26,9 @@ def _service() -> PolilyService:
 
 
 def _seed_monitored_event(service, event_id: str, title: str, score: float):
-    from scanner.core.event_store import upsert_event
-    from scanner.core.monitor_store import upsert_event_monitor
-    from scanner.scan_log import insert_pending_scan
+    from polily.core.event_store import upsert_event
+    from polily.core.monitor_store import upsert_event_monitor
+    from polily.scan_log import insert_pending_scan
 
     setup_event_and_market(
         service.db, event_id=event_id, market_id=f"m-{event_id}",
@@ -61,7 +61,7 @@ class _Host(App):
 
 @pytest.mark.asyncio
 async def test_columns_match_new_spec():
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.views.monitor_list import MonitorListView
 
     svc = _service()
     _seed_monitored_event(svc, "evA", "Event A", score=82.0)
@@ -84,8 +84,8 @@ async def test_columns_match_new_spec():
 
 @pytest.mark.asyncio
 async def test_renders_settlement_window_range_for_multi_market_event():
-    from scanner.core.event_store import MarketRow, upsert_market
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.core.event_store import MarketRow, upsert_market
+    from polily.tui.views.monitor_list import MonitorListView
 
     svc = _service()
     _seed_monitored_event(svc, "evA", "Event A", score=82.0)
@@ -117,7 +117,7 @@ async def test_renders_settlement_window_range_for_multi_market_event():
 
 @pytest.mark.asyncio
 async def test_renders_settlement_single_value_for_binary_event():
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.views.monitor_list import MonitorListView
 
     svc = _service()
     _seed_monitored_event(svc, "evA", "Event A", score=82.0)
@@ -142,7 +142,7 @@ async def test_renders_settlement_single_value_for_binary_event():
 
 @pytest.mark.asyncio
 async def test_renders_score_and_subcount_and_next_check():
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.views.monitor_list import MonitorListView
 
     svc = _service()
     _seed_monitored_event(svc, "evA", "US × Iran peace deal", score=82.0)
@@ -162,7 +162,7 @@ async def test_renders_score_and_subcount_and_next_check():
 
 @pytest.mark.asyncio
 async def test_renders_ai_version_dash_when_no_analyses():
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.views.monitor_list import MonitorListView
 
     svc = _service()
     _seed_monitored_event(svc, "evA", "Event A", score=82.0)
@@ -178,7 +178,7 @@ async def test_renders_ai_version_dash_when_no_analyses():
 
 @pytest.mark.asyncio
 async def test_renders_ai_version_with_count():
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.views.monitor_list import MonitorListView
 
     svc = _service()
     _seed_monitored_event(svc, "evA", "Event A", score=82.0)
@@ -201,7 +201,7 @@ async def test_renders_ai_version_with_count():
 
 @pytest.mark.asyncio
 async def test_renders_movement_label():
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.views.monitor_list import MonitorListView
 
     svc = _service()
     _seed_monitored_event(svc, "evA", "Event A", score=82.0)
@@ -228,8 +228,8 @@ async def test_renders_movement_label():
 async def test_toggle_monitor_blocked_by_positions():
     """Watchlist `m` must obey the same guard as MarketDetail: a monitored
     event with open positions cannot be unmonitored."""
-    from scanner.core.monitor_store import get_event_monitor
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.core.monitor_store import get_event_monitor
+    from polily.tui.views.monitor_list import MonitorListView
 
     svc = _service()
     _seed_monitored_event(svc, "evA", "Event A", score=82.0)
@@ -273,9 +273,9 @@ async def test_toggle_monitor_blocked_by_positions():
 @pytest.mark.asyncio
 async def test_toggle_monitor_pushes_modal_when_no_positions():
     """No positions → modal appears, toggle only fires on confirm-dismiss."""
-    from scanner.core.monitor_store import get_event_monitor
-    from scanner.tui.views.monitor_list import MonitorListView
-    from scanner.tui.views.monitor_modals import ConfirmUnmonitorModal
+    from polily.core.monitor_store import get_event_monitor
+    from polily.tui.views.monitor_list import MonitorListView
+    from polily.tui.views.monitor_modals import ConfirmUnmonitorModal
 
     svc = _service()
     _seed_monitored_event(svc, "evA", "Event A", score=82.0)
@@ -315,7 +315,7 @@ async def test_toggle_monitor_pushes_modal_when_no_positions():
 
 @pytest.mark.asyncio
 async def test_movement_dash_when_no_movement():
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.views.monitor_list import MonitorListView
 
     svc = _service()
     _seed_monitored_event(svc, "evA", "Event A", score=82.0)

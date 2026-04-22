@@ -1,9 +1,9 @@
 """v0.8.0 Task 8: EmptyState / LoadingState / SectionHeader."""
 from textual.app import App, ComposeResult
 
-from scanner.tui.widgets.empty_state import EmptyState
-from scanner.tui.widgets.loading_state import LoadingState
-from scanner.tui.widgets.section_header import SectionHeader
+from polily.tui.widgets.empty_state import EmptyState
+from polily.tui.widgets.loading_state import LoadingState
+from polily.tui.widgets.section_header import SectionHeader
 
 
 class _Harness(App):

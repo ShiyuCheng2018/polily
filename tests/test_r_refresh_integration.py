@@ -10,12 +10,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.events import EventBus
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.scan_log import insert_pending_scan
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.events import EventBus
+from polily.core.monitor_store import upsert_event_monitor
+from polily.scan_log import insert_pending_scan
+from polily.tui.service import PolilyService
 
 
 def _service_with_event():
@@ -47,8 +47,8 @@ def _service_with_event():
 
 @pytest.mark.asyncio
 async def test_r_refresh_does_not_crash_event_detail():
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.event_detail import EventDetailView
 
     svc = _service_with_event()
     app = PolilyApp(service=svc)
@@ -65,8 +65,8 @@ async def test_r_refresh_does_not_crash_event_detail():
 
 @pytest.mark.asyncio
 async def test_r_refresh_does_not_crash_score_result():
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.score_result import ScoreResultView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.score_result import ScoreResultView
 
     svc = _service_with_event()
     app = PolilyApp(service=svc)
@@ -83,8 +83,8 @@ async def test_r_refresh_does_not_crash_score_result():
 
 @pytest.mark.asyncio
 async def test_r_refresh_does_not_crash_scan_log_list():
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogView
 
     svc = _service_with_event()
     insert_pending_scan(
@@ -106,8 +106,8 @@ async def test_r_refresh_does_not_crash_scan_log_list():
 
 @pytest.mark.asyncio
 async def test_r_refresh_does_not_crash_scan_log_detail():
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogDetailView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogDetailView
 
     svc = _service_with_event()
     insert_pending_scan(
@@ -116,7 +116,7 @@ async def test_r_refresh_does_not_crash_scan_log_detail():
         trigger_source="manual", scheduled_reason="test",
         db=svc.db,
     )
-    from scanner.scan_log import load_scan_logs
+    from polily.scan_log import load_scan_logs
     entry = load_scan_logs(svc.db)[0]
 
     app = PolilyApp(service=svc)
@@ -133,8 +133,8 @@ async def test_r_refresh_does_not_crash_scan_log_detail():
 
 @pytest.mark.asyncio
 async def test_r_refresh_does_not_crash_wallet():
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.wallet import WalletView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.wallet import WalletView
 
     svc = _service_with_event()
     app = PolilyApp(service=svc)
@@ -151,8 +151,8 @@ async def test_r_refresh_does_not_crash_wallet():
 
 @pytest.mark.asyncio
 async def test_r_refresh_does_not_crash_monitor_list():
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.monitor_list import MonitorListView
 
     svc = _service_with_event()
     app = PolilyApp(service=svc)
@@ -169,8 +169,8 @@ async def test_r_refresh_does_not_crash_monitor_list():
 
 @pytest.mark.asyncio
 async def test_r_refresh_does_not_crash_paper_status():
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.paper_status import PaperStatusView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.paper_status import PaperStatusView
 
     svc = _service_with_event()
     app = PolilyApp(service=svc)
@@ -187,8 +187,8 @@ async def test_r_refresh_does_not_crash_paper_status():
 
 @pytest.mark.asyncio
 async def test_r_refresh_does_not_crash_history():
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.history import HistoryView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.history import HistoryView
 
     svc = _service_with_event()
     app = PolilyApp(service=svc)
@@ -212,8 +212,8 @@ async def test_r_refresh_repeated_does_not_duplicate_tables_monitor():
     new mount and tripped DuplicateIds('monitor-table')."""
     from textual.widgets import DataTable
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.monitor_list import MonitorListView
 
     svc = _service_with_event()
     app = PolilyApp(service=svc)
@@ -235,8 +235,8 @@ async def test_r_refresh_repeated_does_not_duplicate_tables_monitor():
 @pytest.mark.asyncio
 async def test_r_refresh_repeated_does_not_duplicate_tables_scan_log():
     """Same regression for ScanLogView — both pending and history tables."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogView
 
     svc = _service_with_event()
     insert_pending_scan(
@@ -265,7 +265,7 @@ async def test_r_refresh_repeated_does_not_duplicate_tables_scan_log():
 async def test_r_refresh_in_real_main_screen_flow():
     """Realistic flow: start the full app, navigate via sidebar, press `r`
     multiple times. Closer to the interactive crash the user hit."""
-    from scanner.tui.app import PolilyApp
+    from polily.tui.app import PolilyApp
 
     svc = _service_with_event()
     app = PolilyApp(service=svc)
@@ -285,8 +285,8 @@ async def test_r_refresh_in_real_main_screen_flow():
 
 @pytest.mark.asyncio
 async def test_r_refresh_does_not_crash_archived():
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.archived_events import ArchivedEventsView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.archived_events import ArchivedEventsView
 
     svc = _service_with_event()
     app = PolilyApp(service=svc)

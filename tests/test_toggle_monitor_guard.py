@@ -10,10 +10,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.monitor_store import get_event_monitor, upsert_event_monitor
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.monitor_store import get_event_monitor, upsert_event_monitor
+from polily.tui.service import PolilyService
 
 
 def _service() -> PolilyService:
@@ -55,7 +55,7 @@ def _seed_open_event_no_position(svc, event_id="ev1", market_id="m1"):
 
 class TestTogglePositionGuard:
     def test_disable_with_position_raises(self):
-        from scanner.tui.service import ActivePositionsError
+        from polily.tui.service import ActivePositionsError
 
         svc = _service()
         _seed_open_event_with_position(svc)

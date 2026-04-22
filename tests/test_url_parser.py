@@ -1,6 +1,6 @@
 """Tests for Polymarket URL parsing."""
 
-from scanner.url_parser import parse_polymarket_url
+from polily.url_parser import parse_polymarket_url
 
 
 class TestParsePolymarketUrl:

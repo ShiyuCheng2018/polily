@@ -3,11 +3,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.scan_log import insert_pending_scan
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.core.monitor_store import upsert_event_monitor
+from polily.scan_log import insert_pending_scan
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture

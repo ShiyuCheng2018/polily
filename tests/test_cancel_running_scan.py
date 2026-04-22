@@ -3,16 +3,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.scan_log import claim_pending_scan, insert_pending_scan
-from scanner.tui.service import PolilyService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.scan_log import claim_pending_scan, insert_pending_scan
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture(autouse=True)
 def _clear_registry():
     """Reset narrator_registry between tests — module-level state."""
-    from scanner.agents import narrator_registry
+    from polily.agents import narrator_registry
     narrator_registry._active.clear()
     yield
     narrator_registry._active.clear()
@@ -30,7 +30,7 @@ def svc(tmp_path):
 
 
 def test_cancel_running_scan_kills_narrator_and_marks_row(svc):
-    from scanner.agents import narrator_registry
+    from polily.agents import narrator_registry
     narrator = MagicMock()
     sid = insert_pending_scan(
         event_id="ev1", event_title="Test",

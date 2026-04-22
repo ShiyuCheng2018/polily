@@ -8,12 +8,12 @@ from unittest.mock import patch
 
 import pytest
 
-from scanner.core.config import PolilyConfig
-from scanner.core.db import PolilyDB
-from scanner.core.positions import PositionManager
-from scanner.core.trade_engine import TradeEngine
-from scanner.core.wallet import WalletService
-from scanner.tui.service import PolilyService
+from polily.core.config import PolilyConfig
+from polily.core.db import PolilyDB
+from polily.core.positions import PositionManager
+from polily.core.trade_engine import TradeEngine
+from polily.core.wallet import WalletService
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def svc(tmp_path):
         """
     )
     # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
-    from scanner.core.monitor_store import upsert_event_monitor
+    from polily.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("e1", auto_monitor=True, db=db)
     db.conn.commit()
     return PolilyService(config=PolilyConfig(), db=db)
@@ -36,7 +36,7 @@ def svc(tmp_path):
 
 def _mock_price(value: float):
     return patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=value,
     )
 

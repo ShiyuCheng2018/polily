@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scanner.analysis_store import get_event_analyses
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, get_event, upsert_event, upsert_market
-from scanner.tui.service import PolilyService
+from polily.analysis_store import get_event_analyses
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, get_event, upsert_event, upsert_market
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -20,7 +20,7 @@ def db(tmp_path):
 
 @pytest.fixture
 def service(db):
-    from scanner.core.config import PolilyConfig
+    from polily.core.config import PolilyConfig
     config = PolilyConfig()
     return PolilyService(config=config, db=db)
 
@@ -59,7 +59,7 @@ def _seed(db, event_id="ev1", market_id="m1", **event_kw):
     ), db)
 
     # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
-    from scanner.core.monitor_store import upsert_event_monitor
+    from polily.core.monitor_store import upsert_event_monitor
     upsert_event_monitor(event_id, auto_monitor=True, db=db)
 
 
@@ -99,7 +99,7 @@ class TestGetEventDetail:
         from unittest.mock import patch as _patch
         _seed(db, "ev1", "m1")
         with _patch(
-            "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+            "polily.core.trade_engine.TradeEngine._fetch_live_price",
             return_value=0.79,
         ):
             service.execute_buy(market_id="m1", side="no", shares=10.0)
@@ -137,7 +137,7 @@ class TestComputePositionContext:
         from unittest.mock import patch as _patch
         _seed(db, "ev1", "m1")
         with _patch(
-            "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+            "polily.core.trade_engine.TradeEngine._fetch_live_price",
             return_value=0.50,
         ):
             service.execute_buy(market_id="m1", side="no", shares=10.0)
@@ -176,7 +176,7 @@ class TestPaperTrades:
         """execute_buy creates a position surfaced by get_open_trades (post-v0.6.0)."""
         _seed(db, "ev1", "m1")
         with patch(
-            "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+            "polily.core.trade_engine.TradeEngine._fetch_live_price",
             return_value=0.55,
         ):
             service.execute_buy(market_id="m1", side="yes", shares=10.0)
@@ -188,12 +188,12 @@ class TestPaperTrades:
 class TestAnalyzeEvent:
     def test_analyze_saves_to_db(self, db, service):
         _seed(db, "ev1", "m1")
-        from scanner.agents.schemas import NarrativeWriterOutput
+        from polily.agents.schemas import NarrativeWriterOutput
         mock_output = NarrativeWriterOutput(
             event_id="ev1", summary="test analysis", action="WATCH",
             next_check_at="2026-04-15T12:00:00", next_check_reason="test",
         )
-        with patch("scanner.tui.service.NarrativeWriterAgent") as MockAgent:
+        with patch("polily.tui.service.NarrativeWriterAgent") as MockAgent:
             instance = MockAgent.return_value
             instance.generate = AsyncMock(return_value=mock_output)
             asyncio.run(service.analyze_event("ev1"))
@@ -215,9 +215,9 @@ class TestAnalyzeEvent:
         tricking `analyze_event` into the success path.
         """
         _seed(db, "ev1", "m1")
-        from scanner.scan_log import load_scan_logs
+        from polily.scan_log import load_scan_logs
 
-        with patch("scanner.tui.service.NarrativeWriterAgent") as MockAgent:
+        with patch("polily.tui.service.NarrativeWriterAgent") as MockAgent:
             instance = MockAgent.return_value
             instance.generate = AsyncMock(
                 side_effect=RuntimeError("claude CLI timed out"),

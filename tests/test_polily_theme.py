@@ -1,6 +1,6 @@
 # tests/test_polily_theme.py
 """v0.8.0 Task 3: polily-dark theme registers correctly and is default."""
-from scanner.tui.app import PolilyApp
+from polily.tui.app import PolilyApp
 
 
 async def test_polily_dark_is_registered_and_default():

@@ -4,9 +4,9 @@ from unittest.mock import patch
 
 import pytest
 
-from scanner.core.config import PolilyConfig
-from scanner.core.db import PolilyDB
-from scanner.scan.pipeline import fetch_and_score_event
+from polily.core.config import PolilyConfig
+from polily.core.db import PolilyDB
+from polily.scan.pipeline import fetch_and_score_event
 
 
 @pytest.fixture
@@ -52,9 +52,9 @@ class TestFetchAndScoreEvent:
     @pytest.mark.asyncio
     async def test_returns_scored_result(self, db):
         """Should fetch event by slug, score it, persist to DB."""
-        with patch("scanner.scan.pipeline._fetch_event_by_slug") as mock_fetch, \
-             patch("scanner.scan.pipeline.enrich_with_orderbook") as mock_enrich, \
-             patch("scanner.scan.pipeline._fetch_price_params_batch") as mock_prices:
+        with patch("polily.scan.pipeline._fetch_event_by_slug") as mock_fetch, \
+             patch("polily.scan.pipeline.enrich_with_orderbook") as mock_enrich, \
+             patch("polily.scan.pipeline._fetch_price_params_batch") as mock_prices:
             mock_fetch.return_value = SAMPLE_GAMMA_EVENT
             mock_enrich.side_effect = lambda markets, config: markets
             mock_prices.return_value = {}
@@ -68,23 +68,23 @@ class TestFetchAndScoreEvent:
 
     @pytest.mark.asyncio
     async def test_not_found_returns_none(self, db):
-        with patch("scanner.scan.pipeline._fetch_event_by_slug") as mock_fetch:
+        with patch("polily.scan.pipeline._fetch_event_by_slug") as mock_fetch:
             mock_fetch.return_value = None
             result = await fetch_and_score_event("nonexistent-slug", config=PolilyConfig(), db=db)
         assert result is None
 
     @pytest.mark.asyncio
     async def test_persists_event_and_markets_to_db(self, db):
-        with patch("scanner.scan.pipeline._fetch_event_by_slug") as mock_fetch, \
-             patch("scanner.scan.pipeline.enrich_with_orderbook") as mock_enrich, \
-             patch("scanner.scan.pipeline._fetch_price_params_batch") as mock_prices:
+        with patch("polily.scan.pipeline._fetch_event_by_slug") as mock_fetch, \
+             patch("polily.scan.pipeline.enrich_with_orderbook") as mock_enrich, \
+             patch("polily.scan.pipeline._fetch_price_params_batch") as mock_prices:
             mock_fetch.return_value = SAMPLE_GAMMA_EVENT
             mock_enrich.side_effect = lambda markets, config: markets
             mock_prices.return_value = {}
 
             await fetch_and_score_event("bitcoin-above-on-april-16", config=PolilyConfig(), db=db)
 
-        from scanner.core.event_store import get_event, get_event_markets
+        from polily.core.event_store import get_event, get_event_markets
         event = get_event("361227", db)
         assert event is not None
         markets = get_event_markets("361227", db)

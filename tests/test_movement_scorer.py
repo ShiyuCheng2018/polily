@@ -1,8 +1,8 @@
 import pytest
 
-from scanner.core.config import MovementConfig
-from scanner.monitor.models import MovementResult, MovementSignals
-from scanner.monitor.scorer import compute_movement_score
+from polily.core.config import MovementConfig
+from polily.monitor.models import MovementResult, MovementSignals
+from polily.monitor.scorer import compute_movement_score
 
 
 def test_all_zeros():

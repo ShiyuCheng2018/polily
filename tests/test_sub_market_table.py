@@ -34,7 +34,7 @@ def test_settlement_cell_trading_exact_countdown():
     like "3天" would break after wall-clock drift. Keep the date portion
     (wall-clock independent) as the only brittle-free assertion.
     """
-    from scanner.tui.components.sub_market_table import _settlement_cell_text
+    from polily.tui.components.sub_market_table import _settlement_cell_text
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     future = (now + timedelta(days=3)).isoformat()
     m = _mk_market(closed=0, end_date=future)
@@ -47,7 +47,7 @@ def test_settlement_cell_trading_exact_countdown():
 
 
 def test_settlement_cell_pending_settlement_exact_label():
-    from scanner.tui.components.sub_market_table import _settlement_cell_text
+    from polily.tui.components.sub_market_table import _settlement_cell_text
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     past = (now - timedelta(hours=1)).isoformat()
     m = _mk_market(closed=0, end_date=past)
@@ -56,7 +56,7 @@ def test_settlement_cell_pending_settlement_exact_label():
 
 def test_settlement_cell_settling_exact_label():
     """closed=1, resolved_outcome=None → SETTLING."""
-    from scanner.tui.components.sub_market_table import _settlement_cell_text
+    from polily.tui.components.sub_market_table import _settlement_cell_text
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     m = _mk_market(closed=1, resolved_outcome=None)
     assert _settlement_cell_text(m, now=now) == "[结算中]"
@@ -64,7 +64,7 @@ def test_settlement_cell_settling_exact_label():
 
 def test_settlement_cell_settled_exact_label():
     """closed=1, resolved_outcome='no' → SETTLED (no winner suffix in cell — column is narrow)."""
-    from scanner.tui.components.sub_market_table import _settlement_cell_text
+    from polily.tui.components.sub_market_table import _settlement_cell_text
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     m = _mk_market(closed=1, resolved_outcome="no")
     assert _settlement_cell_text(m, now=now) == "[已结算]"
