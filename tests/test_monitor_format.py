@@ -184,3 +184,61 @@ class TestFormatMovement:
         from scanner.tui.monitor_format import format_movement
 
         assert format_movement("mystery", magnitude=0, quality=0) == "—"
+
+
+# ---------------------------------------------------------------------------
+# format_event_settlement
+# ---------------------------------------------------------------------------
+
+def _mk_summary(*, closed=0, end_date=None, resolved_outcome=None):
+    """Minimal market summary dict — mirrors _query_events output."""
+    return {
+        "closed": closed,
+        "end_date": end_date,
+        "resolved_outcome": resolved_outcome,
+    }
+
+
+def test_format_event_settlement_active_uses_range():
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import MagicMock
+
+    from scanner.tui.monitor_format import format_event_settlement
+
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    near = (now + timedelta(days=3)).isoformat()
+    far = (now + timedelta(days=40)).isoformat()
+    event = MagicMock()
+    event.closed = 0
+    event.end_date = far
+    summaries = [_mk_summary(end_date=near), _mk_summary(end_date=far)]
+    out = format_event_settlement(event, summaries, now=now)
+    assert "天" in out
+    assert "待" not in out
+
+
+def test_format_event_settlement_awaiting_full():
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import MagicMock
+
+    from scanner.tui.monitor_format import format_event_settlement
+
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    past = (now - timedelta(hours=1)).isoformat()
+    event = MagicMock()
+    event.closed = 0
+    event.end_date = past
+    summaries = [_mk_summary(closed=1, resolved_outcome=None)]  # SETTLING
+    assert format_event_settlement(event, summaries, now=now) == "待全部结算"
+
+
+def test_format_event_settlement_resolved():
+    from unittest.mock import MagicMock
+
+    from scanner.tui.monitor_format import format_event_settlement
+
+    event = MagicMock()
+    event.closed = 1
+    event.end_date = None
+    summaries = [_mk_summary(closed=1, resolved_outcome="no")]
+    assert format_event_settlement(event, summaries) == "已结算"

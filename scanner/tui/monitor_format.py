@@ -109,6 +109,34 @@ def format_ai_version(count: int | None) -> str:
     return f"v{count}"
 
 
+def format_event_settlement(event, market_summaries: list, *, now=None) -> str:
+    """Event-level settlement cell for monitor_list / archived views.
+
+    ACTIVE                   → range via format_settlement_range over active children
+    AWAITING_FULL_SETTLEMENT → '待全部结算'
+    RESOLVED                 → '已结算'
+
+    market_summaries is a list of dicts (from ScanService._query_events)
+    with shape {closed, end_date, resolved_outcome}. Wraps each dict in a
+    SimpleNamespace so market_state() can do attribute access.
+    """
+    from types import SimpleNamespace
+
+    from scanner.core.lifecycle import EventState, event_state
+
+    markets = [SimpleNamespace(**s) for s in market_summaries]
+    state = event_state(event, markets, now=now)
+    if state == EventState.RESOLVED:
+        return "已结算"
+    if state == EventState.AWAITING_FULL_SETTLEMENT:
+        return "待全部结算"
+
+    ends = [m.end_date for m in markets if not int(m.closed or 0) and m.end_date]
+    if not ends:
+        return _DASH
+    return format_settlement_range(min(ends), max(ends))
+
+
 def format_movement(label: str | None, magnitude: float, quality: float) -> str:
     """Format movement status cell, e.g. '[green]平静[/green] M:31 Q:31'.
 
