@@ -83,7 +83,7 @@ def _binary_breadcrumb(market, *, now: datetime | None = None) -> str:
     return chain
 
 
-def _multi_event_settlement_label(event, markets, *, now=None) -> str:
+def _multi_event_settlement_label(event, markets, *, now: datetime | None = None) -> str:
     """EventHeader '结算:' label for multi-market events.
 
     ACTIVE                   → format_countdown(event.end_date) (current behavior)

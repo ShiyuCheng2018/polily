@@ -107,7 +107,7 @@ class ScoreResultView(Widget):
 
             # Zone: 事件信息 (header + KPI row)
             with PolilyZone(title=f"{ICON_EVENT} 事件信息", id="event-info-zone"):
-                yield EventHeader(event, monitor)
+                yield EventHeader(event, monitor, markets=markets)
                 yield EventKpiRow(event, markets)
 
             # Zone: 市场 — binary events show the structure panel (same as
