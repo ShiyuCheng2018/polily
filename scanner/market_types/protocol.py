@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from scanner.core.config import ScannerConfig
+    from scanner.core.config import PolilyConfig
     from scanner.core.models import Market
     from scanner.scan.mispricing import MispricingResult
 
@@ -30,10 +30,10 @@ class DataEnrichmentModule(Protocol):
         """Whether this module should enrich this market."""
         ...
 
-    async def fetch_price_params(self, market: Market, config: ScannerConfig) -> dict | None:
+    async def fetch_price_params(self, market: Market, config: PolilyConfig) -> dict | None:
         """Fetch external price data for mispricing detection."""
         ...
 
-    def detect_mispricing(self, market: Market, price_params: dict, config: ScannerConfig) -> MispricingResult | None:
+    def detect_mispricing(self, market: Market, price_params: dict, config: PolilyConfig) -> MispricingResult | None:
         """Custom mispricing detection using fetched data."""
         ...

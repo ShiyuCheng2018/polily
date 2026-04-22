@@ -270,24 +270,24 @@ class MovementConfig(BaseModel):
     }
 
 
-class ScannerConfig(BaseModel):
+class PolilyConfig(BaseModel):
     """Top-level config model.
 
     Can be constructed programmatically:
-        config = ScannerConfig()  # all defaults
-        config = ScannerConfig(discipline=DisciplineConfig(account_size_usd=100))
-        config = ScannerConfig.from_dict({"discipline": {"account_size_usd": 100}})
+        config = PolilyConfig()  # all defaults
+        config = PolilyConfig(discipline=DisciplineConfig(account_size_usd=100))
+        config = PolilyConfig.from_dict({"discipline": {"account_size_usd": 100}})
     """
 
     model_config = ConfigDict(extra="ignore")
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ScannerConfig":
+    def from_dict(cls, data: dict) -> "PolilyConfig":
         """Construct from a plain dict (merges with defaults)."""
         return cls.model_validate(data)
 
     @classmethod
-    def from_defaults(cls) -> "ScannerConfig":
+    def from_defaults(cls) -> "PolilyConfig":
         """Construct with all default values."""
         return cls()
 
@@ -312,7 +312,7 @@ class ScannerConfig(BaseModel):
 def load_config(
     path: Path,
     defaults_path: Path | None = None,
-) -> ScannerConfig:
+) -> PolilyConfig:
     """Load config from YAML, optionally merging with defaults."""
     if defaults_path is not None:
         with open(defaults_path) as f:
@@ -323,4 +323,4 @@ def load_config(
     else:
         with open(path) as f:
             merged = yaml.safe_load(f) or {}
-    return ScannerConfig.model_validate(merged)
+    return PolilyConfig.model_validate(merged)

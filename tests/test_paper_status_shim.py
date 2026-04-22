@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from scanner.core.config import ScannerConfig
+from scanner.core.config import PolilyConfig
 from scanner.core.db import PolilyDB
 from scanner.tui.service import PolilyService
 
@@ -32,7 +32,7 @@ def svc(tmp_path):
     from scanner.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("e1", auto_monitor=True, db=db)
     db.conn.commit()
-    return PolilyService(config=ScannerConfig(), db=db)
+    return PolilyService(config=PolilyConfig(), db=db)
 
 
 def _mock_price(value: float):

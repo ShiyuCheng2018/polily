@@ -5,7 +5,7 @@ Public API for programmatic use (without CLI).
 
 __version__ = "0.8.5"
 
-from scanner.core.config import ScannerConfig, load_config
+from scanner.core.config import PolilyConfig, load_config
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow
 from scanner.core.models import BookLevel, Market
@@ -16,7 +16,7 @@ from scanner.scan.scoring import ScoreBreakdown, compute_structure_score
 
 __all__ = [
     # Core types
-    "Market", "BookLevel", "ScannerConfig", "load_config", "PolilyDB",
+    "Market", "BookLevel", "PolilyConfig", "load_config", "PolilyDB",
     # Event-first schema
     "EventRow", "MarketRow",
     # Pipeline

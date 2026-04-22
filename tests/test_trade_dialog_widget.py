@@ -15,7 +15,7 @@ import pytest
 from textual.app import App
 from textual.widgets import Button, Input, Static
 
-from scanner.core.config import ScannerConfig
+from scanner.core.config import PolilyConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
 from scanner.tui.service import PolilyService
@@ -48,7 +48,7 @@ def _seed(
     # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
     from scanner.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("e1", auto_monitor=True, db=db)
-    return PolilyService(config=ScannerConfig(), db=db)
+    return PolilyService(config=PolilyConfig(), db=db)
 
 
 class _Host(App):

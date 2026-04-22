@@ -20,8 +20,8 @@ def db(tmp_path):
 
 @pytest.fixture
 def service(db):
-    from scanner.core.config import ScannerConfig
-    config = ScannerConfig()
+    from scanner.core.config import PolilyConfig
+    config = PolilyConfig()
     return PolilyService(config=config, db=db)
 
 

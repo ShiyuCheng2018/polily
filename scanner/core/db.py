@@ -360,7 +360,7 @@ class PolilyDB:
         import warnings
         from datetime import UTC, datetime
 
-        from scanner.core.config import ScannerConfig
+        from scanner.core.config import PolilyConfig
         try:
             from scanner.core.config import load_config
             minimal = Path("config.minimal.yaml")
@@ -370,13 +370,13 @@ class PolilyDB:
             elif example.exists():
                 cfg = load_config(example)
             else:
-                cfg = ScannerConfig()
+                cfg = PolilyConfig()
         except Exception as e:
             warnings.warn(
                 f"config load failed during wallet seed, using defaults: {e!r}",
                 stacklevel=2,
             )
-            cfg = ScannerConfig()
+            cfg = PolilyConfig()
 
         now = datetime.now(UTC).isoformat()
         starting = cfg.wallet.starting_balance

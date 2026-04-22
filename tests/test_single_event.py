@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from scanner.core.config import ScannerConfig
+from scanner.core.config import PolilyConfig
 from scanner.core.db import PolilyDB
 from scanner.scan.pipeline import fetch_and_score_event
 
@@ -59,7 +59,7 @@ class TestFetchAndScoreEvent:
             mock_enrich.side_effect = lambda markets, config: markets
             mock_prices.return_value = {}
 
-            result = await fetch_and_score_event("bitcoin-above-on-april-16", config=ScannerConfig(), db=db)
+            result = await fetch_and_score_event("bitcoin-above-on-april-16", config=PolilyConfig(), db=db)
 
         assert result is not None
         assert result["event"].title == "Bitcoin above ___ on April 16?"
@@ -70,7 +70,7 @@ class TestFetchAndScoreEvent:
     async def test_not_found_returns_none(self, db):
         with patch("scanner.scan.pipeline._fetch_event_by_slug") as mock_fetch:
             mock_fetch.return_value = None
-            result = await fetch_and_score_event("nonexistent-slug", config=ScannerConfig(), db=db)
+            result = await fetch_and_score_event("nonexistent-slug", config=PolilyConfig(), db=db)
         assert result is None
 
     @pytest.mark.asyncio
@@ -82,7 +82,7 @@ class TestFetchAndScoreEvent:
             mock_enrich.side_effect = lambda markets, config: markets
             mock_prices.return_value = {}
 
-            await fetch_and_score_event("bitcoin-above-on-april-16", config=ScannerConfig(), db=db)
+            await fetch_and_score_event("bitcoin-above-on-april-16", config=PolilyConfig(), db=db)
 
         from scanner.core.event_store import get_event, get_event_markets
         event = get_event("361227", db)

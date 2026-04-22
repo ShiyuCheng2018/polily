@@ -50,14 +50,14 @@ def _pid_alive(pid: int) -> bool:
 @scheduler_app.command(name="run")
 def run_scheduler_daemon(config_path: str = typer.Option(None, "--config", "-c")):
     """Run the scheduler daemon in the foreground (called by launchd, not user)."""
-    from scanner.core.config import ScannerConfig, load_config
+    from scanner.core.config import PolilyConfig, load_config
     from scanner.core.db import PolilyDB
     from scanner.daemon.scheduler import run_daemon
 
     if config_path:
         config = load_config(Path(config_path))
     else:
-        config = ScannerConfig()
+        config = PolilyConfig()
 
     db_file = config.archiving.db_file
     db = PolilyDB(db_file)
@@ -123,14 +123,14 @@ def status(config_path: str = typer.Option(None, "--config", "-c")):
 
 def _load_user_config():
     """Layered config load used by reset paths. Isolated so tests can stub it."""
-    from scanner.core.config import ScannerConfig, load_config
+    from scanner.core.config import PolilyConfig, load_config
     minimal = Path("config.minimal.yaml")
     example = Path("config.example.yaml")
     if minimal.exists() and example.exists():
         return load_config(minimal, defaults_path=example)
     if example.exists():
         return load_config(example)
-    return ScannerConfig()
+    return PolilyConfig()
 
 
 def _stop_daemon_if_running() -> None:

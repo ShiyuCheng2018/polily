@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from scanner.core.config import ScannerConfig
+from scanner.core.config import PolilyConfig
 from scanner.core.models import BookLevel, Market
 from scanner.scan.mispricing import MispricingResult, detect_mispricing
 from scanner.scan.reporting import ScoredCandidate
@@ -92,7 +92,7 @@ def _update_event_scores(
 
 async def enrich_with_orderbook(
     markets: list[Market],
-    config: ScannerConfig,
+    config: PolilyConfig,
 ) -> list[Market]:
     """Fetch order books + real bid/ask for all markets from CLOB API.
 
@@ -145,7 +145,7 @@ async def enrich_with_orderbook(
 
 
 async def _fetch_price_params_batch(
-    markets: list[Market], config: ScannerConfig,
+    markets: list[Market], config: PolilyConfig,
 ) -> dict[str, dict]:
     """Fetch price params for crypto markets, deduped by asset.
 
@@ -227,7 +227,7 @@ def _run_async(coro):
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_event_by_slug(slug: str, config: ScannerConfig) -> dict | None:
+async def _fetch_event_by_slug(slug: str, config: PolilyConfig) -> dict | None:
     """Fetch single event from Gamma API by slug."""
     from scanner.api import PolymarketClient
 
@@ -241,7 +241,7 @@ async def _fetch_event_by_slug(slug: str, config: ScannerConfig) -> dict | None:
 async def fetch_and_score_event(
     slug: str,
     *,
-    config: ScannerConfig,
+    config: PolilyConfig,
     db: PolilyDB,
     progress_cb=None,
 ) -> dict | None:

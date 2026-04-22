@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from scanner.agents.narrative_writer import NarrativeWriterAgent
 from scanner.analysis_store import AnalysisVersion, append_analysis, get_event_analyses
-from scanner.core.config import ScannerConfig, load_config
+from scanner.core.config import PolilyConfig, load_config
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import (
     EventRow,
@@ -111,7 +111,7 @@ class PolilyService:
 
     def __init__(
         self,
-        config: ScannerConfig | None = None,
+        config: PolilyConfig | None = None,
         db: PolilyDB | None = None,
         event_bus: EventBus | None = None,
     ) -> None:
@@ -136,14 +136,14 @@ class PolilyService:
         self.event_bus = event_bus or get_event_bus()
 
     @staticmethod
-    def _load_default_config() -> ScannerConfig:
+    def _load_default_config() -> PolilyConfig:
         minimal = Path("config.minimal.yaml")
         example = Path("config.example.yaml")
         if minimal.exists() and example.exists():
             return load_config(minimal, defaults_path=example)
         if example.exists():
             return load_config(example)
-        return ScannerConfig()
+        return PolilyConfig()
 
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------

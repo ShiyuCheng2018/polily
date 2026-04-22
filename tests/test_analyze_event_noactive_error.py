@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scanner.core.config import ScannerConfig
+from scanner.core.config import PolilyConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, upsert_event
 from scanner.scan_log import load_scan_logs
@@ -31,7 +31,7 @@ async def test_noactive_app_error_normalized_in_scan_log(tmp_path):
         structure_score=None,
     )
     upsert_event(event, db)
-    svc = PolilyService(config=ScannerConfig(), db=db)
+    svc = PolilyService(config=PolilyConfig(), db=db)
 
     with patch(
         "scanner.tui.service.NarrativeWriterAgent",
@@ -62,7 +62,7 @@ async def test_regular_exception_still_formatted_as_before(tmp_path):
         structure_score=None,
     )
     upsert_event(event, db)
-    svc = PolilyService(config=ScannerConfig(), db=db)
+    svc = PolilyService(config=PolilyConfig(), db=db)
 
     with patch(
         "scanner.tui.service.NarrativeWriterAgent",

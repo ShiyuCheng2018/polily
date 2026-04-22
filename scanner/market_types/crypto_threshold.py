@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from scanner.price_feeds import BinancePriceFeed, extract_crypto_asset, extract_threshold_price
 
 if TYPE_CHECKING:
-    from scanner.core.config import ScannerConfig
+    from scanner.core.config import PolilyConfig
     from scanner.core.models import Market
     from scanner.scan.mispricing import MispricingResult
 
@@ -27,7 +27,7 @@ class CryptoThreshold:
         has_threshold = extract_threshold_price(market.title) is not None
         return has_asset and has_threshold
 
-    async def fetch_price_params(self, market: Market, config: ScannerConfig) -> dict | None:
+    async def fetch_price_params(self, market: Market, config: PolilyConfig) -> dict | None:
         """Fetch Binance price + realized volatility."""
         feed = BinancePriceFeed()
         try:
@@ -41,7 +41,7 @@ class CryptoThreshold:
             await feed.close()
 
     def detect_mispricing(
-        self, market: Market, price_params: dict, config: ScannerConfig,
+        self, market: Market, price_params: dict, config: PolilyConfig,
     ) -> MispricingResult | None:
         """Detect mispricing using log-normal vol model."""
         from scanner.scan.mispricing import detect_mispricing

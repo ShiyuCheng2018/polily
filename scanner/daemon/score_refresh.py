@@ -45,8 +45,8 @@ def refresh_scores(
     from scanner.scan.event_scoring import compute_event_quality_score
 
     if config is None:
-        from scanner.core.config import ScannerConfig
-        config = ScannerConfig()
+        from scanner.core.config import PolilyConfig
+        config = PolilyConfig()
 
     result = RefreshResult()
     now = datetime.now(UTC).isoformat()

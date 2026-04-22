@@ -13,7 +13,7 @@ import pytest
 from textual.app import App
 from textual.widgets import Button, Checkbox, Input, Static
 
-from scanner.core.config import ScannerConfig
+from scanner.core.config import PolilyConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
 from scanner.tui.service import PolilyService
@@ -44,7 +44,7 @@ def _seed(tmp_path, *, auto_monitor: bool = True) -> PolilyService:
     if auto_monitor:
         from scanner.core.monitor_store import upsert_event_monitor
         upsert_event_monitor("e1", auto_monitor=True, db=db)
-    return PolilyService(config=ScannerConfig(), db=db)
+    return PolilyService(config=PolilyConfig(), db=db)
 
 
 class _WalletHost(App):

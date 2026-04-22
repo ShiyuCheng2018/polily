@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scanner.core.config import ScannerConfig
+from scanner.core.config import PolilyConfig
 from scanner.core.models import BookLevel
 from scanner.scan.pipeline import enrich_with_orderbook
 from tests.conftest import make_market
@@ -49,7 +49,7 @@ class TestEnrichWithOrderbook:
 
         with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = _clob_result()
-            config = ScannerConfig()
+            config = PolilyConfig()
             enriched = await enrich_with_orderbook([market], config)
 
             assert len(enriched) == 1
@@ -71,7 +71,7 @@ class TestEnrichWithOrderbook:
 
         with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = _clob_result(best_bid=0.54, best_ask=0.56, spread=0.02)
-            config = ScannerConfig()
+            config = PolilyConfig()
             enriched = await enrich_with_orderbook([market], config)
 
             m = enriched[0]
@@ -93,7 +93,7 @@ class TestEnrichWithOrderbook:
                 book_bids=json.dumps([{"price": 0.01, "size": 100}]),  # /book raw (negRisk)
                 book_asks=json.dumps([{"price": 0.99, "size": 100}]),
             )
-            config = ScannerConfig()
+            config = PolilyConfig()
             enriched = await enrich_with_orderbook([market], config)
 
             m = enriched[0]
@@ -111,7 +111,7 @@ class TestEnrichWithOrderbook:
 
         with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.side_effect = Exception("API error")
-            config = ScannerConfig()
+            config = PolilyConfig()
             enriched = await enrich_with_orderbook([market], config)
 
             assert len(enriched) == 1
@@ -127,7 +127,7 @@ class TestEnrichWithOrderbook:
 
         with patch("scanner.core.clob.fetch_clob_market_data", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = _clob_result()
-            config = ScannerConfig()
+            config = PolilyConfig()
             enriched = await enrich_with_orderbook(markets, config)
 
             assert mock_fetch.call_count == 10

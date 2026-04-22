@@ -20,7 +20,7 @@ from textual.app import App
 from textual.screen import Screen
 from textual.widgets import Button
 
-from scanner.core.config import ScannerConfig
+from scanner.core.config import PolilyConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, get_event_markets, upsert_event, upsert_market
 from scanner.tui.service import PolilyService
@@ -48,7 +48,7 @@ def _seed(tmp_path, *, buy_yes: bool = False, buy_no: bool = False) -> PolilySer
     # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
     from scanner.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("e1", auto_monitor=True, db=db)
-    svc = PolilyService(config=ScannerConfig(), db=db)
+    svc = PolilyService(config=PolilyConfig(), db=db)
     if buy_yes or buy_no:
         with patch("scanner.core.trade_engine.TradeEngine._fetch_live_price", return_value=0.5):
             if buy_yes:
