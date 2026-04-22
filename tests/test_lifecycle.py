@@ -56,3 +56,21 @@ def test_settled_winner_suffix_none():
     """resolved_outcome=None → empty string (caller shows plain label)."""
     m = MagicMock(); m.resolved_outcome = None
     assert settled_winner_suffix(m) == ""
+
+
+def test_settled_winner_suffix_void():
+    """resolved_outcome='void' → ' 市场作废' (market was canceled)."""
+    m = MagicMock(); m.resolved_outcome = "void"
+    assert settled_winner_suffix(m) == " 市场作废"
+
+
+def test_every_market_state_has_label():
+    """Every MarketState enum value must have a label mapping."""
+    for state in MarketState:
+        assert market_state_label(state)  # non-empty
+
+
+def test_every_event_state_has_label():
+    """Every EventState enum value must have a label mapping."""
+    for state in EventState:
+        assert event_state_label(state)  # non-empty

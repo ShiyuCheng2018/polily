@@ -17,6 +17,10 @@ resolved_outcome IS NULL` (UMA 2h challenge window), not by a new
 from __future__ import annotations
 
 from enum import Enum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from scanner.core.event_store import MarketRow
 
 
 class MarketState(Enum):
@@ -56,19 +60,25 @@ def event_state_label(state: EventState) -> str:
     return _EVENT_LABELS_CN[state]
 
 
-def settled_winner_suffix(market) -> str:
-    """Render ' YES 获胜' / ' NO 获胜' / ' 平局' / '' from resolved_outcome.
+def settled_winner_suffix(market: "MarketRow") -> str:
+    """Render ' YES 获胜' / ' NO 获胜' / ' 平局' / ' 市场作废' / '' from resolved_outcome.
 
     Single source of truth; called from both event_header breadcrumb and
     event_detail zone title.
 
+    Note: the non-empty returns include a leading space so callers can
+    concatenate unconditionally: `f"{label}{settled_winner_suffix(m)}"`.
+    Do NOT add a space at the call site.
+
     resolved_outcome=None → '' (caller shows plain '已结算' label).
     """
-    outcome = getattr(market, "resolved_outcome", None)
+    outcome = market.resolved_outcome
     if outcome == "yes":
         return " YES 获胜"
     if outcome == "no":
         return " NO 获胜"
     if outcome == "split":
         return " 平局"
+    if outcome == "void":
+        return " 市场作废"
     return ""
