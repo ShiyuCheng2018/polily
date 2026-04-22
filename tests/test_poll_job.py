@@ -392,6 +392,104 @@ class TestWideSpreadIntegration:
         assert market.spread == 0.01
 
 
+def _seed_minimal_market(db, *, market_id="m1", event_id="e1"):
+    from datetime import UTC, datetime
+    now = datetime.now(UTC).isoformat()
+    db.conn.execute(
+        "INSERT INTO events (event_id, title, tags, updated_at) VALUES (?,?,'[]',?)",
+        (event_id, "test event", now),
+    )
+    db.conn.execute(
+        "INSERT INTO markets (market_id, event_id, question, outcomes, "
+        "closed, active, accepting_orders, updated_at) "
+        "VALUES (?, ?, 'Q', '[\"Yes\",\"No\"]', 1, 1, 0, ?)",
+        (market_id, event_id, now),
+    )
+    db.conn.commit()
+
+
+@pytest.mark.asyncio
+async def test_resolve_closed_market_writes_resolved_outcome_without_position(
+    tmp_path, monkeypatch,
+):
+    """Regression guard for the _has_positions gate removal:
+    a market with no positions still gets resolved_outcome written when
+    Gamma returns a clean UMA-resolved result."""
+    from scanner.core.db import PolilyDB
+    from scanner.core.positions import PositionManager
+    from scanner.core.wallet import WalletService
+    from scanner.daemon import poll_job
+    from scanner.daemon.resolution import ResolutionHandler
+
+    db = PolilyDB(tmp_path / "t.db")
+    _seed_minimal_market(db, market_id="m1", event_id="e1")
+
+    async def fake_fetch_gamma(mid):
+        return {
+            "id": mid,
+            "outcomePrices": ["1", "0"],
+            "umaResolutionStatuses": ["proposed", "resolved"],
+        }
+
+    monkeypatch.setattr(poll_job, "_fetch_gamma_market", fake_fetch_gamma)
+
+    wallet = WalletService(db); wallet.initialize(100.0)
+    positions = PositionManager(db)
+    resolver = ResolutionHandler(db, wallet, positions)
+
+    await poll_job._resolve_closed_market_if_position(
+        "m1", db, wallet, positions, resolver,
+    )
+
+    row = db.conn.execute(
+        "SELECT resolved_outcome FROM markets WHERE market_id='m1'"
+    ).fetchone()
+    assert row["resolved_outcome"] == "yes"
+
+
+@pytest.mark.asyncio
+async def test_resolve_closed_market_without_position_does_not_credit_wallet(
+    tmp_path, monkeypatch,
+):
+    """No-position path: resolved_outcome writes, wallet stays untouched."""
+    from scanner.core.db import PolilyDB
+    from scanner.core.positions import PositionManager
+    from scanner.core.wallet import WalletService
+    from scanner.daemon import poll_job
+    from scanner.daemon.resolution import ResolutionHandler
+
+    db = PolilyDB(tmp_path / "t.db")
+    _seed_minimal_market(db, market_id="m1", event_id="e1")
+
+    async def fake_fetch_gamma(mid):
+        return {
+            "id": mid,
+            "outcomePrices": ["1", "0"],
+            "umaResolutionStatuses": ["proposed", "resolved"],
+        }
+
+    monkeypatch.setattr(poll_job, "_fetch_gamma_market", fake_fetch_gamma)
+
+    wallet = WalletService(db); wallet.initialize(100.0)
+    before_cash = wallet.get_cash()
+    before_tx_count = db.conn.execute(
+        "SELECT COUNT(*) c FROM wallet_transactions"
+    ).fetchone()["c"]
+
+    positions = PositionManager(db)
+    resolver = ResolutionHandler(db, wallet, positions)
+    await poll_job._resolve_closed_market_if_position(
+        "m1", db, wallet, positions, resolver,
+    )
+
+    after_cash = wallet.get_cash()
+    after_tx_count = db.conn.execute(
+        "SELECT COUNT(*) c FROM wallet_transactions"
+    ).fetchone()["c"]
+    assert after_cash == before_cash
+    assert after_tx_count == before_tx_count
+
+
 class TestPollOnlyMonitoredEvents:
     """Poll should only fetch markets from monitored events."""
 

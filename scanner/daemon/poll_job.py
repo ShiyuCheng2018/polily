@@ -77,7 +77,7 @@ async def _fetch_gamma_market(market_id: str) -> dict | None:
         return None
 
 
-def _has_positions(db: PolilyDB, market_id: str) -> bool:
+def _has_positions(db: PolilyDB, market_id: str) -> bool:  # noqa: unused — retained for future callers
     row = db.conn.execute(
         "SELECT 1 FROM positions WHERE market_id=? LIMIT 1", (market_id,)
     ).fetchone()
@@ -119,10 +119,19 @@ async def _resolve_closed_market_if_position(
     positions: "PositionManager",
     resolver: "ResolutionHandler",
 ) -> None:
-    """Gated on user holding a position — zero-Gamma-request path for closed
-    markets the user doesn't care about (the vast majority)."""
-    if not _has_positions(db, market_id):
-        return
+    """Resolve a closed market — writes `markets.resolved_outcome` and
+    (if user holds positions) credits wallet via RESOLVE tx.
+
+    v0.8.5: `_has_positions` early-return removed so `resolved_outcome`
+    is authoritative on `closed=1` markets regardless of user position.
+    This is required by the lifecycle state model: `resolved_outcome IS
+    NULL` unambiguously means "SETTLING" (UMA 2h window). Wallet credit
+    is still position-gated inside `ResolutionHandler.resolve_market`
+    (empty `positions` rows → no credit loop iterations).
+
+    Function name kept for backwards compat with existing callers /
+    tests; `_if_position` is now a historical suffix.
+    """
     data = await _fetch_gamma_market(market_id)
     if data is None:
         return  # transient HTTP error or timeout — retry next tick
@@ -130,9 +139,6 @@ async def _resolve_closed_market_if_position(
     prices = (
         json.loads(prices_raw) if isinstance(prices_raw, str) else (prices_raw or [])
     )
-    # Gamma's umaResolutionStatuses is a history array. During the UMA
-    # challenge window (last entry "proposed"), outcomePrices already
-    # reflects the proposer's guess but can still flip. Gate below.
     uma_raw = data.get("umaResolutionStatuses", "[]")
     try:
         uma_statuses = (
@@ -144,9 +150,6 @@ async def _resolve_closed_market_if_position(
     if winner is None:
         return  # UMA pre-finalization, dispute in progress, or malformed response
     n_settled, credited = resolver.resolve_market(market_id, winner)
-    # Operator-facing audit line (logger.info inside resolver goes to Python
-    # root logger which has no handler in daemon mode — poll.log is the only
-    # persistent trail). Skip when no positions settled to avoid noise.
     if n_settled > 0:
         _get_poll_log().info(
             f"           resolved| {market_id} -> {winner} "
