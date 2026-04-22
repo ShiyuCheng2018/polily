@@ -11,6 +11,16 @@ from textual.widget import Widget
 from scanner.tui.widgets.cards import MetricCard
 
 
+def _subcount_label(markets: list) -> str:
+    """子市场 card content — plain total count.
+
+    Closed / settlement breakdown now lives in the '市场' PolilyZone title
+    (see _market_zone_title_suffix in event_detail.py), so this card stays
+    a single number.
+    """
+    return str(len(markets))
+
+
 class EventKpiRow(Widget):
     """KPI card row — adapts layout for binary vs multi-outcome events."""
 
@@ -107,11 +117,7 @@ class EventKpiRow(Widget):
             else:
                 self._set_card("kpi-overround", "?")
 
-        closed_count = sum(1 for m in markets if m.closed)
-        count_str = str(len(markets))
-        if closed_count > 0:
-            count_str += f" ({closed_count}过期)"
-        self._set_card("kpi-count", count_str)
+        self._set_card("kpi-count", _subcount_label(markets))
 
         from scanner.tui.utils import format_countdown_range
         now_iso = datetime.now(UTC).isoformat()
