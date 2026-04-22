@@ -158,6 +158,45 @@ async def _resolve_closed_market_if_position(
         )
 
 
+async def backfill_stuck_resolutions(
+    db: PolilyDB,
+    wallet: "WalletService",
+    positions: "PositionManager",
+    resolver: "ResolutionHandler",
+) -> int:
+    """One-time startup pass: heal `closed=1 AND resolved_outcome IS NULL` rows.
+
+    Pre-v0.8.5 the resolver early-returned on no-position markets, leaving
+    their `resolved_outcome` at NULL forever. Post-v0.8.5 the live flow
+    handles new closures correctly, but legacy rows stay stuck. This pass
+    walks every stuck market once at daemon startup and feeds it through
+    the standard resolver path (capped concurrency to avoid thrashing
+    Gamma's free tier if there are many such rows).
+
+    Returns the number of markets processed (for logging).
+    """
+    rows = db.conn.execute(
+        "SELECT market_id FROM markets "
+        "WHERE closed = 1 AND resolved_outcome IS NULL"
+    ).fetchall()
+    if not rows:
+        return 0
+
+    sem = asyncio.Semaphore(_GAMMA_CONCURRENCY)
+
+    async def _one(mid: str) -> None:
+        async with sem:
+            await _resolve_closed_market_if_position(
+                mid, db, wallet, positions, resolver,
+            )
+
+    await asyncio.gather(*[_one(r["market_id"]) for r in rows])
+    logger.info(
+        "backfill_stuck_resolutions: processed %d markets", len(rows),
+    )
+    return len(rows)
+
+
 def _build_poll_log_path(project_root: "Path | None" = None) -> "Path":  # noqa: F821
     """Build the poll log path for this daemon instance.
 

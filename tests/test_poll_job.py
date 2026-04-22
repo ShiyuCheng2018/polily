@@ -396,7 +396,7 @@ def _seed_minimal_market(db, *, market_id="m1", event_id="e1"):
     from datetime import UTC, datetime
     now = datetime.now(UTC).isoformat()
     db.conn.execute(
-        "INSERT INTO events (event_id, title, tags, updated_at) VALUES (?,?,'[]',?)",
+        "INSERT OR IGNORE INTO events (event_id, title, tags, updated_at) VALUES (?,?,'[]',?)",
         (event_id, "test event", now),
     )
     db.conn.execute(
@@ -488,6 +488,70 @@ async def test_resolve_closed_market_without_position_does_not_credit_wallet(
     ).fetchone()["c"]
     assert after_cash == before_cash
     assert after_tx_count == before_tx_count
+
+
+@pytest.mark.asyncio
+async def test_backfill_stuck_resolutions_heals_legacy_rows(tmp_path, monkeypatch):
+    """Daemon-startup backfill walks every closed=1 AND resolved_outcome IS NULL
+    market and feeds it through _resolve_closed_market_if_position once."""
+    from scanner.core.db import PolilyDB
+    from scanner.core.positions import PositionManager
+    from scanner.core.wallet import WalletService
+    from scanner.daemon import poll_job
+    from scanner.daemon.resolution import ResolutionHandler
+    from datetime import UTC, datetime
+
+    db = PolilyDB(tmp_path / "t.db")
+    now = datetime.now(UTC).isoformat()
+
+    # Seed 2 stuck markets + 1 already-resolved market + 1 active market
+    _seed_minimal_market(db, market_id="stuck1", event_id="e1")
+    _seed_minimal_market(db, market_id="stuck2", event_id="e1")
+    db.conn.execute(
+        "INSERT INTO markets (market_id, event_id, question, outcomes, "
+        "closed, active, resolved_outcome, updated_at) "
+        "VALUES ('done', 'e1', 'Q', '[\"Yes\",\"No\"]', 1, 1, 'no', ?)",
+        (now,),
+    )
+    db.conn.execute(
+        "INSERT INTO markets (market_id, event_id, question, outcomes, "
+        "closed, active, updated_at) "
+        "VALUES ('live', 'e1', 'Q', '[\"Yes\",\"No\"]', 0, 1, ?)",
+        (now,),
+    )
+    db.conn.commit()
+
+    calls: list[str] = []
+
+    async def fake_fetch_gamma(mid):
+        calls.append(mid)
+        return {
+            "id": mid,
+            "outcomePrices": ["0", "1"],
+            "umaResolutionStatuses": ["proposed", "resolved"],
+        }
+
+    monkeypatch.setattr(poll_job, "_fetch_gamma_market", fake_fetch_gamma)
+    wallet = WalletService(db); wallet.initialize(100.0)
+    positions = PositionManager(db)
+    resolver = ResolutionHandler(db, wallet, positions)
+
+    await poll_job.backfill_stuck_resolutions(db, wallet, positions, resolver)
+
+    # Both stuck markets were fetched; 'done' and 'live' were skipped
+    assert sorted(calls) == ["stuck1", "stuck2"]
+
+    # Both stuck markets now have resolved_outcome written
+    rows = {
+        r["market_id"]: r["resolved_outcome"]
+        for r in db.conn.execute(
+            "SELECT market_id, resolved_outcome FROM markets"
+        ).fetchall()
+    }
+    assert rows["stuck1"] == "no"
+    assert rows["stuck2"] == "no"
+    assert rows["done"] == "no"
+    assert rows["live"] is None
 
 
 class TestPollOnlyMonitoredEvents:
