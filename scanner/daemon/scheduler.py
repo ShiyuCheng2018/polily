@@ -202,6 +202,20 @@ def run_daemon(db, config=None) -> None:
     positions = PositionManager(db)
     resolver = ResolutionHandler(db, wallet, positions)
 
+    # v0.8.5: one-time backfill of rows stuck in SETTLING from pre-v0.8.5 gate
+    import asyncio as _asyncio
+
+    from scanner.daemon.poll_job import backfill_stuck_resolutions
+    try:
+        n = _asyncio.run(
+            backfill_stuck_resolutions(db, wallet, positions, resolver)
+        )
+        if n > 0:
+            from scanner.daemon.poll_job import _get_poll_log
+            _get_poll_log().info(f"startup-backfill| processed {n} stuck markets")
+    except Exception:
+        logger.exception("backfill_stuck_resolutions failed; skipping")
+
     # Create scheduler BEFORE init_poller so the dispatcher step in
     # global_poll (guarded by `if _ctx and _ctx.scheduler`) can actually
     # submit jobs. Without this, v0.7.0's whole dispatcher is a no-op.

@@ -2,13 +2,52 @@
 
 import contextlib
 import re
-from datetime import UTC, datetime
 
 from textual.app import ComposeResult
 from textual.containers import HorizontalGroup
 from textual.widget import Widget
 
 from scanner.tui.widgets.cards import MetricCard
+
+
+def _subcount_label(markets: list) -> str:
+    """子市场 card content — plain total count.
+
+    Closed / settlement breakdown now lives in the '市场' PolilyZone title
+    (see _market_zone_title_suffix in event_detail.py), so this card stays
+    a single number.
+    """
+    return str(len(markets))
+
+
+def _kpi_end_label(event, markets: list, *, now=None) -> str:
+    """kpi-end MetricCard content — event state aware.
+
+    ACTIVE                   → format_countdown_range over TRADING children
+    AWAITING_FULL_SETTLEMENT → '待全部结算'
+    RESOLVED                 → '已结算'
+    """
+    from scanner.core.lifecycle import EventState, MarketState, event_state, market_state
+
+    state = event_state(event, markets, now=now)
+    if state == EventState.RESOLVED:
+        return "已结算"
+    if state == EventState.AWAITING_FULL_SETTLEMENT:
+        return "待全部结算"
+
+    # ACTIVE: range only over TRADING children. Filtering by lifecycle
+    # state (not `closed=0`) excludes PENDING_SETTLEMENT markets whose
+    # end_date is already in the past — those would render as "已过期"
+    # inside format_countdown_range and leak the old expired-label wording
+    # into the new lifecycle UI.
+    from scanner.tui.utils import format_countdown_range
+    ends = [
+        m.end_date for m in markets
+        if m.end_date and market_state(m, now=now) == MarketState.TRADING
+    ]
+    if not ends:
+        return "?"
+    return format_countdown_range(min(ends), max(ends))
 
 
 class EventKpiRow(Widget):
@@ -107,19 +146,9 @@ class EventKpiRow(Widget):
             else:
                 self._set_card("kpi-overround", "?")
 
-        closed_count = sum(1 for m in markets if m.closed)
-        count_str = str(len(markets))
-        if closed_count > 0:
-            count_str += f" ({closed_count}过期)"
-        self._set_card("kpi-count", count_str)
+        self._set_card("kpi-count", _subcount_label(markets))
 
-        from scanner.tui.utils import format_countdown_range
-        now_iso = datetime.now(UTC).isoformat()
-        active_ends = [m.end_date for m in markets if not m.closed and m.end_date and m.end_date > now_iso]
-        if active_ends:
-            self._set_card("kpi-end", format_countdown_range(min(active_ends), max(active_ends)))
-        else:
-            self._set_card("kpi-end", "?")
+        self._set_card("kpi-end", _kpi_end_label(event, markets))
 
         score = event.structure_score
         mkt_summary = self._market_score_summary(markets)

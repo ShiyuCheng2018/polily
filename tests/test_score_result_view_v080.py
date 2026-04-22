@@ -97,3 +97,44 @@ async def test_score_result_vertical_scroll_bounded(svc):
             f"VerticalScroll height ({scroll_height}) exceeds app "
             f"height ({app_height}); zones are overflowing"
         )
+
+
+def test_score_result_banner_active_returns_none():
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import MagicMock
+
+    from scanner.tui.views.score_result import _banner_for_event_state
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    future = (now + timedelta(days=7)).isoformat()
+    event = MagicMock()
+    event.closed = 0
+    m = MagicMock()
+    m.closed = 0
+    m.end_date = future
+    m.resolved_outcome = None
+    assert _banner_for_event_state(event, [m], now=now) is None
+
+
+def test_score_result_banner_awaiting_full_settlement():
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import MagicMock
+
+    from scanner.tui.views.score_result import _banner_for_event_state
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    past = (now - timedelta(hours=1)).isoformat()
+    event = MagicMock()
+    event.closed = 0
+    m = MagicMock()
+    m.closed = 0
+    m.end_date = past
+    m.resolved_outcome = None
+    assert _banner_for_event_state(event, [m], now=now) == "待全部结算"
+
+
+def test_score_result_banner_resolved():
+    from unittest.mock import MagicMock
+
+    from scanner.tui.views.score_result import _banner_for_event_state
+    event = MagicMock()
+    event.closed = 1
+    assert _banner_for_event_state(event, []) == "已结算"

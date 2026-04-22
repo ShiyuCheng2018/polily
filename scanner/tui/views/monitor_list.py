@@ -31,9 +31,9 @@ from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_AUTO_MONITOR
 from scanner.tui.monitor_format import (
     format_ai_version,
+    format_event_settlement,
     format_movement,
     format_next_check,
-    format_settlement_range,
 )
 from scanner.tui.service import ScanService
 from scanner.tui.widgets.polily_zone import PolilyZone
@@ -178,8 +178,8 @@ class MonitorListView(Widget):
             else:
                 movement_str = "—"
 
-            settlement_str = format_settlement_range(
-                e.get("markets_end_min"), e.get("markets_end_max"),
+            settlement_str = format_event_settlement(
+                ev, e.get("markets_summary") or [],
             )
             next_check_str = format_next_check(e.get("next_check_at"))
 
@@ -295,10 +295,10 @@ class MonitorListView(Widget):
             with contextlib.suppress(Exception):
                 table.update_cell(eid, "movement", movement_str)
 
-            # settlement window — min/max end_date may have shifted as
+            # settlement window — lifecycle state may have shifted as
             # sub-markets resolve.
-            settlement_str = format_settlement_range(
-                new.get("markets_end_min"), new.get("markets_end_max"),
+            settlement_str = format_event_settlement(
+                new["event"], new.get("markets_summary") or [],
             )
             with contextlib.suppress(Exception):
                 table.update_cell(eid, "settlement", settlement_str)

@@ -84,6 +84,7 @@ class MarketRow(BaseModel):
     book_bids: str | None = None
     book_asks: str | None = None
     recent_trades: str | None = None
+    resolved_outcome: str | None = None  # 'yes' / 'no' / 'split' / 'void' / None (unresolved)
     accepting_orders: int = 1
     fees_enabled: int = 0  # Gamma market.feesEnabled; default off matches Polymarket's norm
     fee_rate: float | None = None  # Gamma market.feeSchedule.rate
@@ -186,7 +187,7 @@ _MARKET_ALL_COLS = (
     "order_min_tick_size", "structure_score", "score_breakdown",
     "yes_price", "no_price", "best_bid", "best_ask", "spread",
     "last_trade_price", "bid_depth", "ask_depth",
-    "book_bids", "book_asks", "recent_trades",
+    "book_bids", "book_asks", "recent_trades", "resolved_outcome",
     "accepting_orders", "fees_enabled", "fee_rate", "active", "closed",
     "created_at", "updated_at",
 )

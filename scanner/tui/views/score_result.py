@@ -33,6 +33,16 @@ from scanner.tui.service import ScanService
 from scanner.tui.widgets.polily_zone import PolilyZone
 
 
+def _banner_for_event_state(event, markets, *, now=None) -> str | None:
+    """Map event lifecycle state → banner text (None for ACTIVE)."""
+    from scanner.core.lifecycle import EventState, event_state, event_state_label
+
+    state = event_state(event, markets, now=now)
+    if state == EventState.ACTIVE:
+        return None
+    return event_state_label(state)
+
+
 class BackToTasks(Message):
     pass
 
@@ -82,7 +92,7 @@ class ScoreResultView(Widget):
         event = detail["event"] if detail else None
         markets = detail.get("markets", []) if detail else []
         monitor = detail.get("monitor") if detail else None
-        is_expired = self._is_expired(event)
+        banner = _banner_for_event_state(event, markets)
         is_monitored = self._is_monitored()
 
         with VerticalScroll(id="scroll-area"):
@@ -107,7 +117,7 @@ class ScoreResultView(Widget):
 
             # Zone: 事件信息 (header + KPI row)
             with PolilyZone(title=f"{ICON_EVENT} 事件信息", id="event-info-zone"):
-                yield EventHeader(event, monitor)
+                yield EventHeader(event, monitor, markets=markets)
                 yield EventKpiRow(event, markets)
 
             # Zone: 市场 — binary events show the structure panel (same as
@@ -120,9 +130,9 @@ class ScoreResultView(Widget):
 
         # Action bar stays outside the scroll so it's always reachable.
         with Vertical(id="action-bar"):
-            if is_expired:
+            if banner:
                 yield Static(
-                    "  事件已过期",
+                    f"  {banner}",
                     classes="expired-msg text-error p-sm",
                 )
             else:
@@ -141,18 +151,6 @@ class ScoreResultView(Widget):
             if log.type == "add_event" and log.event_id == self.event_id:
                 return log
         return None
-
-    def _is_expired(self, event) -> bool:
-        """An event is expired only when Polymarket officially closes it.
-
-        Previously this used `end_date < now` which flagged as expired the
-        moment the resolution date passed — but Polymarket events often
-        remain tradable during the resolution window. Using `event.closed`
-        (synced from gamma API) is the authoritative signal.
-        """
-        if not event:
-            return False
-        return bool(getattr(event, "closed", 0))
 
     def _is_monitored(self) -> bool:
         return self.service.is_event_monitored(self.event_id)
