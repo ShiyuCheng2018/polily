@@ -87,26 +87,43 @@ def is_daemon_running() -> bool:
 
 
 def ensure_daemon_running() -> bool:
-    """Start the daemon via launchd if not already running.
+    """Start the daemon via launchd if not already running, auto-healing
+    stale plists (e.g. across package renames).
 
-    Returns True if daemon was started, False if already running.
-    Handles the case where the service is registered but process has exited.
+    Returns True if we started (or regenerated + reloaded) the daemon,
+    False if the existing running daemon was kept as-is.
     """
     import subprocess
+
+    working_dir = str(Path.cwd())
+    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
+    desired_plist = generate_launchd_plist(working_dir=working_dir)
+    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    # Content-match check — if the on-disk plist points at a module that
+    # no longer exists (classic symptom after a package rename upgrade),
+    # the running daemon will crash-loop silently. Rewrite + reload
+    # regardless of what launchctl currently reports.
+    current_plist = PLIST_PATH.read_bytes() if PLIST_PATH.exists() else b""
+    if current_plist != desired_plist:
+        PLIST_PATH.write_bytes(desired_plist)
+        subprocess.run(
+            ["launchctl", "unload", str(PLIST_PATH)],
+            capture_output=True,
+        )
+        subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+        logger.info(
+            "Regenerated stale plist (content mismatch) and reloaded daemon",
+        )
+        return True
 
     if is_daemon_running():
         return False
 
-    working_dir = str(Path.cwd())
-    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
-    plist_bytes = generate_launchd_plist(working_dir=working_dir)
-    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PLIST_PATH.write_bytes(plist_bytes)
-
-    # Unload first if registered but not running (stale registration)
+    # Plist matches but daemon not running — just load.
     subprocess.run(
         ["launchctl", "unload", str(PLIST_PATH)],
-        capture_output=True,  # ignore errors if not loaded
+        capture_output=True,
     )
     subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
     logger.info("Auto-started scheduler daemon via launchd")
