@@ -12,7 +12,7 @@ from scanner.core.events import (
     TOPIC_WALLET_UPDATED,
     EventBus,
 )
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -44,10 +44,10 @@ def svc(tmp_path):
         ),
         db,
     )
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
     from scanner.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("ev1", auto_monitor=True, db=db)
-    s = ScanService(config=cfg, db=db, event_bus=EventBus())
+    s = PolilyService(config=cfg, db=db, event_bus=EventBus())
     yield s
     db.close()
 

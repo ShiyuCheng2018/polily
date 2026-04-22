@@ -5,15 +5,15 @@ from unittest.mock import MagicMock
 import pytest
 
 from scanner.monitor.store import append_movement
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from tests.conftest import setup_event_and_market
 
 
-def _service(db) -> ScanService:
+def _service(db) -> PolilyService:
     cfg = MagicMock()
     cfg.paper_trading.default_position_size_usd = 20
     cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
-    return ScanService(config=cfg, db=db)
+    return PolilyService(config=cfg, db=db)
 
 
 @pytest.fixture

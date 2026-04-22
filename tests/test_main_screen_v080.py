@@ -9,7 +9,7 @@ import pytest
 
 from scanner.core.db import PolilyDB
 from scanner.core.events import EventBus
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def svc(tmp_path):
     cfg.paper_trading.default_position_size_usd = 20
     cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
     db = PolilyDB(tmp_path / "ms.db")
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 

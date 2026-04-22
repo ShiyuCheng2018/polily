@@ -733,17 +733,17 @@ def _run_pending_analysis(
 ) -> None:
     """Executor job function for a dispatched pending analysis.
 
-    Pulls `config` from the shared `_ctx` (set by init_poller) so ScanService
+    Pulls `config` from the shared `_ctx` (set by init_poller) so PolilyService
     can build its NarrativeWriter with the right `config.ai.narrative_writer`
-    settings. Without config, ScanService.__init__ would AttributeError on
+    settings. Without config, PolilyService.__init__ would AttributeError on
     the first agent call.
     """
     import asyncio
 
-    from scanner.tui.service import ScanService
+    from scanner.tui.service import PolilyService
 
     cfg = _ctx.config if _ctx is not None else None
-    service = ScanService(config=cfg, db=db)
+    service = PolilyService(config=cfg, db=db)
     try:
         asyncio.run(
             service.analyze_event(

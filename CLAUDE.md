@@ -104,7 +104,7 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `scanner/agents/prompts/` | Markdown prompt files for agents |
 | `scanner/tui/app.py` | Textual TUI entry point |
 | `scanner/tui/screens/main.py` | Main screen: sidebar + content + worker (menu: tasks/monitor/paper/wallet/history/notifications) |
-| `scanner/tui/service.py` | `ScanService` — bridge between TUI views and backend; owns wallet/positions/trade_engine |
+| `scanner/tui/service.py` | `PolilyService` — bridge between TUI views and backend; owns wallet/positions/trade_engine |
 | `scanner/tui/views/` | Per-pane views (scan_log, monitor_list, paper_status, event_detail, wallet, history, archived_events, changelog) |
 | `scanner/tui/views/changelog.py` | ChangelogView — renders CHANGELOG.md via Markdown widget; reads from repo root in dev or from packaged resource (see `pyproject.toml` `force-include`) in installed wheels |
 | `scanner/tui/views/trade_dialog.py` | Modal with Buy/Sell tabs — calls TradeEngine.execute_buy/sell |
@@ -121,7 +121,7 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 - Global poll runs every **30s** on a dedicated single-thread executor. Movement detection is inline (no separate job). AI analysis is triggered on the ai executor (5 threads).
 - Daemon writes PID to `data/scheduler.pid`. CLI `stop` reads PID and sends SIGTERM. `SIGUSR1` triggers job reload from DB.
 - **CLOB /book API returns distorted books for negRisk markets** (GitHub Issue #180): returns the raw token book with bid=0.01 / ask=0.99, which does not reflect the real liquidity provided by complement matching. Use `/midpoint` for the true price and the difference between `/price?side=BUY` and `/price?side=SELL` for the true spread. `/book` depth data is unreliable for negRisk markets.
-- **`paper_trades` no longer exists.** Dropped in v0.6.1 — `positions` + `wallet_transactions` are the only trade-state tables. On DB init, `PolilyDB._init_schema` executes `DROP TABLE IF EXISTS paper_trades` so old installs auto-clean. All writes go through `TradeEngine.execute_buy/sell`; history reads go through `ScanService.get_realized_history` (SELL + RESOLVE ledger rows).
+- **`paper_trades` no longer exists.** Dropped in v0.6.1 — `positions` + `wallet_transactions` are the only trade-state tables. On DB init, `PolilyDB._init_schema` executes `DROP TABLE IF EXISTS paper_trades` so old installs auto-clean. All writes go through `TradeEngine.execute_buy/sell`; history reads go through `PolilyService.get_realized_history` (SELL + RESOLVE ledger rows).
 - **`wallet.credit(commit=False)` defers the cash write to the outer transaction.** `ResolutionHandler.resolve_market` wraps one BEGIN around the credit + position delete + ledger insert, so passing `commit=True` would split them and re-credit on retry. Any new "bulk close" code path must preserve this contract (see `scanner/core/wallet.py:113-154`).
 - **`reset_wallet` has no built-in writer lock.** The CLI path stops the scheduler daemon first; the TUI `WalletResetModal` sends SIGTERM + 1s grace before calling reset (on a worker thread so the event loop doesn't freeze). Any new caller MUST guarantee no concurrent writer — otherwise DELETE races with a mid-flight poll INSERT.
 - **`cumulative_realized_pnl` on the wallet snapshot is derived**, not stored: `SUM(wallet_transactions.realized_pnl) WHERE realized_pnl IS NOT NULL`. Goes to 0 automatically after reset (wallet_transactions is cleared). Don't try to mirror it into a stored column.

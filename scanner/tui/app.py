@@ -4,7 +4,7 @@ from textual.app import App
 
 from scanner.tui.bindings import GLOBAL_BINDINGS
 from scanner.tui.screens.main import MainScreen
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from scanner.tui.theme import register_polily_theme
 
 
@@ -17,9 +17,9 @@ class PolilyApp(App):
 
     BINDINGS = GLOBAL_BINDINGS
 
-    def __init__(self, service: ScanService | None = None):
+    def __init__(self, service: PolilyService | None = None):
         super().__init__()
-        self.service = service or ScanService()
+        self.service = service or PolilyService()
 
     def on_mount(self) -> None:
         register_polily_theme(self)  # NEW: register brand theme

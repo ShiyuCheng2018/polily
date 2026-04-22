@@ -1,7 +1,7 @@
 """HistoryView: realized-P&L ledger (v0.8.0).
 
 Each SELL or RESOLVE row in `wallet_transactions` is one history entry
-(newest first on top). Fed by `ScanService.get_realized_history`
+(newest first on top). Fed by `PolilyService.get_realized_history`
 and `get_realized_summary` — the legacy `paper_trades` table is no
 longer consulted.
 
@@ -36,7 +36,7 @@ from scanner.core.events import TOPIC_WALLET_UPDATED
 from scanner.tui._dispatch import dispatch_to_ui
 from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_COMPLETED
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from scanner.tui.widgets.polily_zone import PolilyZone
 
 
@@ -86,7 +86,7 @@ class HistoryView(Widget):
     HistoryView DataTable { height: 1fr; }
     """
 
-    def __init__(self, service: ScanService):
+    def __init__(self, service: PolilyService):
         super().__init__()
         self.service = service
 

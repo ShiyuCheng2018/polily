@@ -29,7 +29,7 @@ from scanner.core.events import (
     TOPIC_WALLET_UPDATED,
 )
 from scanner.tui._dispatch import dispatch_to_ui
-from scanner.tui.service import AnalysisInProgressError, ScanService
+from scanner.tui.service import AnalysisInProgressError, PolilyService
 from scanner.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 from scanner.tui.views.event_detail import (
     AnalyzeRequested,
@@ -97,7 +97,7 @@ class MainScreen(Screen):
 
     MENU_ORDER = ["tasks", "monitor", "paper", "wallet", "history", "archive", "changelog"]
 
-    def __init__(self, service: ScanService):
+    def __init__(self, service: PolilyService):
         super().__init__()
         self.service = service
         self._loading = False
@@ -365,7 +365,7 @@ class MainScreen(Screen):
             def _heartbeat(elapsed: float, status: str):
                 self.app.call_from_thread(self._update_heartbeat, elapsed, status)
 
-            # v0.7.0: ScanService.analyze_event owns the full scan_logs
+            # v0.7.0: PolilyService.analyze_event owns the full scan_logs
             # lifecycle (running → completed/failed). We don't write a
             # separate scan_log row here any more.
             await self.service.analyze_event(

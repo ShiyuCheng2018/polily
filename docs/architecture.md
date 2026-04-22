@@ -132,7 +132,7 @@ position triggers a Gamma fetch. `derive_winner` gates on `umaResolutionStatuses
 This prevents settling during the 2-hour UMA challenge window where `outcomePrices`
 already shows the proposer's guess but can still flip.
 
-**Realized-P&L history** (`HistoryView` + `ScanService.get_realized_history`): every
+**Realized-P&L history** (`HistoryView` + `PolilyService.get_realized_history`): every
 SELL and RESOLVE row in the ledger is one history entry. Fees are joined by
 `(market_id, side, notes LIKE '%SELL%')` within a 2-second window so the per-sell
 friction shown in the UI reflects the real fee amount, not an estimate.
@@ -198,7 +198,7 @@ Each tick executes these steps sequentially (numbering from the module docstring
   (CTE picks earliest-per-event + `NOT EXISTS running` guard)
 - Atomically claims each row (`claim_pending_scan` = UPDATE ... WHERE status='pending')
 - Submits surviving rows to the `ai` executor via `_run_pending_analysis`, which
-  constructs a fresh `ScanService` from `_ctx.config` and runs `analyze_event`
+  constructs a fresh `PolilyService` from `_ctx.config` and runs `analyze_event`
   with the claimed `scan_id`
 - Per-row try/except so a single `add_job` failure doesn't abort the batch;
   failed claims get swept by `fail_orphan_running` on next daemon restart

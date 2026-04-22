@@ -13,17 +13,17 @@ import pytest
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
 from scanner.core.monitor_store import get_event_monitor, upsert_event_monitor
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
-def _service() -> ScanService:
+def _service() -> PolilyService:
     cfg = MagicMock()
     cfg.paper_trading.default_position_size_usd = 20
     cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
     cfg.wallet.starting_balance = 100.0
     tmp = tempfile.TemporaryDirectory()
     db = PolilyDB(Path(tmp.name) / "t.db")
-    svc = ScanService(config=cfg, db=db)
+    svc = PolilyService(config=cfg, db=db)
     svc._tmp = tmp
     return svc
 

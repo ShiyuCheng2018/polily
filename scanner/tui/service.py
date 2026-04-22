@@ -1,4 +1,4 @@
-"""ScanService v0.5.0: DB-first, event-level bridge between TUI and backend."""
+"""PolilyService v0.5.0: DB-first, event-level bridge between TUI and backend."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ class ActivePositionsError(Exception):
 
 
 class MonitorRequiredError(Exception):
-    """Raised by `ScanService.execute_buy / execute_sell` when the target
+    """Raised by `PolilyService.execute_buy / execute_sell` when the target
     event has `auto_monitor` off.
 
     Positions on an unmonitored event would silently rot (no price
@@ -106,7 +106,7 @@ class MonitorRequiredError(Exception):
         )
 
 
-class ScanService:
+class PolilyService:
     """DB-first bridge between TUI views, scan pipeline, AI agent, and DB."""
 
     def __init__(
@@ -355,7 +355,7 @@ class ScanService:
         """Cancel a running scan_logs row: kill narrator + mark row cancelled.
 
         Routes to narrator_registry so scans running under the dispatcher
-        (different ScanService instance) are reachable.
+        (different PolilyService instance) are reachable.
 
         Returns True when the row was running and got flipped to cancelled;
         False when the row wasn't running (already done / superseded / gone).

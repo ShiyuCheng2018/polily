@@ -1,9 +1,9 @@
 """TradeDialog: modal with Buy/Sell tabs.
 
 Buy flow: pick sub-market → enter USD amount → click 买 YES / 买 NO
-  → ScanService.execute_buy with shares = amount / preview_price.
+  → PolilyService.execute_buy with shares = amount / preview_price.
 Sell flow: pick sub-market → pick side (if both held) → pick %/manual shares
-  → ScanService.execute_sell.
+  → PolilyService.execute_sell.
 
 Preview arithmetic (shares, fee, realized P&L) lives in `_trade_preview.py`
 so the panels match exactly what TradeEngine charges, without duplicating

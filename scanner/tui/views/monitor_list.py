@@ -35,7 +35,7 @@ from scanner.tui.monitor_format import (
     format_movement,
     format_next_check,
 )
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from scanner.tui.widgets.polily_zone import PolilyZone
 
 
@@ -72,7 +72,7 @@ class MonitorListView(Widget):
     MonitorListView DataTable { height: 1fr; }
     """
 
-    def __init__(self, service: ScanService):
+    def __init__(self, service: PolilyService):
         super().__init__()
         self.service = service
         self._monitored: list[dict] = []

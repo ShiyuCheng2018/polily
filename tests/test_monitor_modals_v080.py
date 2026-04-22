@@ -5,7 +5,7 @@ import pytest
 
 from scanner.core.db import PolilyDB
 from scanner.core.events import EventBus
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -13,7 +13,7 @@ def svc(tmp_path):
     cfg = MagicMock()
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "mm.db")
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 

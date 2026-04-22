@@ -8,7 +8,7 @@ reactive state on callback.
 
 Threading: handlers are invoked synchronously on the publishing thread.
 TUI widgets updating their state from a bus callback MUST use
-`self.app.call_from_thread(...)` since the daemon/ScanService may publish
+`self.app.call_from_thread(...)` since the daemon/PolilyService may publish
 from non-UI threads (daemon executor, analyze worker).
 
 Topics are module-level string constants. Payload shape is per-topic

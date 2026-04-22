@@ -1,4 +1,4 @@
-"""ScanService.get_realized_history / get_realized_summary.
+"""PolilyService.get_realized_history / get_realized_summary.
 
 Feeds the (rewritten) HistoryView in v0.6.0+ — sourced from
 `wallet_transactions` SELL + RESOLVE rows, not the legacy `paper_trades`
@@ -21,10 +21,10 @@ import pytest
 from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
-def _svc(tmp_path) -> ScanService:
+def _svc(tmp_path) -> PolilyService:
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(EventRow(event_id="e1", title="Event 1", updated_at="now"), db)
     upsert_market(
@@ -36,10 +36,10 @@ def _svc(tmp_path) -> ScanService:
         ),
         db,
     )
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
     from scanner.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("e1", auto_monitor=True, db=db)
-    return ScanService(config=ScannerConfig(), db=db)
+    return PolilyService(config=ScannerConfig(), db=db)
 
 
 # ---- get_realized_history --------------------------------------------

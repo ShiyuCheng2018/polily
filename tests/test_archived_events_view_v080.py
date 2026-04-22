@@ -8,7 +8,7 @@ from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, upsert_event
 from scanner.core.events import EventBus
 from scanner.core.monitor_store import upsert_event_monitor
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def svc(tmp_path):
     )
     upsert_event_monitor("archived1", auto_monitor=True, db=db)
     db.conn.commit()
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 

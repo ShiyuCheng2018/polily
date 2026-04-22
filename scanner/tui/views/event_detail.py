@@ -42,7 +42,7 @@ from scanner.tui.icons import ICON_AUTO_MONITOR, ICON_EVENT, ICON_MARKET, ICON_P
 from scanner.tui.widgets.polily_zone import PolilyZone
 
 if TYPE_CHECKING:
-    from scanner.tui.service import ScanService
+    from scanner.tui.service import PolilyService
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ class EventDetailView(Widget):
     def __init__(
         self,
         event_id: str,
-        service: ScanService,
+        service: PolilyService,
         *,
         analyzing: bool = False,
         version_idx: int | None = None,

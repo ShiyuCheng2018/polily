@@ -35,7 +35,7 @@ class NarrativeWriterAgent:
         # No `fallback_fn` — v0.8.0 stopped masking failures with a fake
         # "AI 不可用" NarrativeWriterOutput. Both CLI invocation failures
         # and schema-validation failures now raise so that
-        # `ScanService.analyze_event`'s exception handler marks the
+        # `PolilyService.analyze_event`'s exception handler marks the
         # scan_logs row as status='failed' instead of storing a degraded
         # "completed" analysis version that misleads the user.
         self._agent = BaseAgent(

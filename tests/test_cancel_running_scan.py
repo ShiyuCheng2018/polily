@@ -1,4 +1,4 @@
-"""Q9: cancel a running scan via ScanService + TUI key binding."""
+"""Q9: cancel a running scan via PolilyService + TUI key binding."""
 from unittest.mock import MagicMock
 
 import pytest
@@ -6,7 +6,7 @@ import pytest
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, upsert_event
 from scanner.scan_log import claim_pending_scan, insert_pending_scan
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +24,7 @@ def svc(tmp_path):
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(EventRow(event_id="ev1", title="Test", updated_at="now"), db)
-    s = ScanService(config=cfg, db=db)
+    s = PolilyService(config=cfg, db=db)
     yield s
     db.close()
 

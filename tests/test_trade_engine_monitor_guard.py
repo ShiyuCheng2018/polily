@@ -1,4 +1,4 @@
-"""`ScanService.execute_buy` / `execute_sell` refuse trades on unmonitored events.
+"""`PolilyService.execute_buy` / `execute_sell` refuse trades on unmonitored events.
 
 Policy lives in the service layer (not `TradeEngine`) — engine stays a
 pure atomic primitive. Any new caller (e.g. a live-money trading
@@ -20,7 +20,7 @@ import pytest
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
 from scanner.core.monitor_store import upsert_event_monitor
-from scanner.tui.service import MonitorRequiredError, ScanService
+from scanner.tui.service import MonitorRequiredError, PolilyService
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ def svc(tmp_path):
         ),
         db,
     )
-    yield ScanService(config=cfg, db=db)
+    yield PolilyService(config=cfg, db=db)
     db.close()
 
 
@@ -97,7 +97,7 @@ def test_trade_engine_itself_is_not_guarded(svc):
     """Architectural contract: TradeEngine is a pure atomic primitive.
     It does NOT check monitor; the service layer's policy guard does.
     Any future live-trading service MUST replicate the service-level
-    check OR route through ScanService.
+    check OR route through PolilyService.
     """
     # Don't seed monitor. Direct engine call should NOT raise.
     with patch.object(svc.trade_engine, "_fetch_live_price", return_value=0.5):

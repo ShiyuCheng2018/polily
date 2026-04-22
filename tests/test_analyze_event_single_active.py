@@ -8,7 +8,7 @@ import pytest
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, upsert_event
 from scanner.scan_log import claim_pending_scan, insert_pending_scan
-from scanner.tui.service import AnalysisInProgressError, ScanService
+from scanner.tui.service import AnalysisInProgressError, PolilyService
 
 
 def _mk_service(tmp_path):
@@ -19,7 +19,7 @@ def _mk_service(tmp_path):
     cfg.ai.narrative_writer = MagicMock(model="sonnet", timeout_seconds=60)
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(EventRow(event_id="ev1", title="Test", updated_at="now"), db)
-    return ScanService(config=cfg, db=db), db
+    return PolilyService(config=cfg, db=db), db
 
 
 @pytest.mark.asyncio

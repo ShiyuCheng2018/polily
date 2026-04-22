@@ -23,7 +23,7 @@ from textual.widgets import Button
 from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, get_event_markets, upsert_event, upsert_market
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from scanner.tui.views.trade_dialog import BuyPane, TradeDialog
 from scanner.tui.views.wallet import WalletView
 from scanner.tui.views.wallet_modals import TopupModal, WithdrawModal
@@ -31,7 +31,7 @@ from scanner.tui.views.wallet_modals import TopupModal, WithdrawModal
 _REALISTIC_SIZE = (100, 30)  # typical laptop terminal
 
 
-def _seed(tmp_path, *, buy_yes: bool = False, buy_no: bool = False) -> ScanService:
+def _seed(tmp_path, *, buy_yes: bool = False, buy_no: bool = False) -> PolilyService:
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(
         EventRow(event_id="e1", title="T", updated_at="t"),
@@ -45,10 +45,10 @@ def _seed(tmp_path, *, buy_yes: bool = False, buy_no: bool = False) -> ScanServi
         ),
         db,
     )
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
     from scanner.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("e1", auto_monitor=True, db=db)
-    svc = ScanService(config=ScannerConfig(), db=db)
+    svc = PolilyService(config=ScannerConfig(), db=db)
     if buy_yes or buy_no:
         with patch("scanner.core.trade_engine.TradeEngine._fetch_live_price", return_value=0.5):
             if buy_yes:

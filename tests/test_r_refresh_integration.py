@@ -15,7 +15,7 @@ from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_m
 from scanner.core.events import EventBus
 from scanner.core.monitor_store import upsert_event_monitor
 from scanner.scan_log import insert_pending_scan
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 def _service_with_event():
@@ -40,7 +40,7 @@ def _service_with_event():
         db,
     )
     upsert_event_monitor("ev1", auto_monitor=True, db=db)
-    svc = ScanService(config=cfg, db=db, event_bus=EventBus())
+    svc = PolilyService(config=cfg, db=db, event_bus=EventBus())
     svc._tmp = tmp
     return svc
 

@@ -116,7 +116,7 @@ def format_event_settlement(event, market_summaries: list, *, now=None) -> str:
     AWAITING_FULL_SETTLEMENT → '待全部结算'
     RESOLVED                 → '已结算'
 
-    market_summaries is a list of dicts (from ScanService._query_events)
+    market_summaries is a list of dicts (from PolilyService._query_events)
     with shape {closed, end_date, resolved_outcome}. Wraps each dict in a
     SimpleNamespace so market_state() can do attribute access.
     """

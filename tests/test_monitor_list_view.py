@@ -10,17 +10,17 @@ from textual.widgets import DataTable
 
 from scanner.core.db import PolilyDB
 from scanner.monitor.store import append_movement
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from tests.conftest import make_event, setup_event_and_market
 
 
-def _service() -> ScanService:
+def _service() -> PolilyService:
     cfg = MagicMock()
     cfg.paper_trading.default_position_size_usd = 20
     cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
     tmp = tempfile.TemporaryDirectory()
     db = PolilyDB(Path(tmp.name) / "polily.db")
-    svc = ScanService(config=cfg, db=db)
+    svc = PolilyService(config=cfg, db=db)
     svc._tmp = tmp
     return svc
 

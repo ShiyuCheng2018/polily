@@ -19,7 +19,7 @@ from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, upsert_event
 from scanner.core.events import EventBus
 from scanner.scan_log import ScanLogEntry
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 # ----------------- Shared fixtures -----------------
 
@@ -33,7 +33,7 @@ def svc_with_slug(tmp_path):
         EventRow(event_id="ev1", title="Test Event", slug="test-event-slug", updated_at="now"),
         db,
     )
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 
@@ -46,7 +46,7 @@ def svc_no_slug(tmp_path):
         EventRow(event_id="ev1", title="Test Event", slug=None, updated_at="now"),
         db,
     )
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 

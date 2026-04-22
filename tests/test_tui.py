@@ -6,11 +6,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from scanner.tui.app import PolilyApp
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 def _mock_service():
-    """Create a ScanService for TUI smoke tests.
+    """Create a PolilyService for TUI smoke tests.
 
     Uses the real `__init__` so every new attribute added by future tasks
     (wallet / positions / trade_engine / ...) is wired consistently. Config
@@ -26,7 +26,7 @@ def _mock_service():
     config.paper_trading.assumed_round_trip_friction_pct = 0.04
     _tmp = tempfile.TemporaryDirectory()
     db = PolilyDB(Path(_tmp.name) / "polily.db")
-    service = ScanService(config=config, db=db)
+    service = PolilyService(config=config, db=db)
     service._tmp_dir = _tmp  # prevent GC cleanup during test
     return service
 

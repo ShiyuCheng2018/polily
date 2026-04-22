@@ -1,7 +1,7 @@
 """Widget integration tests for TradeDialog (Buy/Sell tabs).
 
 Mounts the dialog on a minimal host App, exercises pilot interactions,
-and asserts that the right ScanService calls happen and the dismiss
+and asserts that the right PolilyService calls happen and the dismiss
 payload reflects the action. Preview math is unit-tested in
 test_trade_preview.py — these tests validate the WIRING (inputs →
 buttons → service calls → dismiss).
@@ -18,7 +18,7 @@ from textual.widgets import Button, Input, Static
 from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from scanner.tui.views.trade_dialog import BuyPane, TradeDialog
 
 
@@ -45,10 +45,10 @@ def _seed(
         ),
         db,
     )
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
     from scanner.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("e1", auto_monitor=True, db=db)
-    return ScanService(config=ScannerConfig(), db=db)
+    return PolilyService(config=ScannerConfig(), db=db)
 
 
 class _Host(App):

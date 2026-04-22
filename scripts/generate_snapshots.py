@@ -63,7 +63,7 @@ SIZE = (160, 45)
 # ---------------------------------------------------------------------------
 
 def _make_cfg():
-    """Mock-config compatible with ScanService code paths touched by views."""
+    """Mock-config compatible with PolilyService code paths touched by views."""
     cfg = SimpleNamespace()
     cfg.wallet = SimpleNamespace(starting_balance=100.0)
     cfg.paper_trading = SimpleNamespace(
@@ -339,8 +339,8 @@ def _seed_full_fixture(db):
 def _seed_wallet_ledger(svc):
     """Use WalletService to seed realistic ledger entries.
 
-    Requires wallet to already be initialized (ScanService does not auto-init
-    — ScanService just constructs WalletService). We initialize here.
+    Requires wallet to already be initialized (PolilyService does not auto-init
+    — PolilyService just constructs WalletService). We initialize here.
     """
     svc.wallet.initialize(starting_balance=100.0)
     svc.wallet.topup(50.0, notes="初始充值")
@@ -377,12 +377,12 @@ def _seed_realized_trade(svc):
 def _make_service(tmpdb_path: Path):
     from scanner.core.db import PolilyDB
     from scanner.core.events import EventBus
-    from scanner.tui.service import ScanService
+    from scanner.tui.service import PolilyService
 
     cfg = _make_cfg()
     db = PolilyDB(tmpdb_path)
     _seed_full_fixture(db)
-    svc = ScanService(config=cfg, db=db, event_bus=EventBus())
+    svc = PolilyService(config=cfg, db=db, event_bus=EventBus())
     _seed_wallet_ledger(svc)
     _seed_position(svc)
     _seed_realized_trade(svc)

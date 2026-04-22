@@ -170,8 +170,8 @@ def svc(tmp_path):
         db,
     )
     upsert_event_monitor("ev1", auto_monitor=True, db=db)
-    from scanner.tui.service import ScanService
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    from scanner.tui.service import PolilyService
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 

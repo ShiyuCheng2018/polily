@@ -37,7 +37,7 @@ from scanner.core.events import (
 from scanner.tui._dispatch import once_per_tick
 from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_WALLET
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from scanner.tui.views._wallet_overview import compute_wallet_overview
 from scanner.tui.widgets.kv_row import KVRow
 from scanner.tui.widgets.polily_card import PolilyCard
@@ -127,7 +127,7 @@ class WalletView(Widget):
         *NAV_BINDINGS,
     ]
 
-    def __init__(self, service: ScanService) -> None:
+    def __init__(self, service: PolilyService) -> None:
         super().__init__()
         self.service = service
 

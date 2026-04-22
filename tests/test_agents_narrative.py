@@ -67,7 +67,7 @@ class TestNarrativeWriterAgent:
     async def test_cli_failure_raises_not_fallback(self):
         """v0.8.0: narrator no longer masquerades CLI failures as a
         degraded "completed" analysis. CLI failures must surface as
-        exceptions so `ScanService.analyze_event`'s error handler can
+        exceptions so `PolilyService.analyze_event`'s error handler can
         mark the scan_logs row as status='failed'."""
         agent = NarrativeWriterAgent(AgentConfig(model="sonnet"))
 

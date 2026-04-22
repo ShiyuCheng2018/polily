@@ -9,7 +9,7 @@ from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, upsert_event
 from scanner.core.events import TOPIC_MONITOR_UPDATED, EventBus
 from scanner.core.monitor_store import upsert_event_monitor
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def svc(tmp_path):
     upsert_event(EventRow(event_id="ev2", title="Test Event B", updated_at="now"), db)
     # Seed auto_monitor flag to one event only.
     upsert_event_monitor(event_id="ev1", auto_monitor=True, db=db)
-    s = ScanService(config=cfg, db=db, event_bus=EventBus())
+    s = PolilyService(config=cfg, db=db, event_bus=EventBus())
     yield s
     db.close()
 

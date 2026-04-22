@@ -29,7 +29,7 @@ from scanner.tui.components import (
     SubMarketTable,
 )
 from scanner.tui.icons import ICON_EVENT, ICON_MARKET, ICON_SCAN
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from scanner.tui.widgets.polily_zone import PolilyZone
 
 
@@ -81,7 +81,7 @@ class ScoreResultView(Widget):
     ScoreResultView #action-row Button { margin: 0 1; }
     """
 
-    def __init__(self, event_id: str, service: ScanService):
+    def __init__(self, event_id: str, service: PolilyService):
         super().__init__()
         self.event_id = event_id
         self.service = service

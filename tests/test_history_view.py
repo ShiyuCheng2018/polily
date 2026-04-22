@@ -18,11 +18,11 @@ from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
 from scanner.core.monitor_store import upsert_event_monitor
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from scanner.tui.views.history import HistoryView
 
 
-def _svc(tmp_path) -> ScanService:
+def _svc(tmp_path) -> PolilyService:
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(EventRow(event_id="e1", title="E1", updated_at="now"), db)
     upsert_market(
@@ -34,13 +34,13 @@ def _svc(tmp_path) -> ScanService:
         ),
         db,
     )
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
     upsert_event_monitor("e1", auto_monitor=True, db=db)
-    return ScanService(config=ScannerConfig(), db=db)
+    return PolilyService(config=ScannerConfig(), db=db)
 
 
 class _Host(App):
-    def __init__(self, service: ScanService):
+    def __init__(self, service: PolilyService):
         super().__init__()
         self._service = service
 
@@ -49,7 +49,7 @@ class _Host(App):
 
 
 class _HostScreen(Screen):
-    def __init__(self, service: ScanService):
+    def __init__(self, service: PolilyService):
         super().__init__()
         self._service = service
 

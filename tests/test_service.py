@@ -1,4 +1,4 @@
-"""Tests for ScanService v0.5.0 — DB-first, event-level."""
+"""Tests for PolilyService v0.5.0 — DB-first, event-level."""
 
 import asyncio
 from unittest.mock import AsyncMock, patch
@@ -8,7 +8,7 @@ import pytest
 from scanner.analysis_store import get_event_analyses
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, get_event, upsert_event, upsert_market
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def db(tmp_path):
 def service(db):
     from scanner.core.config import ScannerConfig
     config = ScannerConfig()
-    return ScanService(config=config, db=db)
+    return PolilyService(config=config, db=db)
 
 
 def _seed(db, event_id="ev1", market_id="m1", **event_kw):
@@ -58,7 +58,7 @@ def _seed(db, event_id="ev1", market_id="m1", **event_kw):
         yes_price=0.55, no_price=0.45, updated_at="now",
     ), db)
 
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
     from scanner.core.monitor_store import upsert_event_monitor
     upsert_event_monitor(event_id, auto_monitor=True, db=db)
 

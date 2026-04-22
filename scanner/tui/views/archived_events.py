@@ -30,7 +30,7 @@ from textual.widgets import DataTable, Static
 
 from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_COMPLETED
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from scanner.tui.widgets.polily_zone import PolilyZone
 
 
@@ -66,7 +66,7 @@ class ArchivedEventsView(Widget):
     ArchivedEventsView .empty-msg { padding: 2; }
     """
 
-    def __init__(self, service: ScanService):
+    def __init__(self, service: PolilyService):
         super().__init__()
         self.service = service
         self._events: list[dict] = []

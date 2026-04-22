@@ -6,7 +6,7 @@ import pytest
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, upsert_event
 from scanner.core.events import EventBus
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -18,7 +18,7 @@ def svc(tmp_path):
         EventRow(event_id="ev1", title="Test Event", updated_at="now"),
         db,
     )
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 

@@ -16,14 +16,14 @@ import pytest
 
 from scanner.core.db import PolilyDB
 from scanner.core.events import EventBus
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 def _svc(tmp_path):
     cfg = MagicMock()
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "t.db")
-    return ScanService(config=cfg, db=db, event_bus=EventBus())
+    return PolilyService(config=cfg, db=db, event_bus=EventBus())
 
 
 def test_load_changelog_from_repo_root():

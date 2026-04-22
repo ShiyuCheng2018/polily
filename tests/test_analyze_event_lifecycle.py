@@ -1,4 +1,4 @@
-"""ScanService.analyze_event must write scan_logs running→completed + next pending."""
+"""PolilyService.analyze_event must write scan_logs running→completed + next pending."""
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -7,7 +7,7 @@ from scanner.agents.schemas import NarrativeWriterOutput
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
 from scanner.core.monitor_store import upsert_event_monitor
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 def _mk_service(tmp_path):
@@ -20,7 +20,7 @@ def _mk_service(tmp_path):
     upsert_event(EventRow(event_id="ev1", title="Test", updated_at="now"), db)
     upsert_market(MarketRow(market_id="m1", event_id="ev1", question="Q", updated_at="now"), db)
     upsert_event_monitor("ev1", auto_monitor=True, db=db)
-    return ScanService(config=cfg, db=db), db
+    return PolilyService(config=cfg, db=db), db
 
 
 @pytest.mark.asyncio

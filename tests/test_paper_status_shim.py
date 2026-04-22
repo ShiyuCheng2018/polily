@@ -12,7 +12,7 @@ import pytest
 
 from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -28,11 +28,11 @@ def svc(tmp_path):
             VALUES ('m2','e1','Will Y?','tok2_yes','tok2_no',0.3,'t');
         """
     )
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
     from scanner.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("e1", auto_monitor=True, db=db)
     db.conn.commit()
-    return ScanService(config=ScannerConfig(), db=db)
+    return PolilyService(config=ScannerConfig(), db=db)
 
 
 def _mock_price(value: float):

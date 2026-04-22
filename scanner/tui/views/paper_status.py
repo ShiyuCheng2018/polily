@@ -35,7 +35,7 @@ from scanner.pnl import calc_unrealized_pnl
 from scanner.tui._dispatch import once_per_tick
 from scanner.tui.bindings import NAV_BINDINGS
 from scanner.tui.icons import ICON_POSITION
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from scanner.tui.widgets.polily_zone import PolilyZone
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ class PaperStatusView(Widget):
     PaperStatusView DataTable { height: 1fr; }
     """
 
-    def __init__(self, service: ScanService):
+    def __init__(self, service: PolilyService):
         super().__init__()
         self.service = service
         self._trades: list[dict] = []

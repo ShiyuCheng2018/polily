@@ -11,7 +11,7 @@ from scanner.core.event_store import (
     upsert_market,
 )
 from scanner.core.events import TOPIC_PRICE_UPDATED, EventBus
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def svc(tmp_path):
         ),
         db,
     )
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 

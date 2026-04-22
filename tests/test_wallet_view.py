@@ -16,12 +16,12 @@ from textual.widgets import Button, Checkbox, Input, Static
 from scanner.core.config import ScannerConfig
 from scanner.core.db import PolilyDB
 from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.tui.service import ScanService
+from scanner.tui.service import PolilyService
 from scanner.tui.views.wallet import WalletView
 from scanner.tui.views.wallet_modals import TopupModal, WalletResetModal, WithdrawModal
 
 
-def _seed(tmp_path, *, auto_monitor: bool = True) -> ScanService:
+def _seed(tmp_path, *, auto_monitor: bool = True) -> PolilyService:
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(
         EventRow(event_id="e1", title="BTC April", updated_at="now"),
@@ -38,17 +38,17 @@ def _seed(tmp_path, *, auto_monitor: bool = True) -> ScanService:
         ),
         db,
     )
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
     # Tests that specifically cover the "no active monitors" path
     # (e.g. reset modal's skip-restart check) can pass auto_monitor=False.
     if auto_monitor:
         from scanner.core.monitor_store import upsert_event_monitor
         upsert_event_monitor("e1", auto_monitor=True, db=db)
-    return ScanService(config=ScannerConfig(), db=db)
+    return PolilyService(config=ScannerConfig(), db=db)
 
 
 class _WalletHost(App):
-    def __init__(self, service: ScanService) -> None:
+    def __init__(self, service: PolilyService) -> None:
         super().__init__()
         self._service = service
 
@@ -66,7 +66,7 @@ from textual.screen import Screen  # noqa: E402 — after App imports for clarit
 
 
 class _HostScreen(Screen):
-    def __init__(self, service: ScanService) -> None:
+    def __init__(self, service: PolilyService) -> None:
         super().__init__()
         self._service = service
 
@@ -78,7 +78,7 @@ class _HostScreen(Screen):
 
 
 class _ViewHost(App):
-    def __init__(self, service: ScanService) -> None:
+    def __init__(self, service: PolilyService) -> None:
         super().__init__()
         self._service = service
 
@@ -179,7 +179,7 @@ async def test_wallet_view_realized_pnl_after_profitable_sell(tmp_path):
 
 
 class _ModalHost(App):
-    def __init__(self, service: ScanService, modal_cls) -> None:
+    def __init__(self, service: PolilyService, modal_cls) -> None:
         super().__init__()
         self._service = service
         self._modal_cls = modal_cls
