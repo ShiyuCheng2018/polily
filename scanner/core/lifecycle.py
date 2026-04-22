@@ -16,6 +16,7 @@ resolved_outcome IS NULL` (UMA 2h challenge window), not by a new
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -82,3 +83,37 @@ def settled_winner_suffix(market: "MarketRow") -> str:
     if outcome == "void":
         return " 市场作废"
     return ""
+
+
+def market_state(market, *, now: datetime | None = None) -> MarketState:
+    """Derive the current lifecycle state of a market.
+
+    Priority (terminal states checked first):
+      1. closed=1 AND resolved_outcome IS NOT NULL → SETTLED
+      2. closed=1 AND resolved_outcome IS NULL     → SETTLING (UMA window)
+      3. closed=0 AND (end_date IS NULL OR end_date > now) → TRADING
+      4. closed=0 AND end_date ≤ now               → PENDING_SETTLEMENT
+
+    `now` is injectable for testability; defaults to datetime.now(UTC).
+
+    NULL end_date with closed=0 → TRADING (a pre-scheduled market that
+    hasn't been given a deadline yet is active, not pending).
+    """
+    closed = int(market.closed or 0)
+    if closed == 1:
+        if getattr(market, "resolved_outcome", None) is None:
+            return MarketState.SETTLING
+        return MarketState.SETTLED
+
+    # closed=0 from here on
+    if market.end_date is None:
+        return MarketState.TRADING
+
+    if now is None:
+        now = datetime.now(UTC)
+    end = datetime.fromisoformat(market.end_date)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=UTC)
+    if end <= now:
+        return MarketState.PENDING_SETTLEMENT
+    return MarketState.TRADING

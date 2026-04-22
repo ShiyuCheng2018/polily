@@ -1,11 +1,13 @@
 """Unit tests for scanner.core.lifecycle — state derivation + labels."""
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from scanner.core.lifecycle import (
     EventState,
     MarketState,
     event_state_label,
+    market_state,
     market_state_label,
     settled_winner_suffix,
 )
@@ -74,3 +76,59 @@ def test_every_event_state_has_label():
     """Every EventState enum value must have a label mapping."""
     for state in EventState:
         assert event_state_label(state)  # non-empty
+
+
+def _mk_market(*, closed=0, end_date=None, resolved_outcome=None):
+    """Build a MarketRow-like object with the fields lifecycle inspects."""
+    m = MagicMock()
+    m.closed = closed
+    m.end_date = end_date
+    m.resolved_outcome = resolved_outcome
+    return m
+
+
+def test_market_state_trading():
+    now = datetime(2026, 4, 22, 0, 0, tzinfo=UTC)
+    future = (now + timedelta(days=7)).isoformat()
+    m = _mk_market(closed=0, end_date=future)
+    assert market_state(m, now=now) == MarketState.TRADING
+
+
+def test_market_state_trading_null_end_date():
+    """closed=0 AND end_date=None → TRADING (pre-scheduled market, not expired)."""
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    m = _mk_market(closed=0, end_date=None)
+    assert market_state(m, now=now) == MarketState.TRADING
+
+
+def test_market_state_pending_settlement_past_end_date():
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    past = (now - timedelta(hours=12)).isoformat()
+    m = _mk_market(closed=0, end_date=past)
+    assert market_state(m, now=now) == MarketState.PENDING_SETTLEMENT
+
+
+def test_market_state_settling_closed_no_outcome():
+    """closed=1 AND resolved_outcome=None → SETTLING (UMA window)."""
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    m = _mk_market(closed=1, resolved_outcome=None)
+    assert market_state(m, now=now) == MarketState.SETTLING
+
+
+def test_market_state_settled_with_outcome():
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    m = _mk_market(closed=1, resolved_outcome="no")
+    assert market_state(m, now=now) == MarketState.SETTLED
+
+
+def test_market_state_settled_with_split():
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    m = _mk_market(closed=1, resolved_outcome="split")
+    assert market_state(m, now=now) == MarketState.SETTLED
+
+
+def test_market_state_boundary_end_date_equals_now():
+    """end_date == now → PENDING_SETTLEMENT (≤ semantics)."""
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    m = _mk_market(closed=0, end_date=now.isoformat())
+    assert market_state(m, now=now) == MarketState.PENDING_SETTLEMENT
