@@ -193,7 +193,7 @@ class ReportingConfig(BaseModel):
     include_worst_case_loss: bool = True
     include_net_edge_after_friction: bool = True
     include_discipline_status: bool = True
-    disclaimer: str = "Scanner output is a research prompt, not a trade recommendation."
+    disclaimer: str = "Polily output is a research prompt, not a trade recommendation."
 
 
 class ArchivingConfig(BaseModel):

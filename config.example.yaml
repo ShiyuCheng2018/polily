@@ -7,7 +7,7 @@ api:
   backoff_seconds: 1.5
   use_cache: true
   cache_dir: "./data/cache"
-  user_agent: "polymarket-scanner/0.1"
+  user_agent: "polily/0.9"
 
 # CLI output modes
 cli:
@@ -247,7 +247,7 @@ reporting:
   include_net_edge_after_friction: true
   include_discipline_status: true
   # Every report header must include this disclaimer
-  disclaimer: "Scanner output is a research prompt, not a trade recommendation. High scores indicate good market structure, not guaranteed edge."
+  disclaimer: "Polily output is a research prompt, not a trade recommendation. High scores indicate good market structure, not guaranteed edge."
 
 # Database
 archiving:
