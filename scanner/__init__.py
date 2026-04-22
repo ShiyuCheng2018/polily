@@ -3,7 +3,7 @@
 Public API for programmatic use (without CLI).
 """
 
-__version__ = "0.8.0"
+__version__ = "0.8.5"
 
 from scanner.core.config import ScannerConfig, load_config
 from scanner.core.db import PolilyDB
