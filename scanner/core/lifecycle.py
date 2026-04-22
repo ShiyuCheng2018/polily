@@ -125,3 +125,28 @@ def market_state(market, *, now: datetime | None = None) -> MarketState:
     if end <= now:
         return MarketState.PENDING_SETTLEMENT
     return MarketState.TRADING
+
+
+def event_state(
+    event, markets: list, *, now: datetime | None = None,
+) -> EventState:
+    """Derive the event lifecycle state from child markets.
+
+    Priority:
+      1. event.closed=1 → RESOLVED (terminal)
+      2. any child market in TRADING → ACTIVE
+      3. otherwise → AWAITING_FULL_SETTLEMENT
+
+    Empty markets list on an open event → ACTIVE (pre-scoring edge case).
+    """
+    if int(event.closed or 0) == 1:
+        return EventState.RESOLVED
+
+    if not markets:
+        return EventState.ACTIVE
+
+    for m in markets:
+        if market_state(m, now=now) == MarketState.TRADING:
+            return EventState.ACTIVE
+
+    return EventState.AWAITING_FULL_SETTLEMENT

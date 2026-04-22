@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 from scanner.core.lifecycle import (
     EventState,
     MarketState,
+    event_state,
     event_state_label,
     market_state,
     market_state_label,
@@ -156,3 +157,56 @@ def test_market_state_malformed_end_date_falls_back_to_trading():
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     m = _mk_market(closed=0, end_date="not-a-date")
     assert market_state(m, now=now) == MarketState.TRADING
+
+
+def _mk_event(*, closed=0):
+    """Build an EventRow-like object with the fields lifecycle inspects."""
+    e = MagicMock()
+    e.closed = closed
+    return e
+
+
+def test_event_state_no_markets_is_active():
+    """Empty markets list on an open event → ACTIVE (pre-scoring edge case)."""
+    e = _mk_event(closed=0)
+    assert event_state(e, []) == EventState.ACTIVE
+
+
+def test_event_state_all_trading_is_active():
+    """At least one child in TRADING → ACTIVE."""
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    future = (now + timedelta(days=7)).isoformat()
+    markets = [_mk_market(closed=0, end_date=future) for _ in range(3)]
+    assert event_state(_mk_event(closed=0), markets, now=now) == EventState.ACTIVE
+
+
+def test_event_state_mixed_trading_and_settled_still_active():
+    """Any TRADING child → ACTIVE, regardless of other states."""
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    future = (now + timedelta(days=7)).isoformat()
+    past = (now - timedelta(days=1)).isoformat()
+    markets = [
+        _mk_market(closed=0, end_date=future),                    # TRADING
+        _mk_market(closed=1, resolved_outcome="no"),              # SETTLED
+        _mk_market(closed=0, end_date=past),                      # PENDING_SETTLEMENT
+    ]
+    assert event_state(_mk_event(closed=0), markets, now=now) == EventState.ACTIVE
+
+
+def test_event_state_awaiting_full_settlement():
+    """No TRADING children + event.closed=0 → AWAITING_FULL_SETTLEMENT."""
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    past = (now - timedelta(days=1)).isoformat()
+    markets = [
+        _mk_market(closed=0, end_date=past),                      # PENDING_SETTLEMENT
+        _mk_market(closed=1, resolved_outcome=None),              # SETTLING
+        _mk_market(closed=1, resolved_outcome="yes"),             # SETTLED
+    ]
+    assert event_state(_mk_event(closed=0), markets, now=now) == EventState.AWAITING_FULL_SETTLEMENT
+
+
+def test_event_state_resolved_when_event_closed():
+    """event.closed=1 is terminal, regardless of child states."""
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    markets = [_mk_market(closed=1, resolved_outcome="no") for _ in range(4)]
+    assert event_state(_mk_event(closed=1), markets, now=now) == EventState.RESOLVED
