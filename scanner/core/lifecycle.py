@@ -101,7 +101,7 @@ def market_state(market, *, now: datetime | None = None) -> MarketState:
     """
     closed = int(market.closed or 0)
     if closed == 1:
-        if getattr(market, "resolved_outcome", None) is None:
+        if market.resolved_outcome is None:
             return MarketState.SETTLING
         return MarketState.SETTLED
 
@@ -111,7 +111,15 @@ def market_state(market, *, now: datetime | None = None) -> MarketState:
 
     if now is None:
         now = datetime.now(UTC)
-    end = datetime.fromisoformat(market.end_date)
+
+    try:
+        end = datetime.fromisoformat(market.end_date)
+    except (ValueError, TypeError):
+        # Malformed end_date (corrupt row / Gamma schema drift).
+        # Safer to treat as TRADING than classify as PENDING_SETTLEMENT
+        # when we can't even parse the date.
+        return MarketState.TRADING
+
     if end.tzinfo is None:
         end = end.replace(tzinfo=UTC)
     if end <= now:

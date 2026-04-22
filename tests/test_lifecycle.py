@@ -132,3 +132,27 @@ def test_market_state_boundary_end_date_equals_now():
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     m = _mk_market(closed=0, end_date=now.isoformat())
     assert market_state(m, now=now) == MarketState.PENDING_SETTLEMENT
+
+
+def test_market_state_closed_none_treated_as_trading():
+    """closed=None (edge-case defensive: int(None or 0) == 0) → falls through to time-based branch."""
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    future = (now + timedelta(days=1)).isoformat()
+    m = _mk_market(closed=None, end_date=future)
+    assert market_state(m, now=now) == MarketState.TRADING
+
+
+def test_market_state_naive_iso_treated_as_utc():
+    """ISO string without timezone info is assumed UTC."""
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    # Naive ISO (no +00:00) for a future time
+    future_naive = (now + timedelta(days=1)).replace(tzinfo=None).isoformat()
+    m = _mk_market(closed=0, end_date=future_naive)
+    assert market_state(m, now=now) == MarketState.TRADING
+
+
+def test_market_state_malformed_end_date_falls_back_to_trading():
+    """Unparseable end_date → safe fallback TRADING (Gamma schema drift guard)."""
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    m = _mk_market(closed=0, end_date="not-a-date")
+    assert market_state(m, now=now) == MarketState.TRADING
