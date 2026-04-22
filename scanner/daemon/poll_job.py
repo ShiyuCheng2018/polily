@@ -77,13 +77,6 @@ async def _fetch_gamma_market(market_id: str) -> dict | None:
         return None
 
 
-def _has_positions(db: PolilyDB, market_id: str) -> bool:  # noqa: unused — retained for future callers
-    row = db.conn.execute(
-        "SELECT 1 FROM positions WHERE market_id=? LIMIT 1", (market_id,)
-    ).fetchone()
-    return row is not None
-
-
 async def _run_resolution_pass(
     market_ids: list[str],
     db: PolilyDB,
@@ -169,15 +162,28 @@ async def backfill_stuck_resolutions(
     Pre-v0.8.5 the resolver early-returned on no-position markets, leaving
     their `resolved_outcome` at NULL forever. Post-v0.8.5 the live flow
     handles new closures correctly, but legacy rows stay stuck. This pass
-    walks every stuck market once at daemon startup and feeds it through
-    the standard resolver path (capped concurrency to avoid thrashing
-    Gamma's free tier if there are many such rows).
+    walks stuck markets at daemon startup and feeds each through the
+    standard resolver path.
+
+    **Concurrency safety**: this function writes `markets.resolved_outcome`
+    via `ResolutionHandler.resolve_market`, whose atomic tx is idempotent
+    under retry (SQLite serializes on write lock; already-resolved rows
+    are excluded by the `WHERE resolved_outcome IS NULL` filter). Safe to
+    run alongside other writers (TUI scan, poll ticks), though in practice
+    `scheduler.run_daemon` invokes this **before** `scheduler.start()` to
+    avoid thrashing.
+
+    **Blast-radius cap**: limited to 100 rows per invocation so daemon
+    startup stays under ~40s worst case (100 / _GAMMA_CONCURRENCY × Gamma
+    timeout). Remaining stuck rows heal on subsequent restarts — this is
+    a legacy-data migration path, not a live-operation dependency.
 
     Returns the number of markets processed (for logging).
     """
     rows = db.conn.execute(
         "SELECT market_id FROM markets "
-        "WHERE closed = 1 AND resolved_outcome IS NULL"
+        "WHERE closed = 1 AND resolved_outcome IS NULL "
+        "LIMIT 100"
     ).fetchall()
     if not rows:
         return 0
@@ -191,9 +197,6 @@ async def backfill_stuck_resolutions(
             )
 
     await asyncio.gather(*[_one(r["market_id"]) for r in rows])
-    logger.info(
-        "backfill_stuck_resolutions: processed %d markets", len(rows),
-    )
     return len(rows)
 
 

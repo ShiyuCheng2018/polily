@@ -554,6 +554,64 @@ async def test_backfill_stuck_resolutions_heals_legacy_rows(tmp_path, monkeypatc
     assert rows["live"] is None
 
 
+@pytest.mark.asyncio
+async def test_backfill_stuck_resolutions_caps_at_100(tmp_path, monkeypatch):
+    """Backfill should LIMIT 100 rows per invocation to keep startup fast."""
+    from scanner.core.db import PolilyDB
+    from scanner.core.positions import PositionManager
+    from scanner.core.wallet import WalletService
+    from scanner.daemon import poll_job
+    from scanner.daemon.resolution import ResolutionHandler
+    from datetime import UTC, datetime
+
+    db = PolilyDB(tmp_path / "t.db")
+    now = datetime.now(UTC).isoformat()
+
+    # Seed an event
+    db.conn.execute(
+        "INSERT INTO events (event_id, title, tags, updated_at) VALUES (?,?,'[]',?)",
+        ("e1", "test event", now),
+    )
+
+    # Seed 150 stuck markets — backfill should cap at 100
+    for i in range(150):
+        db.conn.execute(
+            "INSERT INTO markets (market_id, event_id, question, outcomes, "
+            "closed, active, accepting_orders, updated_at) "
+            "VALUES (?, 'e1', 'Q', '[\"Yes\",\"No\"]', 1, 1, 0, ?)",
+            (f"stuck{i}", now),
+        )
+    db.conn.commit()
+
+    calls = []
+
+    async def fake_fetch_gamma(mid):
+        calls.append(mid)
+        return {
+            "id": mid,
+            "outcomePrices": ["0", "1"],
+            "umaResolutionStatuses": ["proposed", "resolved"],
+        }
+
+    monkeypatch.setattr(poll_job, "_fetch_gamma_market", fake_fetch_gamma)
+
+    wallet = WalletService(db); wallet.initialize(100.0)
+    positions = PositionManager(db)
+    resolver = ResolutionHandler(db, wallet, positions)
+
+    n = await poll_job.backfill_stuck_resolutions(db, wallet, positions, resolver)
+
+    # Exactly 100 processed; remaining 50 stay stuck
+    assert n == 100
+    assert len(calls) == 100
+
+    still_stuck = db.conn.execute(
+        "SELECT COUNT(*) c FROM markets "
+        "WHERE closed = 1 AND resolved_outcome IS NULL"
+    ).fetchone()["c"]
+    assert still_stuck == 50
+
+
 class TestPollOnlyMonitoredEvents:
     """Poll should only fetch markets from monitored events."""
 
