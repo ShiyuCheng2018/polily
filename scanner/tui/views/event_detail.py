@@ -175,7 +175,7 @@ class EventDetailView(Widget):
         with VerticalScroll():
             # Zone: 事件信息 (header + KPI row)
             with PolilyZone(title=f"{ICON_EVENT} 事件信息", id="event-info-zone"):
-                yield EventHeader(event, monitor, movements)
+                yield EventHeader(event, monitor, movements, markets=markets)
                 yield EventKpiRow(event, markets)
 
             # Zone: 市场 (structure panel or sub-market table)
