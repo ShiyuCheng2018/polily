@@ -66,16 +66,30 @@ def _seed(db, event_id="e1", market_id="m1", token="tok1", monitored=True):
 
 
 @pytest.mark.asyncio
-async def test_helper_skips_when_no_positions(db, services):
-    """No positions on the market → Gamma fetch must NOT happen."""
+async def test_helper_writes_resolved_outcome_without_position(db, services):
+    """No positions on the market → Gamma IS called, resolved_outcome IS written,
+    wallet is NOT credited (new behavior: _has_positions gate removed in v0.8.5)."""
     wallet, positions, resolver = services
     _seed(db)
+    cash_before = wallet.get_cash()
 
-    with patch.object(poll_job, "_fetch_gamma_market", new=AsyncMock()) as mock_fetch:
+    gamma_response = {"outcomePrices": '["1", "0"]'}
+    with patch.object(
+        poll_job, "_fetch_gamma_market", new=AsyncMock(return_value=gamma_response)
+    ) as mock_fetch:
         await poll_job._resolve_closed_market_if_position(
             "m1", db, wallet, positions, resolver,
         )
-    mock_fetch.assert_not_called()
+
+    mock_fetch.assert_called_once_with("m1")
+    # resolved_outcome written even with no positions — keeps DB authoritative
+    resolved = db.conn.execute(
+        "SELECT resolved_outcome FROM markets WHERE market_id='m1'"
+    ).fetchone()["resolved_outcome"]
+    assert resolved == "yes"
+    # No wallet credit — no positions to settle
+    assert wallet.get_cash() == cash_before
+    assert wallet.list_transactions(tx_type="RESOLVE") == []
 
 
 @pytest.mark.asyncio
@@ -445,17 +459,23 @@ class TestGlobalPollResolutionIntegration:
         assert positions.get_position("m1", "yes") is None
         assert wallet.get_cash() == pytest.approx(cash_before + 10.0)
 
-    def test_404_without_position_skips_gamma(self, db, services):
-        """No positions on the closed market → zero Gamma requests."""
+    def test_404_without_position_resolves_outcome_no_credit(self, db, services):
+        """CLOB 404 with no positions → Gamma IS called, resolved_outcome IS written,
+        wallet is NOT credited (new behavior: _has_positions gate removed in v0.8.5)."""
         wallet, positions, resolver = services
         _seed(db)
         poll_job.init_poller(
             db=db, wallet=wallet, positions=positions, resolver=resolver,
         )
+        cash_before = wallet.get_cash()
 
         with (
             patch("scanner.core.clob.fetch_clob_market_data") as mock_clob,
-            patch.object(poll_job, "_fetch_gamma_market", new=AsyncMock()) as mock_gamma,
+            patch.object(
+                poll_job,
+                "_fetch_gamma_market",
+                new=AsyncMock(return_value={"outcomePrices": '["1", "0"]'}),
+            ) as mock_gamma,
         ):
             mock_clob.side_effect = httpx.HTTPStatusError(
                 "Not Found",
@@ -464,7 +484,15 @@ class TestGlobalPollResolutionIntegration:
             )
             poll_job.global_poll(db)
 
-        mock_gamma.assert_not_called()
+        mock_gamma.assert_called_once_with("m1")
+        # resolved_outcome written even with no positions
+        resolved = db.conn.execute(
+            "SELECT resolved_outcome FROM markets WHERE market_id='m1'"
+        ).fetchone()["resolved_outcome"]
+        assert resolved == "yes"
+        # No wallet credit — no positions to settle
+        assert wallet.get_cash() == cash_before
+        assert wallet.list_transactions(tx_type="RESOLVE") == []
 
     def test_no_closed_markets_this_tick_skips_resolution_pass(self, db, services):
         """Normal tick with all markets returning 200 → zero Gamma requests."""
