@@ -9,21 +9,6 @@ api:
   cache_dir: "./data/cache"
   user_agent: "polymarket-scanner/0.1"
 
-scanner:
-  output_dir: "./outputs"
-  max_markets_to_fetch: 1000
-  include_closed_markets: false
-  categories_allowlist: []
-  categories_blocklist: []
-  tags_allowlist: []
-  tags_blocklist: []
-  # Two-pass scanning: broad metadata first, then targeted order book for candidates
-  two_pass_scan: true
-  # How many top candidates get detailed order book data in second pass
-  orderbook_fetch_top_n: 50
-  # Default scan time recommendation (display only, not enforced)
-  recommended_scan_time_utc: "14:00"  # UTC 14:00 = Beijing 22:00
-
 # CLI output modes
 cli:
   default_mode: "default"  # "brief", "default", "verbose"

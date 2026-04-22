@@ -45,19 +45,6 @@ class CliConfig(BaseModel):
     polymarket_base_url: str = "https://polymarket.com/event/"
 
 
-class ScannerSection(BaseModel):
-    output_dir: str = "./outputs"
-    max_markets_to_fetch: int = 1000
-    include_closed_markets: bool = False
-    categories_allowlist: list[str] = []
-    categories_blocklist: list[str] = []
-    tags_allowlist: list[str] = []
-    tags_blocklist: list[str] = []
-    two_pass_scan: bool = True
-    orderbook_fetch_top_n: int = 50
-    recommended_scan_time_utc: str = "14:00"
-
-
 class FiltersConfig(BaseModel):
     require_objective_market: bool = True
     require_clear_rules: bool = False
@@ -306,7 +293,6 @@ class ScannerConfig(BaseModel):
 
     api: ApiConfig = ApiConfig()
     cli: CliConfig = CliConfig()
-    scanner: ScannerSection = ScannerSection()
     filters: FiltersConfig = FiltersConfig()
     heuristics: HeuristicsConfig = HeuristicsConfig()
     scoring: ScoringConfig = ScoringConfig()
