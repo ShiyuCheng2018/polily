@@ -140,3 +140,48 @@ def test_market_row_default_resolved_outcome_is_none():
     """MarketRow should default resolved_outcome to None."""
     m = MarketRow(market_id="m1", event_id="e1", question="Q")
     assert m.resolved_outcome is None
+
+
+def test_upsert_preserves_resolved_outcome(tmp_path):
+    """upsert_market must NOT clobber resolved_outcome — it's owned by
+    ResolutionHandler and sits outside _MARKET_INSERT_COLS by design.
+
+    Regression guard: if a well-meaning future dev adds 'resolved_outcome'
+    to _MARKET_INSERT_COLS, this test fails loudly because a routine
+    Gamma-driven upsert would overwrite the settled outcome.
+    """
+    from datetime import UTC, datetime
+    db = PolilyDB(tmp_path / "t.db")
+
+    # Seed event + market with resolved_outcome='no' via raw SQL
+    # (mimics a ResolutionHandler.resolve_market write)
+    now = datetime.now(UTC).isoformat()
+    db.conn.execute(
+        "INSERT INTO events (event_id, title, tags, updated_at) VALUES (?,?,'[]',?)",
+        ("e1", "test event", now),
+    )
+    db.conn.execute(
+        "INSERT INTO markets (market_id, event_id, question, outcomes, "
+        "closed, resolved_outcome, updated_at) "
+        "VALUES ('m1', 'e1', 'Q', '[\"Yes\",\"No\"]', 1, 'no', ?)",
+        (now,),
+    )
+    db.conn.commit()
+
+    # Now upsert a fresh MarketRow for the same market_id (simulates a
+    # Gamma refresh). MarketRow defaults resolved_outcome to None — if
+    # that leaks into the UPDATE, we'd wipe 'no' to NULL.
+    fresh = MarketRow(
+        market_id="m1", event_id="e1", question="Q",
+        closed=1,
+    )
+    upsert_market(fresh, db)
+
+    # Verify: resolved_outcome UNCHANGED
+    m = get_market("m1", db)
+    assert m is not None
+    assert m.resolved_outcome == "no", (
+        "upsert_market leaked resolved_outcome into update — "
+        "likely a regression from adding it to _MARKET_INSERT_COLS"
+    )
+    db.close()
