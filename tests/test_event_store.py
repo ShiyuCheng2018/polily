@@ -111,3 +111,32 @@ class TestMarketCRUD:
 
     def test_get_nonexistent_market(self, db):
         assert get_market("nonexistent", db) is None
+
+
+def test_market_row_roundtrips_resolved_outcome(tmp_path):
+    """MarketRow must expose resolved_outcome end-to-end: DB → ORM → .attr."""
+    from datetime import UTC, datetime
+    db = PolilyDB(tmp_path / "t.db")
+    now = datetime.now(UTC).isoformat()
+    db.conn.execute(
+        "INSERT INTO events (event_id, title, tags, updated_at) VALUES (?,?,'[]',?)",
+        ("e1", "test", now),
+    )
+    db.conn.execute(
+        "INSERT INTO markets (market_id, event_id, question, outcomes, "
+        "closed, resolved_outcome, updated_at) "
+        "VALUES (?, ?, 'Q', '[\"Yes\",\"No\"]', 1, 'no', ?)",
+        ("m1", "e1", now),
+    )
+    db.conn.commit()
+
+    m = get_market("m1", db)
+    assert m is not None
+    assert m.resolved_outcome == "no"
+    db.close()
+
+
+def test_market_row_default_resolved_outcome_is_none():
+    """MarketRow should default resolved_outcome to None."""
+    m = MarketRow(market_id="m1", event_id="e1", question="Q")
+    assert m.resolved_outcome is None
