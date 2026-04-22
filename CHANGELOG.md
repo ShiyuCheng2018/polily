@@ -28,10 +28,12 @@ structured release notes — see `git log` for history.
 - `monitor_list` 结算 column: uses event lifecycle state via a single aggregate `json_group_array` SQL query (no N+1 child loads); shows `待全部结算` / `已结算` instead of "已过期 ~ 已过期" range.
 - `score_result` view: banner text derived from event state; replaces old `_is_expired` boolean path.
 - `ScanService._query_events` returns a new `markets_summary` list per event (compact `{closed, end_date, resolved_outcome}` dicts) used by the monitor_list settlement cell.
+- `ChangelogView` (更新日志 page) now shows a version header — `当前版本: vX · 最新稳定版: Y` — with the latest stable tag fetched asynchronously from GitHub releases on mount (and on `r` refresh). Offline / timeout fallback to `无法获取` so the page never blocks.
 
 ### Fixed
 
 - `MarketRow` was silently dropping the DB `resolved_outcome` column due to ORM-schema drift (column existed in `scanner/core/db.py` but not in `_MARKET_ALL_COLS` tuple); now aligned, allowing lifecycle state to derive correctly from DB rows.
+- `ChangelogView` page is now scrollable. Previously `PolilyZone { height: 1fr }` clamped the inner zone to the viewport, truncating long changelogs. Changed to `height: auto` so the outer `VerticalScroll` actually scrolls.
 
 ## [0.8.0] — 2026-04-22
 
