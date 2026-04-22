@@ -2,7 +2,6 @@
 
 import contextlib
 import re
-from datetime import UTC, datetime
 
 from textual.app import ComposeResult
 from textual.containers import HorizontalGroup
@@ -19,6 +18,29 @@ def _subcount_label(markets: list) -> str:
     a single number.
     """
     return str(len(markets))
+
+
+def _kpi_end_label(event, markets: list, *, now=None) -> str:
+    """kpi-end MetricCard content — event state aware.
+
+    ACTIVE                   → format_countdown_range over active children
+    AWAITING_FULL_SETTLEMENT → '待全部结算'
+    RESOLVED                 → '已结算'
+    """
+    from scanner.core.lifecycle import EventState, event_state
+
+    state = event_state(event, markets, now=now)
+    if state == EventState.RESOLVED:
+        return "已结算"
+    if state == EventState.AWAITING_FULL_SETTLEMENT:
+        return "待全部结算"
+
+    # ACTIVE: range over non-closed markets with valid end_date
+    from scanner.tui.utils import format_countdown_range
+    ends = [m.end_date for m in markets if not int(m.closed or 0) and m.end_date]
+    if not ends:
+        return "?"
+    return format_countdown_range(min(ends), max(ends))
 
 
 class EventKpiRow(Widget):
@@ -119,13 +141,7 @@ class EventKpiRow(Widget):
 
         self._set_card("kpi-count", _subcount_label(markets))
 
-        from scanner.tui.utils import format_countdown_range
-        now_iso = datetime.now(UTC).isoformat()
-        active_ends = [m.end_date for m in markets if not m.closed and m.end_date and m.end_date > now_iso]
-        if active_ends:
-            self._set_card("kpi-end", format_countdown_range(min(active_ends), max(active_ends)))
-        else:
-            self._set_card("kpi-end", "?")
+        self._set_card("kpi-end", _kpi_end_label(event, markets))
 
         score = event.structure_score
         mkt_summary = self._market_score_summary(markets)
