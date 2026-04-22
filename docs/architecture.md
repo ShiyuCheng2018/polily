@@ -42,7 +42,7 @@ All state in `data/polily.db`. No JSON files, no scan archives.
 
 ## Single-Event Ingestion Pipeline
 
-`scanner/scan/pipeline.py` — `fetch_and_score_event(slug)`
+`polily/scan/pipeline.py` — `fetch_and_score_event(slug)`
 
 1. **Fetch** — Gamma API by slug → parse event + sub-markets
 2. **Enrich orderbook** — `fetch_clob_market_data()` per market (4 CLOB endpoints, sem=100)
@@ -66,7 +66,7 @@ Measures **tradability**, not profitability. Weights are type-specific (all sum 
 
 ## Mispricing Detection
 
-`scanner/scan/mispricing.py` — crypto markets only, requires Binance underlying price.
+`polily/scan/mispricing.py` — crypto markets only, requires Binance underlying price.
 
 | Model | Formula | Markets |
 |-------|---------|---------|
@@ -111,18 +111,18 @@ auto-resolution (poll tick, on closed market with UMA final)
 - `positions` — one row per (market_id, side) with weighted-average avg_cost + cost_basis
 - `wallet_transactions` — append-only ledger, types: BUY / SELL / FEE / RESOLVE / TOPUP / WITHDRAW
 
-**Atomicity contract** (`scanner/core/trade_engine.py`): every public `execute_*` method
+**Atomicity contract** (`polily/core/trade_engine.py`): every public `execute_*` method
 opens one `BEGIN` and calls inner writes with `commit=False`, so the cash delta, fee
 deduction, and position mutation all commit together or all roll back. Same contract
 for `ResolutionHandler.resolve_market` — the credit + position delete + ledger insert
 are one transaction.
 
-**Fees** (`scanner/core/fees.py`): quadratic Polymarket taker fee:
+**Fees** (`polily/core/fees.py`): quadratic Polymarket taker fee:
 `fee = shares × rate × price × (1 − price)`. Rate comes from the market's
 `feesEnabled` + `feeSchedule.rate` fields (per-market, not per-category).
 Most Polymarket markets have `feesEnabled=false` → `fee = $0`.
 
-**Auto-resolution** (`scanner/daemon/resolution.py`): a closed market with a live
+**Auto-resolution** (`polily/daemon/resolution.py`): a closed market with a live
 position triggers a Gamma fetch. `derive_winner` gates on `umaResolutionStatuses`:
 
 - `[]` — non-UMA market (price-feed settled) → honor `outcomePrices`
@@ -139,7 +139,7 @@ friction shown in the UI reflects the real fee amount, not an estimate.
 
 ## Daemon Architecture
 
-`scanner/daemon/scheduler.py` — APScheduler with dual executors.
+`polily/daemon/scheduler.py` — APScheduler with dual executors.
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -166,18 +166,18 @@ friction shown in the UI reflects the real fee amount, not an estimate.
 
 ## Global Poll (30s Tick)
 
-`scanner/daemon/poll_job.py` — `global_poll(db)`
+`polily/daemon/poll_job.py` — `global_poll(db)`
 
 Each tick executes these steps sequentially (numbering from the module docstring; Step 1.5 / 3.5 are later insertions that kept the original names):
 
 **Step 1 — CLOB Price Fetch**
 - Fetches all monitored markets (event_monitors.auto_monitor=1, market not closed, has token)
-- 4 endpoints per market via `scanner/core/clob.py`: /book + /midpoint + /price BUY + /price SELL
+- 4 endpoints per market via `polily/core/clob.py`: /book + /midpoint + /price BUY + /price SELL
 - 404 → mark market closed; all sub-markets closed → close event
 - Fetches recent trades from Data API (batch, sem=5)
 - Fetches Binance tickers for crypto symbols (deduped)
 
-**Step 1.5 — Auto-Resolution** (`scanner/daemon/resolution.py`)
+**Step 1.5 — Auto-Resolution** (`polily/daemon/resolution.py`)
 - Runs immediately after the fetch so UMA status is as fresh as possible
 - For each closed market where the user holds a live position: fetch Gamma to read
   `outcomePrices` + `umaResolutionStatuses`
@@ -188,7 +188,7 @@ Each tick executes these steps sequentially (numbering from the module docstring
 - Zero Gamma calls for closed markets with no user exposure (read-through gate in
   `_has_positions`)
 
-**Step 2 — Score Refresh** (`scanner/daemon/score_refresh.py`)
+**Step 2 — Score Refresh** (`polily/daemon/score_refresh.py`)
 - Recalculates price-sensitive dimensions: liquidity, probability, friction, net_edge, mispricing
 - Preserves stable dimensions: verifiability, time
 - Refreshes event-level scores
@@ -217,7 +217,7 @@ Each tick executes these steps sequentially (numbering from the module docstring
 
 ## Movement Detection (Dual Dimensions)
 
-`scanner/monitor/signals.py` + `scanner/monitor/scorer.py`
+`polily/monitor/signals.py` + `polily/monitor/scorer.py`
 
 **Raw signals per market**: price_z_score, volume_ratio, book_imbalance, trade_concentration, volume_price_confirmation.
 
@@ -231,7 +231,7 @@ Each tick executes these steps sequentially (numbering from the module docstring
 
 ## CLOB Data Fetch
 
-`scanner/core/clob.py` — `fetch_clob_market_data(client, token_id)` — single source of truth for both poll and scan paths.
+`polily/core/clob.py` — `fetch_clob_market_data(client, token_id)` — single source of truth for both poll and scan paths.
 
 | Data needed | Endpoint | Degradation |
 |-------------|----------|-------------|
@@ -244,7 +244,7 @@ Why /price not /book for bid/ask: negRisk markets' /book returns raw token order
 
 ## AI Agent
 
-`scanner/agents/narrative_writer.py` — single autonomous agent.
+`polily/agents/narrative_writer.py` — single autonomous agent.
 
 - Invoked via `claude -p --allowedTools Read,Bash,Grep,WebSearch,TodoWrite,StructuredOutput`
 - Reads polily.db autonomously (events / markets / positions / wallet_transactions /

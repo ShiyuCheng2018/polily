@@ -126,7 +126,7 @@ polily reset --wallet-only  # reset wallet only, keep events/markets/analyses
 ## Development
 
 ```bash
-pytest tests/ -q              # ~900 tests
+pytest tests/ -q              # ~1300 tests
 ruff check polily/ tests/    # lint
 pyright polily/              # type check
 ```

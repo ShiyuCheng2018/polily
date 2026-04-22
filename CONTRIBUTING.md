@@ -63,8 +63,8 @@ refactor/*
 3. **Run checks** before pushing:
    ```bash
    pytest tests/ -q
-   ruff check scanner/ tests/
-   pyright scanner/
+   ruff check polily/ tests/
+   pyright polily/
    ```
 4. **Open a PR** targeting `dev` with a clear description
 
