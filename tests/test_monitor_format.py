@@ -242,3 +242,31 @@ def test_format_event_settlement_resolved():
     event.end_date = None
     summaries = [_mk_summary(closed=1, resolved_outcome="no")]
     assert format_event_settlement(event, summaries) == "已结算"
+
+
+def test_format_event_settlement_active_excludes_pending_settlement_markets():
+    """ACTIVE event with mixed TRADING + PENDING_SETTLEMENT children must
+    NOT leak "已过期" into the range — countdown only covers TRADING children.
+
+    Regression guard: the pre-fix filter `not m.closed AND m.end_date`
+    let PENDING_SETTLEMENT markets (closed=0, end_date<now) through to
+    format_settlement_range → _relative, which renders them as "已过期".
+    """
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import MagicMock
+
+    from scanner.tui.monitor_format import format_event_settlement
+
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    past = (now - timedelta(hours=1)).isoformat()        # PENDING_SETTLEMENT
+    future = (now + timedelta(days=7)).isoformat()       # TRADING
+    event = MagicMock()
+    event.closed = 0
+    event.end_date = future
+    summaries = [
+        _mk_summary(closed=0, end_date=past),            # PENDING_SETTLEMENT
+        _mk_summary(closed=0, end_date=future),          # TRADING
+    ]
+    out = format_event_settlement(event, summaries, now=now)
+    assert "已过期" not in out
+    assert "天" in out

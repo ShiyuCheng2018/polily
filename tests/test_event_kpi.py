@@ -62,3 +62,27 @@ def test_kpi_end_label_resolved():
     event = MagicMock(); event.closed = 1; event.end_date = None
     markets = [_mk_market(closed=1, resolved_outcome="no")]
     assert _kpi_end_label(event, markets) == "已结算"
+
+
+def test_kpi_end_label_active_excludes_pending_settlement_markets():
+    """ACTIVE event with mixed TRADING + PENDING_SETTLEMENT children must
+    NOT leak "已过期" into the range. Range covers only TRADING children.
+
+    Regression guard: the pre-fix filter `not m.closed AND m.end_date`
+    let PENDING_SETTLEMENT markets (closed=0, end_date<now) through to
+    `format_countdown_range`, which rendered them as "已过期".
+    """
+    from scanner.tui.components.event_kpi import _kpi_end_label
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    past = (now - timedelta(hours=1)).isoformat()      # PENDING_SETTLEMENT
+    future = (now + timedelta(days=7)).isoformat()     # TRADING
+    event = MagicMock(); event.closed = 0; event.end_date = future
+    markets = [
+        _mk_market(closed=0, end_date=past),           # PENDING_SETTLEMENT
+        _mk_market(closed=0, end_date=future),         # TRADING
+    ]
+    label = _kpi_end_label(event, markets, now=now)
+    # PENDING_SETTLEMENT child must not contribute a "已过期" segment
+    assert "已过期" not in label
+    # Range reflects the TRADING child only
+    assert "7天" in label or "天" in label

@@ -112,7 +112,7 @@ def format_ai_version(count: int | None) -> str:
 def format_event_settlement(event, market_summaries: list, *, now=None) -> str:
     """Event-level settlement cell for monitor_list / archived views.
 
-    ACTIVE                   → range via format_settlement_range over active children
+    ACTIVE                   → range via format_settlement_range over TRADING children
     AWAITING_FULL_SETTLEMENT → '待全部结算'
     RESOLVED                 → '已结算'
 
@@ -122,7 +122,7 @@ def format_event_settlement(event, market_summaries: list, *, now=None) -> str:
     """
     from types import SimpleNamespace
 
-    from scanner.core.lifecycle import EventState, event_state
+    from scanner.core.lifecycle import EventState, MarketState, event_state, market_state
 
     markets = [SimpleNamespace(**s) for s in market_summaries]
     state = event_state(event, markets, now=now)
@@ -131,7 +131,12 @@ def format_event_settlement(event, market_summaries: list, *, now=None) -> str:
     if state == EventState.AWAITING_FULL_SETTLEMENT:
         return "待全部结算"
 
-    ends = [m.end_date for m in markets if not int(m.closed or 0) and m.end_date]
+    # Filter only TRADING children (not `closed=0`) so PENDING_SETTLEMENT
+    # markets with past end_date don't leak "已过期" into format_settlement_range.
+    ends = [
+        m.end_date for m in markets
+        if m.end_date and market_state(m, now=now) == MarketState.TRADING
+    ]
     if not ends:
         return _DASH
     return format_settlement_range(min(ends), max(ends))

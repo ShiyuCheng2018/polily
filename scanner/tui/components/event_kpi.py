@@ -23,11 +23,11 @@ def _subcount_label(markets: list) -> str:
 def _kpi_end_label(event, markets: list, *, now=None) -> str:
     """kpi-end MetricCard content — event state aware.
 
-    ACTIVE                   → format_countdown_range over active children
+    ACTIVE                   → format_countdown_range over TRADING children
     AWAITING_FULL_SETTLEMENT → '待全部结算'
     RESOLVED                 → '已结算'
     """
-    from scanner.core.lifecycle import EventState, event_state
+    from scanner.core.lifecycle import EventState, MarketState, event_state, market_state
 
     state = event_state(event, markets, now=now)
     if state == EventState.RESOLVED:
@@ -35,9 +35,16 @@ def _kpi_end_label(event, markets: list, *, now=None) -> str:
     if state == EventState.AWAITING_FULL_SETTLEMENT:
         return "待全部结算"
 
-    # ACTIVE: range over non-closed markets with valid end_date
+    # ACTIVE: range only over TRADING children. Filtering by lifecycle
+    # state (not `closed=0`) excludes PENDING_SETTLEMENT markets whose
+    # end_date is already in the past — those would render as "已过期"
+    # inside format_countdown_range and leak the old expired-label wording
+    # into the new lifecycle UI.
     from scanner.tui.utils import format_countdown_range
-    ends = [m.end_date for m in markets if not int(m.closed or 0) and m.end_date]
+    ends = [
+        m.end_date for m in markets
+        if m.end_date and market_state(m, now=now) == MarketState.TRADING
+    ]
     if not ends:
         return "?"
     return format_countdown_range(min(ends), max(ends))
