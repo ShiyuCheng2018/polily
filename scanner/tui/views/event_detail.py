@@ -9,6 +9,7 @@ v0.8.0 migration:
 from __future__ import annotations
 
 import contextlib
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
@@ -21,6 +22,12 @@ from textual.widgets import Static
 from scanner.core.events import (
     TOPIC_POSITION_UPDATED,
     TOPIC_PRICE_UPDATED,
+)
+from scanner.core.lifecycle import (
+    MarketState,
+    market_state,
+    market_state_label,
+    settled_winner_suffix,
 )
 from scanner.tui._dispatch import once_per_tick
 from scanner.tui.components import (
@@ -36,6 +43,40 @@ from scanner.tui.widgets.polily_zone import PolilyZone
 
 if TYPE_CHECKING:
     from scanner.tui.service import ScanService
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _market_zone_title_suffix(markets: list, *, now: datetime | None = None) -> str:
+    """Build the '市场' zone border-title suffix showing state breakdown.
+
+    Empty list → '' (caller passes plain '市场' title).
+    Single market → '(交易中)' / '(即将结算)' / '(结算中)' / '(已结算 NO 获胜)'.
+    Multi market → '(活跃 N, 即将结算 N, 结算中 N, 已结算 N)'.
+    """
+    if not markets:
+        return ""
+
+    if len(markets) == 1:
+        m = markets[0]
+        state = market_state(m, now=now)
+        label = market_state_label(state)
+        if state == MarketState.SETTLED:
+            label = f"{label}{settled_winner_suffix(m)}"
+        return f"({label})"
+
+    counts = {s: 0 for s in MarketState}
+    for m in markets:
+        counts[market_state(m, now=now)] += 1
+    return (
+        f"(活跃 {counts[MarketState.TRADING]}, "
+        f"即将结算 {counts[MarketState.PENDING_SETTLEMENT]}, "
+        f"结算中 {counts[MarketState.SETTLING]}, "
+        f"已结算 {counts[MarketState.SETTLED]})"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +179,11 @@ class EventDetailView(Widget):
                 yield EventKpiRow(event, markets)
 
             # Zone: 市场 (structure panel or sub-market table)
-            with PolilyZone(title=f"{ICON_MARKET} 市场", id="market-zone"):
+            title = f"{ICON_MARKET} 市场"
+            suffix = _market_zone_title_suffix(markets)
+            if suffix:
+                title = f"{title} {suffix}"
+            with PolilyZone(title=title, id="market-zone"):
                 if len(markets) == 1:
                     yield BinaryMarketStructurePanel(markets[0], event)
                 else:
