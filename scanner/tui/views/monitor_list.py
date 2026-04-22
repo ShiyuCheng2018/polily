@@ -297,12 +297,10 @@ class MonitorListView(Widget):
 
             # settlement window — lifecycle state may have shifted as
             # sub-markets resolve.
-            entry = next((x for x in self._monitored if x["event"].event_id == eid), None)
-            if entry:
-                settlement_str = format_event_settlement(
-                    entry["event"], entry.get("markets_summary") or [],
-                )
-                with contextlib.suppress(Exception):
-                    table.update_cell(eid, "settlement", settlement_str)
+            settlement_str = format_event_settlement(
+                new["event"], new.get("markets_summary") or [],
+            )
+            with contextlib.suppress(Exception):
+                table.update_cell(eid, "settlement", settlement_str)
 
         self._monitored = [e for e in events if e["is_monitored"]]

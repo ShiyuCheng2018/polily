@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import UTC, datetime
@@ -444,9 +445,8 @@ class ScanService:
                 """,
                 tuple(event_ids),
             ).fetchall()
-            import json as _json
             summary_by_event = {
-                r["event_id"]: _json.loads(r["summary_json"] or "[]")
+                r["event_id"]: json.loads(r["summary_json"] or "[]")
                 for r in summary_rows
             }
 
