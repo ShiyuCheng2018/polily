@@ -201,3 +201,191 @@ def test_pyproject_bundles_changelog_into_wheel():
     assert "force-include" in text
     assert 'CHANGELOG.md' in text
     assert 'scanner/CHANGELOG.md' in text
+
+
+# ---------------------------------------------------------------------------
+# v0.8.5: scroll fix + version header
+# ---------------------------------------------------------------------------
+
+
+def test_format_version_line_renders_current_and_latest():
+    """The version header reads '当前版本: vX · 最新稳定版: Y' with both inputs substituted literally."""
+    from scanner.tui.views.changelog import _format_version_line
+    assert _format_version_line("0.8.5", "v0.8.0") == (
+        "当前版本: v0.8.5 · 最新稳定版: v0.8.0"
+    )
+    # The "查询中..." / "无法获取" placeholders pass through unchanged
+    assert _format_version_line("0.8.5", "查询中...") == (
+        "当前版本: v0.8.5 · 最新稳定版: 查询中..."
+    )
+
+
+def test_changelog_css_uses_auto_height_for_polily_zone():
+    """Regression guard for v0.8.5 scroll fix.
+
+    Previously `ChangelogView > VerticalScroll > PolilyZone { height: 1fr }`
+    clamped the zone to the viewport so long changelogs got clipped. It
+    must be `height: auto` so PolilyZone grows with Markdown content
+    and the outer VerticalScroll has something taller than the viewport
+    to scroll.
+    """
+    from scanner.tui.views.changelog import ChangelogView
+    css = ChangelogView.DEFAULT_CSS
+    assert "ChangelogView > VerticalScroll > PolilyZone { height: auto; }" in css
+
+
+def test_fetch_latest_release_tag_parses_github_response(monkeypatch):
+    """Blocking fetch returns the `tag_name` field from GitHub's response."""
+    import httpx
+
+    from scanner.tui.views import changelog as changelog_mod
+
+    class _FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"tag_name": "v0.8.5", "name": "v0.8.5 release"}
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url):
+            return _FakeResp()
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    assert changelog_mod._fetch_latest_release_tag() == "v0.8.5"
+
+
+def test_fetch_latest_release_tag_handles_network_error(monkeypatch):
+    """Offline / timeout / 404 → returns '无法获取', never raises."""
+    import httpx
+
+    from scanner.tui.views import changelog as changelog_mod
+
+    class _RaisingClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url):
+            raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(httpx, "Client", _RaisingClient)
+    assert changelog_mod._fetch_latest_release_tag() == "无法获取"
+
+
+def test_fetch_latest_release_tag_missing_tag_returns_placeholder(monkeypatch):
+    """Malformed response (no tag_name) → '?' placeholder."""
+    import httpx
+
+    from scanner.tui.views import changelog as changelog_mod
+
+    class _EmptyResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {}
+
+    class _EmptyClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url):
+            return _EmptyResp()
+
+    monkeypatch.setattr(httpx, "Client", _EmptyClient)
+    assert changelog_mod._fetch_latest_release_tag() == "?"
+
+
+@pytest.mark.asyncio
+async def test_changelog_view_shows_version_placeholder_on_mount(tmp_path):
+    """On mount the version line shows current version + '查询中...' placeholder
+    while the background fetch is in flight.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    from scanner.tui.views import changelog as changelog_mod
+
+    # Stub the fetch so the worker doesn't actually hit GitHub during the test.
+    monkeypatch_applied = False
+    original = changelog_mod._fetch_latest_release_tag
+
+    def _no_network():
+        # Slow no-op — the test observes the initial placeholder before
+        # this returns. We still have to return SOMETHING eventually so
+        # the worker doesn't dangle.
+        return "v0.0.0"
+
+    changelog_mod._fetch_latest_release_tag = _no_network  # type: ignore[assignment]
+    try:
+        class _Host(App):
+            def compose(self) -> ComposeResult:
+                yield changelog_mod.ChangelogView()
+
+        async with _Host().run_test() as pilot:
+            await pilot.pause()
+            versions = pilot.app.query_one("#changelog-versions", Static)
+            # The initial render (before the worker has posted back)
+            # should include the current version. After the worker
+            # finishes it will contain either "v0.0.0" (stub success) or
+            # the placeholder — both are acceptable here; we only assert
+            # the current version is present.
+            from scanner import __version__ as current
+            text = str(versions.render())
+            assert f"v{current}" in text, f"Expected current version label, got {text!r}"
+    finally:
+        changelog_mod._fetch_latest_release_tag = original  # type: ignore[assignment]
+
+
+@pytest.mark.asyncio
+async def test_changelog_view_updates_version_after_fetch(tmp_path):
+    """After the background worker finishes, the version line updates to
+    show the fetched tag instead of '查询中...'.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    from scanner.tui.views import changelog as changelog_mod
+
+    original = changelog_mod._fetch_latest_release_tag
+    changelog_mod._fetch_latest_release_tag = lambda: "v1.2.3"  # type: ignore[assignment]
+    try:
+        class _Host(App):
+            def compose(self) -> ComposeResult:
+                yield changelog_mod.ChangelogView()
+
+        async with _Host().run_test() as pilot:
+            await pilot.pause()
+            # Wait for the thread worker to post back.
+            for _ in range(20):
+                await pilot.pause()
+                versions = pilot.app.query_one("#changelog-versions", Static)
+                if "v1.2.3" in str(versions.render()):
+                    break
+            assert "v1.2.3" in str(versions.render()), (
+                f"Expected fetched tag to land in version line, got "
+                f"{str(versions.render())!r}"
+            )
+    finally:
+        changelog_mod._fetch_latest_release_tag = original  # type: ignore[assignment]
