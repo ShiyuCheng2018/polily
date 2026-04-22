@@ -263,9 +263,47 @@ async def test_helper_handles_list_outcome_prices(db, services):
 
 
 @pytest.mark.asyncio
-async def test_helper_defers_when_uma_still_in_challenge_window(db, services):
-    """outcomePrices=['1','0'] but umaResolutionStatuses=['proposed'] →
-    UMA hasn't finalized. Position + cash must be untouched."""
+async def test_helper_settles_when_uma_status_proposed_terminal(db, services):
+    """outcomePrices=['1','0'] and umaResolutionStatuses=['proposed'] →
+    common UMA-optimistic terminal state (98% of resolved markets per POC).
+    Since the caller already gated on `closed=1` (which Polymarket sets
+    only after the 2h challenge window elapses), `["proposed"]` is
+    effectively final and we should settle.
+
+    This is the inverted counterpart of the pre-v0.8.5 test that
+    deferred on `["proposed"]` — see `derive_winner` docstring for the
+    POC rationale."""
+    wallet, positions, resolver = services
+    _seed(db)
+    positions.add_shares(
+        market_id="m1", side="yes", event_id="e1", title="Q", shares=10, price=0.5
+    )
+
+    gamma_response = {
+        "outcomePrices": '["1", "0"]',
+        "umaResolutionStatuses": '["proposed"]',
+    }
+    with patch.object(
+        poll_job, "_fetch_gamma_market", new=AsyncMock(return_value=gamma_response)
+    ):
+        await poll_job._resolve_closed_market_if_position(
+            "m1", db, wallet, positions, resolver,
+        )
+
+    # Position is settled (deleted), wallet got RESOLVE tx.
+    assert positions.get_position("m1", "yes") is None
+    txs = wallet.list_transactions(tx_type="RESOLVE")
+    assert len(txs) == 1
+    # YES won → YES-holder gets 10 shares × $1.0 = $10.00
+    assert txs[0]["amount_usd"] == 10.0
+
+
+@pytest.mark.asyncio
+async def test_helper_defers_when_uma_status_disputed(db, services):
+    """outcomePrices=['1','0'] but umaResolutionStatuses=['disputed'] →
+    active dispute, vote in flight — must defer even though prices look
+    clean. Guards against settling on a proposer's guess that's about to
+    flip."""
     wallet, positions, resolver = services
     _seed(db)
     positions.add_shares(
@@ -275,7 +313,7 @@ async def test_helper_defers_when_uma_still_in_challenge_window(db, services):
 
     gamma_response = {
         "outcomePrices": '["1", "0"]',
-        "umaResolutionStatuses": '["proposed"]',
+        "umaResolutionStatuses": '["disputed"]',
     }
     with patch.object(
         poll_job, "_fetch_gamma_market", new=AsyncMock(return_value=gamma_response)

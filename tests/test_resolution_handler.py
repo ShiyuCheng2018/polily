@@ -63,15 +63,20 @@ def test_derive_winner_malformed_input_returns_none():
 
 # --- derive_winner UMA resolution gate ----------------------------------
 #
-# Gamma returns `umaResolutionStatuses` as a history array. During the
-# 2+ hour UMA challenge window (last status == "proposed"), `outcomePrices`
-# reflects the proposer's guess — which can flip if disputed. Settling here
-# would write phantom RESOLVE rows to wallet_transactions.
+# POC 2026-04-22 revision: Empirical Gamma data shows 98/100 recently-
+# resolved markets stay at `umaResolutionStatuses=["proposed"]` forever —
+# Gamma's metadata doesn't tick to "resolved" for the common optimistic-
+# flow case. The prior strict `last == "resolved"` gate blocked ~all
+# legitimate settlements. The caller already gates on `closed=1` (which
+# Polymarket sets only after the UMA 2h challenge window elapses), so
+# `["proposed"]` at that point is effectively terminal.
 #
-# Gate:
-#   uma=[]                 → non-UMA market (price feed) → settle by price
-#   uma[-1]=="resolved"    → UMA final → settle by price
-#   uma[-1] in {"proposed","disputed", ...} → defer (next poll tick)
+# Revised gate accepts:
+#   uma=[]                            → non-UMA (price feed) → settle
+#   uma[-1] in {"proposed","resolved"} → UMA terminal → settle
+# Defers:
+#   uma[-1] == "disputed"             → active dispute, wait
+#   uma[-1] anything else (unknown)   → conservative defer
 
 
 @pytest.mark.parametrize(
@@ -80,17 +85,23 @@ def test_derive_winner_malformed_input_returns_none():
         # Non-UMA markets (price feed authoritative; e.g. Crypto Up/Down).
         ([], ["1", "0"], "yes"),
         ([], ["0", "1"], "no"),
-        # UMA final state — last entry "resolved".
+        # UMA explicit terminal — last entry "resolved".
         (["proposed", "resolved"], ["1", "0"], "yes"),
         (["proposed", "resolved"], ["0", "1"], "no"),
         (["proposed", "disputed", "resolved"], ["0", "1"], "no"),
-        # UMA still in challenge window — outcomePrices set but can flip.
-        (["proposed"], ["1", "0"], None),
-        (["proposed"], ["0", "1"], None),
-        # UMA dispute in progress.
+        # UMA optimistic terminal — common case (98% of resolved markets).
+        # Previously these returned None; now accepted because `closed=1`
+        # at the caller level implies the 2h challenge window has elapsed.
+        (["proposed"], ["1", "0"], "yes"),
+        (["proposed"], ["0", "1"], "no"),
+        # Dispute-came-back-to-proposed — treated as terminal because the
+        # dispute round completed and the proposer's answer stood.
+        (["proposed", "disputed", "proposed"], ["1", "0"], "yes"),
+        # UMA dispute in progress — last state is "disputed", defer.
         (["disputed"], ["1", "0"], None),
         (["proposed", "disputed"], ["1", "0"], None),
-        # Unknown terminal status — conservative defer.
+        # Unknown terminal status — conservative defer (future-proofing for
+        # UMA states we don't yet recognize).
         (["unknown"], ["1", "0"], None),
     ],
 )

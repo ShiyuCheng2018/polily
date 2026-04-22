@@ -30,6 +30,10 @@ _WIN_THRESHOLD = 0.99
 _LOSS_THRESHOLD = 0.01
 _SPLIT_TOLERANCE = 0.01
 
+# UMA states we treat as terminal (outcomePrices is trustworthy). "proposed"
+# is included here — see docstring rationale below.
+_UMA_TERMINAL_LAST = frozenset(("proposed", "resolved"))
+
 
 def derive_winner(
     outcome_prices: list[str],
@@ -42,18 +46,43 @@ def derive_winner(
     encodings ("1" vs "1.0" vs "1.00"). Returns None for unresolved, in-
     progress disputes, and malformed input.
 
-    UMA gate (`uma_statuses`): Gamma's `umaResolutionStatuses` is a history
-    array. During the 2+ hour challenge window, `outcomePrices` already
-    reflects the proposer's answer but can still flip if disputed. We only
-    honor `outcomePrices` when:
-      * `uma_statuses` is empty/None — non-UMA market (e.g. Crypto Up/Down
-        settled against a price feed); OR
-      * `uma_statuses[-1] == "resolved"` — UMA has reached the final
-        terminal state.
-    Any other state (`"proposed"`, `"disputed"`, unknown) → defer; the next
-    poll tick will retry once Gamma progresses.
+    UMA gate (`uma_statuses`) — POC 2026-04-22 revision:
+
+    Gamma's `umaResolutionStatuses` is a history array. We accept
+    `outcomePrices` as authoritative when the last entry is in
+    `_UMA_TERMINAL_LAST` (`"proposed"` or `"resolved"`), and defer
+    otherwise.
+
+    Why `"proposed"` is terminal (not in-flight):
+    Empirical POC on Gamma found that **98/100 recently-resolved markets
+    stay at `umaResolutionStatuses=["proposed"]` indefinitely** — Gamma's
+    metadata simply doesn't tick to `"resolved"` for the vast majority of
+    markets that finalize via UMA's optimistic oracle flow without a
+    dispute. The old strict gate (`uma_statuses[-1] != "resolved"` →
+    defer) blocked those 98% forever, leaving Polily-side `resolved_outcome`
+    at NULL and the lifecycle UI stuck at SETTLING.
+
+    The caller (poll_job / backfill) already gates on `closed=1`, which
+    Polymarket only sets after the UMA 2h challenge window elapses (the
+    market's `closedTime` equals `umaEndDate` in responses we've checked).
+    So by the time we see `closed=1 + uma=["proposed"]`, the challenge
+    window has ended — the "proposed" answer is effectively final.
+
+    Deferring rules (still conservative):
+      * `uma_statuses[-1] == "disputed"` — active dispute, vote in flight
+      * `uma_statuses[-1]` not in `_UMA_TERMINAL_LAST` — unknown future
+        UMA state; defer defensively until we learn what it means.
+
+    Accepted cases:
+      * `uma_statuses` empty/None — non-UMA market (Crypto Up/Down price feed)
+      * `["proposed"]` — optimistic-flow terminal (98% of UMA markets)
+      * `["proposed", "resolved"]` — explicit terminal with metadata refresh
+      * `["proposed", "disputed", "proposed"]` — dispute resolved back to
+        proposed; terminal
+      * `["proposed", "disputed", "resolved"]` — explicit terminal after
+        dispute
     """
-    if uma_statuses and uma_statuses[-1] != "resolved":
+    if uma_statuses and uma_statuses[-1] not in _UMA_TERMINAL_LAST:
         return None
     if len(outcome_prices) != 2:
         return None
