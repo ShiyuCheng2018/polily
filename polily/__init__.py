@@ -3,7 +3,7 @@
 Public API for programmatic use (without CLI).
 """
 
-__version__ = "0.8.5"
+__version__ = "0.9.0"
 
 from polily.core.config import PolilyConfig, load_config
 from polily.core.db import PolilyDB
