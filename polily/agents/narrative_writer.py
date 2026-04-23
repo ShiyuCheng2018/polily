@@ -32,12 +32,12 @@ class NarrativeWriterAgent:
 
     def __init__(self, config: AgentConfig):
         self.config = config
-        # No `fallback_fn` — v0.8.0 stopped masking failures with a fake
-        # "AI 不可用" NarrativeWriterOutput. Both CLI invocation failures
-        # and schema-validation failures now raise so that
-        # `PolilyService.analyze_event`'s exception handler marks the
-        # scan_logs row as status='failed' instead of storing a degraded
-        # "completed" analysis version that misleads the user.
+        # v0.8.0 contract: no silent fallback. CLI invocation failures and
+        # schema-validation failures propagate so `PolilyService.analyze_event`'s
+        # exception handler can mark the scan_logs row as status='failed'
+        # instead of storing a degraded "completed" analysis version that
+        # misleads the user. (The old BaseAgent.fallback_fn parameter was
+        # dropped entirely in v0.9.0.)
         self._agent = BaseAgent(
             system_prompt=SYSTEM_PROMPT,
             json_schema=NarrativeWriterOutput.model_json_schema(),

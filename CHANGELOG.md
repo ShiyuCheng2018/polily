@@ -29,6 +29,7 @@ structured release notes — see `git log` for history.
 - CI, PR template, README dev commands all repointed from `scanner/` to `polily/`.
 - `CLAUDE.md` Key Files table + architecture docs synced to the new package layout.
 - **`data/scheduler.pid` removed.** Daemon no longer writes a PID file; all aliveness checks (CLI `stop`/`restart`/`status`, TUI sidebar indicator, wallet reset modal, `restart_daemon`'s SIGTERM step) now query `launchctl list com.polily.scheduler` directly via the new `polily/daemon/launchctl_query.py` helper. Eliminates the stale-PID / crash-loop-race bug class where launchctl and the PID file could disagree. Users with a lingering `data/scheduler.pid` from a prior install will have it cleaned up on first daemon start.
+- **Rule-based fallback vestiges dropped.** v0.8.0 killed `NarrativeWriter`'s silent fallback but left trails: `AiConfig.enabled` / `AiConfig.fallback_on_error` (zero readers), `BaseAgent.fallback_fn` parameter (zero production callers), 4 tests exercising dead infrastructure, and `README` / `CONTRIBUTING` / `CLAUDE.md` phrases claiming "falls back to rule-based mode". All swept. Contract unchanged: CLI failures raise, `scan_logs` row marked `failed`, user sees it in scan history. `ai.enabled` / `ai.fallback_on_error` keys in a user `config.yaml` silently drop via `PolilyConfig.model_config = ConfigDict(extra="ignore")` — no migration needed.
 
 ## [0.8.5] — 2026-04-22
 
