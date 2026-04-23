@@ -155,7 +155,13 @@ Polily is open source; releases need to follow a standard. Always use `gh releas
 - **Why this matters:** v0.6.0 + v0.6.1 both had 5-file conflicts on `dev → master` because prior syncs/releases were squashed — that collapses master's history into a single commit on dev (or vice versa), losing the ancestry link. v0.6.1's PR #43 + #44 both used merge commits to establish proper ancestry; v0.6.2 and forward should be clean fast-forwards.
 - **Repo setting**: `allow_merge_commit=true` (enabled 2026-04-19 as part of v0.6.1 release). `allow_squash_merge=true` stays on for feature PRs.
 
-**When dev and master have conflicts** (shouldn't happen post-v0.6.1, but documented in case merge-commit discipline lapses):
+**Auto-sync master → dev (post-v0.9.0)**:
+- `.github/workflows/sync-master-to-dev.yml` triggers on every push to master (including release merge-commits).
+- Workflow opens `sync/master-into-dev-<timestamp>` PR and enables auto-merge; once CI passes, GitHub merges it with a merge-commit, restoring dev as a strict descendant of master.
+- Net effect: after a release PR merges, the next release PR is a clean fast-forward within a few minutes. **No manual sync work needed.**
+- If the auto-sync ever fails (CI red on the sync PR, merge conflict, workflow disabled), fall back to the manual steps below.
+
+**Manual sync fallback** (only if auto-sync fails):
 1. Branch `sync/master-into-dev` from dev.
 2. `git merge origin/master`, resolve conflicts (usually take dev's version — it's the newer state).
 3. PR that branch → **dev** (not master). **Merge via "Create a merge commit"**, not squash.
