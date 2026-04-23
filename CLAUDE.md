@@ -8,23 +8,17 @@ Instructions for Claude Code when working on this codebase.
 
 Finds structure, surfaces risk, sizes friction, watches positions. The user pulls the trigger today. Autopilot is on the roadmap but not the current default — design new features so they remain compatible with both modes.
 
-## User Profile
+## Design Context
 
-- Small account ($50–500), crypto + macro + tech expertise
-- Picks events themselves; uses Polily for due diligence + monitoring (not market discovery)
-- Reviews daily, 5–10 minutes
-- Edge: crypto vol overpricing and crypto × macro cross-domain markets
+Not a user-profile spec — these are facts about how the product is used, useful when deciding trade-offs:
 
-## Red Lines
+- **Small-account usage pattern.** $5 in friction cost is not a rounding error at this tier. Surface every fee / slippage component explicitly; never silently absorb costs into a "net" number.
+- **Manual operation, not automation.** Users click buttons; sub-second latency isn't the pressure. But signals must be scannable — a user should decide "look closer vs. skip" in ≤5s.
+- **Daily review cadence.** ≥5s refresh intervals are fine; no tick-level streaming UI needed. Heartbeat-driven refresh (see `polily/tui/screens/main.py::_bus_heartbeat`) is the canonical pattern.
+- **URL-driven depth, not scan breadth.** Users bring their own events. The pipeline is deep due-diligence on one event at a time, not shallow breadth across thousands. If a feature requires iterating 8000+ markets, it's likely a misunderstanding of the product shape.
+- **Due diligence, not signal generation.** Output is "here's what the numbers say, here's the risk, here's the friction" — conditional framing, never unconditional commands like "buy YES".
 
-- Never output unconditional trade signals ("buy YES at any price")
-- **Today** the loop stays human-in-the-loop. If we ship autopilot later, it must be opt-in, gated, and reversible — not silently enabled.
-- Never promise profitability
-- Never hide friction costs
-- Never use `anthropic` SDK — all AI goes through `claude -p` CLI
-- Never write "Never X" in public materials (README, release notes) — product direction may evolve
-
-## Architecture (v0.5.0 — Event-First)
+## Architecture (Event-First)
 
 **Data model:** Events (parent) → Markets (children). All state in unified SQLite (`data/polily.db`). No scan archives, no JSON files. Events carry tier/score/monitor state; markets carry prices/orderbook.
 
@@ -60,6 +54,7 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 - No unnecessary abstractions — three similar lines beats a premature abstraction
 - Config-driven: thresholds, weights, behavior all in YAML
 - Single AI agent (NarrativeWriter). No silent fallback — CLI failures raise and land as `failed` scan_logs rows.
+- **All AI calls go through `claude -p` CLI**, never the `anthropic` SDK. Reason: uses the user's Claude Code subscription instead of per-token billing. `BaseAgent` at `polily/agents/base.py` is the only place that shells out — don't add a second integration path.
 
 ## Key Files
 
@@ -74,6 +69,7 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `polily/core/config.py` | All Pydantic config models |
 | `polily/core/models.py` | Market, BookLevel, Trade models |
 | `polily/core/event_store.py` | EventRow, MarketRow, upsert/query |
+| `polily/core/lifecycle.py` | Market / Event lifecycle state derivation (v0.8.5). `MarketState` (TRADING / PENDING_SETTLEMENT / SETTLING / SETTLED) + `EventState` (ACTIVE / AWAITING_FULL_SETTLEMENT / RESOLVED) derived from `closed` + `end_date` + `resolved_outcome` — no DB column, derive-on-read |
 | `polily/core/monitor_store.py` | Event monitor state (v0.7.0: user-intent flag only — `auto_monitor` / `price_snapshot` / `notes`) |
 | `polily/core/wallet.py` | WalletService — cash + ledger + atomicity contract (commit=False) |
 | `polily/core/positions.py` | PositionManager — aggregated (market_id, side) positions, weighted-avg cost |
@@ -92,9 +88,11 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `polily/monitor/drift.py` | CUSUM drift detector |
 | `polily/monitor/store.py` | Movement records storage |
 | `polily/monitor/event_metrics.py` | Per-event movement metrics |
-| `polily/daemon/scheduler.py` | APScheduler daemon: dual executor + launchd; wires scheduler into `_ctx` so `global_poll`'s Step 3.5 dispatcher can submit |
+| `polily/daemon/scheduler.py` | APScheduler daemon: dual executor + launchd; wires scheduler into `_ctx` so `global_poll`'s Step 3.5 dispatcher can submit. Plist auto-heal in `ensure_daemon_running` (v0.9.0) |
+| `polily/daemon/launchctl_query.py` | `launchctl list com.polily.scheduler` parser + `kill_daemon(sig)` helper (v0.9.0). Replaced `data/scheduler.pid` as source of truth for "is daemon alive" |
 | `polily/daemon/poll_job.py` | Global poll job (30s): fetch prices → auto-resolution → score refresh → **Step 3.5 dispatcher (drain overdue `scan_logs` pending rows)** → intelligence layer |
 | `polily/daemon/resolution.py` | ResolutionHandler — atomic per-market settle on Gamma outcomePrices |
+| `polily/daemon/close_event.py` | Event archival / close handling |
 | `polily/daemon/auto_monitor.py` | Auto-monitor toggle logic |
 | `polily/daemon/score_refresh.py` | Periodic structure-score refresh |
 | `polily/agents/narrator_registry.py` | In-process narrator cancel registry (scope: process-local; see docstring for cross-process limitation) |
@@ -103,7 +101,8 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 | `polily/agents/schemas.py` | Pydantic schemas for agent I/O |
 | `polily/agents/prompts/` | Markdown prompt files for agents |
 | `polily/tui/app.py` | Textual TUI entry point |
-| `polily/tui/screens/main.py` | Main screen: sidebar + content + worker (menu: tasks/monitor/paper/wallet/history/notifications) |
+| `polily/tui/screens/main.py` | Main screen: sidebar + content + worker (menu: tasks/monitor/paper/wallet/history/notifications); 5s `_bus_heartbeat` bridges daemon-side DB writes to TUI subscribers |
+| `polily/tui/_dispatch.py` | `dispatch_to_ui(app, fn)` thread-hop helper + `@once_per_tick` coalescing decorator (React-style batching). Load-bearing for heartbeat-driven refresh — see v0.9.0 `call_later` signature fix |
 | `polily/tui/service.py` | `PolilyService` — bridge between TUI views and backend; owns wallet/positions/trade_engine |
 | `polily/tui/views/` | Per-pane views (scan_log, monitor_list, paper_status, event_detail, wallet, history, archived_events, changelog) |
 | `polily/tui/views/changelog.py` | ChangelogView — renders CHANGELOG.md via Markdown widget; reads from repo root in dev or from packaged resource (see `pyproject.toml` `force-include`) in installed wheels |
