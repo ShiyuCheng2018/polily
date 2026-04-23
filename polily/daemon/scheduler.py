@@ -11,6 +11,7 @@ Dispatching is now DB-driven — the poll tick drains pending rows via
 
 import contextlib
 import logging
+import shutil
 import signal
 import sys
 from pathlib import Path
@@ -120,9 +121,24 @@ def ensure_daemon_running() -> bool:
     # no longer exists (classic symptom after a package rename upgrade),
     # the running daemon will crash-loop silently. Rewrite + reload
     # regardless of what launchctl currently reports.
+    #
+    # v0.9.1 refinement: if the ONLY difference is POLILY_CLAUDE_CLI
+    # (user switched nvm / homebrew versions since the plist was
+    # generated), skip the unload+load — running daemon stays alive,
+    # in-flight narrator jobs don't get SIGTERMed. Write the new bytes
+    # so the next deliberate restart picks up the new path; BaseAgent's
+    # dangling-path self-check handles the "current daemon's env var
+    # is stale" case at job-invocation time.
     current_plist = PLIST_PATH.read_bytes() if PLIST_PATH.exists() else b""
     if current_plist != desired_plist:
         PLIST_PATH.write_bytes(desired_plist)
+        if _only_claude_cli_diff(current_plist, desired_plist):
+            logger.info(
+                "Plist drift limited to POLILY_CLAUDE_CLI — skipping "
+                "unload+load to avoid interrupting in-flight narrator jobs. "
+                "New path takes effect on next `polily scheduler restart`."
+            )
+            return False
         subprocess.run(
             ["launchctl", "unload", str(PLIST_PATH)],
             capture_output=True,
@@ -186,12 +202,50 @@ def restart_daemon() -> bool:
     return True
 
 
-def generate_launchd_plist(working_dir: str, python_path: str | None = None) -> bytes:
-    """Generate a macOS launchd plist for the scheduler daemon."""
+def generate_launchd_plist(
+    working_dir: str,
+    python_path: str | None = None,
+    claude_cli: str | None = None,
+) -> bytes:
+    """Generate a macOS launchd plist for the scheduler daemon.
+
+    claude_cli: absolute path to the `claude` CLI. If omitted, resolved
+        via `shutil.which("claude")` in the caller's PATH (which is the
+        user's shell PATH when this runs from `polily` CLI or TUI). The
+        resolved path is written into EnvironmentVariables.POLILY_CLAUDE_CLI
+        so the launchd-spawned daemon — whose PATH is the stripped
+        `/usr/local/bin:/usr/bin:/bin` — can still invoke the binary.
+
+        Why not extend PATH instead? launchd does no `$VAR` / glob
+        expansion on EnvironmentVariables, and extending PATH silently
+        resolves to the wrong version when the user has both an nvm-
+        installed and a Homebrew-installed claude (POC confirmed). An
+        absolute path is the only deterministic contract.
+
+        If `shutil.which` returns None (claude not installed yet — first
+        onboard), the key is omitted from the plist. BaseAgent falls
+        back to bare `"claude"` and fails with a clean stderr on the
+        first narrator job, which surfaces in scan_logs instead of
+        crashing the daemon.
+    """
     import plistlib
 
     if python_path is None:
         python_path = sys.executable
+    if claude_cli is None:
+        claude_cli = shutil.which("claude")
+
+    env: dict[str, str] = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    }
+    if claude_cli:
+        env["POLILY_CLAUDE_CLI"] = claude_cli
+    else:
+        logger.warning(
+            "claude CLI not found on PATH when generating launchd plist. "
+            "Daemon's NarrativeWriter jobs will fail until you install "
+            "claude and run `polily scheduler restart`."
+        )
 
     plist = {
         "Label": PLIST_LABEL,
@@ -200,11 +254,58 @@ def generate_launchd_plist(working_dir: str, python_path: str | None = None) -> 
         "KeepAlive": {"SuccessfulExit": False},
         "StandardOutPath": "/dev/null",
         "StandardErrorPath": "/dev/null",
-        "EnvironmentVariables": {
-            "PATH": "/usr/local/bin:/usr/bin:/bin",
-        },
+        "EnvironmentVariables": env,
     }
     return plistlib.dumps(plist, fmt=plistlib.FMT_XML)
+
+
+def _only_claude_cli_diff(old_bytes: bytes, new_bytes: bytes) -> bool:
+    """True iff the only difference between two plists is
+    EnvironmentVariables.POLILY_CLAUDE_CLI. Used to decide whether a
+    plist regeneration is worth interrupting the running daemon.
+
+    Handles the "old plist predates POLILY_CLAUDE_CLI entirely" case
+    (upgrade from v0.9.0) — that's NOT claude-only diff, so returns
+    False and forces a reload (which is what we want; old daemon
+    doesn't know about the env var at all).
+    """
+    import plistlib
+    try:
+        old = plistlib.loads(old_bytes)
+        new = plistlib.loads(new_bytes)
+    except Exception:
+        return False  # unparsable old → definitely reload
+
+    # plistlib.loads can return non-dict values (None, list, str) when
+    # the input parses as valid XML/binary plist but isn't a top-level
+    # dict — e.g. a stub `<plist>...</plist>` wrapper returns None. We
+    # can't compare env dicts in that case; force reload.
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+
+    # If old plist is missing POLILY_CLAUDE_CLI entirely but new has it,
+    # there's no other diff — still fine to skip reload (the running
+    # daemon's narrator will fall back to bare 'claude', fail with clear
+    # error, user runs `polily scheduler restart`). But to be
+    # conservative on the migration path, only treat it as "claude-only"
+    # when BOTH had the key (i.e. it's a post-install path swap, not
+    # first-time plist upgrade).
+    old_env = old.get("EnvironmentVariables", {}) or {}
+    new_env = new.get("EnvironmentVariables", {}) or {}
+    if "POLILY_CLAUDE_CLI" not in old_env:
+        return False
+    if "POLILY_CLAUDE_CLI" not in new_env:
+        return False
+
+    # Normalize: remove POLILY_CLAUDE_CLI from both sides' env dicts.
+    def _strip(p: dict) -> dict:
+        env = dict(p.get("EnvironmentVariables", {}))
+        env.pop("POLILY_CLAUDE_CLI", None)
+        out = dict(p)
+        out["EnvironmentVariables"] = env
+        return out
+
+    return _strip(old) == _strip(new)
 
 
 # ---------------------------------------------------------------------------
