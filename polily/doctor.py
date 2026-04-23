@@ -13,6 +13,7 @@ and decides what to fix.
 """
 from __future__ import annotations
 
+import plistlib
 import shutil
 import subprocess
 from pathlib import Path
@@ -28,6 +29,12 @@ from polily.tui.icons import (
     ICON_SCAN,
     ICON_WALLET,
 )
+
+# Kept in sync with polily.daemon.scheduler.PLIST_PATH. Duplicated
+# deliberately to keep `polily doctor` import-light (the scheduler
+# module pulls apscheduler + poll_job). A drift test in
+# tests/test_cli_doctor.py asserts equality on every run.
+PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / "com.polily.scheduler.plist"
 
 MIN_COLS = 100
 MIN_ROWS = 30
@@ -96,9 +103,40 @@ def _section_claude_cli(console: Console) -> None:
             ver = subprocess.run(
                 ["claude", "--version"], capture_output=True, text=True, timeout=5,
             ).stdout.strip()
-            console.print(f"[green]OK[/]  {claude}   {ver}")
+            console.print(f"[green]你的 shell[/]  {claude}   {ver}")
         except Exception as e:
             console.print(f"[yellow]已安装但无法取版本: {e}[/]")
+
+    # Also report what the daemon sees. The daemon runs under launchd
+    # with a stripped PATH and relies on POLILY_CLAUDE_CLI from the plist
+    # (see v0.9.1). This closes the diagnostic loop — user can one-command
+    # verify whether the fix is active on their box.
+    plist_path = PLIST_PATH
+    if not plist_path.exists():
+        console.print(
+            "[dim]daemon plist 未生成（启动 TUI 或运行 `polily scheduler restart` 即可创建）[/]"
+        )
+    else:
+        try:
+            data = plistlib.loads(plist_path.read_bytes())
+            env = data.get("EnvironmentVariables", {}) or {}
+            daemon_claude = env.get("POLILY_CLAUDE_CLI")
+            if daemon_claude:
+                ok = Path(daemon_claude).exists()
+                mark = "[green]OK[/]" if ok else "[red]路径失效[/]"
+                console.print(f"[green]daemon 看到[/]  {daemon_claude}  {mark}")
+                if not ok:
+                    console.print(
+                        "[yellow]plist 里缓存的路径已消失 — 运行 "
+                        "`polily scheduler restart` 重新解析[/]"
+                    )
+            else:
+                console.print(
+                    "[yellow]daemon plist 缺少 POLILY_CLAUDE_CLI[/] — "
+                    "旧版本 plist，运行 `polily scheduler restart` 获取 v0.9.1 修复"
+                )
+        except Exception as e:
+            console.print(f"[yellow]解析 plist 失败: {e}[/]")
     console.print()
 
 
