@@ -19,10 +19,6 @@ Polymarket is unfriendly to small accounts:
 
 > A high structure score ≠ YES will win. It measures *whether the market is tradeable*, not *whether you should buy* — keep the two separate.
 
-## What's new in v0.8.0
-
-Full visual rework — consistent atom-based widgets, Chinese status labels, a Polily brand theme, EventBus-driven reactive views with zero manual refresh, uniform footer keybindings, an optional phosphor-green `polily-geek` theme, and an in-app changelog viewer (`6` key). **Nerd Font required** — see Requirements below. Full list in [CHANGELOG](CHANGELOG.md) or press `6` inside the TUI.
-
 ## Quick Start
 
 ```bash
