@@ -20,7 +20,14 @@ def test_public_api_symbols_importable():
         fetch_and_score_event,
         load_config,
     )
-    # Existence + callability of the few functions in the list
+    # Types: assert each is a concrete class (catches accidental re-export
+    # of None or a stale proxy).
+    for cls in (
+        Market, BookLevel, EventRow, MarketRow, PolilyConfig, PolilyDB,
+        ScoreBreakdown, ScoredCandidate, MispricingResult,
+    ):
+        assert isinstance(cls, type), f"{cls!r} is not a class"
+    # Callables:
     assert callable(load_config)
     assert callable(fetch_and_score_event)
     assert callable(compute_structure_score)

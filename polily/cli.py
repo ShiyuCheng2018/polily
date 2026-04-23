@@ -1,4 +1,4 @@
-"""CLI entry point for polily polily.
+"""CLI entry point for Polily.
 
 v0.5.0: minimal CLI — TUI launch + scheduler subcommand group.
 """
@@ -69,19 +69,35 @@ def run_scheduler_daemon(config_path: str = typer.Option(None, "--config", "-c")
 
 @scheduler_app.command()
 def stop():
-    """Stop the scheduler daemon by sending SIGTERM."""
+    """Stop the scheduler daemon (SIGTERM + launchctl unload).
+
+    `launchctl unload` is required because the plist has `KeepAlive=true`
+    on non-zero exit — SIGTERM causes a non-zero exit, so without unload
+    launchctl would relaunch the daemon against the (possibly stale, e.g.
+    pre-v0.9.0) plist and enter a crash loop.
+    """
+    import subprocess
+
+    from polily.daemon.scheduler import PLIST_PATH
+
     pid = _read_pid()
     if pid is None:
         typer.echo("Scheduler is not running (no PID file).")
+        # Still attempt unload so any registered launchctl entry gets cleared.
+        subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
         raise typer.Exit(1)
 
     if not _pid_alive(pid):
         typer.echo(f"Scheduler PID {pid} is not running. Cleaning up stale PID file.")
         PID_FILE.unlink(missing_ok=True)
+        subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
         raise typer.Exit(1)
 
     os.kill(pid, signal.SIGTERM)
     typer.echo(f"Sent SIGTERM to scheduler (PID {pid}).")
+    # Unload the launchctl registration so KeepAlive can't respawn it.
+    subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
+    typer.echo("Unloaded launchctl registration.")
 
 
 @scheduler_app.command()
