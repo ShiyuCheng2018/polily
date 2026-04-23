@@ -158,7 +158,7 @@ friction shown in the UI reflects the real fee amount, not an estimate.
 │    SIGTERM → graceful shutdown               │
 │                                              │
 │  Lifecycle: launchd (macOS)                  │
-│    PID → data/scheduler.pid                  │
+│    Lifecycle via launchctl (no pid file)     │
 │    Log → data/logs/poll-v<ver>-<ts>.log      │
 │          (per-restart rotation, old kept)    │
 └─────────────────────────────────────────────┘

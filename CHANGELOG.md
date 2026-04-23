@@ -28,6 +28,7 @@ structured release notes — see `git log` for history.
 - `user_agent` product label updated from `polymarket-scanner/0.1` to `polily/0.9`.
 - CI, PR template, README dev commands all repointed from `scanner/` to `polily/`.
 - `CLAUDE.md` Key Files table + architecture docs synced to the new package layout.
+- **`data/scheduler.pid` removed.** Daemon no longer writes a PID file; all aliveness checks (CLI `stop`/`restart`/`status`, TUI sidebar indicator, wallet reset modal, `restart_daemon`'s SIGTERM step) now query `launchctl list com.polily.scheduler` directly via the new `polily/daemon/launchctl_query.py` helper. Eliminates the stale-PID / crash-loop-race bug class where launchctl and the PID file could disagree. Users with a lingering `data/scheduler.pid` from a prior install will have it cleaned up on first daemon start.
 
 ## [0.8.5] — 2026-04-22
 
