@@ -189,3 +189,63 @@ class TestBaseAgentBatch:
 
         assert len(results) == 3
         assert all(r is not None for r in results)
+
+
+class TestBaseAgentCliCommandResolution:
+    """cli_command default resolution: env var > bare 'claude'.
+
+    Contract lets the launchd-spawned daemon (whose PATH is stripped)
+    invoke the correct `claude` binary by reading POLILY_CLAUDE_CLI,
+    which `generate_launchd_plist` writes into the plist at install time.
+    """
+
+    def test_reads_env_var_when_cli_command_unset(self, monkeypatch, tmp_path):
+        fake = tmp_path / "claude"
+        fake.write_text("#!/bin/sh\n")
+        fake.chmod(0o755)
+        monkeypatch.setenv("POLILY_CLAUDE_CLI", str(fake))
+        agent = BaseAgent(
+            system_prompt="x", json_schema={"type": "object"}, model="haiku",
+        )
+        assert agent.cli_command == str(fake)
+
+    def test_falls_back_to_bare_claude_when_env_missing(self, monkeypatch):
+        monkeypatch.delenv("POLILY_CLAUDE_CLI", raising=False)
+        agent = BaseAgent(
+            system_prompt="x", json_schema={"type": "object"}, model="haiku",
+        )
+        assert agent.cli_command == "claude"
+
+    def test_dangling_env_path_falls_back_with_warning(self, monkeypatch, caplog):
+        """If POLILY_CLAUDE_CLI points at a path that no longer exists
+        (common after nvm removes an old node version), self-check must
+        fall back to bare 'claude' AND log a user-actionable message."""
+        import logging as _logging
+        monkeypatch.setenv(
+            "POLILY_CLAUDE_CLI", "/nonexistent/nvm/versions/node/v0.0.0/bin/claude"
+        )
+        with caplog.at_level(_logging.WARNING, logger="polily.agents.base"):
+            agent = BaseAgent(
+                system_prompt="x", json_schema={"type": "object"}, model="haiku",
+            )
+        assert agent.cli_command == "claude"
+        assert any(
+            "POLILY_CLAUDE_CLI" in rec.message
+            and "polily scheduler restart" in rec.message
+            for rec in caplog.records
+        )
+
+    def test_explicit_cli_command_arg_wins_over_env(self, monkeypatch, tmp_path):
+        """Explicit constructor arg beats env var (back-compat for tests
+        and any future caller that wants to pin a specific binary)."""
+        fake = tmp_path / "claude"
+        fake.write_text("#!/bin/sh\n")
+        fake.chmod(0o755)
+        monkeypatch.setenv("POLILY_CLAUDE_CLI", "/ignored/path")
+        agent = BaseAgent(
+            system_prompt="x",
+            json_schema={"type": "object"},
+            model="haiku",
+            cli_command=str(fake),
+        )
+        assert agent.cli_command == str(fake)

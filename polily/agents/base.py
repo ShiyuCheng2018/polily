@@ -57,7 +57,7 @@ class BaseAgent:
         system_prompt: str,
         json_schema: dict,
         model: str = "sonnet",
-        cli_command: str = "claude",
+        cli_command: str | None = None,
         max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
         allowed_tools: list[str] | None = None,
         # Legacy compat — these are ignored now (no system kill)
@@ -67,7 +67,37 @@ class BaseAgent:
         self.system_prompt = system_prompt
         self.json_schema = json_schema
         self.model = model
-        self.cli_command = cli_command
+        # Resolution order:
+        #   1. Explicit constructor arg (tests / future pinning use case).
+        #   2. POLILY_CLAUDE_CLI env var — written into the launchd plist
+        #      by `generate_launchd_plist` so the daemon can find the binary
+        #      regardless of where nvm / homebrew / asdf installed it.
+        #   3. Bare "claude" — relies on PATH; works when running under
+        #      the user's shell but fails under launchd's stripped PATH.
+        resolved = cli_command or os.environ.get("POLILY_CLAUDE_CLI") or "claude"
+        # Dangling-path self-check: if env var points at a file that no
+        # longer exists (user upgraded nvm and removed the old node
+        # version), fall back to bare "claude" and tell the user how
+        # to fix it. Without this, the first symptom would be a raw
+        # FileNotFoundError that the user has to correlate back to the
+        # plist on their own.
+        #
+        # os.path.exists follows symlinks — nvm's claude is a symlink
+        # chain (bin/claude -> ../lib/node_modules/.../claude.exe), so
+        # False here means the chain is genuinely broken, not just that
+        # one hop in the chain looks unusual.
+        if resolved != "claude" and not os.path.exists(resolved):
+            logger.warning(
+                "POLILY_CLAUDE_CLI=%s does not exist or is a broken symlink. "
+                "Likely cause: nvm / homebrew removed the node version this "
+                "path was resolved against. Diagnose with `ls -lL %s` or "
+                "`polily doctor`. Falling back to bare 'claude' — run "
+                "`polily scheduler restart` to regenerate the plist against "
+                "the current install.",
+                resolved, resolved,
+            )
+            resolved = "claude"
+        self.cli_command = resolved
         self.max_prompt_chars = max_prompt_chars
         self.allowed_tools = allowed_tools
         self._current_proc: asyncio.subprocess.Process | None = None
