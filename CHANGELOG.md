@@ -10,6 +10,8 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-04-23
+
 ### Fixed
 
 - **Scheduled AI analyses were silently failing for most macOS installs.** Every daemon-triggered NarrativeWriter job died ~3s after launch with `FileNotFoundError: 'claude'`, landing as `failed` rows in `scan_logs`. Manual TUI-triggered analyses were unaffected — the bug only hit the scheduler daemon.
@@ -440,7 +442,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.0...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.1...dev
+[0.9.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.1
 [0.9.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.0
 [0.8.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.8.5
 [0.8.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.8.0
