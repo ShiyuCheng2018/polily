@@ -12,6 +12,21 @@ from polily.core.models import BookLevel, Market
 
 
 @pytest.fixture(autouse=True)
+def _clear_polily_claude_cli_env(monkeypatch):
+    """v0.9.1: BaseAgent's cli_command default now reads POLILY_CLAUDE_CLI
+    from the process env. On any dev box that has ever run
+    `polily scheduler restart`, the user's shell exports that var — pytest
+    inherits it — and any test asserting `args[0] == "claude"` flips to
+    `args[0] == "/path/to/real/claude"` and fails.
+
+    Autouse clear guarantees tests run against a clean slate. Tests that
+    want a specific POLILY_CLAUDE_CLI value do `monkeypatch.setenv(...)`
+    themselves — later setenv calls win on the same monkeypatch instance.
+    """
+    monkeypatch.delenv("POLILY_CLAUDE_CLI", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _suppress_agent_debug_log(monkeypatch):
     """Prevent tests from writing agent_debug.log to data/."""
     monkeypatch.setattr("polily.agents.base._dump_debug", lambda *a, **kw: None)
