@@ -10,14 +10,6 @@ Polymarket is unfriendly to small accounts:
 - **A good story doesn't make a good market** — narratives are seductive; structure is what the numbers say
 - **Watching markets is expensive** — refreshing pages by hand doesn't scale past two or three events
 
-## Who It's For
-
-- Wallet of $50–$500 — can't afford to be the exit liquidity
-- Has an edge in at least one of crypto / macro / tech, and **finds events on their own**
-- Willing to spend 5–10 minutes a day following a few events, but won't watch them by hand
-
-> For events you bring in, Polily judges whether they're worth your money and time. Once added to monitoring, it watches the price, runs mispricing checks, and surfaces meaningful moves.
-
 ## What It Does For You
 
 1. **Paste a URL → instant dossier + value check** — pulls the full event + child markets, scores 0–100 across spread / depth / objectivity / time / friction, surfaces hidden costs, and tells you whether the event is worth following
