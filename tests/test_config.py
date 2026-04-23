@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from scanner.core.config import deep_merge, load_config
+from polily.core.config import deep_merge, load_config
 
 
 class TestDeepMerge:

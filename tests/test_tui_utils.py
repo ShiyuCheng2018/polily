@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from scanner.tui.utils import format_countdown
+from polily.tui.utils import format_countdown
 
 
 def test_format_countdown_none():

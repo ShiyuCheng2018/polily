@@ -1,6 +1,6 @@
 # tests/test_icon_glossary.py
 """v0.8.0 Task 11: verify all icon constants live in Nerd Font range."""
-import scanner.tui.icons as icons
+import polily.tui.icons as icons
 
 
 def test_all_icon_constants_are_in_nerd_font_range():

@@ -15,7 +15,7 @@ def _mk_market(*, closed=0, end_date=None, resolved_outcome=None):
 
 def test_binary_breadcrumb_trading_rich_markup():
     """TRADING: countdown shown normally, future states tagged [dim]."""
-    from scanner.tui.components.event_header import _binary_breadcrumb
+    from polily.tui.components.event_header import _binary_breadcrumb
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     future = (now + timedelta(days=7)).isoformat()
     m = _mk_market(end_date=future)
@@ -29,7 +29,7 @@ def test_binary_breadcrumb_trading_rich_markup():
 
 
 def test_binary_breadcrumb_pending_settlement_highlights_current():
-    from scanner.tui.components.event_header import _binary_breadcrumb
+    from polily.tui.components.event_header import _binary_breadcrumb
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     past = (now - timedelta(hours=1)).isoformat()
     m = _mk_market(end_date=past)
@@ -46,7 +46,7 @@ def test_binary_breadcrumb_pending_settlement_highlights_current():
 
 
 def test_binary_breadcrumb_settling_marks_prior_done():
-    from scanner.tui.components.event_header import _binary_breadcrumb
+    from polily.tui.components.event_header import _binary_breadcrumb
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     m = _mk_market(closed=1, resolved_outcome=None)
     text = _binary_breadcrumb(m, now=now)
@@ -57,7 +57,7 @@ def test_binary_breadcrumb_settling_marks_prior_done():
 
 
 def test_binary_breadcrumb_settled_with_winner_suffix():
-    from scanner.tui.components.event_header import _binary_breadcrumb
+    from polily.tui.components.event_header import _binary_breadcrumb
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     m = _mk_market(closed=1, resolved_outcome="no")
     text = _binary_breadcrumb(m, now=now)
@@ -67,7 +67,7 @@ def test_binary_breadcrumb_settled_with_winner_suffix():
 
 
 def test_multi_event_settlement_label_active():
-    from scanner.tui.components.event_header import _multi_event_settlement_label
+    from polily.tui.components.event_header import _multi_event_settlement_label
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     future = (now + timedelta(days=7)).isoformat()
     past = (now - timedelta(hours=1)).isoformat()
@@ -81,7 +81,7 @@ def test_multi_event_settlement_label_active():
 
 
 def test_multi_event_settlement_label_awaiting_full():
-    from scanner.tui.components.event_header import _multi_event_settlement_label
+    from polily.tui.components.event_header import _multi_event_settlement_label
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     past = (now - timedelta(hours=1)).isoformat()
     event = MagicMock()
@@ -92,7 +92,7 @@ def test_multi_event_settlement_label_awaiting_full():
 
 
 def test_multi_event_settlement_label_resolved():
-    from scanner.tui.components.event_header import _multi_event_settlement_label
+    from polily.tui.components.event_header import _multi_event_settlement_label
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     event = MagicMock()
     event.closed = 1

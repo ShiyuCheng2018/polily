@@ -1,7 +1,7 @@
-"""Tests for scanner.scan.commentary module."""
+"""Tests for polily.scan.commentary module."""
 
 
-from scanner.scan.commentary import (
+from polily.scan.commentary import (
     _level_index,
     _match_condition,
     _normalize_pct,

@@ -2,7 +2,7 @@
 
 import pytest
 
-from scanner.tui.views._wallet_overview import compute_wallet_overview
+from polily.tui.views._wallet_overview import compute_wallet_overview
 
 
 def _snap(**kw) -> dict:

@@ -8,7 +8,28 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 Changelog started at v0.6.0; prior versions (v0.5.x and earlier) have no
 structured release notes — see `git log` for history.
 
-## [Unreleased]
+## [0.9.0] — 2026-04-22
+
+### BREAKING
+
+- **Package renamed `scanner` → `polily`.** Programmatic imports must switch from `from scanner.X import ...` to `from polily.X import ...`. CLI users are unaffected.
+- **Class renamed `ScanService` → `PolilyService`** (TUI service facade) — public via `polily.tui.service`.
+- **Class renamed `ScannerConfig` → `PolilyConfig`** (top-level config model) — public via `polily` (module root).
+- **Dead config block removed.** `ScannerSection` (the YAML `scanner:` top-level key with `output_dir`, `max_markets_to_fetch`, `include_closed_markets`, `categories_allowlist`, `categories_blocklist`, `tags_allowlist`, `tags_blocklist`, `two_pass_scan`, `orderbook_fetch_top_n`, `recommended_scan_time_utc`) has been deleted — all 10 fields were v0.5.0 batch-scan leftovers with zero runtime readers. **Action for users:** delete the `scanner:` block from your local `config.yaml` if present (Pydantic's `extra="ignore"` will silently drop it either way, so inaction is safe — but removing the dead block keeps the file clean).
+- **Report disclaimer text updated** from `"Scanner output is a research prompt..."` to `"Polily output is a research prompt..."`. If you override `reporting.disclaimer` in your `config.yaml` with the old text, you should update it.
+
+### Fixed
+
+- `NoActiveAppError` no longer leaks into scan-history UI text when the user closes the TUI mid-analysis. `scan_logs.error` now reads `"TUI 已关闭，分析中断"` (was `"NoActiveAppError: ..."`). Pure cosmetic — the `failed` status and atomicity contracts are unchanged.
+- **Launchd plist auto-heal for upgrade safety.** Pre-v0.9.0 plists hardcode `-m scanner.cli`, which breaks after the package rename and triggers silent crash-loops under `KeepAlive`. `ensure_daemon_running` now compares on-disk plist content against the freshly-generated version and forces `launchctl unload` + `load` on mismatch — so just launching the TUI once (or running any `polily scheduler` CLI command) auto-regenerates the stale plist. Zero user action needed.
+
+### Internal
+
+- `user_agent` product label updated from `polymarket-scanner/0.1` to `polily/0.9`.
+- CI, PR template, README dev commands all repointed from `scanner/` to `polily/`.
+- `CLAUDE.md` Key Files table + architecture docs synced to the new package layout.
+- **`data/scheduler.pid` removed.** Daemon no longer writes a PID file; all aliveness checks (CLI `stop`/`restart`/`status`, TUI sidebar indicator, wallet reset modal, `restart_daemon`'s SIGTERM step) now query `launchctl list com.polily.scheduler` directly via the new `polily/daemon/launchctl_query.py` helper. Eliminates the stale-PID / crash-loop-race bug class where launchctl and the PID file could disagree. Users with a lingering `data/scheduler.pid` from a prior install will have it cleaned up on first daemon start.
+- **Rule-based fallback vestiges dropped.** v0.8.0 killed `NarrativeWriter`'s silent fallback but left trails: `AiConfig.enabled` / `AiConfig.fallback_on_error` (zero readers), `BaseAgent.fallback_fn` parameter (zero production callers), 4 tests exercising dead infrastructure, and `README` / `CONTRIBUTING` / `CLAUDE.md` phrases claiming "falls back to rule-based mode". All swept. Contract unchanged: CLI failures raise, `scan_logs` row marked `failed`, user sees it in scan history. `ai.enabled` / `ai.fallback_on_error` keys in a user `config.yaml` silently drop via `PolilyConfig.model_config = ConfigDict(extra="ignore")` — no migration needed.
 
 ## [0.8.5] — 2026-04-22
 
@@ -409,7 +430,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.8.5...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.0...dev
+[0.9.0]: https://github.com/ShiyuCheng2018/polily/compare/v0.8.5...v0.9.0
 [0.8.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.8.5
 [0.8.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.8.0
 [0.7.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.7.0

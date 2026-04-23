@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.events import EventBus
-from scanner.tui.service import ScanService
+from polily.core.db import PolilyDB
+from polily.core.events import EventBus
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def svc(tmp_path):
     cfg.paper_trading.default_position_size_usd = 20
     cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
     db = PolilyDB(tmp_path / "ms.db")
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 
@@ -30,8 +30,8 @@ def svc(tmp_path):
 @pytest.mark.asyncio
 async def test_main_screen_mounts_sidebar_and_content(svc):
     """Main screen must have Sidebar + content area."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.widgets.sidebar import Sidebar
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.sidebar import Sidebar
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -44,7 +44,7 @@ async def test_main_screen_mounts_sidebar_and_content(svc):
 @pytest.mark.asyncio
 async def test_main_screen_menu_digit_shortcuts_preserved(svc):
     """Menu digit shortcuts (0, 1, 2, 3, 4, 5) still bound for navigation."""
-    from scanner.tui.screens.main import MainScreen
+    from polily.tui.screens.main import MainScreen
 
     keys = {b.key for b in MainScreen.BINDINGS}
     # 0 = tasks, 1 = monitor, 2 = paper, 3 = wallet, 4 = history, 5 = archive
@@ -55,7 +55,7 @@ async def test_main_screen_menu_digit_shortcuts_preserved(svc):
 @pytest.mark.asyncio
 async def test_main_screen_has_no_conflicting_global_bindings(svc):
     """MainScreen must NOT redeclare q / ? / escape (Task 9 moved those to App level)."""
-    from scanner.tui.screens.main import MainScreen
+    from polily.tui.screens.main import MainScreen
 
     keys = {b.key for b in MainScreen.BINDINGS}
     for conflict in ("q", "question_mark", "escape"):
@@ -66,11 +66,63 @@ async def test_main_screen_has_no_conflicting_global_bindings(svc):
 
 
 @pytest.mark.asyncio
+async def test_main_screen_refreshes_sidebar_on_position_or_wallet_update(svc, monkeypatch):
+    """Regression for Bug #2: daemon-side auto-resolution writes positions/
+    wallet_transactions without publishing on the TUI's bus. The 5s heartbeat
+    republishes TOPIC_POSITION_UPDATED / TOPIC_WALLET_UPDATED on the TUI
+    bus, and MainScreen must route those to refresh_sidebar_counts so the
+    '持仓 (N)' badge stops going stale.
+
+    We verify the routing by spying on dispatch_to_ui inside the main-screen
+    module — the bus handler calls `dispatch_to_ui(self.app, self.refresh_
+    sidebar_counts)` synchronously on publish, so a spy catches both the
+    intent (target function is refresh_sidebar_counts) and the trigger.
+    Going end-to-end through Textual's scheduler introduces timing
+    flakiness unrelated to the fix.
+    """
+    from polily.core.events import TOPIC_POSITION_UPDATED, TOPIC_WALLET_UPDATED
+    from polily.tui import screens
+    from polily.tui.app import PolilyApp
+    from polily.tui.screens.main import MainScreen
+
+    app = PolilyApp(service=svc)
+    app._restart_daemon = lambda: None
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = next(
+            (s for s in app.screen_stack if isinstance(s, MainScreen)), None,
+        )
+        assert screen is not None, "MainScreen must be on the screen stack"
+
+        dispatched: list[tuple] = []
+
+        def spy(target_app, fn) -> None:
+            dispatched.append((target_app, fn))
+
+        monkeypatch.setattr(screens.main, "dispatch_to_ui", spy)
+
+        svc.event_bus.publish(TOPIC_POSITION_UPDATED, {"source": "heartbeat"})
+        assert len(dispatched) == 1, (
+            f"POSITION_UPDATED must route through dispatch_to_ui; got {dispatched}"
+        )
+        assert dispatched[0][1] == screen.refresh_sidebar_counts, (
+            "dispatch target must be refresh_sidebar_counts"
+        )
+
+        svc.event_bus.publish(TOPIC_WALLET_UPDATED, {"source": "heartbeat"})
+        assert len(dispatched) == 2, (
+            f"WALLET_UPDATED must route through dispatch_to_ui; got {dispatched}"
+        )
+        assert dispatched[1][1] == screen.refresh_sidebar_counts
+
+
+@pytest.mark.asyncio
 async def test_main_screen_status_bar_mounted(svc):
     """Status bar Static must exist at #status-bar."""
     from textual.widgets import Static
 
-    from scanner.tui.app import PolilyApp
+    from polily.tui.app import PolilyApp
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -87,8 +139,8 @@ async def test_main_screen_status_bar_mounted(svc):
 @pytest.mark.asyncio
 async def test_sidebar_items_have_nerd_font_icons(svc):
     """SidebarItem menu entries should show Nerd Font glyphs (not plain emoji)."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.widgets.sidebar import SidebarItem
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.sidebar import SidebarItem
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -113,8 +165,8 @@ async def test_sidebar_items_have_nerd_font_icons(svc):
 @pytest.mark.asyncio
 async def test_sidebar_menu_order_preserved(svc):
     """All menu entries present in expected order (v0.8.0+: changelog added last)."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.widgets.sidebar import Sidebar, SidebarItem
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.sidebar import Sidebar, SidebarItem
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -130,8 +182,8 @@ async def test_sidebar_menu_order_preserved(svc):
 @pytest.mark.asyncio
 async def test_sidebar_active_menu_highlights_correctly(svc):
     """set_active_menu should mark only one item with -active class."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.widgets.sidebar import Sidebar, SidebarItem
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.sidebar import Sidebar, SidebarItem
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -154,8 +206,8 @@ async def test_sidebar_active_menu_highlights_correctly(svc):
 @pytest.mark.asyncio
 async def test_metric_card_still_works(svc):
     """MetricCard preserved as legacy widget (Q7b: don't delete)."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.widgets.cards import MetricCard
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.cards import MetricCard
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -171,8 +223,8 @@ async def test_metric_card_still_works(svc):
 @pytest.mark.asyncio
 async def test_dash_panel_still_works(svc):
     """DashPanel preserved as legacy widget (Q7b: don't delete)."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.widgets.cards import DashPanel
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.cards import DashPanel
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -190,7 +242,7 @@ def test_cards_css_uses_theme_variables():
     theme var."""
     import re
 
-    from scanner.tui.widgets.cards import DashPanel, MetricCard
+    from polily.tui.widgets.cards import DashPanel, MetricCard
 
     for cls in (MetricCard, DashPanel):
         css = cls.DEFAULT_CSS or ""

@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import (
+from polily.core.db import PolilyDB
+from polily.core.event_store import (
     EventRow,
     MarketRow,
     get_event,
@@ -14,8 +14,8 @@ from scanner.core.event_store import (
     upsert_event,
     upsert_market,
 )
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.daemon.poll_job import global_poll
+from polily.core.monitor_store import upsert_event_monitor
+from polily.daemon.poll_job import global_poll
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ class TestGlobalPollPriceLayer:
         """Poll should fetch CLOB data and update markets table."""
         _seed(db)
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.return_value = {
                 "yes_price": 0.55,
                 "no_price": 0.45,
@@ -78,7 +78,7 @@ class TestGlobalPollPriceLayer:
         """404 from CLOB should mark market as closed."""
         _seed(db)
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = httpx.HTTPStatusError(
                 "Not Found",
                 request=MagicMock(),
@@ -106,7 +106,7 @@ class TestGlobalPollPriceLayer:
         )
         upsert_event_monitor("ev1", auto_monitor=True, db=db)
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = httpx.HTTPStatusError(
                 "Not Found",
                 request=MagicMock(),
@@ -121,7 +121,7 @@ class TestGlobalPollPriceLayer:
         """Close path preserves auto_monitor=1 as a user-intent flag (Archive
         view later filters on this to tell 'events I was monitoring when they
         closed')."""
-        from scanner.core.monitor_store import get_event_monitor
+        from polily.core.monitor_store import get_event_monitor
 
         upsert_event(
             EventRow(event_id="ev1", title="Some Event", updated_at="now"), db,
@@ -136,7 +136,7 @@ class TestGlobalPollPriceLayer:
             )
         upsert_event_monitor("ev1", auto_monitor=True, db=db)
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = httpx.HTTPStatusError(
                 "Not Found",
                 request=MagicMock(),
@@ -151,7 +151,7 @@ class TestGlobalPollPriceLayer:
     def test_poll_re_running_on_closed_event_is_noop(self, db):
         """Once event is closed, a subsequent poll tick must not crash or flip
         auto_monitor back (the closed-event gate in poll_job short-circuits)."""
-        from scanner.core.monitor_store import get_event_monitor
+        from polily.core.monitor_store import get_event_monitor
 
         upsert_event(
             EventRow(event_id="ev1", title="Some Event", closed=1, updated_at="now"),
@@ -165,7 +165,7 @@ class TestGlobalPollPriceLayer:
         )
         upsert_event_monitor("ev1", auto_monitor=True, db=db)
 
-        with patch("scanner.core.clob.fetch_clob_market_data"):
+        with patch("polily.core.clob.fetch_clob_market_data"):
             global_poll(db)
 
         assert get_event_monitor("ev1", db)["auto_monitor"] == 1
@@ -174,7 +174,7 @@ class TestGlobalPollPriceLayer:
         """Markets with closed=1 should not be fetched."""
         _seed(db, closed=1)
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             global_poll(db)
 
         mock_fetch.assert_not_called()
@@ -183,7 +183,7 @@ class TestGlobalPollPriceLayer:
         """Markets without clob_token_id_yes should be skipped."""
         _seed(db, token=None)
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             global_poll(db)
 
         mock_fetch.assert_not_called()
@@ -192,7 +192,7 @@ class TestGlobalPollPriceLayer:
         """Non-404 errors (503, timeout) should NOT close the market."""
         _seed(db)
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = httpx.HTTPStatusError(
                 "Service Unavailable",
                 request=MagicMock(),
@@ -240,7 +240,7 @@ class TestGlobalPollPriceLayer:
                 "book_asks": "[]",
             }
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = _side_effect
             global_poll(db)
 
@@ -293,7 +293,7 @@ class TestGlobalPollPriceLayer:
                 "recent_trades": "[]",
             }
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = _side_effect
             global_poll(db)
 
@@ -307,7 +307,7 @@ class TestGlobalPollPriceLayer:
     def test_no_active_markets_is_noop(self, db):
         """Poll with no active markets should not error."""
         # Empty DB — no markets at all
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             global_poll(db)
         mock_fetch.assert_not_called()
 
@@ -318,7 +318,7 @@ class TestGlobalPollPriceLayer:
         bids = [{"price": 0.54, "size": 500}]
         asks = [{"price": 0.56, "size": 400}]
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.return_value = {
                 "yes_price": 0.55,
                 "no_price": 0.45,
@@ -341,8 +341,8 @@ class TestGlobalPollPriceLayer:
         """fetch_clob_market_data returns price/book data, not trades (trades come from Data API separately)."""
         _seed(db)
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch, \
-             patch("scanner.daemon.poll_job._fetch_trades_batch") as mock_trades:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch, \
+             patch("polily.daemon.poll_job._fetch_trades_batch") as mock_trades:
             mock_fetch.return_value = {
                 "yes_price": 0.55,
                 "no_price": 0.45,
@@ -370,7 +370,7 @@ class TestWideSpreadIntegration:
         """negRisk markets should get correct bid/ask from /price, not /book."""
         _seed(db)
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.return_value = {
                 "yes_price": 0.929,   # from /midpoint
                 "no_price": 0.071,
@@ -415,11 +415,11 @@ async def test_resolve_closed_market_writes_resolved_outcome_without_position(
     """Regression guard for the _has_positions gate removal:
     a market with no positions still gets resolved_outcome written when
     Gamma returns a clean UMA-resolved result."""
-    from scanner.core.db import PolilyDB
-    from scanner.core.positions import PositionManager
-    from scanner.core.wallet import WalletService
-    from scanner.daemon import poll_job
-    from scanner.daemon.resolution import ResolutionHandler
+    from polily.core.db import PolilyDB
+    from polily.core.positions import PositionManager
+    from polily.core.wallet import WalletService
+    from polily.daemon import poll_job
+    from polily.daemon.resolution import ResolutionHandler
 
     db = PolilyDB(tmp_path / "t.db")
     _seed_minimal_market(db, market_id="m1", event_id="e1")
@@ -453,11 +453,11 @@ async def test_resolve_closed_market_without_position_does_not_credit_wallet(
     tmp_path, monkeypatch,
 ):
     """No-position path: resolved_outcome writes, wallet stays untouched."""
-    from scanner.core.db import PolilyDB
-    from scanner.core.positions import PositionManager
-    from scanner.core.wallet import WalletService
-    from scanner.daemon import poll_job
-    from scanner.daemon.resolution import ResolutionHandler
+    from polily.core.db import PolilyDB
+    from polily.core.positions import PositionManager
+    from polily.core.wallet import WalletService
+    from polily.daemon import poll_job
+    from polily.daemon.resolution import ResolutionHandler
 
     db = PolilyDB(tmp_path / "t.db")
     _seed_minimal_market(db, market_id="m1", event_id="e1")
@@ -498,11 +498,11 @@ async def test_backfill_stuck_resolutions_heals_legacy_rows(tmp_path, monkeypatc
     market and feeds it through _resolve_closed_market_if_position once."""
     from datetime import UTC, datetime
 
-    from scanner.core.db import PolilyDB
-    from scanner.core.positions import PositionManager
-    from scanner.core.wallet import WalletService
-    from scanner.daemon import poll_job
-    from scanner.daemon.resolution import ResolutionHandler
+    from polily.core.db import PolilyDB
+    from polily.core.positions import PositionManager
+    from polily.core.wallet import WalletService
+    from polily.daemon import poll_job
+    from polily.daemon.resolution import ResolutionHandler
 
     db = PolilyDB(tmp_path / "t.db")
     now = datetime.now(UTC).isoformat()
@@ -563,11 +563,11 @@ async def test_backfill_stuck_resolutions_caps_at_100(tmp_path, monkeypatch):
     """Backfill should LIMIT 100 rows per invocation to keep startup fast."""
     from datetime import UTC, datetime
 
-    from scanner.core.db import PolilyDB
-    from scanner.core.positions import PositionManager
-    from scanner.core.wallet import WalletService
-    from scanner.daemon import poll_job
-    from scanner.daemon.resolution import ResolutionHandler
+    from polily.core.db import PolilyDB
+    from polily.core.positions import PositionManager
+    from polily.core.wallet import WalletService
+    from polily.daemon import poll_job
+    from polily.daemon.resolution import ResolutionHandler
 
     db = PolilyDB(tmp_path / "t.db")
     now = datetime.now(UTC).isoformat()
@@ -640,7 +640,7 @@ class TestPollOnlyMonitoredEvents:
                 "book_bids": "[]", "book_asks": "[]",
             }
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             mock_fetch.side_effect = _side_effect
             global_poll(db)
 
@@ -654,7 +654,7 @@ class TestPollOnlyMonitoredEvents:
         """If no events are monitored, poll should not fetch anything."""
         _seed(db, "ev1", "m1", token="t1", monitored=False)
 
-        with patch("scanner.core.clob.fetch_clob_market_data") as mock_fetch:
+        with patch("polily.core.clob.fetch_clob_market_data") as mock_fetch:
             global_poll(db)
 
         mock_fetch.assert_not_called()

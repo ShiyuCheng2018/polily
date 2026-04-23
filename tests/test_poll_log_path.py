@@ -6,7 +6,7 @@ clobbering the developer's ability to diff old vs new behavior.
 
 import re
 
-from scanner.daemon.poll_job import _build_poll_log_path
+from polily.daemon.poll_job import _build_poll_log_path
 
 
 def test_log_goes_to_data_logs_subdir(tmp_path):
@@ -23,7 +23,7 @@ def test_log_filename_has_version_and_timestamp(tmp_path):
 
 
 def test_log_filename_uses_actual_package_version(tmp_path):
-    from scanner import __version__
+    from polily import __version__
     p = _build_poll_log_path(project_root=tmp_path)
     assert f"-v{__version__}-" in p.name
 

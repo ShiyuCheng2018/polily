@@ -3,10 +3,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.events import TOPIC_PRICE_UPDATED, EventBus
-from scanner.tui.service import ScanService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.core.events import TOPIC_PRICE_UPDATED, EventBus
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -15,15 +15,15 @@ def svc(tmp_path):
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "md.db")
     upsert_event(EventRow(event_id="ev1", title="Test Event", updated_at="now"), db)
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 
 async def test_event_detail_uses_multiple_polily_zones(svc):
     """event_detail is densest view — expects multiple PolilyZone sections."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.event_detail import EventDetailView
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.event_detail import EventDetailView
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -43,8 +43,8 @@ async def test_event_detail_chinese_labels_in_rendered(svc):
     """Core Chinese labels visible."""
     from textual.widgets import Static
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.event_detail import EventDetailView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -66,8 +66,8 @@ async def test_event_detail_chinese_labels_in_rendered(svc):
 
 async def test_event_detail_bus_callback_uses_call_from_thread(svc):
     """Publish TOPIC_PRICE_UPDATED; verify real handler uses call_from_thread."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.event_detail import EventDetailView
 
     called = []
     app = PolilyApp(service=svc)
@@ -99,14 +99,14 @@ async def test_event_detail_bus_callback_uses_call_from_thread(svc):
 
 def test_event_detail_has_r_refresh_binding():
     """SF4: 'r' added to EventDetailView.BINDINGS with show=True."""
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.views.event_detail import EventDetailView
     keys = {b.key: b.show for b in EventDetailView.BINDINGS}
     assert keys.get("r") is True, f"'r' refresh binding missing/hidden: {keys}"
 
 
 def test_event_detail_preserves_existing_bindings():
     """Q1: a/t/m/v/o still present."""
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.views.event_detail import EventDetailView
     keys = {b.key for b in EventDetailView.BINDINGS}
     for k in ("a", "t", "m", "v", "o", "escape"):
         assert k in keys, f"existing binding '{k}' missing"
@@ -120,10 +120,10 @@ async def test_event_detail_scroll_container_bounded(svc):
     """
     from textual.containers import VerticalScroll
 
-    from scanner.analysis_store import AnalysisVersion, append_analysis
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.event_detail import EventDetailView
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.analysis_store import AnalysisVersion, append_analysis
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.event_detail import EventDetailView
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     # Seed a minimal analysis so the analysis zone is rendered
     av = AnalysisVersion(

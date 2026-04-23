@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
+from polily.core.db import PolilyDB
 
 
 @pytest.fixture
@@ -26,8 +26,8 @@ class _DaemonExitError(RuntimeError):
 
 def test_run_daemon_passes_scheduler_to_init_poller(db, monkeypatch):
     """When run_daemon boots, init_poller must receive a non-None scheduler."""
-    from scanner.daemon import poll_job
-    from scanner.daemon import scheduler as scheduler_mod
+    from polily.daemon import poll_job
+    from polily.daemon import scheduler as scheduler_mod
 
     captured: dict = {}
     real_init = poll_job.init_poller
@@ -57,7 +57,7 @@ def test_run_daemon_passes_scheduler_to_init_poller(db, monkeypatch):
 def test_global_poll_runs_dispatcher_when_ctx_scheduler_set(db):
     """With _ctx.scheduler set, global_poll's Step 3.5 must call
     dispatch_pending_analyses."""
-    from scanner.daemon import poll_job
+    from polily.daemon import poll_job
 
     calls: list[tuple] = []
 

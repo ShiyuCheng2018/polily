@@ -13,7 +13,7 @@ def _mk_market(*, closed=0, end_date=None, resolved_outcome=None):
 
 
 def test_market_zone_title_multi_all_trading():
-    from scanner.tui.views.event_detail import _market_zone_title_suffix
+    from polily.tui.views.event_detail import _market_zone_title_suffix
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     future = (now + timedelta(days=5)).isoformat()
     markets = [_mk_market(end_date=future) for _ in range(3)]
@@ -23,7 +23,7 @@ def test_market_zone_title_multi_all_trading():
 
 
 def test_market_zone_title_multi_mixed():
-    from scanner.tui.views.event_detail import _market_zone_title_suffix
+    from polily.tui.views.event_detail import _market_zone_title_suffix
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     future = (now + timedelta(days=5)).isoformat()
     past = (now - timedelta(hours=1)).isoformat()
@@ -40,7 +40,7 @@ def test_market_zone_title_multi_mixed():
 
 
 def test_market_zone_title_multi_with_settling():
-    from scanner.tui.views.event_detail import _market_zone_title_suffix
+    from polily.tui.views.event_detail import _market_zone_title_suffix
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     markets = [
         _mk_market(closed=1, resolved_outcome=None),          # SETTLING
@@ -52,14 +52,14 @@ def test_market_zone_title_multi_with_settling():
 
 
 def test_market_zone_title_binary_trading():
-    from scanner.tui.views.event_detail import _market_zone_title_suffix
+    from polily.tui.views.event_detail import _market_zone_title_suffix
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     future = (now + timedelta(days=5)).isoformat()
     assert _market_zone_title_suffix([_mk_market(end_date=future)], now=now) == "(交易中)"
 
 
 def test_market_zone_title_binary_settled_with_winner():
-    from scanner.tui.views.event_detail import _market_zone_title_suffix
+    from polily.tui.views.event_detail import _market_zone_title_suffix
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     m = _mk_market(closed=1, resolved_outcome="no")
     assert _market_zone_title_suffix([m], now=now) == "(已结算 NO 获胜)"
@@ -67,12 +67,12 @@ def test_market_zone_title_binary_settled_with_winner():
 
 def test_market_zone_title_binary_settling():
     """Binary SETTLING (closed=1, outcome=None) renders without winner suffix."""
-    from scanner.tui.views.event_detail import _market_zone_title_suffix
+    from polily.tui.views.event_detail import _market_zone_title_suffix
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     m = _mk_market(closed=1, resolved_outcome=None)
     assert _market_zone_title_suffix([m], now=now) == "(结算中)"
 
 
 def test_market_zone_title_empty_markets():
-    from scanner.tui.views.event_detail import _market_zone_title_suffix
+    from polily.tui.views.event_detail import _market_zone_title_suffix
     assert _market_zone_title_suffix([]) == ""

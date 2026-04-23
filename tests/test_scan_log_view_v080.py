@@ -5,11 +5,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from textual.widgets import DataTable
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.events import TOPIC_SCAN_UPDATED, EventBus
-from scanner.scan_log import insert_pending_scan, load_scan_logs
-from scanner.tui.service import ScanService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.core.events import TOPIC_SCAN_UPDATED, EventBus
+from polily.scan_log import insert_pending_scan, load_scan_logs
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -19,16 +19,16 @@ def svc(tmp_path):
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(EventRow(event_id="ev1", title="Test Market Event", updated_at="now"), db)
     bus = EventBus()
-    s = ScanService(config=cfg, db=db, event_bus=bus)
+    s = PolilyService(config=cfg, db=db, event_bus=bus)
     yield s
     db.close()
 
 
 async def test_scan_log_view_uses_polily_zones(svc):
     """Verify PolilyZone atoms are used (not raw Container)."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogView
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogView
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     insert_pending_scan(
         event_id="ev1", event_title="Test Market Event",
@@ -54,8 +54,8 @@ async def test_scan_log_shows_chinese_status_in_rendered_cells(svc):
         scheduled_at="2026-05-01T10:00:00+00:00",
         trigger_source="scheduled", scheduled_reason="重要节点", db=svc.db,
     )
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -84,8 +84,8 @@ async def test_scan_log_preserves_approved_columns(svc):
         scheduled_at="2026-05-01T10:00:00+00:00",
         trigger_source="scheduled", scheduled_reason="重要", db=svc.db,
     )
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -114,8 +114,8 @@ async def test_scan_log_preserves_approved_columns(svc):
 
 async def test_scan_log_subscribes_via_real_bus_publish(svc):
     """Publish TOPIC_SCAN_UPDATED; verify view calls call_from_thread."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogView
 
     called = []
     app = PolilyApp(service=svc)
@@ -147,9 +147,9 @@ async def test_scan_log_subscribes_via_real_bus_publish(svc):
 async def test_pending_zone_title_is_task_queue(svc):
     """Zone title should be '任务队列' (not '分析队列') — it holds all running tasks,
     including add_event (评分) and analyze (分析), not just analyses."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogView
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogView
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -173,8 +173,8 @@ async def test_running_add_event_shows_scoring_label(svc):
     they're doing, otherwise it misleads the user."""
     from datetime import UTC, datetime
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogView
 
     # Direct SQL insert — insert_pending_scan hard-codes type='analyze'.
     now = datetime.now(UTC).isoformat()
@@ -210,8 +210,8 @@ async def test_running_analyze_still_shows_analysis_label(svc):
     """Regression: analyze running rows must still say '正在分析...'."""
     from datetime import UTC, datetime
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogView
 
     now = datetime.now(UTC).isoformat()
     svc.db.conn.execute(
@@ -253,8 +253,8 @@ async def test_scan_log_detail_view_no_scan_id(svc):
 
     from textual.widgets import Static
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_log import ScanLogDetailView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_log import ScanLogDetailView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None

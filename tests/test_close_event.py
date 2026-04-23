@@ -6,9 +6,9 @@ notification, poll_job did neither. Now both paths call one shared routine
 covered by the tests below.
 """
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, get_event, upsert_event
-from scanner.core.monitor_store import get_event_monitor, upsert_event_monitor
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, get_event, upsert_event
+from polily.core.monitor_store import get_event_monitor, upsert_event_monitor
 
 
 def _seed_open_monitored_event(db, event_id="ev1", title="Test Event"):
@@ -17,7 +17,7 @@ def _seed_open_monitored_event(db, event_id="ev1", title="Test Event"):
 
 
 def test_close_event_marks_events_row_closed(tmp_path):
-    from scanner.daemon.close_event import close_event
+    from polily.daemon.close_event import close_event
 
     db = PolilyDB(tmp_path / "t.db")
     _seed_open_monitored_event(db)
@@ -33,7 +33,7 @@ def test_close_event_preserves_auto_monitor_as_user_intent(tmp_path):
     be flipped by `close_event`; preserving it lets the Archive view filter
     on "events the user was monitoring when they closed".
     """
-    from scanner.daemon.close_event import close_event
+    from polily.daemon.close_event import close_event
 
     db = PolilyDB(tmp_path / "t.db")
     _seed_open_monitored_event(db)
@@ -47,7 +47,7 @@ def test_close_event_preserves_auto_monitor_as_user_intent(tmp_path):
 def test_close_event_preserves_explicit_auto_monitor_zero(tmp_path):
     """If the user had already turned monitoring off, close_event doesn't
     re-enable it — preservation means "whatever the user set stays"."""
-    from scanner.daemon.close_event import close_event
+    from polily.daemon.close_event import close_event
 
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(EventRow(event_id="ev1", title="T", updated_at="now"), db)

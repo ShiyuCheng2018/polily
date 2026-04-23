@@ -2,8 +2,8 @@
 
 from datetime import UTC, datetime
 
-from scanner.core.config import CryptoMispricingConfig, MispricingConfig, MultiOutcomeConfig
-from scanner.scan.mispricing import (
+from polily.core.config import CryptoMispricingConfig, MispricingConfig, MultiOutcomeConfig
+from polily.scan.mispricing import (
     compute_barrier_touch_prob,
     compute_crypto_fair_value,
     detect_mispricing,

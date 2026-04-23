@@ -1,6 +1,6 @@
 """Tests for tag-based market type classification."""
 
-from scanner.scan.tag_classifier import classify_from_tags
+from polily.scan.tag_classifier import classify_from_tags
 
 
 class TestClassifyFromTags:

@@ -1,7 +1,7 @@
 """Widget integration tests for TradeDialog (Buy/Sell tabs).
 
 Mounts the dialog on a minimal host App, exercises pilot interactions,
-and asserts that the right ScanService calls happen and the dismiss
+and asserts that the right PolilyService calls happen and the dismiss
 payload reflects the action. Preview math is unit-tested in
 test_trade_preview.py — these tests validate the WIRING (inputs →
 buttons → service calls → dismiss).
@@ -15,11 +15,11 @@ import pytest
 from textual.app import App
 from textual.widgets import Button, Input, Static
 
-from scanner.core.config import ScannerConfig
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.tui.service import ScanService
-from scanner.tui.views.trade_dialog import BuyPane, TradeDialog
+from polily.core.config import PolilyConfig
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.tui.service import PolilyService
+from polily.tui.views.trade_dialog import BuyPane, TradeDialog
 
 
 def _seed(
@@ -45,10 +45,10 @@ def _seed(
         ),
         db,
     )
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
-    from scanner.core.monitor_store import upsert_event_monitor
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
+    from polily.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("e1", auto_monitor=True, db=db)
-    return ScanService(config=ScannerConfig(), db=db)
+    return PolilyService(config=PolilyConfig(), db=db)
 
 
 class _Host(App):
@@ -74,7 +74,7 @@ class _Host(App):
 
 def _mock_price(value: float):
     return patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=value,
     )
 
@@ -83,7 +83,7 @@ def _mock_price(value: float):
 async def test_buy_flow_dispatches_execute_buy_and_dismisses(tmp_path):
     """Type amount $20 → click 买 YES → execute_buy called, dismiss returns action=buy."""
     svc = _seed(tmp_path)
-    from scanner.core.event_store import get_event_markets
+    from polily.core.event_store import get_event_markets
     market_rows = get_event_markets("e1", svc.db)
 
     with _mock_price(0.5):
@@ -114,7 +114,7 @@ async def test_buy_quick_amount_fills_input(tmp_path):
     from textual.widgets import Button, Input
 
     svc = _seed(tmp_path)
-    from scanner.core.event_store import get_event_markets
+    from polily.core.event_store import get_event_markets
     market_rows = get_event_markets("e1", svc.db)
 
     host = _Host(svc, market_rows)
@@ -133,7 +133,7 @@ async def test_sell_flow_percent_then_sell_dispatches_execute_sell(tmp_path):
     with _mock_price(0.5):
         svc.execute_buy(market_id="m1", side="yes", shares=20.0)
 
-    from scanner.core.event_store import get_event_markets
+    from polily.core.event_store import get_event_markets
     market_rows = get_event_markets("e1", svc.db)
 
     with _mock_price(0.6):
@@ -158,7 +158,7 @@ async def test_sell_flow_percent_then_sell_dispatches_execute_sell(tmp_path):
 async def test_sell_empty_state_when_no_positions(tmp_path):
     """No positions on selected market → pct / shares / sell rows hidden; empty hint shown."""
     svc = _seed(tmp_path)
-    from scanner.core.event_store import get_event_markets
+    from polily.core.event_store import get_event_markets
     market_rows = get_event_markets("e1", svc.db)
 
     host = _Host(svc, market_rows, default_tab="sell")
@@ -179,7 +179,7 @@ async def test_sell_empty_state_when_no_positions(tmp_path):
 async def test_buy_disables_buttons_when_cash_insufficient(tmp_path):
     """Amount > wallet cash → YES/NO disabled + red warning."""
     svc = _seed(tmp_path)
-    from scanner.core.event_store import get_event_markets
+    from polily.core.event_store import get_event_markets
     market_rows = get_event_markets("e1", svc.db)
 
     host = _Host(svc, market_rows)
@@ -202,7 +202,7 @@ async def test_buy_disables_buttons_when_cash_insufficient(tmp_path):
 async def test_buy_buttons_re_enable_when_cash_becomes_sufficient(tmp_path):
     """Regression: insufficient → sufficient should clear disabled state."""
     svc = _seed(tmp_path)
-    from scanner.core.event_store import get_event_markets
+    from polily.core.event_store import get_event_markets
     market_rows = get_event_markets("e1", svc.db)
 
     host = _Host(svc, market_rows)
@@ -237,7 +237,7 @@ async def test_sell_preserves_selected_side_across_context_refresh(tmp_path):
     with _mock_price(0.5):
         svc.execute_buy(market_id="m1", side="no", shares=5.0)
 
-    from scanner.core.event_store import get_event_markets
+    from polily.core.event_store import get_event_markets
     market_rows = get_event_markets("e1", svc.db)
 
     host = _Host(svc, market_rows, default_tab="sell")

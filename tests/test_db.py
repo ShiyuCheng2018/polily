@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scanner.core.db import PolilyDB
+from polily.core.db import PolilyDB
 
 
 @pytest.fixture

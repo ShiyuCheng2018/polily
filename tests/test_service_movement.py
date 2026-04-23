@@ -1,12 +1,12 @@
 """Tests for movement summary in service layer."""
 
-from scanner.monitor.store import get_movement_summary
+from polily.monitor.store import get_movement_summary
 
 
 def test_movement_summary_format(tmp_path):
     """Verify movement summary produces parseable context for AI."""
-    from scanner.core.db import PolilyDB
-    from scanner.monitor.store import append_movement
+    from polily.core.db import PolilyDB
+    from polily.monitor.store import append_movement
 
     db = PolilyDB(tmp_path / "test.db")
     append_movement(
@@ -31,8 +31,8 @@ def test_get_monitor_count(tmp_path):
     """Verify auto_monitor count query returns correct number."""
     from datetime import UTC, datetime
 
-    from scanner.core.db import PolilyDB
-    from scanner.core.monitor_store import get_active_monitors, upsert_event_monitor
+    from polily.core.db import PolilyDB
+    from polily.core.monitor_store import get_active_monitors, upsert_event_monitor
 
     db = PolilyDB(tmp_path / "test.db")
     now = datetime.now(UTC).isoformat()

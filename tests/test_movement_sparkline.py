@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from scanner.tui.components.movement_sparkline import get_event_movement
+from polily.tui.components.movement_sparkline import get_event_movement
 
 
 def _make_entry(minutes_ago: int = 0, market_id: str = "m1",

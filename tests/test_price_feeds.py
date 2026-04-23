@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from scanner.price_feeds import (
+from polily.price_feeds import (
     BinancePriceFeed,
     compute_realized_vol,
     extract_crypto_asset,

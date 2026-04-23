@@ -1,18 +1,18 @@
 # tests/test_service_emits_events.py
-"""v0.8.0 Task 12: ScanService publishes events on mutation using EXISTING methods."""
+"""v0.8.0 Task 12: PolilyService publishes events on mutation using EXISTING methods."""
 from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.events import (
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.core.events import (
     TOPIC_SCAN_UPDATED,
     TOPIC_WALLET_UPDATED,
     EventBus,
 )
-from scanner.scan_log import claim_pending_scan, insert_pending_scan
-from scanner.tui.service import ScanService
+from polily.scan_log import claim_pending_scan, insert_pending_scan
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def svc_with_bus(tmp_path):
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(EventRow(event_id="ev1", title="T", updated_at="now"), db)
     bus = EventBus()
-    svc = ScanService(config=cfg, db=db, event_bus=bus)
+    svc = PolilyService(config=cfg, db=db, event_bus=bus)
     yield svc, bus
     db.close()
 
@@ -50,7 +50,7 @@ def test_publish_scan_update_emits_topic(svc_with_bus):
 
 
 def test_existing_topup_publishes_wallet_updated(svc_with_bus):
-    """EXISTING ScanService.topup() must now publish TOPIC_WALLET_UPDATED."""
+    """EXISTING PolilyService.topup() must now publish TOPIC_WALLET_UPDATED."""
     svc, bus = svc_with_bus
     received = []
     bus.subscribe(TOPIC_WALLET_UPDATED, lambda p: received.append(p))

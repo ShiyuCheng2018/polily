@@ -1,11 +1,11 @@
-"""Tests for scanner.core.clob — shared CLOB data fetching."""
+"""Tests for polily.core.clob — shared CLOB data fetching."""
 
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
-from scanner.core.clob import fetch_clob_market_data
+from polily.core.clob import fetch_clob_market_data
 
 
 def _mock_response(json_data, status_code=200):

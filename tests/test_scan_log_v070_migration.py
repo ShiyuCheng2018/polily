@@ -2,7 +2,7 @@
 import sqlite3
 from pathlib import Path
 
-from scanner.core.db import PolilyDB
+from polily.core.db import PolilyDB
 
 
 def _make_v06_db(tmp_path: Path) -> Path:

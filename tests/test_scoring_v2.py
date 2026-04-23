@@ -4,8 +4,8 @@ net_edge bid_depth guard, and extended time_structure range."""
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-from scanner.core.models import BookLevel, Market
-from scanner.scan.scoring import (
+from polily.core.models import BookLevel, Market
+from polily.scan.scoring import (
     _DEFAULT_WEIGHTS,
     _TYPE_WEIGHTS,
     _score_net_edge,

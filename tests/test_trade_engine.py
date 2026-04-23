@@ -4,10 +4,10 @@ from unittest.mock import patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.positions import InsufficientShares, PositionManager
-from scanner.core.trade_engine import TradeEngine
-from scanner.core.wallet import InsufficientFunds, WalletService
+from polily.core.db import PolilyDB
+from polily.core.positions import InsufficientShares, PositionManager
+from polily.core.trade_engine import TradeEngine
+from polily.core.wallet import InsufficientFunds, WalletService
 
 
 @pytest.fixture
@@ -53,7 +53,7 @@ def fees_off_setup(tmp_path):
 def _mock_price(value: float):
     """Patch _fetch_live_price to return a fixed value."""
     return patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=value,
     )
 
@@ -229,7 +229,7 @@ def test_fetch_live_price_falls_back_to_db_on_http_error(setup):
     market = dict(db.conn.execute("SELECT * FROM markets WHERE market_id='m1'").fetchone())
 
     # httpx.get explodes → fallback to market["yes_price"] (seed = 0.5).
-    with patch("scanner.core.trade_engine.httpx.get", side_effect=RuntimeError("boom")):
+    with patch("polily.core.trade_engine.httpx.get", side_effect=RuntimeError("boom")):
         price = engine._fetch_live_price(market, "yes", buy_side=True)
     assert price == 0.5
 

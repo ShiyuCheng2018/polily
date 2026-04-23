@@ -3,10 +3,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.scan_log import insert_pending_scan
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.core.monitor_store import upsert_event_monitor
+from polily.scan_log import insert_pending_scan
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def db(tmp_path):
 
 
 def test_dispatch_overdue_pending_submits_to_ai_executor(db):
-    from scanner.daemon.poll_job import dispatch_pending_analyses
+    from polily.daemon.poll_job import dispatch_pending_analyses
 
     past = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
     sid = insert_pending_scan(
@@ -40,7 +40,7 @@ def test_dispatch_overdue_pending_submits_to_ai_executor(db):
 
 
 def test_dispatch_skips_future_pending(db):
-    from scanner.daemon.poll_job import dispatch_pending_analyses
+    from polily.daemon.poll_job import dispatch_pending_analyses
 
     future = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
     insert_pending_scan(
@@ -59,8 +59,8 @@ def test_dispatch_skips_future_pending(db):
 
 def test_dispatch_skips_event_with_running_row(db):
     """Q1: NOT EXISTS running guard in dispatcher query."""
-    from scanner.daemon.poll_job import dispatch_pending_analyses
-    from scanner.scan_log import claim_pending_scan
+    from polily.daemon.poll_job import dispatch_pending_analyses
+    from polily.scan_log import claim_pending_scan
 
     past = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
     sid_running = insert_pending_scan(
@@ -90,7 +90,7 @@ def test_dispatch_continues_past_add_job_failure(db):
     made it through) and the first row stays in 'running' — it's left for
     fail_orphan_running to sweep on daemon restart.
     """
-    from scanner.daemon.poll_job import dispatch_pending_analyses
+    from polily.daemon.poll_job import dispatch_pending_analyses
 
     # Seed a second event so fetch_overdue_pending returns two rows
     # (it caps at earliest-per-event, so we need distinct events).
@@ -147,7 +147,7 @@ def test_dispatch_continues_past_add_job_failure(db):
 def test_dispatch_dispatches_earliest_pending_per_event_only(db):
     """B4 regression: multiple stale pending rows for the same event
     (e.g. after long laptop sleep) must NOT dispatch multiple agents."""
-    from scanner.daemon.poll_job import dispatch_pending_analyses
+    from polily.daemon.poll_job import dispatch_pending_analyses
 
     now = datetime.now(UTC)
     insert_pending_scan(
@@ -181,7 +181,7 @@ def test_dispatch_dispatches_earliest_pending_per_event_only(db):
 
 def test_movement_trigger_writes_pending_row(db):
     """Q5: movement path writes scan_logs pending instead of direct add_job."""
-    from scanner.daemon.poll_job import _trigger_movement_analysis
+    from polily.daemon.poll_job import _trigger_movement_analysis
 
     _trigger_movement_analysis(
         event_id="ev1", event_title="Test", reason="M=85 Q=72", db=db,

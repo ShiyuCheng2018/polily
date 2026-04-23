@@ -14,15 +14,15 @@ from textual.app import App
 from textual.screen import Screen
 from textual.widgets import DataTable, Static
 
-from scanner.core.config import ScannerConfig
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.tui.service import ScanService
-from scanner.tui.views.history import HistoryView
+from polily.core.config import PolilyConfig
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.monitor_store import upsert_event_monitor
+from polily.tui.service import PolilyService
+from polily.tui.views.history import HistoryView
 
 
-def _svc(tmp_path) -> ScanService:
+def _svc(tmp_path) -> PolilyService:
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(EventRow(event_id="e1", title="E1", updated_at="now"), db)
     upsert_market(
@@ -34,13 +34,13 @@ def _svc(tmp_path) -> ScanService:
         ),
         db,
     )
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
     upsert_event_monitor("e1", auto_monitor=True, db=db)
-    return ScanService(config=ScannerConfig(), db=db)
+    return PolilyService(config=PolilyConfig(), db=db)
 
 
 class _Host(App):
-    def __init__(self, service: ScanService):
+    def __init__(self, service: PolilyService):
         super().__init__()
         self._service = service
 
@@ -49,7 +49,7 @@ class _Host(App):
 
 
 class _HostScreen(Screen):
-    def __init__(self, service: ScanService):
+    def __init__(self, service: PolilyService):
         super().__init__()
         self._service = service
 
@@ -75,12 +75,12 @@ async def test_history_renders_sell_row(tmp_path):
     """Buy then sell at profit → one SELL row + positive P&L in summary."""
     svc = _svc(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.6,
     ):
         svc.execute_sell(market_id="m1", side="yes", shares=10.0)
@@ -101,17 +101,17 @@ async def test_history_renders_multiple_events_newest_first(tmp_path):
     """2 sells from the same position → 2 rows, newest on top."""
     svc = _svc(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.6,
     ):
         svc.execute_sell(market_id="m1", side="yes", shares=5.0)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.7,
     ):
         svc.execute_sell(market_id="m1", side="yes", shares=5.0)
@@ -126,11 +126,11 @@ async def test_history_renders_multiple_events_newest_first(tmp_path):
 @pytest.mark.asyncio
 async def test_history_renders_resolve_row(tmp_path):
     """RESOLVE row appears with price=1.00 and positive P&L when YES wins."""
-    from scanner.daemon.resolution import ResolutionHandler
+    from polily.daemon.resolution import ResolutionHandler
 
     svc = _svc(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)

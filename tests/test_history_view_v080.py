@@ -3,9 +3,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.events import TOPIC_WALLET_UPDATED, EventBus
-from scanner.tui.service import ScanService
+from polily.core.db import PolilyDB
+from polily.core.events import TOPIC_WALLET_UPDATED, EventBus
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -13,14 +13,14 @@ def svc(tmp_path):
     cfg = MagicMock()
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "h.db")
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 
 async def test_history_uses_polily_zone(svc):
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.history import HistoryView
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.history import HistoryView
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -36,8 +36,8 @@ async def test_history_uses_polily_zone(svc):
 async def test_history_chinese_labels(svc):
     from textual.widgets import Static
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.history import HistoryView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.history import HistoryView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -63,8 +63,8 @@ async def test_history_bus_callback_if_subscribed(svc):
     history, needs manual `r` refresh), passing is fine. But if subscription
     exists, verify threading pattern.
     """
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.history import HistoryView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.history import HistoryView
 
     called = []
     app = PolilyApp(service=svc)

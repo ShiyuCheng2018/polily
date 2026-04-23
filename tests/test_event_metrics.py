@@ -1,5 +1,5 @@
 """Tests for event-level metrics computation."""
-from scanner.monitor.event_metrics import compute_event_metrics
+from polily.monitor.event_metrics import compute_event_metrics
 
 
 class TestOverround:

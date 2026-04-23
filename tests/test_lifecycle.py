@@ -1,9 +1,9 @@
-"""Unit tests for scanner.core.lifecycle — state derivation + labels."""
+"""Unit tests for polily.core.lifecycle — state derivation + labels."""
 
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
-from scanner.core.lifecycle import (
+from polily.core.lifecycle import (
     EventState,
     MarketState,
     event_state,

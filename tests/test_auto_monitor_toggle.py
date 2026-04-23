@@ -3,10 +3,10 @@ import json
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.monitor_store import get_active_monitors, get_event_monitor
-from scanner.daemon.auto_monitor import toggle_auto_monitor
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.monitor_store import get_active_monitors, get_event_monitor
+from polily.daemon.auto_monitor import toggle_auto_monitor
 
 
 @pytest.fixture

@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scanner.agents.narrative_writer import NarrativeWriterAgent
-from scanner.agents.schemas import NarrativeWriterOutput
-from scanner.core.config import AgentConfig
+from polily.agents.narrative_writer import NarrativeWriterAgent
+from polily.agents.schemas import NarrativeWriterOutput
+from polily.core.config import AgentConfig
 from tests.conftest import make_cli_response_structured
 
 SAMPLE_NARRATIVE_OUTPUT = {
@@ -47,7 +47,7 @@ class TestNarrativeWriterAgent:
     async def test_generate_narrative(self):
         agent = NarrativeWriterAgent(AgentConfig(model="sonnet"))
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (
                 make_cli_response_structured(SAMPLE_NARRATIVE_OUTPUT), b""
@@ -67,11 +67,11 @@ class TestNarrativeWriterAgent:
     async def test_cli_failure_raises_not_fallback(self):
         """v0.8.0: narrator no longer masquerades CLI failures as a
         degraded "completed" analysis. CLI failures must surface as
-        exceptions so `ScanService.analyze_event`'s error handler can
+        exceptions so `PolilyService.analyze_event`'s error handler can
         mark the scan_logs row as status='failed'."""
         agent = NarrativeWriterAgent(AgentConfig(model="sonnet"))
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (b"", b"error")
             proc.returncode = 1
@@ -90,7 +90,7 @@ class TestNarrativeWriterAgent:
         # CLI returns valid JSON wrapper but the `result` payload fails
         # `NarrativeWriterOutput.model_validate` (missing required fields).
         garbage = {"unexpected_field": "value"}
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (
                 make_cli_response_structured(garbage), b"",
@@ -109,9 +109,9 @@ class TestDevFeedbackLogFormat:
         Before: `=== [ts] event=357807 ops=HOLD ===`
         After:  `=== [ts] polily=v0.6.1 event=357807 title="Iran" ops=HOLD ===`
         """
-        import scanner
-        from scanner.agents.narrative_writer import _write_dev_feedback
-        from scanner.agents.schemas import Operation
+        import polily
+        from polily.agents.narrative_writer import _write_dev_feedback
+        from polily.agents.schemas import Operation
 
         monkeypatch.chdir(tmp_path)
 
@@ -125,14 +125,14 @@ class TestDevFeedbackLogFormat:
         _write_dev_feedback("357807", "Iran Hormuz closure 2025", output)
 
         log = (tmp_path / "data" / "logs" / "agent_feedback.log").read_text()
-        assert f"polily=v{scanner.__version__}" in log
+        assert f"polily=v{polily.__version__}" in log
         assert "event=357807" in log
         assert 'title="Iran Hormuz closure 2025"' in log
         assert "ops=HOLD" in log
         assert "[9/10] 全对" in log
 
     def test_header_title_missing_renders_placeholder(self, tmp_path, monkeypatch):
-        from scanner.agents.narrative_writer import _write_dev_feedback
+        from polily.agents.narrative_writer import _write_dev_feedback
 
         monkeypatch.chdir(tmp_path)
         output = NarrativeWriterOutput(
@@ -148,7 +148,7 @@ class TestDevFeedbackLogFormat:
 
     def test_header_title_sanitizes_newlines_and_quotes(self, tmp_path, monkeypatch):
         """Newlines/CRs/quotes in user-controlled title must not split the header."""
-        from scanner.agents.narrative_writer import _write_dev_feedback
+        from polily.agents.narrative_writer import _write_dev_feedback
 
         monkeypatch.chdir(tmp_path)
         output = NarrativeWriterOutput(

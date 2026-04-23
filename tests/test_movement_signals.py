@@ -1,6 +1,6 @@
 import pytest
 
-from scanner.monitor.signals import (
+from polily.monitor.signals import (
     compute_book_imbalance,
     compute_cross_divergence,
     compute_fair_value_divergence,

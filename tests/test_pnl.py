@@ -1,6 +1,6 @@
 """Tests for P&L calculation pure functions."""
 
-from scanner.pnl import calc_unrealized_pnl
+from polily.pnl import calc_unrealized_pnl
 
 
 class TestCalcUnrealizedPnl:

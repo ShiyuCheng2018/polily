@@ -1,6 +1,6 @@
 # tests/test_event_bus.py
 """v0.8.0 Task 10: EventBus publish/subscribe + topic constants."""
-from scanner.core.events import (
+from polily.core.events import (
     TOPIC_MONITOR_UPDATED,
     TOPIC_POSITION_UPDATED,
     TOPIC_SCAN_UPDATED,

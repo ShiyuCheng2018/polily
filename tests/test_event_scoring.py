@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from scanner.scan.event_scoring import EventQualityScore, compute_event_quality_score
+from polily.scan.event_scoring import EventQualityScore, compute_event_quality_score
 from tests.conftest import make_event, make_market
 
 
@@ -33,7 +33,7 @@ def _make_markets(event_id="ev1", count=3, yes_prices=None, volumes=None,
         m.best_ask_yes = (yes_prices[i] if i < len(yes_prices) else 0.1) + 0.01
         m.spread_yes = spreads[i] if i < len(spreads) else 0.02
         # Simulate book depth via BookLevel
-        from scanner.core.models import BookLevel
+        from polily.core.models import BookLevel
         bd = bid_depths[i] if i < len(bid_depths) else 1000
         m.book_depth_bids = [BookLevel(price=0.5, size=bd)]
         m.book_depth_asks = [BookLevel(price=0.6, size=bd)]

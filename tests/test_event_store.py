@@ -1,8 +1,8 @@
 """Tests for event and market store operations."""
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import (
+from polily.core.db import PolilyDB
+from polily.core.event_store import (
     EventRow,
     MarketRow,
     get_active_markets,

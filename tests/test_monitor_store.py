@@ -1,9 +1,9 @@
 """Tests for event monitor store operations."""
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.monitor_store import (
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.core.monitor_store import (
     get_active_monitors,
     get_event_monitor,
     upsert_event_monitor,

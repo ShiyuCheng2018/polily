@@ -5,14 +5,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 from textual.widgets import DataTable, Static
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.events import (
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.events import (
     TOPIC_POSITION_UPDATED,
     TOPIC_WALLET_UPDATED,
     EventBus,
 )
-from scanner.tui.service import ScanService
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -44,10 +44,10 @@ def svc(tmp_path):
         ),
         db,
     )
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
-    from scanner.core.monitor_store import upsert_event_monitor
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
+    from polily.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("ev1", auto_monitor=True, db=db)
-    s = ScanService(config=cfg, db=db, event_bus=EventBus())
+    s = PolilyService(config=cfg, db=db, event_bus=EventBus())
     yield s
     db.close()
 
@@ -55,7 +55,7 @@ def svc(tmp_path):
 def _seed_position(svc):
     """Seed one open YES position for paper_status to display."""
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=20.0)
@@ -63,9 +63,9 @@ def _seed_position(svc):
 
 async def test_paper_status_uses_polily_zones(svc):
     """Verify PolilyZone atom wraps the portfolio list."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.paper_status import PaperStatusView
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.paper_status import PaperStatusView
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     _seed_position(svc)
     app = PolilyApp(service=svc)
@@ -81,8 +81,8 @@ async def test_paper_status_uses_polily_zones(svc):
 
 async def test_paper_status_chinese_labels(svc):
     """Core Chinese label appears somewhere in rendered view."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.paper_status import PaperStatusView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.paper_status import PaperStatusView
 
     _seed_position(svc)
     app = PolilyApp(service=svc)
@@ -112,8 +112,8 @@ async def test_paper_status_chinese_labels(svc):
 
 async def test_paper_status_wallet_bus_callback(svc):
     """TOPIC_WALLET_UPDATED publish → view re-renders via call_from_thread."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.paper_status import PaperStatusView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.paper_status import PaperStatusView
 
     _seed_position(svc)
     called: list[str] = []
@@ -148,8 +148,8 @@ async def test_paper_status_wallet_bus_callback(svc):
 
 async def test_paper_status_position_bus_callback(svc):
     """TOPIC_POSITION_UPDATED publish → view re-renders via call_from_thread."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.paper_status import PaperStatusView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.paper_status import PaperStatusView
 
     _seed_position(svc)
     called: list[str] = []
@@ -184,8 +184,8 @@ async def test_paper_status_position_bus_callback(svc):
 
 async def test_paper_status_no_internal_ids_leaked(svc):
     """Row cells should show title, not internal market_id / event_id."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.paper_status import PaperStatusView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.paper_status import PaperStatusView
 
     _seed_position(svc)
     app = PolilyApp(service=svc)

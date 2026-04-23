@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from scanner.api import PolymarketClient, parse_data_api_trades, parse_gamma_event
-from scanner.core.config import ApiConfig
+from polily.api import PolymarketClient, parse_data_api_trades, parse_gamma_event
+from polily.core.config import ApiConfig
 
 
 def test_parse_data_api_trades():
