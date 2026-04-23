@@ -133,6 +133,51 @@ def test_worker_thread_path_also_coalesces():
         f"worker-thread path must also dedup; got {len(v.scheduled)}"
 
 
+def test_wrapper_clears_flag_if_dispatch_raises(monkeypatch):
+    """Regression: if dispatch_to_ui raises synchronously, the next
+    refresh_data call must not be blocked by a stuck flag.
+
+    Pre-fix: the flag was set True before dispatch_to_ui; if that call
+    raised (e.g. under app-shutdown edge cases where `call_from_thread`
+    and `call_later` both fail), the flag stayed True forever and every
+    subsequent refresh bailed at the guard clause.
+    """
+    from polily.tui import _dispatch as dispatch_mod
+    from polily.tui._dispatch import once_per_tick
+
+    class DummyView:
+        def __init__(self):
+            self.app = object()  # placeholder; dispatch_to_ui is monkeypatched
+            self.call_count = 0
+
+        @once_per_tick
+        def refresh_data(self):
+            self.call_count += 1
+
+    view = DummyView()
+
+    def bad_dispatch(_app, _fn):
+        raise RuntimeError("simulated dispatch failure")
+
+    monkeypatch.setattr(dispatch_mod, "dispatch_to_ui", bad_dispatch)
+
+    # First call — raises because dispatch fails.
+    with pytest.raises(RuntimeError, match="simulated"):
+        view.refresh_data()
+
+    # Flag must be cleared despite the raise.
+    assert getattr(view, "_once_per_tick__refresh_data", False) is False, \
+        "flag stuck True blocks all future refreshes"
+
+    # Second call would bail at the guard if flag stuck; it should proceed
+    # into the dispatch attempt and raise again.
+    with pytest.raises(RuntimeError, match="simulated"):
+        view.refresh_data()
+
+    # Flag still cleared after second failure.
+    assert getattr(view, "_once_per_tick__refresh_data", False) is False
+
+
 def test_decorator_preserves_method_name_and_docstring():
     """Smoke: functools.wraps should preserve the wrapped function's
     identity so debugger / traceback still shows the original name."""
@@ -289,9 +334,18 @@ async def test_event_detail_coalesces_heartbeat_fan_out(svc, monkeypatch):
         original_call_later = app.call_later
         def spy(*args, **kwargs):
             nonlocal dispatch_count
-            # Count only heartbeat dispatches: call_later(0, callable).
-            # Textual's internal uses other signatures (callable only, etc.)
-            if len(args) >= 2 and args[0] == 0 and callable(args[1]):
+            # Count only EventDetailView's refresh_data dispatches. MainScreen
+            # also subscribes to POSITION_UPDATED (for sidebar counts) and
+            # dispatches its own callable — we want to verify the VIEW
+            # coalesces, not conflate it with MainScreen's handler.
+            # functools.wraps on the deferred callable preserves the
+            # underlying method name.
+            if (
+                len(args) >= 2
+                and args[0] == 0
+                and callable(args[1])
+                and getattr(args[1], "__name__", "") == "refresh_data"
+            ):
                 dispatch_count += 1
             return original_call_later(*args, **kwargs)
         monkeypatch.setattr(app, "call_later", spy)

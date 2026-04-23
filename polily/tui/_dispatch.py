@@ -75,10 +75,20 @@ def once_per_tick(method: Callable) -> Callable:
         # (e.g. `"refresh" in fn.__name__`) still see meaningful output.
         @functools.wraps(method)
         def deferred(*da: Any, **dk: Any) -> None:
+            # Clear first so a slow `method` call doesn't block the next
+            # refresh cycle and so an exception inside method doesn't leave
+            # the flag permanently set.
             setattr(self, flag_attr, False)
             method(self, *args, **kwargs)
 
-        dispatch_to_ui(self.app, deferred)
+        try:
+            dispatch_to_ui(self.app, deferred)
+        except Exception:
+            # dispatch_to_ui swallows its own exceptions and returns
+            # silently, but if one ever propagates here we'd otherwise
+            # leave the flag True forever, blocking all future refreshes.
+            setattr(self, flag_attr, False)
+            raise
 
     return wrapper
 

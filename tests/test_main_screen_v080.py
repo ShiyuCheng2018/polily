@@ -66,6 +66,58 @@ async def test_main_screen_has_no_conflicting_global_bindings(svc):
 
 
 @pytest.mark.asyncio
+async def test_main_screen_refreshes_sidebar_on_position_or_wallet_update(svc, monkeypatch):
+    """Regression for Bug #2: daemon-side auto-resolution writes positions/
+    wallet_transactions without publishing on the TUI's bus. The 5s heartbeat
+    republishes TOPIC_POSITION_UPDATED / TOPIC_WALLET_UPDATED on the TUI
+    bus, and MainScreen must route those to refresh_sidebar_counts so the
+    '持仓 (N)' badge stops going stale.
+
+    We verify the routing by spying on dispatch_to_ui inside the main-screen
+    module — the bus handler calls `dispatch_to_ui(self.app, self.refresh_
+    sidebar_counts)` synchronously on publish, so a spy catches both the
+    intent (target function is refresh_sidebar_counts) and the trigger.
+    Going end-to-end through Textual's scheduler introduces timing
+    flakiness unrelated to the fix.
+    """
+    from polily.core.events import TOPIC_POSITION_UPDATED, TOPIC_WALLET_UPDATED
+    from polily.tui import screens
+    from polily.tui.app import PolilyApp
+    from polily.tui.screens.main import MainScreen
+
+    app = PolilyApp(service=svc)
+    app._restart_daemon = lambda: None
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = next(
+            (s for s in app.screen_stack if isinstance(s, MainScreen)), None,
+        )
+        assert screen is not None, "MainScreen must be on the screen stack"
+
+        dispatched: list[tuple] = []
+
+        def spy(target_app, fn) -> None:
+            dispatched.append((target_app, fn))
+
+        monkeypatch.setattr(screens.main, "dispatch_to_ui", spy)
+
+        svc.event_bus.publish(TOPIC_POSITION_UPDATED, {"source": "heartbeat"})
+        assert len(dispatched) == 1, (
+            f"POSITION_UPDATED must route through dispatch_to_ui; got {dispatched}"
+        )
+        assert dispatched[0][1] == screen.refresh_sidebar_counts, (
+            "dispatch target must be refresh_sidebar_counts"
+        )
+
+        svc.event_bus.publish(TOPIC_WALLET_UPDATED, {"source": "heartbeat"})
+        assert len(dispatched) == 2, (
+            f"WALLET_UPDATED must route through dispatch_to_ui; got {dispatched}"
+        )
+        assert dispatched[1][1] == screen.refresh_sidebar_counts
+
+
+@pytest.mark.asyncio
 async def test_main_screen_status_bar_mounted(svc):
     """Status bar Static must exist at #status-bar."""
     from textual.widgets import Static

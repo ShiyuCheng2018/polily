@@ -142,12 +142,18 @@ class MainScreen(Screen):
         bus = getattr(self.service, "event_bus", None)
         if bus is not None:
             bus.subscribe(TOPIC_SCAN_UPDATED, self._on_scan_updated)
+            bus.subscribe(TOPIC_POSITION_UPDATED, self._on_position_or_wallet_update)
+            bus.subscribe(TOPIC_WALLET_UPDATED, self._on_position_or_wallet_update)
 
     def on_unmount(self) -> None:
         bus = getattr(self.service, "event_bus", None)
         if bus is not None:
             with contextlib.suppress(Exception):
                 bus.unsubscribe(TOPIC_SCAN_UPDATED, self._on_scan_updated)
+            with contextlib.suppress(Exception):
+                bus.unsubscribe(TOPIC_POSITION_UPDATED, self._on_position_or_wallet_update)
+            with contextlib.suppress(Exception):
+                bus.unsubscribe(TOPIC_WALLET_UPDATED, self._on_position_or_wallet_update)
 
     def _on_scan_updated(self, payload: dict) -> None:
         """Bus callback: runs on publisher thread — must hop to UI thread.
@@ -168,6 +174,17 @@ class MainScreen(Screen):
             return  # user's already looking at it — no pill needed
         with contextlib.suppress(Exception):
             self.query_one("#sidebar", Sidebar).mark_new_data("tasks")
+
+    def _on_position_or_wallet_update(self, payload: dict) -> None:
+        """Bus callback: refresh sidebar counts when positions or wallet state
+        changes. Bridges daemon-side auto-resolution (ResolutionHandler writes
+        positions/wallet_transactions but doesn't publish on TUI's bus — the
+        5s heartbeat republishes for us) and user-side trade/reset paths.
+
+        Uses dispatch_to_ui to hop to the UI thread safely.
+        """
+        with contextlib.suppress(Exception):
+            dispatch_to_ui(self.app, self.refresh_sidebar_counts)
 
     def _bus_heartbeat(self) -> None:
         """Bridge cross-process daemon writes to TUI views via bus fan-out.
