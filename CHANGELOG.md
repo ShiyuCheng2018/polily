@@ -8,6 +8,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 Changelog started at v0.6.0; prior versions (v0.5.x and earlier) have no
 structured release notes — see `git log` for history.
 
+## [Unreleased]
+
+### Fixed
+
+- **Scheduled AI analyses were silently failing for most macOS installs.** Every daemon-triggered NarrativeWriter job died ~3s after launch with `FileNotFoundError: 'claude'`, landing as `failed` rows in `scan_logs`. Manual TUI-triggered analyses were unaffected — the bug only hit the scheduler daemon.
+  - **Root cause.** The launchd-spawned daemon runs under a stripped PATH (`/usr/local/bin:/usr/bin:/bin`). Any `claude` install outside that — nvm (`~/.nvm/versions/node/<ver>/bin`), Apple Silicon Homebrew (`/opt/homebrew/bin`), asdf / fnm / volta shims — was invisible to the daemon, even though `which claude` in the user's shell worked fine.
+  - **Fix.** Plist now embeds the absolute path to `claude` as `EnvironmentVariables.POLILY_CLAUDE_CLI` (resolved at install time via `shutil.which` in the user's shell context). `BaseAgent` reads that env var and falls back gracefully with an actionable log message if the cached path disappears (e.g. after `nvm uninstall <old-version>`). Content-drift auto-heal (v0.9.0) is tuned to _not_ interrupt in-flight narrator jobs when only the `claude` path changed.
+  - **Action required: none for most users.** Open the TUI once after upgrading — the plist regenerates itself. First-time installs pick up the new behavior automatically.
+  - **How to verify.** Run `polily doctor` and check the `4. Claude CLI` section — you should see both a `你的 shell` line and a `daemon 看到` line with matching absolute paths, both marked OK.
+
 ## [0.9.0] — 2026-04-22
 
 ### BREAKING
