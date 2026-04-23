@@ -3,8 +3,6 @@
 v0.5.0: minimal CLI — TUI launch + scheduler subcommand group.
 """
 
-import os
-import signal
 from pathlib import Path
 
 import typer
@@ -25,26 +23,38 @@ def main(ctx: typer.Context):
 scheduler_app = typer.Typer(help="Manage the background scheduler daemon")
 app.add_typer(scheduler_app, name="scheduler")
 
+# Path kept for Task C one-shot stale-file cleanup on daemon startup
+# and for the `reset` command's legacy-file deletion table. No read
+# logic in this module relies on it — launchctl is authoritative.
 PID_FILE = Path("data/scheduler.pid")
 
 
 def _read_pid() -> int | None:
-    """Read PID from file. Returns None if missing or invalid."""
-    if not PID_FILE.exists():
-        return None
-    try:
-        return int(PID_FILE.read_text().strip())
-    except (ValueError, OSError):
-        return None
+    """Return the daemon PID via launchctl, or None if not running.
+
+    v0.9.0: previously read `data/scheduler.pid`. Switched to launchctl
+    so the daemon's real registration state is the single source of
+    truth — eliminates stale-PID false positives after SIGKILL and
+    crash-loop-restart races.
+    """
+    from polily.daemon.launchctl_query import get_daemon_pid
+    return get_daemon_pid()
 
 
 def _pid_alive(pid: int) -> bool:
-    """Check if a process with the given PID is running."""
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
+    """Check whether `pid` is still the live daemon PID.
+
+    v0.9.0 semantic change: previously `os.kill(pid, 0)` returned True
+    for ANY process with that PID (including a PID recycled after
+    SIGKILL). Now we re-query launchctl and return True only if the
+    current daemon PID equals the argument. Narrow race window: if
+    launchctl's KeepAlive respawns the daemon between `_read_pid()`
+    and `_pid_alive(pid)`, this returns False — callers that care
+    must re-read, not cache.
+    """
+    from polily.daemon.launchctl_query import get_daemon_pid
+    current = get_daemon_pid()
+    return current == pid
 
 
 @scheduler_app.command(name="run")
@@ -93,7 +103,8 @@ def stop():
         subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
         raise typer.Exit(1)
 
-    os.kill(pid, signal.SIGTERM)
+    from polily.daemon.launchctl_query import kill_daemon
+    kill_daemon("TERM")
     typer.echo(f"Sent SIGTERM to scheduler (PID {pid}).")
     # Unload the launchctl registration so KeepAlive can't respawn it.
     subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
@@ -105,7 +116,8 @@ def restart(config_path: str = typer.Option(None, "--config", "-c")):
     """Restart the scheduler daemon (stop + start via launchd)."""
     pid = _read_pid()
     if pid is not None and _pid_alive(pid):
-        os.kill(pid, signal.SIGTERM)
+        from polily.daemon.launchctl_query import kill_daemon
+        kill_daemon("TERM")
         typer.echo(f"Stopped scheduler (PID {pid}).")
         # Brief wait for cleanup
         import time
@@ -153,7 +165,8 @@ def _stop_daemon_if_running() -> None:
     import time
     pid = _read_pid()
     if pid is not None and _pid_alive(pid):
-        os.kill(pid, signal.SIGTERM)
+        from polily.daemon.launchctl_query import kill_daemon
+        kill_daemon("TERM")
         time.sleep(1)
 
 

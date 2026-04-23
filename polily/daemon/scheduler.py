@@ -139,26 +139,19 @@ def restart_daemon() -> bool:
 
     Returns True if a daemon is running after the call (success).
     """
-    import os
-    import signal as _signal
     import subprocess
     import time
 
-    pid_path = Path("data/scheduler.pid")
-    if pid_path.exists():
-        try:
-            pid = int(pid_path.read_text().strip())
-            try:
-                os.kill(pid, 0)  # check alive
-                os.kill(pid, _signal.SIGTERM)
-                # Brief wait for graceful shutdown (APScheduler flushes pending
-                # writes on SIGTERM). If it doesn't exit, launchctl unload below
-                # will force the issue.
-                time.sleep(1.0)
-            except (ProcessLookupError, PermissionError):
-                pass  # stale PID, continue to launchctl unload
-        except (ValueError, OSError):
-            pass  # malformed PID file; ignore
+    from polily.daemon.launchctl_query import is_daemon_running, kill_daemon
+
+    # Graceful shutdown via launchctl kill TERM — APScheduler handler flushes
+    # pending writes before exit. If the kill fails (not registered, launchctl
+    # missing, daemon already dead), we still fall through to `launchctl
+    # unload` below as the hard cleanup — preserves the old "stale PID,
+    # continue to launchctl unload" intent.
+    if is_daemon_running():
+        kill_daemon("TERM")
+        time.sleep(1.0)
 
     # Hard unload any registered service state so the next load is fresh.
     subprocess.run(

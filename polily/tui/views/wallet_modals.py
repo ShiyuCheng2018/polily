@@ -20,7 +20,6 @@ from __future__ import annotations
 import os
 import signal
 import time
-from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
@@ -39,16 +38,13 @@ _MODAL_WIDTH = 62
 
 
 def _daemon_pid() -> int | None:
-    """Return live daemon PID or None. Mirrors MainScreen._is_daemon_alive."""
-    pid_path = Path("data/scheduler.pid")
-    if not pid_path.exists():
-        return None
-    try:
-        pid = int(pid_path.read_text().strip())
-        os.kill(pid, 0)
-    except (ValueError, ProcessLookupError, PermissionError, OSError):
-        return None
-    return pid
+    """Return live daemon PID or None via launchctl.
+
+    v0.9.0: previously stat'd `data/scheduler.pid`. Now routed through
+    `launchctl_query` for consistency with the rest of the TUI.
+    """
+    from polily.daemon.launchctl_query import get_daemon_pid
+    return get_daemon_pid()
 
 
 # --- Topup ----------------------------------------------------------------

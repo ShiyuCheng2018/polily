@@ -210,18 +210,15 @@ class MainScreen(Screen):
 
     @staticmethod
     def _is_daemon_alive() -> bool:
-        """Check if daemon process is running via PID file."""
-        import os
-        from pathlib import Path
-        pid_path = Path("data/scheduler.pid")
-        if not pid_path.exists():
-            return False
-        try:
-            pid = int(pid_path.read_text().strip())
-            os.kill(pid, 0)  # signal 0 = check if process exists
-            return True
-        except (ValueError, ProcessLookupError, PermissionError, OSError):
-            return False
+        """Check if the scheduler daemon is running via launchctl.
+
+        v0.9.0: was reading `data/scheduler.pid`; now goes through
+        `launchctl_query.is_daemon_running()` so launchctl's view of the
+        world (crash-loop, stale registration, etc.) is the source of
+        truth.
+        """
+        from polily.daemon.launchctl_query import is_daemon_running
+        return is_daemon_running()
 
 
     def _update_progress(self, steps: list[StepInfo]):
