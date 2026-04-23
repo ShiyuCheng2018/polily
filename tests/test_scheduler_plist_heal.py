@@ -182,6 +182,49 @@ def test_non_claude_drift_still_reloads(tmp_plist_path):
     assert any("load" in c for c in subprocess_calls)
 
 
+def test_valid_non_claude_diff_triggers_reload(tmp_plist_path):
+    """Branch coverage: both plists parse to dicts, both contain
+    POLILY_CLAUDE_CLI with the SAME value, but something else
+    differs (e.g. WorkingDirectory). The `_strip(old) != _strip(new)`
+    comparison must return False → caller reloads.
+
+    This covers the "valid non-claude drift" branch that
+    `test_non_claude_drift_still_reloads` was supposed to exercise —
+    but that test's bytes (`<plist>STALE CONTENT...</plist>`) actually
+    parse to None and hit the isinstance guard, not the strip compare.
+    """
+    # On-disk plist: valid v0.9.1 shape, WorkingDirectory = /old/path
+    on_disk = sched.generate_launchd_plist(
+        working_dir="/old/path",
+        claude_cli="/same/claude/path",
+    )
+    tmp_plist_path.write_bytes(on_disk)
+
+    # Desired plist from generator: same claude path, DIFFERENT WorkingDirectory
+    import polily.daemon.scheduler as _s
+    original_generate = _s.generate_launchd_plist
+
+    def fake_generate(**kwargs):
+        # Force a non-claude diff — WorkingDirectory differs from on-disk
+        kwargs["working_dir"] = "/new/path"
+        kwargs.setdefault("claude_cli", "/same/claude/path")
+        return original_generate(**kwargs)
+
+    with patch.object(_s, "generate_launchd_plist", side_effect=fake_generate), \
+         patch.object(_s, "is_daemon_running", return_value=True), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        started = _s.ensure_daemon_running()
+
+    assert started is True, "non-claude diff must reload"
+    subprocess_calls = [str(c.args) for c in mock_run.call_args_list]
+    assert any("unload" in c for c in subprocess_calls)
+    assert any("load" in c for c in subprocess_calls)
+    # Sanity: both plists HAD POLILY_CLAUDE_CLI with same value,
+    # so the diff really is non-claude
+    assert b"/same/claude/path" in tmp_plist_path.read_bytes()
+
+
 def test_unparsable_old_plist_forces_reload(tmp_plist_path):
     """If the on-disk plist is malformed / truncated / user-edited garbage,
     `_only_claude_cli_diff` returns False from the except branch and we
