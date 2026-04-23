@@ -36,8 +36,9 @@ MIN_ROWS = 30
 def run_doctor() -> None:
     console = Console()
 
+    from polily import __version__
     console.print(Panel.fit(
-        "[bold cyan]Polily Doctor[/] — v0.8.0 环境诊断",
+        f"[bold cyan]Polily Doctor[/] — v{__version__} 环境诊断",
         style="cyan",
     ))
 
