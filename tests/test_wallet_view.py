@@ -343,20 +343,24 @@ async def test_reset_modal_confirm_clears_state(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_reset_modal_sigterms_daemon_before_reset(tmp_path, monkeypatch):
-    """When daemon is running, SIGTERM is sent BEFORE reset_wallet touches the DB."""
-    import signal as _signal
+    """When daemon is running, SIGTERM is sent BEFORE reset_wallet touches the DB.
 
+    v0.9.0: SIGTERM routing moved from direct `os.kill(pid, SIGTERM)` to
+    `launchctl_query.kill_daemon("TERM")`. Test mocks the latter.
+    """
     svc = _seed(tmp_path)
     monkeypatch.setattr(
         "polily.tui.views.wallet_modals._daemon_pid", lambda: 99999,
     )
-    kills: list[tuple] = []
+    kills: list[str] = []
 
-    def _fake_kill(pid: int, sig: int) -> None:
-        kills.append((pid, sig))
-        # Keep the worker moving — don't actually kill anything.
+    def _fake_kill_daemon(sig: str = "TERM") -> bool:
+        kills.append(sig)
+        return True
 
-    monkeypatch.setattr("polily.tui.views.wallet_modals.os.kill", _fake_kill)
+    monkeypatch.setattr(
+        "polily.daemon.launchctl_query.kill_daemon", _fake_kill_daemon,
+    )
     # Skip the 1s grace in tests.
     monkeypatch.setattr("polily.tui.views.wallet_modals.time.sleep", lambda _s: None)
 
@@ -374,8 +378,8 @@ async def test_reset_modal_sigterms_daemon_before_reset(tmp_path, monkeypatch):
                 break
 
     assert host.dismiss_result is True
-    # os.kill called with SIGTERM, then reset_wallet zeroed cash back to start.
-    assert (99999, _signal.SIGTERM) in kills
+    # kill_daemon called with "TERM", then reset_wallet zeroed cash back to start.
+    assert "TERM" in kills
 
 
 @pytest.mark.asyncio
@@ -406,17 +410,22 @@ async def test_reset_modal_shows_daemon_warning_when_running(tmp_path, monkeypat
 # --- WalletResetModal: auto-restart daemon (follow-up hardening) -------
 
 
-def _prime_daemon_mocks(monkeypatch, pid: int = 99999) -> list[tuple]:
-    """Shared setup: daemon appears running, os.kill + sleep are neutralized,
-    caller gets back the kills list for assertions.
+def _prime_daemon_mocks(monkeypatch, pid: int = 99999) -> list[str]:
+    """Shared setup: daemon appears running, kill_daemon + sleep are neutralized,
+    caller gets back the kills list (signal names) for assertions.
+
+    v0.9.0: SIGTERM routing moved from direct `os.kill(pid, SIGTERM)` to
+    `launchctl_query.kill_daemon("TERM")`. The kills list now captures
+    signal name strings ("TERM", "HUP", etc.) instead of (pid, signum)
+    tuples.
     """
     monkeypatch.setattr(
         "polily.tui.views.wallet_modals._daemon_pid", lambda: pid,
     )
-    kills: list[tuple] = []
+    kills: list[str] = []
     monkeypatch.setattr(
-        "polily.tui.views.wallet_modals.os.kill",
-        lambda p, s: kills.append((p, s)),
+        "polily.daemon.launchctl_query.kill_daemon",
+        lambda sig="TERM": (kills.append(sig) or True),
     )
     monkeypatch.setattr(
         "polily.tui.views.wallet_modals.time.sleep", lambda _s: None,

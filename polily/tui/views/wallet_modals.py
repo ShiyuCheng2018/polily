@@ -17,8 +17,6 @@ v0.8.0 migration:
 
 from __future__ import annotations
 
-import os
-import signal
 import time
 
 from textual.app import ComposeResult
@@ -357,11 +355,12 @@ class WalletResetModal(ModalScreen[bool | None]):
     def _do_reset(self) -> None:
         """Worker thread: SIGTERM + 1s grace + reset. Keeps UI responsive."""
         if self._daemon_pid is not None:
-            try:
-                os.kill(self._daemon_pid, signal.SIGTERM)
-                time.sleep(1.0)
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
+            # v0.9.0: route through launchctl instead of direct os.kill so
+            # the PID-recycling race (SIGKILL + reused PID) can't hit a
+            # false SIGTERM on an unrelated process.
+            from polily.daemon.launchctl_query import kill_daemon
+            kill_daemon("TERM")
+            time.sleep(1.0)
         from polily.core.wallet_reset import reset_wallet
         try:
             reset_wallet(
