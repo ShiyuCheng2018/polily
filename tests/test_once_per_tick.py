@@ -35,7 +35,7 @@ def test_same_instance_three_rapid_calls_coalesce_to_one():
             self.app.call_from_thread.side_effect = RuntimeError("on UI thread")
             # call_later is the fallback; store the scheduled fn so we can run it.
             self.scheduled = []
-            self.app.call_later.side_effect = lambda delay, fn: self.scheduled.append(fn)
+            self.app.call_later.side_effect = lambda fn: self.scheduled.append(fn)
 
         @once_per_tick
         def refresh(self):
@@ -63,7 +63,7 @@ def test_across_tick_boundary_allows_second_refresh():
             self.app = MagicMock()
             self.app.call_from_thread.side_effect = RuntimeError("on UI thread")
             self.scheduled: list = []
-            self.app.call_later.side_effect = lambda delay, fn: self.scheduled.append(fn)
+            self.app.call_later.side_effect = lambda fn: self.scheduled.append(fn)
 
         @once_per_tick
         def refresh(self):
@@ -94,7 +94,7 @@ def test_different_instances_do_not_share_state():
             self.app = MagicMock()
             self.app.call_from_thread.side_effect = RuntimeError("on UI thread")
             self.scheduled: list = []
-            self.app.call_later.side_effect = lambda delay, fn: self.scheduled.append(fn)
+            self.app.call_later.side_effect = lambda fn: self.scheduled.append(fn)
 
         @once_per_tick
         def refresh(self):
@@ -252,7 +252,7 @@ async def _assert_view_coalesces(
         original_call_later = host.call_later
         def spy(*args, **kwargs):
             nonlocal dispatch_count
-            if len(args) >= 2 and args[0] == 0 and callable(args[1]):
+            if len(args) >= 1 and callable(args[0]):
                 dispatch_count += 1
             return original_call_later(*args, **kwargs)
         monkeypatch.setattr(host, "call_later", spy)
@@ -341,10 +341,9 @@ async def test_event_detail_coalesces_heartbeat_fan_out(svc, monkeypatch):
             # functools.wraps on the deferred callable preserves the
             # underlying method name.
             if (
-                len(args) >= 2
-                and args[0] == 0
-                and callable(args[1])
-                and getattr(args[1], "__name__", "") == "refresh_data"
+                len(args) >= 1
+                and callable(args[0])
+                and getattr(args[0], "__name__", "") == "refresh_data"
             ):
                 dispatch_count += 1
             return original_call_later(*args, **kwargs)

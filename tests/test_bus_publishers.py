@@ -261,7 +261,15 @@ async def test_event_detail_price_handler_still_filters_other_events(svc):
 def test_dispatch_to_ui_falls_back_to_call_later_on_ui_thread():
     """When `call_from_thread` raises RuntimeError (the signature Textual
     uses to signal 'you're on the event-loop thread'), `dispatch_to_ui`
-    falls through to `call_later(0, fn)`."""
+    falls through to `call_later(fn)`.
+
+    v0.9.0: fixed a latent signature bug — previously `dispatch_to_ui`
+    called `app.call_later(0, fn)`, but Textual's
+    `MessagePump.call_later(callback, *args)` treated the `0` as the
+    callback (non-callable int) → TypeError swallowed by `suppress`.
+    Effect: bus-handler → refresh_data chain on the UI thread silently
+    stalled. Now using the correct `call_later(fn)` signature.
+    """
     from unittest.mock import MagicMock
 
     from polily.tui._dispatch import dispatch_to_ui
@@ -274,7 +282,7 @@ def test_dispatch_to_ui_falls_back_to_call_later_on_ui_thread():
         pass
     dispatch_to_ui(app, fn)
     app.call_from_thread.assert_called_once_with(fn)
-    app.call_later.assert_called_once_with(0, fn)
+    app.call_later.assert_called_once_with(fn)
 
 
 def test_dispatch_to_ui_uses_call_from_thread_when_it_works():

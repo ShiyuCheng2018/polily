@@ -98,11 +98,22 @@ def dispatch_to_ui(app, callable_: Callable[[], Any]) -> None:
 
     Strategy: try `call_from_thread` first and let Textual itself decide.
     If we're on the event-loop thread Textual raises `RuntimeError` and
-    we fall through to `call_later(0, ...)` which schedules on the same
-    loop's next tick. Delegating the thread check to Textual (rather
-    than replicating it with `threading.main_thread()`) is robust across
-    app configurations where the event-loop thread isn't the main
-    thread — uvloop wrappers, tests launched from helper threads, etc.
+    we fall through to `call_later(callable_)` which schedules on the
+    same loop's next tick. Delegating the thread check to Textual
+    (rather than replicating it with `threading.main_thread()`) is
+    robust across app configurations where the event-loop thread isn't
+    the main thread — uvloop wrappers, tests launched from helper
+    threads, etc.
+
+    Historical note (v0.9.0): the fallback used to be
+    `app.call_later(0, callable_)`, but Textual's signature is
+    `call_later(callback, *args)` — the `0` was being interpreted as
+    the callback (non-callable int), raising TypeError swallowed by
+    the suppress below. Effect: bus-handler → refresh_data chain on
+    the UI thread silently stopped after the first call, stalling
+    heartbeat-driven refreshes for EventDetailView / WalletView /
+    any widget decorated with `@once_per_tick`. Tests mocked the API
+    with `(delay, fn)` and never caught the bug.
     """
     try:
         app.call_from_thread(callable_)
@@ -114,4 +125,4 @@ def dispatch_to_ui(app, callable_: Callable[[], Any]) -> None:
         logger.exception("dispatch_to_ui: call_from_thread failed unexpectedly")
         return
     with contextlib.suppress(Exception):
-        app.call_later(0, callable_)
+        app.call_later(callable_)
