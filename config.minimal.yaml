@@ -8,8 +8,4 @@ discipline:
 wallet:
   starting_balance: 100.0     # Initial cash when wallet is first created or reset
 
-ai:
-  enabled: true                # Use AI agents (uses Claude subscription quota)
-  # Set to false for pure rule-based mode (no quota usage, faster, still useful)
-
 # Everything else uses defaults. See config.example.yaml for full reference.

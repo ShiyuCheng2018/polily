@@ -260,10 +260,10 @@ Why /price not /book for bid/ask: negRisk markets' /book returns raw token order
   `research_findings` (source-cited), `time_window`, `next_check_at` +
   `next_check_reason`, `dev_feedback` (self-critique for product iteration)
 - Structured output via JSON schema + `--output-format json`
-- Fallback on CLI failure; 1 retry on incomplete output
+- CLI failures raise and land as `failed` scan_logs rows — no silent fallback
 - Heartbeat monitoring emits status every 5s
 
-AI is optional. Disable with `ai.enabled: false` in config.
+AI requires the Claude CLI. When it isn't available (or the call fails), the scan still completes — the NarrativeWriter step is just recorded as `failed` in scan history.
 
 ## TUI
 

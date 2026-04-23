@@ -59,7 +59,7 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 - English for code, variable names, comments
 - No unnecessary abstractions — three similar lines beats a premature abstraction
 - Config-driven: thresholds, weights, behavior all in YAML
-- Single AI agent (NarrativeWriter) with rule-based fallback
+- Single AI agent (NarrativeWriter). No silent fallback — CLI failures raise and land as `failed` scan_logs rows.
 
 ## Key Files
 

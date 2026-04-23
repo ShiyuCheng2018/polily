@@ -167,8 +167,6 @@ market_types:
 # AI Agent configuration
 # All agents use Claude Code CLI (claude -p), included in subscription — no API key, no per-token cost.
 ai:
-  enabled: true                          # global AI toggle — false = pure rule-based mode
-  fallback_on_error: true                # auto-fallback to rules if CLI call fails
   cli_command: "claude"                  # path to claude CLI binary
 
   narrative_writer:                      # Decision advisor — the only AI agent

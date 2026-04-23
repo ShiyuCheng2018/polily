@@ -20,8 +20,6 @@ npm install -g @anthropic-ai/claude-code
 claude login
 ```
 
-Without Claude CLI, the tool works in rule-based mode (`polily scan --no-ai`).
-
 ## Branch Strategy
 
 ```
@@ -87,7 +85,6 @@ refactor/*
 ### AI Agents
 
 - All AI goes through `claude -p` CLI, never the `anthropic` SDK
-- Every AI agent must have a rule-based fallback
 - Agent output parsed from `{"type":"result","result":"..."}` envelope
 
 ## Testing

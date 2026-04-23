@@ -81,7 +81,6 @@ column layout may wrap. 120×30 or larger recommended.
 
 - Python 3.11+
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) (optional, used for AI analysis): `npm install -g @anthropic-ai/claude-code && claude login`
-- Without Claude CLI, Polily still runs — AI components fall back to rule-based mode
 
 ## TUI Shortcuts
 
@@ -120,7 +119,7 @@ polily reset --wallet-only  # reset wallet only, keep events/markets/analyses
 ## Current Limitations
 
 - Mispricing detection currently only covers crypto threshold markets
-- AI analysis requires Claude CLI; otherwise it falls back to rule-based mode
+- AI analysis requires Claude CLI — when the CLI call fails (not installed / network issue / schema mismatch), the analysis is marked `failed` in scan history with no silent fallback
 - Data comes from Polymarket public APIs — real-time freshness is bounded by them
 
 ## Development

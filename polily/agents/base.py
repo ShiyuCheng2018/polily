@@ -47,7 +47,6 @@ class BaseAgent:
     """Base class for AI agents that call claude CLI.
 
     Uses `claude -p` and parses JSON from the response text.
-    Falls back to fallback_fn on any error if provided.
 
     Heartbeat monitoring: emits status callbacks during long-running calls.
     No system kill — user decides when to cancel via cancel().
@@ -59,7 +58,6 @@ class BaseAgent:
         json_schema: dict,
         model: str = "sonnet",
         cli_command: str = "claude",
-        fallback_fn: Callable[[str], dict] | None = None,
         max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
         allowed_tools: list[str] | None = None,
         # Legacy compat — these are ignored now (no system kill)
@@ -70,7 +68,6 @@ class BaseAgent:
         self.json_schema = json_schema
         self.model = model
         self.cli_command = cli_command
-        self.fallback_fn = fallback_fn
         self.max_prompt_chars = max_prompt_chars
         self.allowed_tools = allowed_tools
         self._current_proc: asyncio.subprocess.Process | None = None
@@ -121,8 +118,6 @@ class BaseAgent:
                     else:
                         logger.warning("Agent failed after %d attempts: %s", max_retries, e)
 
-            if self.fallback_fn:
-                return self.fallback_fn(prompt)
             raise last_error
         finally:
             if tmp_path:
