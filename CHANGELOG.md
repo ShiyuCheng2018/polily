@@ -441,7 +441,7 @@ Migration is automatic for end users — these affect only callers of
   require a formula update.
 
 [Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.0...dev
-[0.9.0]: https://github.com/ShiyuCheng2018/polily/compare/v0.8.5...v0.9.0
+[0.9.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.0
 [0.8.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.8.5
 [0.8.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.8.0
 [0.7.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.7.0
