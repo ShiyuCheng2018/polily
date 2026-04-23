@@ -71,3 +71,53 @@ def test_matching_plist_skips_regen(tmp_plist_path):
 
     assert started is False
     assert mock_run.call_count == 0, "no launchctl calls when plist matches + running"
+
+
+def test_plist_embeds_injected_claude_cli(tmp_path):
+    """When caller passes claude_cli, plist EnvironmentVariables must include
+    POLILY_CLAUDE_CLI=<that path>. This is the core contract that lets the
+    launchd-spawned daemon find claude CLI no matter where nvm/brew put it."""
+    fake_claude = "/opt/homebrew/bin/claude"
+    plist_bytes = sched.generate_launchd_plist(
+        working_dir=str(tmp_path),
+        claude_cli=fake_claude,
+    )
+    # plistlib round-trip so we assert on parsed structure, not raw XML
+    import plistlib
+    parsed = plistlib.loads(plist_bytes)
+    env = parsed["EnvironmentVariables"]
+    # Exact key set — future code adding an env key should force a
+    # deliberate test update, not silently change the contract.
+    assert set(env.keys()) == {"PATH", "POLILY_CLAUDE_CLI"}
+    assert env["POLILY_CLAUDE_CLI"] == fake_claude
+    assert env["PATH"] == "/usr/local/bin:/usr/bin:/bin"
+
+
+def test_plist_omits_claude_cli_when_unresolved(tmp_path):
+    """When shutil.which returns None (claude not installed yet — autouse
+    fixture mocks this), plist must still generate successfully but without
+    POLILY_CLAUDE_CLI. BaseAgent falls back to bare 'claude' at runtime;
+    the narrator job fails with a sensible error in scan_logs. This keeps
+    first-run onboarding from crashing the daemon before user installs claude."""
+    plist_bytes = sched.generate_launchd_plist(working_dir=str(tmp_path))
+    import plistlib
+    parsed = plistlib.loads(plist_bytes)
+    env = parsed["EnvironmentVariables"]
+    assert set(env.keys()) == {"PATH"}  # no POLILY_CLAUDE_CLI, no extras
+
+
+def test_plist_auto_resolves_when_caller_omits_claude_cli(tmp_path, monkeypatch):
+    """Default behavior: shutil.which runs in caller's env. Override the
+    module's autouse None-mock locally to return a concrete path so we
+    exercise the real code path that `ensure_daemon_running` hits —
+    no injection, shutil.which finds it, plist gets the env var."""
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda name, *a, **kw: "/Users/x/.nvm/bin/claude" if name == "claude" else None,
+    )
+    plist_bytes = sched.generate_launchd_plist(working_dir=str(tmp_path))
+    import plistlib
+    parsed = plistlib.loads(plist_bytes)
+    env = parsed["EnvironmentVariables"]
+    assert set(env.keys()) == {"PATH", "POLILY_CLAUDE_CLI"}
+    assert env["POLILY_CLAUDE_CLI"] == "/Users/x/.nvm/bin/claude"

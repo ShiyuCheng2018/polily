@@ -11,6 +11,7 @@ Dispatching is now DB-driven — the poll tick drains pending rows via
 
 import contextlib
 import logging
+import shutil
 import signal
 import sys
 from pathlib import Path
@@ -186,12 +187,50 @@ def restart_daemon() -> bool:
     return True
 
 
-def generate_launchd_plist(working_dir: str, python_path: str | None = None) -> bytes:
-    """Generate a macOS launchd plist for the scheduler daemon."""
+def generate_launchd_plist(
+    working_dir: str,
+    python_path: str | None = None,
+    claude_cli: str | None = None,
+) -> bytes:
+    """Generate a macOS launchd plist for the scheduler daemon.
+
+    claude_cli: absolute path to the `claude` CLI. If omitted, resolved
+        via `shutil.which("claude")` in the caller's PATH (which is the
+        user's shell PATH when this runs from `polily` CLI or TUI). The
+        resolved path is written into EnvironmentVariables.POLILY_CLAUDE_CLI
+        so the launchd-spawned daemon — whose PATH is the stripped
+        `/usr/local/bin:/usr/bin:/bin` — can still invoke the binary.
+
+        Why not extend PATH instead? launchd does no `$VAR` / glob
+        expansion on EnvironmentVariables, and extending PATH silently
+        resolves to the wrong version when the user has both an nvm-
+        installed and a Homebrew-installed claude (POC confirmed). An
+        absolute path is the only deterministic contract.
+
+        If `shutil.which` returns None (claude not installed yet — first
+        onboard), the key is omitted from the plist. BaseAgent falls
+        back to bare `"claude"` and fails with a clean stderr on the
+        first narrator job, which surfaces in scan_logs instead of
+        crashing the daemon.
+    """
     import plistlib
 
     if python_path is None:
         python_path = sys.executable
+    if claude_cli is None:
+        claude_cli = shutil.which("claude")
+
+    env: dict[str, str] = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    }
+    if claude_cli:
+        env["POLILY_CLAUDE_CLI"] = claude_cli
+    else:
+        logger.warning(
+            "claude CLI not found on PATH when generating launchd plist. "
+            "Daemon's NarrativeWriter jobs will fail until you install "
+            "claude and run `polily scheduler restart`."
+        )
 
     plist = {
         "Label": PLIST_LABEL,
@@ -200,9 +239,7 @@ def generate_launchd_plist(working_dir: str, python_path: str | None = None) -> 
         "KeepAlive": {"SuccessfulExit": False},
         "StandardOutPath": "/dev/null",
         "StandardErrorPath": "/dev/null",
-        "EnvironmentVariables": {
-            "PATH": "/usr/local/bin:/usr/bin:/bin",
-        },
+        "EnvironmentVariables": env,
     }
     return plistlib.dumps(plist, fmt=plistlib.FMT_XML)
 
