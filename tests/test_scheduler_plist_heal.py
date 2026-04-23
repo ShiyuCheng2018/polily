@@ -11,6 +11,22 @@ import pytest
 import polily.daemon.scheduler as sched
 
 
+@pytest.fixture(autouse=True)
+def _neutralize_which(monkeypatch):
+    """Force `shutil.which('claude')` to return None in scheduler plist
+    tests. Individual tests that need a resolved path pass
+    `claude_cli="/explicit/path"` to `generate_launchd_plist` instead.
+
+    Rationale: without this, tests embed the dev's actual nvm path in
+    generated plist bytes, coupling CI behavior to local install state.
+
+    Patches via string `"shutil.which"` (not `sched.shutil.which`) so
+    it's robust to whether scheduler.py imports shutil at module level
+    or via `from shutil import which`.
+    """
+    monkeypatch.setattr("shutil.which", lambda *_a, **_kw: None)
+
+
 @pytest.fixture
 def tmp_plist_path(tmp_path, monkeypatch):
     path = tmp_path / "com.polily.scheduler.plist"
