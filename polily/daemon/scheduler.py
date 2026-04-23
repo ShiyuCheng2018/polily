@@ -67,6 +67,22 @@ PLIST_LABEL = "com.polily.scheduler"
 PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
 
 
+def _sweep_legacy_pid_file() -> None:
+    """Delete any lingering `data/scheduler.pid` from a pre-v0.9.0 install.
+
+    v0.9.0 moved to launchctl as the authoritative source of truth; the
+    PID file is no longer written. Users upgrading from v0.8.5 will have
+    one left on disk — remove it on first daemon startup so `ls data/`
+    isn't cluttered with orphan state. Safe no-op if file is absent.
+
+    Uses a cwd-relative path because the daemon is launched by launchd
+    with `WorkingDirectory` set to the project root (see
+    `generate_launchd_plist`). Callers from other contexts must chdir
+    first.
+    """
+    Path("data/scheduler.pid").unlink(missing_ok=True)
+
+
 def is_daemon_running() -> bool:
     """Check if the scheduler daemon process is actually running.
 
@@ -265,16 +281,13 @@ def run_daemon(db, config=None) -> None:
     print(f"Polily daemon started — {active} markets, poll every 30s. Ctrl+C to stop.")
     logger.info("Daemon started; %d pending analyses queued", pending_count)
 
-    # Write PID file so `restart_daemon` / CLI `stop` can send SIGTERM.
-    import os
-
-    pid_path = Path("data/scheduler.pid")
-    pid_path.parent.mkdir(parents=True, exist_ok=True)
-    pid_path.write_text(str(os.getpid()))
+    # v0.9.0: launchctl is the authoritative "is daemon running?" registry;
+    # we no longer write data/scheduler.pid. Sweep any lingering file
+    # from a pre-v0.9.0 install so it doesn't confuse `ls data/`.
+    _sweep_legacy_pid_file()
 
     def handle_shutdown(signum, frame):
         logger.info("Received signal %d, shutting down", signum)
-        pid_path.unlink(missing_ok=True)
         with contextlib.suppress(Exception):
             scheduler.shutdown(wait=False)
         sys.exit(0)

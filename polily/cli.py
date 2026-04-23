@@ -215,7 +215,6 @@ def reset(
         ("data/polily.db", "Database"),
         ("data/polily.db-shm", "WAL shared memory"),
         ("data/polily.db-wal", "WAL log"),
-        ("data/scheduler.pid", "Daemon PID"),
         ("data/poll.log", "Poll log (legacy path, pre-0.6.0)"),
         ("data/agent_debug.log", "Agent debug log"),
     ]
