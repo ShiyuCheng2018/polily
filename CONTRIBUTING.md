@@ -106,16 +106,6 @@ refactor/*
 - i18n / bilingual UI support
 - Documentation improvements
 
-## Red Lines
-
-These are non-negotiable project principles:
-
-- Never output definitive trade signals ("buy YES")
-- Never auto-execute trades
-- Never promise profitability
-- Never hide friction costs
-- Never break the human-in-the-loop model
-
 ## Questions?
 
 Open an issue or start a discussion.
