@@ -9,7 +9,7 @@ from collections.abc import Callable
 from textual.app import App, ComposeResult
 from textual.widgets import Input
 
-from scanner.tui.widgets.amount_input import AmountInput
+from polily.tui.widgets.amount_input import AmountInput
 
 
 class _Harness(App):

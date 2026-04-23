@@ -1,5 +1,5 @@
 """v0.8.0 Task 9: Q11 global bindings declared at App level."""
-from scanner.tui.app import PolilyApp
+from polily.tui.app import PolilyApp
 
 
 def test_polily_app_declares_q11_global_bindings():

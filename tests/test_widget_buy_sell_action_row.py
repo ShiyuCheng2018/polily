@@ -3,7 +3,7 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button
 
-from scanner.tui.widgets.buy_sell_action_row import BuySellActionRow
+from polily.tui.widgets.buy_sell_action_row import BuySellActionRow
 
 
 class _Harness(App):

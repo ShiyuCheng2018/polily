@@ -14,7 +14,7 @@ def test_no_caller_imports_retired_symbol():
             "grep", "-rn",
             "--include=*.py",
             "--exclude=test_update_next_check_at_removal.py",
-            _SYMBOL, "scanner/", "tests/",
+            _SYMBOL, "polily/", "tests/",
         ],
         capture_output=True, text=True,
     )
@@ -26,5 +26,5 @@ def test_no_caller_imports_retired_symbol():
 
 
 def test_monitor_store_does_not_expose_retired_symbol():
-    from scanner.core import monitor_store
+    from polily.core import monitor_store
     assert not hasattr(monitor_store, _SYMBOL)

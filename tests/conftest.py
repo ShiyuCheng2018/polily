@@ -6,22 +6,22 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.models import BookLevel, Market
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.models import BookLevel, Market
 
 
 @pytest.fixture(autouse=True)
 def _suppress_agent_debug_log(monkeypatch):
     """Prevent tests from writing agent_debug.log to data/."""
-    monkeypatch.setattr("scanner.agents.base._dump_debug", lambda *a, **kw: None)
+    monkeypatch.setattr("polily.agents.base._dump_debug", lambda *a, **kw: None)
 
 
 @pytest.fixture(autouse=True)
 def _isolate_poll_log(monkeypatch):
     """Prevent tests from polluting prod data/poll.log + leaking tick state.
 
-    `scanner.daemon.poll_job` owns two module-level singletons:
+    `polily.daemon.poll_job` owns two module-level singletons:
       - `_poll_log` — a FileHandler-backed logger hard-coded to
         `<project_root>/data/poll.log`
       - `_poll_count` — monotonic tick counter
@@ -33,7 +33,7 @@ def _isolate_poll_log(monkeypatch):
     `patch.object(poll_job, '_get_poll_log', return_value=...)` within
     the test body — patch.object stacks on top of monkeypatch.
     """
-    from scanner.daemon import poll_job
+    from polily.daemon import poll_job
     poll_job._poll_log = None
     poll_job._poll_count = 0
     monkeypatch.setattr(poll_job, "_get_poll_log", lambda: MagicMock())

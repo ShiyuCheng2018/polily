@@ -20,8 +20,6 @@ npm install -g @anthropic-ai/claude-code
 claude login
 ```
 
-Without Claude CLI, the tool works in rule-based mode (`polily scan --no-ai`).
-
 ## Branch Strategy
 
 ```
@@ -63,8 +61,8 @@ refactor/*
 3. **Run checks** before pushing:
    ```bash
    pytest tests/ -q
-   ruff check scanner/ tests/
-   pyright scanner/
+   ruff check polily/ tests/
+   pyright polily/
    ```
 4. **Open a PR** targeting `dev` with a clear description
 
@@ -87,7 +85,6 @@ refactor/*
 ### AI Agents
 
 - All AI goes through `claude -p` CLI, never the `anthropic` SDK
-- Every AI agent must have a rule-based fallback
 - Agent output parsed from `{"type":"result","result":"..."}` envelope
 
 ## Testing
@@ -105,16 +102,6 @@ refactor/*
 - Additional AI agent prompts
 - i18n / bilingual UI support
 - Documentation improvements
-
-## Red Lines
-
-These are non-negotiable project principles:
-
-- Never output definitive trade signals ("buy YES")
-- Never auto-execute trades
-- Never promise profitability
-- Never hide friction costs
-- Never break the human-in-the-loop model
 
 ## Questions?
 

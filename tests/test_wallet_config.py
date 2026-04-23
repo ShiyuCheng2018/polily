@@ -1,8 +1,8 @@
-from scanner.core.config import ScannerConfig, load_config
+from polily.core.config import PolilyConfig, load_config
 
 
 def test_wallet_config_default():
-    cfg = ScannerConfig()
+    cfg = PolilyConfig()
     assert cfg.wallet.starting_balance == 100.0
 
 

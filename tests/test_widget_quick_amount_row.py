@@ -2,7 +2,7 @@
 from textual.app import App, ComposeResult
 from textual.widgets import Button
 
-from scanner.tui.widgets.quick_amount_row import QuickAmountRow
+from polily.tui.widgets.quick_amount_row import QuickAmountRow
 
 
 class _Harness(App):

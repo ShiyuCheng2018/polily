@@ -2,7 +2,7 @@
 
 
 
-from scanner.match import find_matching_markets
+from polily.match import find_matching_markets
 from tests.conftest import make_market
 
 

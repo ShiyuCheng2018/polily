@@ -1,6 +1,6 @@
 """Regression guard for test-run pollution of prod poll logs.
 
-`scanner.daemon.poll_job._get_poll_log()` lazily builds a logger backed
+`polily.daemon.poll_job._get_poll_log()` lazily builds a logger backed
 by `<project_root>/data/logs/poll-v<version>-<timestamp>.log`. Without
 isolation, every integration test that calls `global_poll()` or
 `_resolve_closed_market_if_position()` would create junk log files in
@@ -13,7 +13,7 @@ conftest.py) renders `_get_poll_log()` a silent no-op during tests.
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from scanner.daemon import poll_job
+from polily.daemon import poll_job
 
 PROD_LOG_DIR = Path(__file__).resolve().parent.parent / "data" / "logs"
 

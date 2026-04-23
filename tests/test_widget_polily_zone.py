@@ -3,7 +3,7 @@
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 
-from scanner.tui.widgets.polily_zone import PolilyZone
+from polily.tui.widgets.polily_zone import PolilyZone
 
 
 class _Harness(App):

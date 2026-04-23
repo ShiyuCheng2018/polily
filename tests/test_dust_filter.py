@@ -13,11 +13,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import MarketRow, upsert_event, upsert_market
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.core.positions import DUST_SHARE_THRESHOLD, is_dust_position
-from scanner.tui.service import ScanService
+from polily.core.db import PolilyDB
+from polily.core.event_store import MarketRow, upsert_event, upsert_market
+from polily.core.monitor_store import upsert_event_monitor
+from polily.core.positions import DUST_SHARE_THRESHOLD, is_dust_position
+from polily.tui.service import PolilyService
 from tests.conftest import make_event
 
 
@@ -36,7 +36,7 @@ def _svc(tmp_path):
         db,
     )
     upsert_event_monitor("ev1", auto_monitor=True, db=db)
-    return ScanService(config=cfg, db=db), db
+    return PolilyService(config=cfg, db=db), db
 
 
 def _insert_raw_position(db, *, shares: float, market_id: str = "m1"):

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.agents import narrator_registry
+from polily.agents import narrator_registry
 
 
 @pytest.fixture(autouse=True)

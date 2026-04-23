@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from scanner.core.models import BookLevel, Market
+from polily.core.models import BookLevel, Market
 from tests.conftest import make_market
 
 

@@ -2,7 +2,7 @@
 """v0.8.0 Task 7: KVRow atom."""
 from textual.app import App, ComposeResult
 
-from scanner.tui.widgets.kv_row import KVRow
+from polily.tui.widgets.kv_row import KVRow
 
 
 class _Harness(App):

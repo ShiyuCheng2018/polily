@@ -1,8 +1,8 @@
 """Tests for movement store — event-level."""
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.monitor.store import (
+from polily.core.db import PolilyDB
+from polily.monitor.store import (
     append_movement,
     get_event_latest,
     get_event_movements,

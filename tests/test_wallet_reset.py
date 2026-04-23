@@ -3,8 +3,8 @@ events/markets/analyses."""
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.wallet_reset import reset_wallet
+from polily.core.db import PolilyDB
+from polily.core.wallet_reset import reset_wallet
 
 
 def _seed_event_and_market(db, event_id="e1", market_id="m1"):
@@ -111,7 +111,7 @@ def test_cli_reset_wallet_only_end_to_end(tmp_path, monkeypatch):
 
     from typer.testing import CliRunner
 
-    from scanner import cli
+    from polily import cli
 
     # Seed a DB at a known path + inject some state to be wiped. We seed a
     # position directly (not via paper_trades migration) so that the second
@@ -156,7 +156,7 @@ def test_cli_reset_wallet_only_stops_daemon(tmp_path, monkeypatch):
 
     from typer.testing import CliRunner
 
-    from scanner import cli
+    from polily import cli
 
     db_path = tmp_path / "polily.db"
     PolilyDB(db_path).close()  # init schema + wallet singleton
@@ -181,7 +181,7 @@ def test_cli_reset_wallet_only_cancelled_does_nothing(tmp_path, monkeypatch):
 
     from typer.testing import CliRunner
 
-    from scanner import cli
+    from polily import cli
 
     db_path = tmp_path / "polily.db"
     db = PolilyDB(db_path)

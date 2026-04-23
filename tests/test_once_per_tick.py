@@ -13,19 +13,19 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.events import (
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.events import (
     TOPIC_POSITION_UPDATED,
     TOPIC_PRICE_UPDATED,
     EventBus,
 )
-from scanner.core.monitor_store import upsert_event_monitor
+from polily.core.monitor_store import upsert_event_monitor
 
 
 def test_same_instance_three_rapid_calls_coalesce_to_one():
     """3 sync calls on the same instance within a tick → 1 execution."""
-    from scanner.tui._dispatch import once_per_tick
+    from polily.tui._dispatch import once_per_tick
 
     class View:
         def __init__(self):
@@ -35,7 +35,7 @@ def test_same_instance_three_rapid_calls_coalesce_to_one():
             self.app.call_from_thread.side_effect = RuntimeError("on UI thread")
             # call_later is the fallback; store the scheduled fn so we can run it.
             self.scheduled = []
-            self.app.call_later.side_effect = lambda delay, fn: self.scheduled.append(fn)
+            self.app.call_later.side_effect = lambda fn: self.scheduled.append(fn)
 
         @once_per_tick
         def refresh(self):
@@ -55,7 +55,7 @@ def test_same_instance_three_rapid_calls_coalesce_to_one():
 
 def test_across_tick_boundary_allows_second_refresh():
     """After a tick runs, the next bus event schedules fresh."""
-    from scanner.tui._dispatch import once_per_tick
+    from polily.tui._dispatch import once_per_tick
 
     class View:
         def __init__(self):
@@ -63,7 +63,7 @@ def test_across_tick_boundary_allows_second_refresh():
             self.app = MagicMock()
             self.app.call_from_thread.side_effect = RuntimeError("on UI thread")
             self.scheduled: list = []
-            self.app.call_later.side_effect = lambda delay, fn: self.scheduled.append(fn)
+            self.app.call_later.side_effect = lambda fn: self.scheduled.append(fn)
 
         @once_per_tick
         def refresh(self):
@@ -86,7 +86,7 @@ def test_across_tick_boundary_allows_second_refresh():
 
 def test_different_instances_do_not_share_state():
     """Per-instance flag: view A's pending refresh must not block view B."""
-    from scanner.tui._dispatch import once_per_tick
+    from polily.tui._dispatch import once_per_tick
 
     class View:
         def __init__(self):
@@ -94,7 +94,7 @@ def test_different_instances_do_not_share_state():
             self.app = MagicMock()
             self.app.call_from_thread.side_effect = RuntimeError("on UI thread")
             self.scheduled: list = []
-            self.app.call_later.side_effect = lambda delay, fn: self.scheduled.append(fn)
+            self.app.call_later.side_effect = lambda fn: self.scheduled.append(fn)
 
         @once_per_tick
         def refresh(self):
@@ -111,7 +111,7 @@ def test_different_instances_do_not_share_state():
 def test_worker_thread_path_also_coalesces():
     """From a worker thread dispatch goes through `call_from_thread` — the
     dedup flag must still apply before the scheduling call is made."""
-    from scanner.tui._dispatch import once_per_tick
+    from polily.tui._dispatch import once_per_tick
 
     class View:
         def __init__(self):
@@ -133,10 +133,55 @@ def test_worker_thread_path_also_coalesces():
         f"worker-thread path must also dedup; got {len(v.scheduled)}"
 
 
+def test_wrapper_clears_flag_if_dispatch_raises(monkeypatch):
+    """Regression: if dispatch_to_ui raises synchronously, the next
+    refresh_data call must not be blocked by a stuck flag.
+
+    Pre-fix: the flag was set True before dispatch_to_ui; if that call
+    raised (e.g. under app-shutdown edge cases where `call_from_thread`
+    and `call_later` both fail), the flag stayed True forever and every
+    subsequent refresh bailed at the guard clause.
+    """
+    from polily.tui import _dispatch as dispatch_mod
+    from polily.tui._dispatch import once_per_tick
+
+    class DummyView:
+        def __init__(self):
+            self.app = object()  # placeholder; dispatch_to_ui is monkeypatched
+            self.call_count = 0
+
+        @once_per_tick
+        def refresh_data(self):
+            self.call_count += 1
+
+    view = DummyView()
+
+    def bad_dispatch(_app, _fn):
+        raise RuntimeError("simulated dispatch failure")
+
+    monkeypatch.setattr(dispatch_mod, "dispatch_to_ui", bad_dispatch)
+
+    # First call — raises because dispatch fails.
+    with pytest.raises(RuntimeError, match="simulated"):
+        view.refresh_data()
+
+    # Flag must be cleared despite the raise.
+    assert getattr(view, "_once_per_tick__refresh_data", False) is False, \
+        "flag stuck True blocks all future refreshes"
+
+    # Second call would bail at the guard if flag stuck; it should proceed
+    # into the dispatch attempt and raise again.
+    with pytest.raises(RuntimeError, match="simulated"):
+        view.refresh_data()
+
+    # Flag still cleared after second failure.
+    assert getattr(view, "_once_per_tick__refresh_data", False) is False
+
+
 def test_decorator_preserves_method_name_and_docstring():
     """Smoke: functools.wraps should preserve the wrapped function's
     identity so debugger / traceback still shows the original name."""
-    from scanner.tui._dispatch import once_per_tick
+    from polily.tui._dispatch import once_per_tick
 
     class View:
         @once_per_tick
@@ -170,8 +215,8 @@ def svc(tmp_path):
         db,
     )
     upsert_event_monitor("ev1", auto_monitor=True, db=db)
-    from scanner.tui.service import ScanService
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    from polily.tui.service import PolilyService
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 
@@ -207,7 +252,7 @@ async def _assert_view_coalesces(
         original_call_later = host.call_later
         def spy(*args, **kwargs):
             nonlocal dispatch_count
-            if len(args) >= 2 and args[0] == 0 and callable(args[1]):
+            if len(args) >= 1 and callable(args[0]):
                 dispatch_count += 1
             return original_call_later(*args, **kwargs)
         monkeypatch.setattr(host, "call_later", spy)
@@ -225,12 +270,12 @@ async def _assert_view_coalesces(
 async def test_monitor_list_coalesces_heartbeat_fan_out(svc, monkeypatch):
     """MonitorListView subscribes to 3 topics — heartbeat pre-fix fired
     _render_all 3×. Now coalesced to 1."""
-    from scanner.core.events import (
+    from polily.core.events import (
         TOPIC_MONITOR_UPDATED,
         TOPIC_PRICE_UPDATED,
         TOPIC_SCAN_UPDATED,
     )
-    from scanner.tui.views.monitor_list import MonitorListView
+    from polily.tui.views.monitor_list import MonitorListView
     await _assert_view_coalesces(
         svc, monkeypatch, MonitorListView,
         [TOPIC_MONITOR_UPDATED, TOPIC_PRICE_UPDATED, TOPIC_SCAN_UPDATED],
@@ -240,12 +285,12 @@ async def test_monitor_list_coalesces_heartbeat_fan_out(svc, monkeypatch):
 @pytest.mark.asyncio
 async def test_paper_status_coalesces_heartbeat_fan_out(svc, monkeypatch):
     """PaperStatusView subscribes to 3 topics (WALLET+POSITION+PRICE)."""
-    from scanner.core.events import (
+    from polily.core.events import (
         TOPIC_POSITION_UPDATED,
         TOPIC_PRICE_UPDATED,
         TOPIC_WALLET_UPDATED,
     )
-    from scanner.tui.views.paper_status import PaperStatusView
+    from polily.tui.views.paper_status import PaperStatusView
     await _assert_view_coalesces(
         svc, monkeypatch, PaperStatusView,
         [TOPIC_WALLET_UPDATED, TOPIC_POSITION_UPDATED, TOPIC_PRICE_UPDATED],
@@ -255,8 +300,8 @@ async def test_paper_status_coalesces_heartbeat_fan_out(svc, monkeypatch):
 @pytest.mark.asyncio
 async def test_wallet_coalesces_heartbeat_fan_out(svc, monkeypatch):
     """WalletView subscribes to 2 topics (WALLET+POSITION)."""
-    from scanner.core.events import TOPIC_POSITION_UPDATED, TOPIC_WALLET_UPDATED
-    from scanner.tui.views.wallet import WalletView
+    from polily.core.events import TOPIC_POSITION_UPDATED, TOPIC_WALLET_UPDATED
+    from polily.tui.views.wallet import WalletView
     await _assert_view_coalesces(
         svc, monkeypatch, WalletView,
         [TOPIC_WALLET_UPDATED, TOPIC_POSITION_UPDATED],
@@ -273,8 +318,8 @@ async def test_event_detail_coalesces_heartbeat_fan_out(svc, monkeypatch):
     Proof point: count how many times `app.call_later` is invoked with
     the decorator's `run` callable. Pre-fix: 2. Post-fix: 1.
     """
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.event_detail import EventDetailView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.event_detail import EventDetailView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -289,9 +334,17 @@ async def test_event_detail_coalesces_heartbeat_fan_out(svc, monkeypatch):
         original_call_later = app.call_later
         def spy(*args, **kwargs):
             nonlocal dispatch_count
-            # Count only heartbeat dispatches: call_later(0, callable).
-            # Textual's internal uses other signatures (callable only, etc.)
-            if len(args) >= 2 and args[0] == 0 and callable(args[1]):
+            # Count only EventDetailView's refresh_data dispatches. MainScreen
+            # also subscribes to POSITION_UPDATED (for sidebar counts) and
+            # dispatches its own callable — we want to verify the VIEW
+            # coalesces, not conflate it with MainScreen's handler.
+            # functools.wraps on the deferred callable preserves the
+            # underlying method name.
+            if (
+                len(args) >= 1
+                and callable(args[0])
+                and getattr(args[0], "__name__", "") == "refresh_data"
+            ):
                 dispatch_count += 1
             return original_call_later(*args, **kwargs)
         monkeypatch.setattr(app, "call_later", spy)

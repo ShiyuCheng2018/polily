@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from scanner.scan.filters import filter_events
+from polily.scan.filters import filter_events
 from tests.conftest import make_event, make_market
 
 

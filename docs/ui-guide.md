@@ -86,7 +86,7 @@ data loss.
 ## Icon glossary
 
 All icons are Nerd Font Awesome Legacy codepoints (U+F000 range),
-defined in `scanner/tui/icons.py`. They render correctly only in a
+defined in `polily/tui/icons.py`. They render correctly only in a
 terminal configured to use a Nerd Font.
 
 | 语义 | 码点 | Font Awesome 名称 |
@@ -133,7 +133,7 @@ way to visually confirm your terminal is using a Nerd Font.
 | movement | 异动 |
 | scan | 批量 |
 
-Translation source: `scanner/tui/i18n.py`. Unknown enum values pass
+Translation source: `polily/tui/i18n.py`. Unknown enum values pass
 through untranslated.
 
 ## Exempt terms (industry / domain canon, NOT translated)
@@ -152,7 +152,7 @@ helpful:
 
 ### EventBus is in-process
 
-The `scanner.core.events.EventBus` singleton introduced in v0.8.0 is
+The `polily.core.events.EventBus` singleton introduced in v0.8.0 is
 **process-local**. When the TUI process mutates state (user clicks a
 button, submits a trade, cancels a scan), bus events propagate to
 subscribed views within the same process — driving reactive updates

@@ -2,8 +2,8 @@
 
 from datetime import UTC, datetime, timedelta
 
-from scanner.scan.mispricing import MispricingResult
-from scanner.scan.scoring import compute_structure_score
+from polily.scan.mispricing import MispricingResult
+from polily.scan.scoring import compute_structure_score
 from tests.conftest import make_market
 
 

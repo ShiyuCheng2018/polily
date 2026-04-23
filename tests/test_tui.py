@@ -5,12 +5,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.tui.app import PolilyApp
-from scanner.tui.service import ScanService
+from polily.tui.app import PolilyApp
+from polily.tui.service import PolilyService
 
 
 def _mock_service():
-    """Create a ScanService for TUI smoke tests.
+    """Create a PolilyService for TUI smoke tests.
 
     Uses the real `__init__` so every new attribute added by future tasks
     (wallet / positions / trade_engine / ...) is wired consistently. Config
@@ -19,22 +19,22 @@ def _mock_service():
     """
     import tempfile
 
-    from scanner.core.db import PolilyDB
+    from polily.core.db import PolilyDB
 
     config = MagicMock()
     config.paper_trading.default_position_size_usd = 20
     config.paper_trading.assumed_round_trip_friction_pct = 0.04
     _tmp = tempfile.TemporaryDirectory()
     db = PolilyDB(Path(_tmp.name) / "polily.db")
-    service = ScanService(config=config, db=db)
+    service = PolilyService(config=config, db=db)
     service._tmp_dir = _tmp  # prevent GC cleanup during test
     return service
 
 
 def _seed_archived_event(service, event_id: str, title: str, score: float = 80.0):
     """Seed an archived event (closed=1, auto_monitor=1) directly into the DB."""
-    from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-    from scanner.core.monitor_store import upsert_event_monitor
+    from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+    from polily.core.monitor_store import upsert_event_monitor
 
     upsert_event(
         EventRow(event_id=event_id, title=title, closed=1,
@@ -66,7 +66,7 @@ class TestTUIStartup:
         app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            from scanner.tui.widgets.sidebar import Sidebar
+            from polily.tui.widgets.sidebar import Sidebar
             sidebar = app.screen.query_one(Sidebar)
             assert sidebar is not None
 
@@ -191,7 +191,7 @@ class TestTUIArchive:
     @pytest.mark.asyncio
     async def test_sidebar_shows_archive_count(self):
         """Seed 2 archived events → sidebar archive item renders '(2)'."""
-        from scanner.tui.widgets.sidebar import Sidebar, SidebarItem
+        from polily.tui.widgets.sidebar import Sidebar, SidebarItem
 
         service = _mock_service()
         _seed_archived_event(service, "ev-1", "Event 1")
@@ -218,7 +218,7 @@ class TestTUIArchive:
         binding table includes `5 → show_archive` and (b) that action wires
         up the view correctly. These two together equal "pressing 5 works".
         """
-        from scanner.tui.views.archived_events import ArchivedEventsView
+        from polily.tui.views.archived_events import ArchivedEventsView
 
         app = PolilyApp(service=_mock_service())
         async with app.run_test(size=(120, 40)) as pilot:
@@ -243,8 +243,8 @@ class TestTUIArchive:
     @pytest.mark.asyncio
     async def test_view_archived_detail_message_opens_event_detail(self):
         """Posting ViewArchivedDetail → EventDetailView replaces content."""
-        from scanner.tui.views.archived_events import ViewArchivedDetail
-        from scanner.tui.views.event_detail import EventDetailView
+        from polily.tui.views.archived_events import ViewArchivedDetail
+        from polily.tui.views.event_detail import EventDetailView
 
         service = _mock_service()
         _seed_archived_event(service, "ev-archived", "Archived title")

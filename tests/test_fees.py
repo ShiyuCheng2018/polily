@@ -10,7 +10,7 @@ fees enabled, with rates coming from feeSchedule.rate directly.
 
 import pytest
 
-from scanner.core.fees import calculate_taker_fee
+from polily.core.fees import calculate_taker_fee
 
 
 def test_fees_disabled_returns_zero():

@@ -3,10 +3,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.events import EventBus
-from scanner.tui.service import ScanService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.core.events import EventBus
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -18,14 +18,14 @@ def svc(tmp_path):
         EventRow(event_id="ev1", title="Test Event", updated_at="now"),
         db,
     )
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 
 async def test_score_result_uses_polily_zone(svc):
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.score_result import ScoreResultView
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.score_result import ScoreResultView
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -43,8 +43,8 @@ async def test_score_result_uses_polily_zone(svc):
 async def test_score_result_chinese_labels(svc):
     from textual.widgets import Static
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.score_result import ScoreResultView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.score_result import ScoreResultView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -68,7 +68,7 @@ async def test_score_result_chinese_labels(svc):
 
 async def test_score_result_preserves_existing_bindings(svc):
     """Q1 regression: escape/backspace must still work for go-back."""
-    from scanner.tui.views.score_result import ScoreResultView
+    from polily.tui.views.score_result import ScoreResultView
 
     keys = {b.key for b in ScoreResultView.BINDINGS}
     for k in ("escape", "backspace"):
@@ -79,8 +79,8 @@ async def test_score_result_vertical_scroll_bounded(svc):
     """Regression: scroll must be height-bounded so action bar stays visible."""
     from textual.containers import VerticalScroll
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.score_result import ScoreResultView
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.score_result import ScoreResultView
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -103,7 +103,7 @@ def test_score_result_banner_active_returns_none():
     from datetime import UTC, datetime, timedelta
     from unittest.mock import MagicMock
 
-    from scanner.tui.views.score_result import _banner_for_event_state
+    from polily.tui.views.score_result import _banner_for_event_state
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     future = (now + timedelta(days=7)).isoformat()
     event = MagicMock()
@@ -119,7 +119,7 @@ def test_score_result_banner_awaiting_full_settlement():
     from datetime import UTC, datetime, timedelta
     from unittest.mock import MagicMock
 
-    from scanner.tui.views.score_result import _banner_for_event_state
+    from polily.tui.views.score_result import _banner_for_event_state
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     past = (now - timedelta(hours=1)).isoformat()
     event = MagicMock()
@@ -134,7 +134,7 @@ def test_score_result_banner_awaiting_full_settlement():
 def test_score_result_banner_resolved():
     from unittest.mock import MagicMock
 
-    from scanner.tui.views.score_result import _banner_for_event_state
+    from polily.tui.views.score_result import _banner_for_event_state
     event = MagicMock()
     event.closed = 1
     assert _banner_for_event_state(event, []) == "已结算"

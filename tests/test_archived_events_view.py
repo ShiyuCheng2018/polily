@@ -10,10 +10,10 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import DataTable, Static
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.tui.service import ScanService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.monitor_store import upsert_event_monitor
+from polily.tui.service import PolilyService
 
 
 def _service():
@@ -23,7 +23,7 @@ def _service():
     cfg.wallet.starting_balance = 100.0
     tmp = tempfile.TemporaryDirectory()
     db = PolilyDB(Path(tmp.name) / "t.db")
-    svc = ScanService(config=cfg, db=db)
+    svc = PolilyService(config=cfg, db=db)
     svc._tmp = tmp
     return svc
 
@@ -61,7 +61,7 @@ class _Host(App):
 
 @pytest.mark.asyncio
 async def test_column_spec():
-    from scanner.tui.views.archived_events import ArchivedEventsView
+    from polily.tui.views.archived_events import ArchivedEventsView
 
     svc = _service()
     _seed_archived(svc, "evA", "Sample event")
@@ -79,7 +79,7 @@ async def test_column_spec():
 
 @pytest.mark.asyncio
 async def test_empty_state_shows_placeholder():
-    from scanner.tui.views.archived_events import ArchivedEventsView
+    from polily.tui.views.archived_events import ArchivedEventsView
 
     svc = _service()  # no archived events
     view = ArchivedEventsView(svc)
@@ -92,7 +92,7 @@ async def test_empty_state_shows_placeholder():
 
 @pytest.mark.asyncio
 async def test_renders_archived_row_content():
-    from scanner.tui.views.archived_events import ArchivedEventsView
+    from polily.tui.views.archived_events import ArchivedEventsView
 
     svc = _service()
     _seed_archived(svc, "evA", "US-Iran nuclear deal", score=73.0)
@@ -111,7 +111,7 @@ async def test_renders_archived_row_content():
 
 @pytest.mark.asyncio
 async def test_enter_posts_view_archived_detail():
-    from scanner.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
+    from polily.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 
     svc = _service()
     _seed_archived(svc, "evA", "Sample event")
@@ -139,7 +139,7 @@ async def test_enter_posts_view_archived_detail():
 @pytest.mark.asyncio
 async def test_score_none_renders_dash():
     """NULL structure_score renders '—' in the score cell, not 'None' or garbage."""
-    from scanner.tui.views.archived_events import ArchivedEventsView
+    from polily.tui.views.archived_events import ArchivedEventsView
 
     svc = _service()
     # Seed with score=None (structure_score column left NULL).
@@ -173,7 +173,7 @@ async def test_score_none_renders_dash():
 @pytest.mark.asyncio
 async def test_multi_market_count_rendered():
     """Multi-market events render as 'N 个', not '二元'."""
-    from scanner.tui.views.archived_events import ArchivedEventsView
+    from polily.tui.views.archived_events import ArchivedEventsView
 
     svc = _service()
     upsert_event(
@@ -215,7 +215,7 @@ async def test_row_click_posts_view_archived_detail():
     (`action_view_detail`) so a regression in either won't hide behind the
     other.
     """
-    from scanner.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
+    from polily.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 
     svc = _service()
     _seed_archived(svc, "evClick", "Clickable event")

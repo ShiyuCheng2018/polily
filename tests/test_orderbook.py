@@ -2,8 +2,8 @@
 
 import pytest
 
-from scanner.core.models import BookLevel
-from scanner.orderbook import (
+from polily.core.models import BookLevel
+from polily.orderbook import (
     OrderBookAnalysis,
     analyze_book,
     compute_depth_imbalance,

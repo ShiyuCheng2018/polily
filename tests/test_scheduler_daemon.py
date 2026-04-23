@@ -3,7 +3,7 @@
 import plistlib
 import sys
 
-from scanner.daemon.scheduler import generate_launchd_plist
+from polily.daemon.scheduler import generate_launchd_plist
 
 
 def test_generate_plist_structure():
@@ -27,7 +27,7 @@ def test_generate_plist_program_args():
     args = plist["ProgramArguments"]
     assert args[0] == "/opt/venv/bin/python"
     assert "-m" in args
-    assert "scanner.cli" in args
+    assert "polily.cli" in args
 
 
 def test_generate_plist_log_paths():
@@ -46,3 +46,29 @@ def test_plist_uses_current_python():
     plist_bytes = generate_launchd_plist(working_dir="/tmp/test")
     plist = plistlib.loads(plist_bytes)
     assert plist["ProgramArguments"][0] == sys.executable
+
+
+def test_sweep_legacy_pid_file_removes_stale_file(tmp_path, monkeypatch):
+    """v0.9.0: launchctl replaced the PID file. _sweep_legacy_pid_file()
+    must delete any lingering file from a pre-v0.9.0 install on daemon
+    startup — this is the sole migration mechanism for existing users."""
+    from polily.daemon.scheduler import _sweep_legacy_pid_file
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data").mkdir()
+    stale = tmp_path / "data" / "scheduler.pid"
+    stale.write_text("12345")
+    assert stale.exists()  # setup sanity
+
+    _sweep_legacy_pid_file()
+
+    assert not stale.exists(), "stale PID file must be swept on daemon start"
+
+
+def test_sweep_legacy_pid_file_noop_when_absent(tmp_path, monkeypatch):
+    """Safe no-op when the file doesn't exist (fresh v0.9.0 install)."""
+    from polily.daemon.scheduler import _sweep_legacy_pid_file
+
+    monkeypatch.chdir(tmp_path)
+    # No `data/` dir exists — sweep should not crash.
+    _sweep_legacy_pid_file()  # should not raise

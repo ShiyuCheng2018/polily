@@ -1,18 +1,18 @@
-"""Q9: cancel a running scan via ScanService + TUI key binding."""
+"""Q9: cancel a running scan via PolilyService + TUI key binding."""
 from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.scan_log import claim_pending_scan, insert_pending_scan
-from scanner.tui.service import ScanService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.scan_log import claim_pending_scan, insert_pending_scan
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture(autouse=True)
 def _clear_registry():
     """Reset narrator_registry between tests — module-level state."""
-    from scanner.agents import narrator_registry
+    from polily.agents import narrator_registry
     narrator_registry._active.clear()
     yield
     narrator_registry._active.clear()
@@ -24,13 +24,13 @@ def svc(tmp_path):
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(EventRow(event_id="ev1", title="Test", updated_at="now"), db)
-    s = ScanService(config=cfg, db=db)
+    s = PolilyService(config=cfg, db=db)
     yield s
     db.close()
 
 
 def test_cancel_running_scan_kills_narrator_and_marks_row(svc):
-    from scanner.agents import narrator_registry
+    from polily.agents import narrator_registry
     narrator = MagicMock()
     sid = insert_pending_scan(
         event_id="ev1", event_title="Test",

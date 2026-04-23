@@ -2,8 +2,8 @@
 
 import pytest
 
-from scanner.market_types.protocol import DataEnrichmentModule
-from scanner.market_types.registry import discover_modules, find_matching_module, reset_registry
+from polily.market_types.protocol import DataEnrichmentModule
+from polily.market_types.registry import discover_modules, find_matching_module, reset_registry
 from tests.conftest import make_market
 
 

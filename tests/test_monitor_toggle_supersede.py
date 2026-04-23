@@ -3,11 +3,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.scan_log import insert_pending_scan
-from scanner.tui.service import ScanService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.core.monitor_store import upsert_event_monitor
+from polily.scan_log import insert_pending_scan
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -17,7 +17,7 @@ def svc(tmp_path):
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(EventRow(event_id="ev1", title="Test", updated_at="now"), db)
     upsert_event_monitor("ev1", auto_monitor=True, db=db)
-    s = ScanService(config=cfg, db=db)
+    s = PolilyService(config=cfg, db=db)
     yield s
     db.close()
 

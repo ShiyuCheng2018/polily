@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.scan_log import claim_pending_scan, insert_pending_scan
-from scanner.tui.service import AnalysisInProgressError, ScanService
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.scan_log import claim_pending_scan, insert_pending_scan
+from polily.tui.service import AnalysisInProgressError, PolilyService
 
 
 def _mk_service(tmp_path):
@@ -19,7 +19,7 @@ def _mk_service(tmp_path):
     cfg.ai.narrative_writer = MagicMock(model="sonnet", timeout_seconds=60)
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(EventRow(event_id="ev1", title="Test", updated_at="now"), db)
-    return ScanService(config=cfg, db=db), db
+    return PolilyService(config=cfg, db=db), db
 
 
 @pytest.mark.asyncio
@@ -36,7 +36,7 @@ async def test_analyze_event_rejects_when_running_row_exists(tmp_path):
     claim_pending_scan(sid, db)  # now running
 
     narrator_gen = AsyncMock()
-    with patch("scanner.tui.service.NarrativeWriterAgent") as Mock:
+    with patch("polily.tui.service.NarrativeWriterAgent") as Mock:
         Mock.return_value.generate = narrator_gen
         Mock.return_value.cancel = MagicMock()
         with pytest.raises(AnalysisInProgressError):
@@ -54,7 +54,7 @@ async def test_analyze_event_rejects_when_running_row_exists(tmp_path):
 @pytest.mark.asyncio
 async def test_analyze_event_proceeds_when_no_running_exists(tmp_path):
     """Baseline: no running row → analyze_event proceeds normally."""
-    from scanner.agents.schemas import NarrativeWriterOutput
+    from polily.agents.schemas import NarrativeWriterOutput
 
     svc, db = _mk_service(tmp_path)
     narr = NarrativeWriterOutput(
@@ -62,7 +62,7 @@ async def test_analyze_event_proceeds_when_no_running_exists(tmp_path):
         next_check_at="2099-05-01T10:00:00+00:00",
         next_check_reason="later",
     )
-    with patch("scanner.tui.service.NarrativeWriterAgent") as Mock:
+    with patch("polily.tui.service.NarrativeWriterAgent") as Mock:
         Mock.return_value.generate = AsyncMock(return_value=narr)
         Mock.return_value.cancel = MagicMock()
         await svc.analyze_event("ev1", trigger_source="manual")
@@ -80,7 +80,7 @@ async def test_dispatcher_supplied_scan_id_bypasses_guard(tmp_path):
     claim_pending_scan, which respects fetch_overdue_pending's NOT EXISTS
     running. Running counts don't match because the claimed row IS the
     running one the caller is about to execute."""
-    from scanner.agents.schemas import NarrativeWriterOutput
+    from polily.agents.schemas import NarrativeWriterOutput
 
     svc, db = _mk_service(tmp_path)
     sid = insert_pending_scan(
@@ -93,7 +93,7 @@ async def test_dispatcher_supplied_scan_id_bypasses_guard(tmp_path):
     narr = NarrativeWriterOutput(
         event_id="ev1", mode="discovery", summary="s",
     )
-    with patch("scanner.tui.service.NarrativeWriterAgent") as Mock:
+    with patch("polily.tui.service.NarrativeWriterAgent") as Mock:
         Mock.return_value.generate = AsyncMock(return_value=narr)
         Mock.return_value.cancel = MagicMock()
         # Pass scan_id=sid → tells analyze_event "this is the dispatched row"

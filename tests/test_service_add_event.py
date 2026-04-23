@@ -1,11 +1,11 @@
-"""Tests for ScanService.add_event_by_url."""
+"""Tests for PolilyService.add_event_by_url."""
 
 from unittest.mock import patch
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.tui.service import ScanService
+from polily.core.db import PolilyDB
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -18,10 +18,10 @@ def db(tmp_path):
 class TestAddEventByUrl:
     @pytest.mark.asyncio
     async def test_adds_event_to_db(self, db):
-        service = ScanService(db=db)
-        with patch("scanner.scan.pipeline.fetch_and_score_event") as mock:
-            from scanner.core.event_store import EventRow
-            from scanner.scan.event_scoring import EventQualityScore
+        service = PolilyService(db=db)
+        with patch("polily.scan.pipeline.fetch_and_score_event") as mock:
+            from polily.core.event_store import EventRow
+            from polily.scan.event_scoring import EventQualityScore
             mock.return_value = {
                 "event": EventRow(event_id="ev1", title="Test", updated_at="now"),
                 "markets": [],
@@ -35,24 +35,24 @@ class TestAddEventByUrl:
 
     @pytest.mark.asyncio
     async def test_invalid_url_returns_none(self, db):
-        service = ScanService(db=db)
+        service = PolilyService(db=db)
         result = await service.add_event_by_url("")
         assert result is None
 
     @pytest.mark.asyncio
     async def test_not_found_returns_none(self, db):
-        service = ScanService(db=db)
-        with patch("scanner.scan.pipeline.fetch_and_score_event") as mock:
+        service = PolilyService(db=db)
+        with patch("polily.scan.pipeline.fetch_and_score_event") as mock:
             mock.return_value = None
             result = await service.add_event_by_url("https://polymarket.com/event/nonexistent")
         assert result is None
 
     @pytest.mark.asyncio
     async def test_logs_action_to_scan_logs(self, db):
-        service = ScanService(db=db)
-        with patch("scanner.scan.pipeline.fetch_and_score_event") as mock:
-            from scanner.core.event_store import EventRow
-            from scanner.scan.event_scoring import EventQualityScore
+        service = PolilyService(db=db)
+        with patch("polily.scan.pipeline.fetch_and_score_event") as mock:
+            from polily.core.event_store import EventRow
+            from polily.scan.event_scoring import EventQualityScore
             mock.return_value = {
                 "event": EventRow(event_id="ev1", title="Test Event", updated_at="now"),
                 "markets": [],

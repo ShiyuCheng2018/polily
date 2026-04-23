@@ -1,0 +1,304 @@
+"""APScheduler-based daemon scheduler — dual executor architecture.
+
+Executors:
+  - poll (1 thread)  — dedicated to the single global poll job (30s interval)
+  - ai   (5 threads) — concurrent AI analyses dispatched from pending scan_logs rows
+
+v0.7.0: scheduled check jobs (date-trigger APScheduler path) were removed.
+Dispatching is now DB-driven — the poll tick drains pending rows via
+`dispatch_pending_analyses` onto the ai executor.
+"""
+
+import contextlib
+import logging
+import signal
+import sys
+from pathlib import Path
+
+from apscheduler.executors.pool import ThreadPoolExecutor
+from apscheduler.schedulers.background import BackgroundScheduler
+
+from polily.daemon.poll_job import global_poll, init_poller
+
+logger = logging.getLogger(__name__)
+
+
+class WatchScheduler:
+    """Dual-executor scheduler: poll (1 thread) + ai (5 threads)."""
+
+    def __init__(self, db, config=None):
+        self.db = db
+        self.config = config
+        executors = {
+            "poll": ThreadPoolExecutor(1),
+            "ai": ThreadPoolExecutor(5),
+        }
+        self.scheduler = BackgroundScheduler(
+            executors=executors,
+            job_defaults={"max_instances": 1, "coalesce": True},
+        )
+
+    def start(self):
+        """Start the scheduler and register the global poll job."""
+        # Suppress noisy APScheduler "max instances reached" warnings
+        logging.getLogger("apscheduler.executors").setLevel(logging.ERROR)
+        self.scheduler.start()
+        # Register the single global poll job on the poll executor
+        self.scheduler.add_job(
+            global_poll,
+            "interval",
+            seconds=30,
+            id="global_poll",
+            executor="poll",
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+        )
+
+    def shutdown(self):
+        self.scheduler.shutdown(wait=True)
+
+
+# ---------------------------------------------------------------------------
+# Launchd integration
+# ---------------------------------------------------------------------------
+
+PLIST_LABEL = "com.polily.scheduler"
+PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
+
+
+def _sweep_legacy_pid_file() -> None:
+    """Delete any lingering `data/scheduler.pid` from a pre-v0.9.0 install.
+
+    v0.9.0 moved to launchctl as the authoritative source of truth; the
+    PID file is no longer written. Users upgrading from v0.8.5 will have
+    one left on disk — remove it on first daemon startup so `ls data/`
+    isn't cluttered with orphan state. Safe no-op if file is absent.
+
+    Uses a cwd-relative path because the daemon is launched by launchd
+    with `WorkingDirectory` set to the project root (see
+    `generate_launchd_plist`). Callers from other contexts must chdir
+    first.
+    """
+    Path("data/scheduler.pid").unlink(missing_ok=True)
+
+
+def is_daemon_running() -> bool:
+    """Check if the scheduler daemon process is actually running.
+
+    launchctl list shows registered services even after the process exits.
+    We query the specific label and check for a PID key in the output.
+    """
+    import subprocess
+
+    result = subprocess.run(
+        ["launchctl", "list", PLIST_LABEL],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return False
+    # When running: output contains '"PID" = 12345;'
+    # When stopped: no PID key in output
+    return '"PID"' in result.stdout
+
+
+def ensure_daemon_running() -> bool:
+    """Start the daemon via launchd if not already running, auto-healing
+    stale plists (e.g. across package renames).
+
+    Returns True if we started (or regenerated + reloaded) the daemon,
+    False if the existing running daemon was kept as-is.
+    """
+    import subprocess
+
+    working_dir = str(Path.cwd())
+    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
+    desired_plist = generate_launchd_plist(working_dir=working_dir)
+    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    # Content-match check — if the on-disk plist points at a module that
+    # no longer exists (classic symptom after a package rename upgrade),
+    # the running daemon will crash-loop silently. Rewrite + reload
+    # regardless of what launchctl currently reports.
+    current_plist = PLIST_PATH.read_bytes() if PLIST_PATH.exists() else b""
+    if current_plist != desired_plist:
+        PLIST_PATH.write_bytes(desired_plist)
+        subprocess.run(
+            ["launchctl", "unload", str(PLIST_PATH)],
+            capture_output=True,
+        )
+        subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+        logger.info(
+            "Regenerated stale plist (content mismatch) and reloaded daemon",
+        )
+        return True
+
+    if is_daemon_running():
+        return False
+
+    # Plist matches but daemon not running — just load.
+    subprocess.run(
+        ["launchctl", "unload", str(PLIST_PATH)],
+        capture_output=True,
+    )
+    subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+    logger.info("Auto-started scheduler daemon via launchd")
+    return True
+
+
+def restart_daemon() -> bool:
+    """Stop the running daemon (if any) + start fresh via launchd.
+
+    Always boots a new Python process, so code changes since the last
+    daemon start take effect. TUI calls this on mount so the user picks
+    up the latest code just by reopening the app.
+
+    Returns True if a daemon is running after the call (success).
+    """
+    import subprocess
+    import time
+
+    from polily.daemon.launchctl_query import is_daemon_running, kill_daemon
+
+    # Graceful shutdown via launchctl kill TERM — APScheduler handler flushes
+    # pending writes before exit. If the kill fails (not registered, launchctl
+    # missing, daemon already dead), we still fall through to `launchctl
+    # unload` below as the hard cleanup — preserves the old "stale PID,
+    # continue to launchctl unload" intent.
+    if is_daemon_running():
+        kill_daemon("TERM")
+        time.sleep(1.0)
+
+    # Hard unload any registered service state so the next load is fresh.
+    subprocess.run(
+        ["launchctl", "unload", str(PLIST_PATH)],
+        capture_output=True,
+    )
+
+    # Now boot the new process.
+    working_dir = str(Path.cwd())
+    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
+    plist_bytes = generate_launchd_plist(working_dir=working_dir)
+    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PLIST_PATH.write_bytes(plist_bytes)
+    subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+    logger.info("Restarted scheduler daemon via launchd")
+    return True
+
+
+def generate_launchd_plist(working_dir: str, python_path: str | None = None) -> bytes:
+    """Generate a macOS launchd plist for the scheduler daemon."""
+    import plistlib
+
+    if python_path is None:
+        python_path = sys.executable
+
+    plist = {
+        "Label": PLIST_LABEL,
+        "ProgramArguments": [python_path, "-m", "polily.cli", "scheduler", "run"],
+        "WorkingDirectory": working_dir,
+        "KeepAlive": {"SuccessfulExit": False},
+        "StandardOutPath": "/dev/null",
+        "StandardErrorPath": "/dev/null",
+        "EnvironmentVariables": {
+            "PATH": "/usr/local/bin:/usr/bin:/bin",
+        },
+    }
+    return plistlib.dumps(plist, fmt=plistlib.FMT_XML)
+
+
+# ---------------------------------------------------------------------------
+# Daemon entry point
+# ---------------------------------------------------------------------------
+
+
+def run_daemon(db, config=None) -> None:
+    """Daemon entry point: start scheduler, block until SIGTERM.
+
+    v0.7.0: no job restoration — the poll tick drains pending scan_logs rows
+    via `dispatch_pending_analyses`, so there's nothing to rehydrate on start.
+    """
+    from polily.core.positions import PositionManager
+    from polily.core.wallet import WalletService
+    from polily.daemon.resolution import ResolutionHandler
+
+    # Wire wallet-system services into the poller so auto-resolution runs
+    # alongside price polling. Required for v0.6.0+.
+    wallet = WalletService(db)
+    positions = PositionManager(db)
+    resolver = ResolutionHandler(db, wallet, positions)
+
+    # v0.8.5: one-time backfill of rows stuck in SETTLING from pre-v0.8.5 gate
+    import asyncio as _asyncio
+
+    from polily.daemon.poll_job import backfill_stuck_resolutions
+    try:
+        n = _asyncio.run(
+            backfill_stuck_resolutions(db, wallet, positions, resolver)
+        )
+        if n > 0:
+            from polily.daemon.poll_job import _get_poll_log
+            _get_poll_log().info(f"startup-backfill| processed {n} stuck markets")
+    except Exception:
+        logger.exception("backfill_stuck_resolutions failed; skipping")
+
+    # Create scheduler BEFORE init_poller so the dispatcher step in
+    # global_poll (guarded by `if _ctx and _ctx.scheduler`) can actually
+    # submit jobs. Without this, v0.7.0's whole dispatcher is a no-op.
+    scheduler = WatchScheduler(db, config=config)
+
+    init_poller(
+        db=db,
+        wallet=wallet,
+        positions=positions,
+        resolver=resolver,
+        config=config,
+        scheduler=scheduler.scheduler,
+    )
+
+    # Count active markets for startup message
+    active = db.conn.execute(
+        "SELECT COUNT(*) FROM markets WHERE active = 1 AND closed = 0",
+    ).fetchone()[0]
+
+    scheduler.start()
+
+    # v0.7.0: scrub orphan running rows from a prior crash.
+    from polily.scan_log import fail_orphan_running
+    orphans = fail_orphan_running(db)
+    if orphans:
+        logger.info("Marked %d orphan 'running' rows as failed on startup", orphans)
+
+    # Log startup info to poll.log
+    from polily.daemon.poll_job import _get_poll_log
+    plog = _get_poll_log()
+    plog.info(f"── daemon started ── {active} markets, poll every 30s ──")
+    pending_count = db.conn.execute(
+        "SELECT COUNT(*) FROM scan_logs WHERE status='pending'"
+    ).fetchone()[0]
+    plog.info(f"  pending scan_logs rows: {pending_count}")
+
+    print(f"Polily daemon started — {active} markets, poll every 30s. Ctrl+C to stop.")
+    logger.info("Daemon started; %d pending analyses queued", pending_count)
+
+    # v0.9.0: launchctl is the authoritative "is daemon running?" registry;
+    # we no longer write data/scheduler.pid. Sweep any lingering file
+    # from a pre-v0.9.0 install so it doesn't confuse `ls data/`.
+    _sweep_legacy_pid_file()
+
+    def handle_shutdown(signum, frame):
+        logger.info("Received signal %d, shutting down", signum)
+        with contextlib.suppress(Exception):
+            scheduler.shutdown(wait=False)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, handle_shutdown)
+    signal.signal(signal.SIGINT, handle_shutdown)
+
+    try:
+        while True:
+            signal.pause()
+    except AttributeError:
+        import time
+        while True:
+            time.sleep(60)

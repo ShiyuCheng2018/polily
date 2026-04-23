@@ -41,7 +41,7 @@ def _flatten_text(panel) -> str:
 
 @pytest.mark.asyncio
 async def test_renders_five_default_dimension_labels():
-    from scanner.tui.components import BinaryMarketStructurePanel
+    from polily.tui.components import BinaryMarketStructurePanel
 
     bd = {
         "liquidity": 18, "verifiability": 8, "probability": 15,
@@ -67,7 +67,7 @@ async def test_renders_five_default_dimension_labels():
 
 @pytest.mark.asyncio
 async def test_shows_overall_commentary():
-    from scanner.tui.components import BinaryMarketStructurePanel
+    from polily.tui.components import BinaryMarketStructurePanel
 
     bd = {
         "liquidity": 18, "verifiability": 8, "probability": 15,
@@ -84,7 +84,7 @@ async def test_shows_overall_commentary():
 
 @pytest.mark.asyncio
 async def test_shows_dim_comments_per_row():
-    from scanner.tui.components import BinaryMarketStructurePanel
+    from polily.tui.components import BinaryMarketStructurePanel
 
     bd = {
         "liquidity": 18, "verifiability": 8, "probability": 15,
@@ -108,7 +108,7 @@ async def test_shows_dim_comments_per_row():
 
 @pytest.mark.asyncio
 async def test_includes_edge_row_for_crypto():
-    from scanner.tui.components import BinaryMarketStructurePanel
+    from polily.tui.components import BinaryMarketStructurePanel
 
     bd = {
         "liquidity": 18, "verifiability": 8, "probability": 15,
@@ -130,7 +130,7 @@ async def test_includes_edge_row_for_crypto():
 
 @pytest.mark.asyncio
 async def test_handles_missing_score_breakdown():
-    from scanner.tui.components import BinaryMarketStructurePanel
+    from polily.tui.components import BinaryMarketStructurePanel
 
     panel = BinaryMarketStructurePanel(_make_market(None), event=_make_event())
     async with _Host(panel).run_test(size=(120, 40)) as pilot:
@@ -145,7 +145,7 @@ async def test_handles_missing_score_breakdown():
 @pytest.mark.asyncio
 async def test_falls_back_to_event_market_type():
     """If market.market_type == 'other', panel should look at event.market_type."""
-    from scanner.tui.components import BinaryMarketStructurePanel
+    from polily.tui.components import BinaryMarketStructurePanel
 
     bd = {
         "liquidity": 18, "verifiability": 8, "probability": 15,

@@ -2,10 +2,10 @@
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.positions import PositionManager
-from scanner.core.wallet import WalletService
-from scanner.daemon.resolution import ResolutionHandler, derive_winner
+from polily.core.db import PolilyDB
+from polily.core.positions import PositionManager
+from polily.core.wallet import WalletService
+from polily.daemon.resolution import ResolutionHandler, derive_winner
 
 
 def _setup(tmp_path, position_shares: float = 20.0, entry_price: float = 0.5):
@@ -336,6 +336,6 @@ def test_resolve_unknown_market_logs_warning(tmp_path, caplog):
     wallet = WalletService(db)
     pm = PositionManager(db)
     rh = ResolutionHandler(db, wallet, pm)
-    with caplog.at_level(_logging.WARNING, logger="scanner.daemon.resolution"):
+    with caplog.at_level(_logging.WARNING, logger="polily.daemon.resolution"):
         rh.resolve_market("nonexistent", "yes")
     assert any("nonexistent" in rec.message for rec in caplog.records)

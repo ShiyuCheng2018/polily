@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "polily"
-version = "0.8.5"
+version = "0.9.0"
 description = "A Polymarket monitoring agent that actually works — finds structure, watches movement, sizes risk"
 requires-python = ">=3.11"
 license = "MIT"
@@ -43,14 +43,14 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["scanner"]
+packages = ["polily"]
 # Ship CHANGELOG.md inside the wheel so `ChangelogView` can render it
-# via `importlib.resources.files("scanner") / "CHANGELOG.md"` after
+# via `importlib.resources.files("polily") / "CHANGELOG.md"` after
 # pip-install (not just from a source checkout).
-force-include = { "CHANGELOG.md" = "scanner/CHANGELOG.md" }
+force-include = { "CHANGELOG.md" = "polily/CHANGELOG.md" }
 
 [project.scripts]
-polily = "scanner.cli:app"
+polily = "polily.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/ShiyuCheng2018/polily"

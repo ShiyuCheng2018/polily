@@ -11,13 +11,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.core.positions import PositionManager
-from scanner.core.wallet import WalletService
-from scanner.daemon import poll_job
-from scanner.daemon.resolution import ResolutionHandler
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.monitor_store import upsert_event_monitor
+from polily.core.positions import PositionManager
+from polily.core.wallet import WalletService
+from polily.daemon import poll_job
+from polily.daemon.resolution import ResolutionHandler
 
 
 @pytest.fixture(autouse=True)
@@ -479,7 +479,7 @@ class TestGlobalPollResolutionIntegration:
         cash_before = wallet.get_cash()
 
         with (
-            patch("scanner.core.clob.fetch_clob_market_data") as mock_clob,
+            patch("polily.core.clob.fetch_clob_market_data") as mock_clob,
             patch.object(
                 poll_job,
                 "_fetch_gamma_market",
@@ -508,7 +508,7 @@ class TestGlobalPollResolutionIntegration:
         cash_before = wallet.get_cash()
 
         with (
-            patch("scanner.core.clob.fetch_clob_market_data") as mock_clob,
+            patch("polily.core.clob.fetch_clob_market_data") as mock_clob,
             patch.object(
                 poll_job,
                 "_fetch_gamma_market",
@@ -541,7 +541,7 @@ class TestGlobalPollResolutionIntegration:
         )
 
         with (
-            patch("scanner.core.clob.fetch_clob_market_data") as mock_clob,
+            patch("polily.core.clob.fetch_clob_market_data") as mock_clob,
             patch.object(poll_job, "_fetch_gamma_market", new=AsyncMock()) as mock_gamma,
         ):
             mock_clob.return_value = {
@@ -573,7 +573,7 @@ class TestGlobalPollResolutionIntegration:
         fake_log = MagicMock()
         with (
             patch.object(poll_job, "_get_poll_log", return_value=fake_log),
-            patch("scanner.core.clob.fetch_clob_market_data") as mock_clob,
+            patch("polily.core.clob.fetch_clob_market_data") as mock_clob,
             patch.object(
                 poll_job,
                 "_fetch_gamma_market",
@@ -614,7 +614,7 @@ class TestGlobalPollResolutionIntegration:
         )
 
         with (
-            patch("scanner.core.clob.fetch_clob_market_data") as mock_clob,
+            patch("polily.core.clob.fetch_clob_market_data") as mock_clob,
             patch.object(
                 poll_job, "_fetch_gamma_market", new=AsyncMock(return_value=None),
             ),

@@ -3,9 +3,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
-from scanner.scan_log import (
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
+from polily.scan_log import (
     claim_pending_scan,
     fetch_overdue_pending,
     finish_scan,
@@ -95,8 +95,8 @@ def test_claim_pending_is_thread_safe():
     import threading
     from pathlib import Path
 
-    from scanner.core.db import PolilyDB
-    from scanner.core.event_store import EventRow, upsert_event
+    from polily.core.db import PolilyDB
+    from polily.core.event_store import EventRow, upsert_event
 
     with tempfile.TemporaryDirectory() as td:
         db_path = Path(td) / "race.db"

@@ -7,22 +7,7 @@ api:
   backoff_seconds: 1.5
   use_cache: true
   cache_dir: "./data/cache"
-  user_agent: "polymarket-scanner/0.1"
-
-scanner:
-  output_dir: "./outputs"
-  max_markets_to_fetch: 1000
-  include_closed_markets: false
-  categories_allowlist: []
-  categories_blocklist: []
-  tags_allowlist: []
-  tags_blocklist: []
-  # Two-pass scanning: broad metadata first, then targeted order book for candidates
-  two_pass_scan: true
-  # How many top candidates get detailed order book data in second pass
-  orderbook_fetch_top_n: 50
-  # Default scan time recommendation (display only, not enforced)
-  recommended_scan_time_utc: "14:00"  # UTC 14:00 = Beijing 22:00
+  user_agent: "polily/0.9"
 
 # CLI output modes
 cli:
@@ -182,8 +167,6 @@ market_types:
 # AI Agent configuration
 # All agents use Claude Code CLI (claude -p), included in subscription — no API key, no per-token cost.
 ai:
-  enabled: true                          # global AI toggle — false = pure rule-based mode
-  fallback_on_error: true                # auto-fallback to rules if CLI call fails
   cli_command: "claude"                  # path to claude CLI binary
 
   narrative_writer:                      # Decision advisor — the only AI agent
@@ -262,7 +245,7 @@ reporting:
   include_net_edge_after_friction: true
   include_discipline_status: true
   # Every report header must include this disclaimer
-  disclaimer: "Scanner output is a research prompt, not a trade recommendation. High scores indicate good market structure, not guaranteed edge."
+  disclaimer: "Polily output is a research prompt, not a trade recommendation. High scores indicate good market structure, not guaranteed edge."
 
 # Database
 archiving:

@@ -1,13 +1,13 @@
 """Tests for analysis store — event-level."""
 import pytest
 
-from scanner.analysis_store import (
+from polily.analysis_store import (
     AnalysisVersion,
     append_analysis,
     get_event_analyses,
 )
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, upsert_event
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, upsert_event
 
 
 @pytest.fixture

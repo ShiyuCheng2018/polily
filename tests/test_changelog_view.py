@@ -14,21 +14,21 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.events import EventBus
-from scanner.tui.service import ScanService
+from polily.core.db import PolilyDB
+from polily.core.events import EventBus
+from polily.tui.service import PolilyService
 
 
 def _svc(tmp_path):
     cfg = MagicMock()
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "t.db")
-    return ScanService(config=cfg, db=db, event_bus=EventBus())
+    return PolilyService(config=cfg, db=db, event_bus=EventBus())
 
 
 def test_load_changelog_from_repo_root():
     """`_load_changelog` returns the dev-checkout CHANGELOG.md contents."""
-    from scanner.tui.views.changelog import _load_changelog
+    from polily.tui.views.changelog import _load_changelog
 
     text = _load_changelog()
     # Real repo CHANGELOG.md has these markers regardless of version.
@@ -40,7 +40,7 @@ def test_load_changelog_falls_back_to_packaged(monkeypatch, tmp_path):
     """When the dev CHANGELOG.md is absent, `_load_changelog` falls
     back to the packaged resource. If neither is available it returns
     a friendly error markdown rather than raising."""
-    from scanner.tui.views import changelog as changelog_mod
+    from polily.tui.views import changelog as changelog_mod
 
     # Point dev resolution at a nonexistent path so the function falls
     # through to the `importlib.resources` branch.
@@ -84,8 +84,8 @@ async def test_changelog_view_mounts_and_shows_markdown(tmp_path):
     from textual.app import App, ComposeResult
     from textual.widgets import Markdown
 
-    from scanner.tui.views.changelog import ChangelogView
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.views.changelog import ChangelogView
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     class _Host(App):
         def compose(self) -> ComposeResult:
@@ -104,7 +104,7 @@ async def test_changelog_view_mounts_and_shows_markdown(tmp_path):
 @pytest.mark.asyncio
 async def test_changelog_has_visible_r_refresh_binding():
     """`r` appears in the footer — matches the uniform footer rule."""
-    from scanner.tui.views.changelog import ChangelogView
+    from polily.tui.views.changelog import ChangelogView
     keys = {b.key: b.show for b in ChangelogView.BINDINGS}
     assert keys.get("r") is True, f"`r` refresh must be show=True, got {keys}"
 
@@ -115,7 +115,7 @@ async def test_action_refresh_rereads_content(tmp_path, monkeypatch):
     edit to CHANGELOG.md in the repo shows up without restarting TUI."""
     from textual.app import App, ComposeResult
 
-    from scanner.tui.views import changelog as changelog_mod
+    from polily.tui.views import changelog as changelog_mod
 
     call_count = [0]
     original_loader = changelog_mod._load_changelog
@@ -152,9 +152,9 @@ async def test_main_screen_digit_6_opens_changelog(tmp_path):
     a URL Input that swallows digit keys — matches the same workaround
     used in `test_tui.py::test_press_5_switches_to_archive`.
     """
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.screens.main import MainScreen
-    from scanner.tui.views.changelog import ChangelogView
+    from polily.tui.app import PolilyApp
+    from polily.tui.screens.main import MainScreen
+    from polily.tui.views.changelog import ChangelogView
 
     svc = _svc(tmp_path)
     app = PolilyApp(service=svc)
@@ -178,7 +178,7 @@ async def test_main_screen_digit_6_opens_changelog(tmp_path):
 
 def test_main_screen_menu_order_includes_changelog():
     """MENU_ORDER has `changelog` last so up/down nav cycles through it."""
-    from scanner.tui.screens.main import MainScreen
+    from polily.tui.screens.main import MainScreen
     assert "changelog" in MainScreen.MENU_ORDER
     assert MainScreen.MENU_ORDER[-1] == "changelog", (
         f"changelog should be last menu item, got order {MainScreen.MENU_ORDER}"
@@ -187,20 +187,20 @@ def test_main_screen_menu_order_includes_changelog():
 
 def test_sidebar_includes_changelog_item():
     """Sidebar renders a `更新日志` / `changelog` menu entry."""
-    from scanner.tui.widgets.sidebar import MENU_ICONS
+    from polily.tui.widgets.sidebar import MENU_ICONS
     assert "changelog" in MENU_ICONS
 
 
 def test_pyproject_bundles_changelog_into_wheel():
     """pyproject.toml's hatch config force-includes CHANGELOG.md so the
-    installed package can ship `importlib.resources.files("scanner") /
+    installed package can ship `importlib.resources.files("polily") /
     "CHANGELOG.md"`. Locks the contract tested by `_load_changelog`'s
     packaged-resource fallback."""
     root = Path(__file__).resolve().parents[1]
     text = (root / "pyproject.toml").read_text(encoding="utf-8")
     assert "force-include" in text
     assert 'CHANGELOG.md' in text
-    assert 'scanner/CHANGELOG.md' in text
+    assert 'polily/CHANGELOG.md' in text
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +210,7 @@ def test_pyproject_bundles_changelog_into_wheel():
 
 def test_format_version_line_renders_current_and_latest():
     """The version header reads '当前版本: vX · 最新稳定版: Y' with both inputs substituted literally."""
-    from scanner.tui.views.changelog import _format_version_line
+    from polily.tui.views.changelog import _format_version_line
     assert _format_version_line("0.8.5", "v0.8.0") == (
         "当前版本: v0.8.5 · 最新稳定版: v0.8.0"
     )
@@ -229,7 +229,7 @@ def test_changelog_css_uses_auto_height_for_polily_zone():
     and the outer VerticalScroll has something taller than the viewport
     to scroll.
     """
-    from scanner.tui.views.changelog import ChangelogView
+    from polily.tui.views.changelog import ChangelogView
     css = ChangelogView.DEFAULT_CSS
     assert "ChangelogView > VerticalScroll > PolilyZone { height: auto; }" in css
 
@@ -238,7 +238,7 @@ def test_fetch_latest_release_tag_parses_github_response(monkeypatch):
     """Blocking fetch returns the `tag_name` field from GitHub's response."""
     import httpx
 
-    from scanner.tui.views import changelog as changelog_mod
+    from polily.tui.views import changelog as changelog_mod
 
     class _FakeResp:
         def raise_for_status(self):
@@ -268,7 +268,7 @@ def test_fetch_latest_release_tag_handles_network_error(monkeypatch):
     """Offline / timeout / 404 → returns '无法获取', never raises."""
     import httpx
 
-    from scanner.tui.views import changelog as changelog_mod
+    from polily.tui.views import changelog as changelog_mod
 
     class _RaisingClient:
         def __init__(self, *a, **kw):
@@ -291,7 +291,7 @@ def test_fetch_latest_release_tag_missing_tag_returns_placeholder(monkeypatch):
     """Malformed response (no tag_name) → '?' placeholder."""
     import httpx
 
-    from scanner.tui.views import changelog as changelog_mod
+    from polily.tui.views import changelog as changelog_mod
 
     class _EmptyResp:
         def raise_for_status(self):
@@ -325,7 +325,7 @@ async def test_changelog_view_shows_version_placeholder_on_mount(tmp_path):
     from textual.app import App, ComposeResult
     from textual.widgets import Static
 
-    from scanner.tui.views import changelog as changelog_mod
+    from polily.tui.views import changelog as changelog_mod
 
     # Stub the fetch so the worker doesn't actually hit GitHub during the test.
     original = changelog_mod._fetch_latest_release_tag
@@ -350,7 +350,7 @@ async def test_changelog_view_shows_version_placeholder_on_mount(tmp_path):
             # finishes it will contain either "v0.0.0" (stub success) or
             # the placeholder — both are acceptable here; we only assert
             # the current version is present.
-            from scanner import __version__ as current
+            from polily import __version__ as current
             text = str(versions.render())
             assert f"v{current}" in text, f"Expected current version label, got {text!r}"
     finally:
@@ -365,7 +365,7 @@ async def test_changelog_view_updates_version_after_fetch(tmp_path):
     from textual.app import App, ComposeResult
     from textual.widgets import Static
 
-    from scanner.tui.views import changelog as changelog_mod
+    from polily.tui.views import changelog as changelog_mod
 
     original = changelog_mod._fetch_latest_release_tag
     changelog_mod._fetch_latest_release_tag = lambda: "v1.2.3"  # type: ignore[assignment]

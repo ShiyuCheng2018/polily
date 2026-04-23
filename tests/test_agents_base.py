@@ -1,10 +1,10 @@
-"""Tests for AI agent base: claude CLI invocation, fallback, JSON parsing."""
+"""Tests for AI agent base: claude CLI invocation, JSON parsing."""
 
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from scanner.agents.base import BaseAgent
+from polily.agents.base import BaseAgent
 from tests.conftest import make_cli_response
 
 
@@ -19,7 +19,7 @@ class TestBaseAgentInvoke:
         expected = {"score": 42}
         stdout = make_cli_response(expected)
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (stdout, b"")
             proc.returncode = 0
@@ -37,7 +37,7 @@ class TestBaseAgentInvoke:
         )
         stdout = make_cli_response({"ok": True})
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (stdout, b"")
             proc.returncode = 0
@@ -66,7 +66,7 @@ class TestBaseAgentInvoke:
         long_prompt = "A" * 200
         stdout = make_cli_response({"ok": True})
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (stdout, b"")
             proc.returncode = 0
@@ -82,64 +82,6 @@ class TestBaseAgentInvoke:
             assert "Analyze the data in file:" in prompt_arg or len(prompt_arg) < 200
 
 
-class TestBaseAgentFallback:
-    @pytest.mark.asyncio
-    async def test_fallback_on_nonzero_exit(self):
-        fallback_result = {"fallback": True}
-        agent = BaseAgent(
-            system_prompt="X",
-            json_schema={"type": "object"},
-            model="haiku",
-            fallback_fn=lambda prompt: fallback_result,
-        )
-
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
-            proc = AsyncMock()
-            proc.communicate.return_value = (b"", b"error occurred")
-            proc.returncode = 1
-            mock_exec.return_value = proc
-
-            result = await agent.invoke("test")
-            assert result == fallback_result
-
-    @pytest.mark.asyncio
-    async def test_fallback_on_invalid_json(self):
-        fallback_result = {"fallback": True}
-        agent = BaseAgent(
-            system_prompt="X",
-            json_schema={"type": "object"},
-            model="haiku",
-            fallback_fn=lambda prompt: fallback_result,
-        )
-
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
-            proc = AsyncMock()
-            proc.communicate.return_value = (b"not json at all", b"")
-            proc.returncode = 0
-            mock_exec.return_value = proc
-
-            result = await agent.invoke("test")
-            assert result == fallback_result
-
-    @pytest.mark.asyncio
-    async def test_raises_if_no_fallback(self):
-        agent = BaseAgent(
-            system_prompt="X",
-            json_schema={"type": "object"},
-            model="haiku",
-            fallback_fn=None,
-        )
-
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
-            proc = AsyncMock()
-            proc.communicate.return_value = (b"", b"error")
-            proc.returncode = 1
-            mock_exec.return_value = proc
-
-            with pytest.raises(RuntimeError):
-                await agent.invoke("test")
-
-
 class TestBaseAgentToolMode:
     @pytest.mark.asyncio
     async def test_tool_mode_passes_allowed_tools(self):
@@ -151,7 +93,7 @@ class TestBaseAgentToolMode:
         )
         stdout = make_cli_response({"ok": True})
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (stdout, b"")
             proc.returncode = 0
@@ -177,7 +119,7 @@ class TestBaseAgentToolMode:
         )
         stdout = make_cli_response({"ok": True})
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (stdout, b"")
             proc.returncode = 0
@@ -200,7 +142,7 @@ class TestBaseAgentToolMode:
         )
         stdout = make_cli_response({"ok": True})
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
             proc.communicate.return_value = (stdout, b"")
             proc.returncode = 0
@@ -239,7 +181,7 @@ class TestBaseAgentBatch:
             proc.returncode = 0
             return proc
 
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec", side_effect=mock_exec):
+        with patch("polily.agents.base.asyncio.create_subprocess_exec", side_effect=mock_exec):
             results = await agent.invoke_batch(
                 ["prompt1", "prompt2", "prompt3"],
                 max_concurrent=2,
@@ -247,33 +189,3 @@ class TestBaseAgentBatch:
 
         assert len(results) == 3
         assert all(r is not None for r in results)
-
-    @pytest.mark.asyncio
-    async def test_invoke_batch_fallback_on_partial_failure(self):
-        """If one call fails with fallback, others should still succeed."""
-        agent = BaseAgent(
-            system_prompt="X",
-            json_schema={"type": "object"},
-            model="haiku",
-            fallback_fn=lambda p: {"fallback": True},
-        )
-
-        async def mock_exec(*args, **kwargs):
-            # Check if prompt contains "b" as the original input — always fail for it
-            prompt_arg = args[2] if len(args) > 2 else ""
-            proc = AsyncMock()
-            if prompt_arg.startswith("b\n") or prompt_arg == "b":
-                proc.communicate.return_value = (b"", b"error")
-                proc.returncode = 1
-            else:
-                proc.communicate.return_value = (
-                    make_cli_response({"ok": True}), b""
-                )
-                proc.returncode = 0
-            return proc
-
-        with patch("scanner.agents.base.asyncio.create_subprocess_exec", side_effect=mock_exec):
-            results = await agent.invoke_batch(["a", "b", "c"], max_concurrent=3)
-
-        assert len(results) == 3
-        assert results[1] == {"fallback": True}

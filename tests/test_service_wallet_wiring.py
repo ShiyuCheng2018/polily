@@ -1,6 +1,6 @@
-"""Task 3.0: ScanService exposes wallet/positions/trade_engine + proxy methods.
+"""Task 3.0: PolilyService exposes wallet/positions/trade_engine + proxy methods.
 
-Contract: TUI views (Task 3.1-3.3) reach wallet state through ScanService
+Contract: TUI views (Task 3.1-3.3) reach wallet state through PolilyService
 attributes + thin proxy methods. No direct DB access from view code.
 """
 
@@ -8,12 +8,12 @@ from unittest.mock import patch
 
 import pytest
 
-from scanner.core.config import ScannerConfig
-from scanner.core.db import PolilyDB
-from scanner.core.positions import PositionManager
-from scanner.core.trade_engine import TradeEngine
-from scanner.core.wallet import WalletService
-from scanner.tui.service import ScanService
+from polily.core.config import PolilyConfig
+from polily.core.db import PolilyDB
+from polily.core.positions import PositionManager
+from polily.core.trade_engine import TradeEngine
+from polily.core.wallet import WalletService
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -27,22 +27,22 @@ def svc(tmp_path):
             VALUES ('m1','e1','Q','tok_yes','tok_no',0.5,'t');
         """
     )
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
-    from scanner.core.monitor_store import upsert_event_monitor
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
+    from polily.core.monitor_store import upsert_event_monitor
     upsert_event_monitor("e1", auto_monitor=True, db=db)
     db.conn.commit()
-    return ScanService(config=ScannerConfig(), db=db)
+    return PolilyService(config=PolilyConfig(), db=db)
 
 
 def _mock_price(value: float):
     return patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=value,
     )
 
 
 def test_service_exposes_wallet_position_engine(svc):
-    """ScanService owns WalletService, PositionManager, TradeEngine as attributes."""
+    """PolilyService owns WalletService, PositionManager, TradeEngine as attributes."""
     assert isinstance(svc.wallet, WalletService)
     assert isinstance(svc.positions, PositionManager)
     assert isinstance(svc.trade_engine, TradeEngine)

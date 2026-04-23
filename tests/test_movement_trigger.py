@@ -3,12 +3,12 @@
 
 import pytest
 
-from scanner.core.config import MovementConfig
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.core.monitor_store import upsert_event_monitor
-from scanner.daemon.poll_job import _check_event_trigger
-from scanner.monitor.store import append_movement, get_today_analysis_count
+from polily.core.config import MovementConfig
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.core.monitor_store import upsert_event_monitor
+from polily.daemon.poll_job import _check_event_trigger
+from polily.monitor.store import append_movement, get_today_analysis_count
 
 
 @pytest.fixture

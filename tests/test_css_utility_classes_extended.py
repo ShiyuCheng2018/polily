@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 def test_tokens_has_new_padding_directional_utilities():
-    content = Path("scanner/tui/css/tokens.tcss").read_text()
+    content = Path("polily/tui/css/tokens.tcss").read_text()
     for token in (".pt-sm", ".pt-md", ".pb-sm", ".pb-md"):
         assert token in content, f"{token} utility class missing"
 
@@ -11,7 +11,7 @@ def test_tokens_has_new_padding_directional_utilities():
 def test_tokens_py_sm_and_py_md_are_distinct():
     """Regression: .py-sm and .py-md used to both = padding 1;1 (dupe)."""
     import re
-    content = Path("scanner/tui/css/tokens.tcss").read_text()
+    content = Path("polily/tui/css/tokens.tcss").read_text()
     # Extract each rule block
     py_sm_match = re.search(r"\.py-sm\s*{([^}]+)}", content)
     py_md_match = re.search(r"\.py-md\s*{([^}]+)}", content)
@@ -22,12 +22,12 @@ def test_tokens_py_sm_and_py_md_are_distinct():
 
 
 def test_tokens_has_alignment_utilities():
-    content = Path("scanner/tui/css/tokens.tcss").read_text()
+    content = Path("polily/tui/css/tokens.tcss").read_text()
     for token in (".center", ".text-center", ".text-left", ".text-right"):
         assert token in content, f"alignment utility {token} missing"
 
 
 def test_tokens_has_bold_dim():
-    content = Path("scanner/tui/css/tokens.tcss").read_text()
+    content = Path("polily/tui/css/tokens.tcss").read_text()
     assert ".bold" in content
     assert ".dim" in content

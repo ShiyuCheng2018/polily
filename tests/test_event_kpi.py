@@ -17,25 +17,25 @@ def _mk_market(*, closed=0, end_date=None, resolved_outcome=None):
 
 
 def test_subcount_label_no_closed_suffix():
-    from scanner.tui.components.event_kpi import _subcount_label
+    from polily.tui.components.event_kpi import _subcount_label
     markets = [_mk_market(closed=0), _mk_market(closed=1), _mk_market(closed=0)]
     assert _subcount_label(markets) == "3"
 
 
 def test_subcount_label_all_open():
-    from scanner.tui.components.event_kpi import _subcount_label
+    from polily.tui.components.event_kpi import _subcount_label
     markets = [_mk_market(closed=0) for _ in range(5)]
     assert _subcount_label(markets) == "5"
 
 
 def test_subcount_label_all_closed_still_bare():
-    from scanner.tui.components.event_kpi import _subcount_label
+    from polily.tui.components.event_kpi import _subcount_label
     markets = [_mk_market(closed=1) for _ in range(2)]
     assert _subcount_label(markets) == "2"
 
 
 def test_kpi_end_label_active_uses_countdown_range():
-    from scanner.tui.components.event_kpi import _kpi_end_label
+    from polily.tui.components.event_kpi import _kpi_end_label
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     near = (now + timedelta(days=3)).isoformat()
     far = (now + timedelta(days=40)).isoformat()
@@ -51,7 +51,7 @@ def test_kpi_end_label_active_uses_countdown_range():
 
 
 def test_kpi_end_label_awaiting_full_settlement():
-    from scanner.tui.components.event_kpi import _kpi_end_label
+    from polily.tui.components.event_kpi import _kpi_end_label
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     past = (now - timedelta(hours=1)).isoformat()
     event = MagicMock()
@@ -62,7 +62,7 @@ def test_kpi_end_label_awaiting_full_settlement():
 
 
 def test_kpi_end_label_resolved():
-    from scanner.tui.components.event_kpi import _kpi_end_label
+    from polily.tui.components.event_kpi import _kpi_end_label
     event = MagicMock()
     event.closed = 1
     event.end_date = None
@@ -78,7 +78,7 @@ def test_kpi_end_label_active_excludes_pending_settlement_markets():
     let PENDING_SETTLEMENT markets (closed=0, end_date<now) through to
     `format_countdown_range`, which rendered them as "已过期".
     """
-    from scanner.tui.components.event_kpi import _kpi_end_label
+    from polily.tui.components.event_kpi import _kpi_end_label
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     past = (now - timedelta(hours=1)).isoformat()      # PENDING_SETTLEMENT
     future = (now + timedelta(days=7)).isoformat()     # TRADING

@@ -3,9 +3,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from scanner.core.db import PolilyDB
-from scanner.core.events import EventBus
-from scanner.tui.service import ScanService
+from polily.core.db import PolilyDB
+from polily.core.events import EventBus
+from polily.tui.service import PolilyService
 
 
 @pytest.fixture
@@ -13,16 +13,16 @@ def svc(tmp_path):
     cfg = MagicMock()
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "sm.db")
-    yield ScanService(config=cfg, db=db, event_bus=EventBus())
+    yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
 
 
 async def test_confirm_cancel_scan_modal_uses_atoms(svc):
     """Modal uses PolilyZone (destructive) or PolilyCard for layout."""
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_modals import ConfirmCancelScanModal
-    from scanner.tui.widgets.polily_card import PolilyCard
-    from scanner.tui.widgets.polily_zone import PolilyZone
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_modals import ConfirmCancelScanModal
+    from polily.tui.widgets.polily_card import PolilyCard
+    from polily.tui.widgets.polily_zone import PolilyZone
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -39,8 +39,8 @@ async def test_confirm_cancel_scan_modal_uses_atoms(svc):
 async def test_confirm_cancel_chinese_labels(svc):
     from textual.widgets import Button, Label, Static
 
-    from scanner.tui.app import PolilyApp
-    from scanner.tui.views.scan_modals import ConfirmCancelScanModal
+    from polily.tui.app import PolilyApp
+    from polily.tui.views.scan_modals import ConfirmCancelScanModal
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None

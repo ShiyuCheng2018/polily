@@ -13,15 +13,15 @@ import pytest
 from textual.app import App
 from textual.widgets import Button, Checkbox, Input, Static
 
-from scanner.core.config import ScannerConfig
-from scanner.core.db import PolilyDB
-from scanner.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
-from scanner.tui.service import ScanService
-from scanner.tui.views.wallet import WalletView
-from scanner.tui.views.wallet_modals import TopupModal, WalletResetModal, WithdrawModal
+from polily.core.config import PolilyConfig
+from polily.core.db import PolilyDB
+from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
+from polily.tui.service import PolilyService
+from polily.tui.views.wallet import WalletView
+from polily.tui.views.wallet_modals import TopupModal, WalletResetModal, WithdrawModal
 
 
-def _seed(tmp_path, *, auto_monitor: bool = True) -> ScanService:
+def _seed(tmp_path, *, auto_monitor: bool = True) -> PolilyService:
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(
         EventRow(event_id="e1", title="BTC April", updated_at="now"),
@@ -38,17 +38,17 @@ def _seed(tmp_path, *, auto_monitor: bool = True) -> ScanService:
         ),
         db,
     )
-    # v0.8.0: ScanService.execute_buy/sell require auto_monitor=1.
+    # v0.8.0: PolilyService.execute_buy/sell require auto_monitor=1.
     # Tests that specifically cover the "no active monitors" path
     # (e.g. reset modal's skip-restart check) can pass auto_monitor=False.
     if auto_monitor:
-        from scanner.core.monitor_store import upsert_event_monitor
+        from polily.core.monitor_store import upsert_event_monitor
         upsert_event_monitor("e1", auto_monitor=True, db=db)
-    return ScanService(config=ScannerConfig(), db=db)
+    return PolilyService(config=PolilyConfig(), db=db)
 
 
 class _WalletHost(App):
-    def __init__(self, service: ScanService) -> None:
+    def __init__(self, service: PolilyService) -> None:
         super().__init__()
         self._service = service
 
@@ -66,7 +66,7 @@ from textual.screen import Screen  # noqa: E402 — after App imports for clarit
 
 
 class _HostScreen(Screen):
-    def __init__(self, service: ScanService) -> None:
+    def __init__(self, service: PolilyService) -> None:
         super().__init__()
         self._service = service
 
@@ -78,7 +78,7 @@ class _HostScreen(Screen):
 
 
 class _ViewHost(App):
-    def __init__(self, service: ScanService) -> None:
+    def __init__(self, service: PolilyService) -> None:
         super().__init__()
         self._service = service
 
@@ -110,7 +110,7 @@ async def test_wallet_view_after_buy_shows_position_value(tmp_path):
     """Buy 20 shares at 50¢ → cash drops, positions market value ≈ $10."""
     svc = _seed(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=20.0)
@@ -133,7 +133,7 @@ async def test_wallet_view_ledger_shows_buy_then_fee_rows(tmp_path):
     """A single execute_buy produces BUY + FEE rows in the ledger."""
     svc = _seed(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=20.0)
@@ -153,12 +153,12 @@ async def test_wallet_view_realized_pnl_after_profitable_sell(tmp_path):
     """Sell at higher price → cumulative realized P&L positive on view."""
     svc = _seed(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=20.0)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.6,
     ):
         svc.execute_sell(market_id="m1", side="yes", shares=10.0)
@@ -179,7 +179,7 @@ async def test_wallet_view_realized_pnl_after_profitable_sell(tmp_path):
 
 
 class _ModalHost(App):
-    def __init__(self, service: ScanService, modal_cls) -> None:
+    def __init__(self, service: PolilyService, modal_cls) -> None:
         super().__init__()
         self._service = service
         self._modal_cls = modal_cls
@@ -279,12 +279,12 @@ async def test_reset_modal_requires_reset_keyword(tmp_path, monkeypatch):
     gate kicks in and 'reset' alone isn't enough).
     """
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals._daemon_pid", lambda: None,
+        "polily.tui.views.wallet_modals._daemon_pid", lambda: None,
     )
     svc = _seed(tmp_path)
     # Seed a position so the warning reflects real state.
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)
@@ -313,11 +313,11 @@ async def test_reset_modal_confirm_clears_state(tmp_path, monkeypatch):
     real scheduler running locally.
     """
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals._daemon_pid", lambda: None,
+        "polily.tui.views.wallet_modals._daemon_pid", lambda: None,
     )
     svc = _seed(tmp_path)
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)
@@ -343,22 +343,26 @@ async def test_reset_modal_confirm_clears_state(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_reset_modal_sigterms_daemon_before_reset(tmp_path, monkeypatch):
-    """When daemon is running, SIGTERM is sent BEFORE reset_wallet touches the DB."""
-    import signal as _signal
+    """When daemon is running, SIGTERM is sent BEFORE reset_wallet touches the DB.
 
+    v0.9.0: SIGTERM routing moved from direct `os.kill(pid, SIGTERM)` to
+    `launchctl_query.kill_daemon("TERM")`. Test mocks the latter.
+    """
     svc = _seed(tmp_path)
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals._daemon_pid", lambda: 99999,
+        "polily.tui.views.wallet_modals._daemon_pid", lambda: 99999,
     )
-    kills: list[tuple] = []
+    kills: list[str] = []
 
-    def _fake_kill(pid: int, sig: int) -> None:
-        kills.append((pid, sig))
-        # Keep the worker moving — don't actually kill anything.
+    def _fake_kill_daemon(sig: str = "TERM") -> bool:
+        kills.append(sig)
+        return True
 
-    monkeypatch.setattr("scanner.tui.views.wallet_modals.os.kill", _fake_kill)
+    monkeypatch.setattr(
+        "polily.daemon.launchctl_query.kill_daemon", _fake_kill_daemon,
+    )
     # Skip the 1s grace in tests.
-    monkeypatch.setattr("scanner.tui.views.wallet_modals.time.sleep", lambda _s: None)
+    monkeypatch.setattr("polily.tui.views.wallet_modals.time.sleep", lambda _s: None)
 
     host = _ModalHost(svc, WalletResetModal)
     async with host.run_test(size=(120, 40)) as pilot:
@@ -374,8 +378,8 @@ async def test_reset_modal_sigterms_daemon_before_reset(tmp_path, monkeypatch):
                 break
 
     assert host.dismiss_result is True
-    # os.kill called with SIGTERM, then reset_wallet zeroed cash back to start.
-    assert (99999, _signal.SIGTERM) in kills
+    # kill_daemon called with "TERM", then reset_wallet zeroed cash back to start.
+    assert "TERM" in kills
 
 
 @pytest.mark.asyncio
@@ -383,7 +387,7 @@ async def test_reset_modal_shows_daemon_warning_when_running(tmp_path, monkeypat
     """When PID file exists with a live PID, modal shows checkbox gate."""
     svc = _seed(tmp_path)
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals._daemon_pid", lambda: 12345,
+        "polily.tui.views.wallet_modals._daemon_pid", lambda: 12345,
     )
     # Also pretend os.kill succeeds so nothing crashes on confirm (we don't
     # confirm in this test).
@@ -406,20 +410,25 @@ async def test_reset_modal_shows_daemon_warning_when_running(tmp_path, monkeypat
 # --- WalletResetModal: auto-restart daemon (follow-up hardening) -------
 
 
-def _prime_daemon_mocks(monkeypatch, pid: int = 99999) -> list[tuple]:
-    """Shared setup: daemon appears running, os.kill + sleep are neutralized,
-    caller gets back the kills list for assertions.
+def _prime_daemon_mocks(monkeypatch, pid: int = 99999) -> list[str]:
+    """Shared setup: daemon appears running, kill_daemon + sleep are neutralized,
+    caller gets back the kills list (signal names) for assertions.
+
+    v0.9.0: SIGTERM routing moved from direct `os.kill(pid, SIGTERM)` to
+    `launchctl_query.kill_daemon("TERM")`. The kills list now captures
+    signal name strings ("TERM", "HUP", etc.) instead of (pid, signum)
+    tuples.
     """
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals._daemon_pid", lambda: pid,
+        "polily.tui.views.wallet_modals._daemon_pid", lambda: pid,
     )
-    kills: list[tuple] = []
+    kills: list[str] = []
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals.os.kill",
-        lambda p, s: kills.append((p, s)),
+        "polily.daemon.launchctl_query.kill_daemon",
+        lambda sig="TERM": (kills.append(sig) or True),
     )
     monkeypatch.setattr(
-        "scanner.tui.views.wallet_modals.time.sleep", lambda _s: None,
+        "polily.tui.views.wallet_modals.time.sleep", lambda _s: None,
     )
     return kills
 
@@ -432,14 +441,14 @@ async def test_reset_modal_auto_restarts_daemon_when_monitors_exist(
     automatically after reset succeeds. User shouldn't need to `polily
     scheduler restart` by hand.
     """
-    from scanner.core.monitor_store import upsert_event_monitor
+    from polily.core.monitor_store import upsert_event_monitor
 
     svc = _seed(tmp_path)
     upsert_event_monitor("e1", auto_monitor=True, db=svc.db)
     _prime_daemon_mocks(monkeypatch)
     calls: list[str] = []
     monkeypatch.setattr(
-        "scanner.daemon.scheduler.restart_daemon",
+        "polily.daemon.scheduler.restart_daemon",
         lambda: calls.append("restart") or True,
     )
 
@@ -474,7 +483,7 @@ async def test_reset_modal_skips_restart_when_no_active_monitors(
     _prime_daemon_mocks(monkeypatch)
     calls: list[str] = []
     monkeypatch.setattr(
-        "scanner.daemon.scheduler.restart_daemon",
+        "polily.daemon.scheduler.restart_daemon",
         lambda: calls.append("restart") or True,
     )
 
@@ -505,7 +514,7 @@ async def test_reset_modal_restart_failure_still_dismisses_truthy(
     succeeded (dismiss=True + cash restored). We log a warning via notify
     but don't fail the whole flow — the DB work is already committed.
     """
-    from scanner.core.monitor_store import upsert_event_monitor
+    from polily.core.monitor_store import upsert_event_monitor
 
     svc = _seed(tmp_path)
     upsert_event_monitor("e1", auto_monitor=True, db=svc.db)
@@ -515,11 +524,11 @@ async def test_reset_modal_restart_failure_still_dismisses_truthy(
         raise RuntimeError("launchctl load failed")
 
     monkeypatch.setattr(
-        "scanner.daemon.scheduler.restart_daemon", _boom,
+        "polily.daemon.scheduler.restart_daemon", _boom,
     )
     # Buy something so the reset has state to clear + we can observe rollback.
     with patch(
-        "scanner.core.trade_engine.TradeEngine._fetch_live_price",
+        "polily.core.trade_engine.TradeEngine._fetch_live_price",
         return_value=0.5,
     ):
         svc.execute_buy(market_id="m1", side="yes", shares=10.0)
