@@ -121,9 +121,24 @@ def ensure_daemon_running() -> bool:
     # no longer exists (classic symptom after a package rename upgrade),
     # the running daemon will crash-loop silently. Rewrite + reload
     # regardless of what launchctl currently reports.
+    #
+    # v0.9.1 refinement: if the ONLY difference is POLILY_CLAUDE_CLI
+    # (user switched nvm / homebrew versions since the plist was
+    # generated), skip the unload+load — running daemon stays alive,
+    # in-flight narrator jobs don't get SIGTERMed. Write the new bytes
+    # so the next deliberate restart picks up the new path; BaseAgent's
+    # dangling-path self-check handles the "current daemon's env var
+    # is stale" case at job-invocation time.
     current_plist = PLIST_PATH.read_bytes() if PLIST_PATH.exists() else b""
     if current_plist != desired_plist:
         PLIST_PATH.write_bytes(desired_plist)
+        if _only_claude_cli_diff(current_plist, desired_plist):
+            logger.info(
+                "Plist drift limited to POLILY_CLAUDE_CLI — skipping "
+                "unload+load to avoid interrupting in-flight narrator jobs. "
+                "New path takes effect on next `polily scheduler restart`."
+            )
+            return False
         subprocess.run(
             ["launchctl", "unload", str(PLIST_PATH)],
             capture_output=True,
@@ -242,6 +257,55 @@ def generate_launchd_plist(
         "EnvironmentVariables": env,
     }
     return plistlib.dumps(plist, fmt=plistlib.FMT_XML)
+
+
+def _only_claude_cli_diff(old_bytes: bytes, new_bytes: bytes) -> bool:
+    """True iff the only difference between two plists is
+    EnvironmentVariables.POLILY_CLAUDE_CLI. Used to decide whether a
+    plist regeneration is worth interrupting the running daemon.
+
+    Handles the "old plist predates POLILY_CLAUDE_CLI entirely" case
+    (upgrade from v0.9.0) — that's NOT claude-only diff, so returns
+    False and forces a reload (which is what we want; old daemon
+    doesn't know about the env var at all).
+    """
+    import plistlib
+    try:
+        old = plistlib.loads(old_bytes)
+        new = plistlib.loads(new_bytes)
+    except Exception:
+        return False  # unparsable old → definitely reload
+
+    # plistlib.loads can return non-dict values (None, list, str) when
+    # the input parses as valid XML/binary plist but isn't a top-level
+    # dict — e.g. a stub `<plist>...</plist>` wrapper returns None. We
+    # can't compare env dicts in that case; force reload.
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+
+    # If old plist is missing POLILY_CLAUDE_CLI entirely but new has it,
+    # there's no other diff — still fine to skip reload (the running
+    # daemon's narrator will fall back to bare 'claude', fail with clear
+    # error, user runs `polily scheduler restart`). But to be
+    # conservative on the migration path, only treat it as "claude-only"
+    # when BOTH had the key (i.e. it's a post-install path swap, not
+    # first-time plist upgrade).
+    old_env = old.get("EnvironmentVariables", {}) or {}
+    new_env = new.get("EnvironmentVariables", {}) or {}
+    if "POLILY_CLAUDE_CLI" not in old_env:
+        return False
+    if "POLILY_CLAUDE_CLI" not in new_env:
+        return False
+
+    # Normalize: remove POLILY_CLAUDE_CLI from both sides' env dicts.
+    def _strip(p: dict) -> dict:
+        env = dict(p.get("EnvironmentVariables", {}))
+        env.pop("POLILY_CLAUDE_CLI", None)
+        out = dict(p)
+        out["EnvironmentVariables"] = env
+        return out
+
+    return _strip(old) == _strip(new)
 
 
 # ---------------------------------------------------------------------------

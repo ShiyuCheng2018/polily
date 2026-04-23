@@ -4,6 +4,7 @@ would generate (covers the v0.9.0 scanner -> polily package rename case
 where the pre-upgrade plist still points at `-m scanner.cli`)."""
 from __future__ import annotations
 
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -121,3 +122,123 @@ def test_plist_auto_resolves_when_caller_omits_claude_cli(tmp_path, monkeypatch)
     env = parsed["EnvironmentVariables"]
     assert set(env.keys()) == {"PATH", "POLILY_CLAUDE_CLI"}
     assert env["POLILY_CLAUDE_CLI"] == "/Users/x/.nvm/bin/claude"
+
+
+def test_claude_cli_only_drift_does_not_reload_daemon(tmp_plist_path):
+    """If the only plist difference is POLILY_CLAUDE_CLI (user switched
+    nvm versions), write the new bytes but do NOT unload+load — that
+    would SIGTERM any in-flight narrator analysis.
+
+    Next deliberate `polily scheduler restart` picks up the new path.
+    Meanwhile BaseAgent's dangling-path check handles the stale-env
+    case at narrator-invocation time.
+    """
+    # Seed disk with a "v1" plist containing path A
+    v1 = sched.generate_launchd_plist(
+        working_dir=str(tmp_plist_path.parent),
+        claude_cli="/old/nvm/bin/claude",
+    )
+    tmp_plist_path.write_bytes(v1)
+
+    # Now make the generator return "v2" with path B — only difference
+    # vs on-disk is the POLILY_CLAUDE_CLI value.
+    import polily.daemon.scheduler as _s
+    original_generate = _s.generate_launchd_plist
+
+    def fake_generate(**kwargs):
+        kwargs.setdefault("claude_cli", "/new/nvm/bin/claude")
+        return original_generate(**kwargs)
+
+    with patch.object(_s, "generate_launchd_plist", side_effect=fake_generate), \
+         patch.object(_s, "is_daemon_running", return_value=True), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        started = _s.ensure_daemon_running()
+
+    # New plist bytes written to disk
+    assert b"/new/nvm/bin/claude" in tmp_plist_path.read_bytes()
+    # But NO launchctl unload/load calls issued — running daemon untouched
+    subprocess_calls = [str(c.args) for c in mock_run.call_args_list]
+    assert not any("unload" in c for c in subprocess_calls), subprocess_calls
+    assert not any("load" in c for c in subprocess_calls), subprocess_calls
+    # Report "not started" — nothing changed for the running daemon
+    assert started is False
+
+
+def test_non_claude_drift_still_reloads(tmp_plist_path):
+    """Control case: if anything OTHER than POLILY_CLAUDE_CLI differs
+    (package rename, PATH change, WorkingDirectory change), the
+    existing unload+load behavior still fires. Keeps the v0.9.0 auto-heal
+    contract intact."""
+    tmp_plist_path.write_bytes(b"<plist>STALE CONTENT with scanner.cli</plist>")
+    with patch.object(sched, "is_daemon_running", return_value=True), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        started = sched.ensure_daemon_running()
+
+    assert started is True
+    subprocess_calls = [str(c.args) for c in mock_run.call_args_list]
+    assert any("unload" in c for c in subprocess_calls)
+    assert any("load" in c for c in subprocess_calls)
+
+
+def test_unparsable_old_plist_forces_reload(tmp_plist_path):
+    """If the on-disk plist is malformed / truncated / user-edited garbage,
+    `_only_claude_cli_diff` returns False from the except branch and we
+    reload. This is the safety fallback — don't skip reload on data we
+    can't interpret."""
+    tmp_plist_path.write_bytes(b"\x00\x01\x02 not a plist at all")
+    with patch.object(sched, "is_daemon_running", return_value=True), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        started = sched.ensure_daemon_running()
+
+    assert started is True, "unparsable plist must force a reload"
+    subprocess_calls = [str(c.args) for c in mock_run.call_args_list]
+    assert any("unload" in c for c in subprocess_calls)
+    assert any("load" in c for c in subprocess_calls)
+
+
+def test_v090_plist_migration_triggers_reload(tmp_plist_path):
+    """Upgrade path every existing v0.9.0 user hits: on-disk plist has
+    no POLILY_CLAUDE_CLI key; desired plist has one. This is NOT a
+    claude-only drift (the key is being added, not swapped), so we MUST
+    reload — otherwise the running v0.9.0 daemon keeps using bare
+    `claude` from its stripped PATH and continues failing.
+
+    This is the single most-hit migration scenario; if this test is
+    wrong, every v0.9.0 user gets a silent no-op upgrade.
+    """
+    import plistlib
+    # v0.9.0-era plist: has PATH but no POLILY_CLAUDE_CLI
+    v090_plist = plistlib.dumps({
+        "Label": sched.PLIST_LABEL,
+        "ProgramArguments": [sys.executable, "-m", "polily.cli", "scheduler", "run"],
+        "WorkingDirectory": str(tmp_plist_path.parent),
+        "KeepAlive": {"SuccessfulExit": False},
+        "StandardOutPath": "/dev/null",
+        "StandardErrorPath": "/dev/null",
+        "EnvironmentVariables": {"PATH": "/usr/local/bin:/usr/bin:/bin"},
+    })
+    tmp_plist_path.write_bytes(v090_plist)
+
+    # v0.9.1 desired plist: same shape + POLILY_CLAUDE_CLI
+    import polily.daemon.scheduler as _s
+    original_generate = _s.generate_launchd_plist
+
+    def fake_generate(**kwargs):
+        kwargs.setdefault("claude_cli", "/Users/x/.nvm/bin/claude")
+        return original_generate(**kwargs)
+
+    with patch.object(_s, "generate_launchd_plist", side_effect=fake_generate), \
+         patch.object(_s, "is_daemon_running", return_value=True), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        started = _s.ensure_daemon_running()
+
+    assert started is True, "v0.9.0 → v0.9.1 migration MUST reload"
+    subprocess_calls = [str(c.args) for c in mock_run.call_args_list]
+    assert any("unload" in c for c in subprocess_calls)
+    assert any("load" in c for c in subprocess_calls)
+    # And the new bytes actually contain the env var
+    assert b"POLILY_CLAUDE_CLI" in tmp_plist_path.read_bytes()
