@@ -10,6 +10,14 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.9.3] — 2026-04-24
+
+### Internal
+
+- **Version string alignment** — switched from hardcoded `version = "0.9.0"` literals (which drifted behind for both v0.9.1 and v0.9.2 — the git tag and the installed-package version didn't match) to `hatch-vcs` dynamic derivation from the git tag. `pyproject.toml` now declares `dynamic = ["version"]`; `polily/__init__.py` reads `importlib.metadata.version("polily")`. No hardcoded version string remains anywhere in the source tree — the version drift bug class is now structurally impossible.
+- **New CI gate: `changelog-check`** — a new job in `.github/workflows/ci.yml` runs `scripts/check_changelog.py` on every release PR (dev → master) and enforces: (1) the top CHANGELOG section is a versioned release (not `[Unreleased]`), (2) the released version has a footer link in `releases/tag/` format (not `compare/`), (3) the `[Unreleased]` footer link compares against the current top release. Catches the "forgot to rename [Unreleased]" mistake at the CI level so it can't ship. Memory-based discipline on this kept failing, so it's now enforced by a PR gate.
+- **Auto-sync `master → dev` workflow now actually auto-merges.** Previously every post-release sync PR (most recently #72) got stuck in `BLOCKED` state because `GITHUB_TOKEN`-authored PRs don't trigger CI workflows (GitHub security rule against recursive workflow invocation). The required status checks stayed `Expected` forever and auto-merge never fired. Switched `.github/workflows/sync-master-to-dev.yml` to use a fine-grained PAT (`secrets.SYNC_PAT`, Contents+PRs scoped to polily only) — PAT-authored PRs are treated as real-user PRs, triggering CI and enabling auto-merge. Next release's sync PR validates end-to-end.
+
 ## [0.9.2] — 2026-04-24
 
 ### Fixed
@@ -448,7 +456,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.2...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.3...dev
+[0.9.3]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.3
 [0.9.2]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.2
 [0.9.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.1
 [0.9.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.0
