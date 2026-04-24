@@ -10,6 +10,8 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.9.4] — 2026-04-24
+
 ### Fixed
 
 - **HTTP `User-Agent` header now tracks `polily.__version__` at runtime** instead of a hardcoded string. v0.9.0–v0.9.3 shipped with `user_agent = "polymarket-polily/0.1"` (Pydantic default) and `user_agent: "polily/0.9"` (`config.example.yaml`), so the header sent to Polymarket APIs kept announcing stale versions after every bump — the same drift class the hatch-vcs migration just fixed for `__version__`. `ApiConfig.user_agent` now uses a `default_factory` that composes `polily/<current-version>`, and `config.example.yaml` no longer pins a version literal. Regression tests in `tests/test_version.py` fail if either source reintroduces a hardcoded version.
@@ -460,7 +462,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.3...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.4...dev
+[0.9.4]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.4
 [0.9.3]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.3
 [0.9.2]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.2
 [0.9.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.1
