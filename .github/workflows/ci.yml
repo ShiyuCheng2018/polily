@@ -15,6 +15,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # hatch-vcs needs full history + tags to derive version from
+          # the nearest git tag. fetch-depth: 0 = full history.
+          fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -35,3 +39,18 @@ jobs:
 
       - name: Test
         run: pytest tests/ -q --tb=short
+
+  # Release-PR discipline gate. Only runs on dev → master PRs; feature PRs
+  # into dev are expected to be [Unreleased]-topped (CHANGELOG rename
+  # happens in the release PR, not the feature PR).
+  changelog-check:
+    if: github.event_name == 'pull_request' && github.base_ref == 'master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate CHANGELOG release discipline
+        run: python scripts/check_changelog.py CHANGELOG.md
