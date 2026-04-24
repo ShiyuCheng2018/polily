@@ -82,6 +82,101 @@ class TestBaseAgentInvoke:
             assert "Analyze the data in file:" in prompt_arg or len(prompt_arg) < 200
 
 
+class TestBaseAgentErrorMessage:
+    """Claude CLI emits API failures as JSON on stdout (is_error=true + api_error_status
+    + result text) while stderr stays empty. The RuntimeError must carry that payload so
+    users see '401 Invalid authentication credentials' in the TUI instead of an empty
+    'exited with code 1:' and having to dig through agent_debug.log."""
+
+    @pytest.mark.asyncio
+    async def test_nonzero_exit_surfaces_api_error_from_stdout(self):
+        """When CLI stdout has is_error=true envelope, error must include status + result."""
+        import json as _json
+        agent = BaseAgent(
+            system_prompt="X",
+            json_schema={"type": "object"},
+            model="sonnet",
+        )
+        stdout = _json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "is_error": True,
+            "api_error_status": 401,
+            "result": (
+                "Failed to authenticate. API Error: 401 "
+                '{"type":"error","error":{"type":"authentication_error",'
+                '"message":"Invalid authentication credentials"}}'
+            ),
+        }).encode()
+
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.communicate.return_value = (stdout, b"")
+            proc.returncode = 1
+            mock_exec.return_value = proc
+
+            with pytest.raises(RuntimeError) as excinfo:
+                await agent.invoke("test", max_retries=1)
+
+            msg = str(excinfo.value)
+            assert "401" in msg
+            assert "Invalid authentication credentials" in msg
+
+    @pytest.mark.asyncio
+    async def test_nonzero_exit_surfaces_api_error_from_stdout_array(self):
+        """CLI v2.1+ emits a JSON array; the result envelope is inside it."""
+        import json as _json
+        agent = BaseAgent(
+            system_prompt="X",
+            json_schema={"type": "object"},
+            model="sonnet",
+        )
+        stdout = _json.dumps([
+            {"type": "system", "subtype": "init"},
+            {
+                "type": "result",
+                "is_error": True,
+                "api_error_status": 429,
+                "result": "Rate limit exceeded. API Error: 429",
+            },
+        ]).encode()
+
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.communicate.return_value = (stdout, b"")
+            proc.returncode = 1
+            mock_exec.return_value = proc
+
+            with pytest.raises(RuntimeError) as excinfo:
+                await agent.invoke("test", max_retries=1)
+
+            msg = str(excinfo.value)
+            assert "429" in msg
+            assert "Rate limit" in msg
+
+    @pytest.mark.asyncio
+    async def test_nonzero_exit_falls_back_to_stderr_when_stdout_unparseable(self):
+        """If stdout is not JSON, keep the current behaviour of surfacing stderr."""
+        agent = BaseAgent(
+            system_prompt="X",
+            json_schema={"type": "object"},
+            model="sonnet",
+        )
+
+        with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.communicate.return_value = (b"not json", b"command not found: claude")
+            proc.returncode = 127
+            mock_exec.return_value = proc
+
+            with pytest.raises(RuntimeError) as excinfo:
+                await agent.invoke("test", max_retries=1)
+
+            msg = str(excinfo.value)
+            assert "127" in msg
+            assert "command not found" in msg
+
+
 class TestBaseAgentToolMode:
     @pytest.mark.asyncio
     async def test_tool_mode_passes_allowed_tools(self):

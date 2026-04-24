@@ -32,6 +32,41 @@ def _dump_debug(tag: str, content: str):
         pass
 
 
+def _extract_cli_error(stdout_text: str, stderr_text: str) -> str:
+    """Build a human-readable error for a non-zero claude CLI exit.
+
+    claude CLI emits API failures as JSON on stdout (`is_error=true` +
+    `api_error_status` + `result`) while stderr stays empty, so we must peek
+    into stdout before falling back to stderr.
+    """
+    envelope = None
+    try:
+        parsed = json.loads(stdout_text)
+        if isinstance(parsed, list):
+            for item in reversed(parsed):
+                if isinstance(item, dict) and item.get("type") == "result":
+                    envelope = item
+                    break
+        elif isinstance(parsed, dict):
+            envelope = parsed
+    except (json.JSONDecodeError, ValueError):
+        envelope = None
+
+    if envelope and envelope.get("is_error"):
+        status = envelope.get("api_error_status")
+        result = envelope.get("result") or ""
+        if isinstance(result, dict):
+            result = json.dumps(result)
+        prefix = f"[API {status}] " if status else ""
+        detail = str(result).strip()[:500]
+        if detail:
+            return f"{prefix}{detail}"
+        if status:
+            return prefix.strip()
+
+    return stderr_text[:500]
+
+
 def kill_all_agents():
     """Kill all active claude CLI subprocesses."""
     for pid in list(_active_pids):
@@ -234,8 +269,13 @@ class BaseAgent:
                 await proc.wait()
 
         if proc.returncode != 0:
-            err_text = stderr.decode()[:500]
-            _dump_debug("cli_error", f"exit={proc.returncode}\n{err_text}\n---stdout---\n{stdout.decode()[:2000]}")
+            stdout_text = stdout.decode()
+            stderr_text = stderr.decode()
+            err_text = _extract_cli_error(stdout_text, stderr_text)
+            _dump_debug(
+                "cli_error",
+                f"exit={proc.returncode}\n{stderr_text[:500]}\n---stdout---\n{stdout_text[:2000]}",
+            )
             raise RuntimeError(f"claude CLI exited with code {proc.returncode}: {err_text}")
 
         raw_output = stdout.decode()
