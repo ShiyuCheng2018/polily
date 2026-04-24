@@ -10,9 +10,11 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-04-24
+
 ### Fixed
 
-- `BaseAgent` error propagation: when `claude -p` exits non-zero, the API failure payload (e.g. `401 Invalid authentication credentials`, `429 Rate limit exceeded`) is emitted as JSON on **stdout** while stderr stays empty. Previously `polily/agents/base.py` only read stderr, so the TUI showed `claude CLI exited with code 1:` with nothing after the colon and users had to open `data/logs/agent_debug.log` to diagnose. Now `_extract_cli_error` parses the stdout envelope first (array or object form, `is_error` + `api_error_status` + `result`) and surfaces `[API 401] <message>` in the raised `RuntimeError`; stderr remains the fallback for crashes that never produced an envelope.
+- `BaseAgent` error propagation: when `claude -p` exits non-zero, the API failure payload (e.g. `401 Invalid authentication credentials`, `429 Rate limit exceeded`) is emitted as JSON on **stdout** while stderr stays empty. Previously `polily/agents/base.py` only read stderr, so the TUI showed `claude CLI exited with code 1:` with nothing after the colon and users had to open `data/logs/agent_debug.log` to diagnose. Now `_extract_cli_error` parses the stdout envelope first (array or object form, `is_error` + `api_error_status` + `result`) and surfaces `[API 401] <message>` in the raised `RuntimeError`; stderr remains the fallback for crashes that never produced an envelope. Contributed by @HiveYuan in #58.
 
 ## [0.9.1] — 2026-04-23
 
@@ -446,7 +448,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.1...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.2...dev
+[0.9.2]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.2
 [0.9.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.1
 [0.9.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.0
 [0.8.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.8.5
