@@ -7,7 +7,10 @@ api:
   backoff_seconds: 1.5
   use_cache: true
   cache_dir: "./data/cache"
-  user_agent: "polily/0.9"
+  # user_agent: HTTP User-Agent header sent to Polymarket APIs.
+  # Omit this key (or leave it unset) to use the built-in default
+  # `polily/<current-version>`, which stays in sync with the installed
+  # package version automatically. Only set it if you need a custom label.
 
 # CLI output modes
 cli:
