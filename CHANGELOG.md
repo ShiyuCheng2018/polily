@@ -10,6 +10,10 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Fixed
+
+- `BaseAgent` error propagation: when `claude -p` exits non-zero, the API failure payload (e.g. `401 Invalid authentication credentials`, `429 Rate limit exceeded`) is emitted as JSON on **stdout** while stderr stays empty. Previously `polily/agents/base.py` only read stderr, so the TUI showed `claude CLI exited with code 1:` with nothing after the colon and users had to open `data/logs/agent_debug.log` to diagnose. Now `_extract_cli_error` parses the stdout envelope first (array or object form, `is_error` + `api_error_status` + `result`) and surfaces `[API 401] <message>` in the raised `RuntimeError`; stderr remains the fallback for crashes that never produced an envelope.
+
 ## [0.9.1] — 2026-04-23
 
 ### Fixed
