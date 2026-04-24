@@ -7,6 +7,15 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 
+def _default_user_agent() -> str:
+    # Resolved lazily so the HTTP User-Agent always reflects the installed
+    # polily version rather than a stale literal (drift bug fixed in v0.9.4
+    # — v0.9.0–v0.9.3 shipped with hardcoded `"polily/0.9"` while the package
+    # version bumped out from under it).
+    from polily import __version__
+    return f"polily/{__version__}"
+
+
 def deep_merge(base: dict, override: dict) -> dict:
     """Recursively merge override into base. Does not mutate inputs."""
     result = {}
@@ -34,7 +43,7 @@ class ApiConfig(BaseModel):
     backoff_seconds: float = 1.5
     use_cache: bool = True
     cache_dir: str = "./data/cache"
-    user_agent: str = "polymarket-polily/0.1"
+    user_agent: str = Field(default_factory=_default_user_agent)
 
 
 class CliConfig(BaseModel):
