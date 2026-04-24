@@ -5,6 +5,13 @@ After v0.9.3, `polily.__version__` is derived from package metadata
 the git tag via `hatch-vcs`. There is no hardcoded version string
 anywhere in the source tree — this is enforced by `test_no_hardcoded_version_literal_in_init`
 and `test_no_hardcoded_version_literal_in_pyproject`.
+
+The HTTP `User-Agent` header sent to Polymarket APIs is part of the same
+invariant: `polily/core/config.py` and `config.example.yaml` must not
+hardcode a version literal into `user_agent`. Enforced by
+`test_no_hardcoded_version_literal_in_config_py`,
+`test_api_config_user_agent_uses_dynamic_version`, and
+`test_no_hardcoded_version_literal_in_config_example_yaml`.
 """
 from __future__ import annotations
 
@@ -49,6 +56,76 @@ def test_no_hardcoded_version_literal_in_init():
         f"Found hardcoded version literal in {source_path}: "
         f"{hardcoded.group(0) if hardcoded else ''}. "
         "Use importlib.metadata.version('polily') instead."
+    )
+
+
+def test_no_hardcoded_version_literal_in_config_py():
+    """Source of polily/core/config.py must not contain a literal version
+    string in the ``user_agent`` default.
+
+    Drift-trap: v0.9.0–v0.9.2 shipped with ``user_agent = "polymarket-polily/0.1"``
+    and ``user_agent = "polily/0.9"``, which never got updated when the package
+    version bumped. The fix is to derive the default from ``polily.__version__``
+    at runtime via a ``default_factory``. This test fails if anyone reintroduces
+    a hardcoded version literal.
+    """
+    from polily.core import config as config_module
+
+    source_path = Path(inspect.getfile(config_module))
+    source = source_path.read_text()
+    # Match `user_agent ... "...0.9..."` style hardcoded versioned literals
+    # (digits with at least one dot). Tolerates Pydantic's `user_agent: str = "..."`
+    # form between the field name and the quote. Does not match
+    # `f"polily/{__version__}"` or `"polily/"` (no version digit).
+    hardcoded = re.search(
+        r"""user_agent[^'"\n]*?['"][^'"]*\d+\.\d+""", source
+    )
+    assert hardcoded is None, (
+        f"Found hardcoded version literal in user_agent default in {source_path}: "
+        f"{hardcoded.group(0) if hardcoded else ''}. "
+        "Use a default_factory that reads polily.__version__ instead."
+    )
+
+
+def test_api_config_user_agent_uses_dynamic_version():
+    """``ApiConfig().user_agent`` must be derived from ``polily.__version__``
+    at runtime.
+
+    The HTTP header sent to Polymarket APIs should always reflect the actually
+    installed package version, not a stale literal. If this test fails because
+    __version__ changed shape, update the assertion — but never pin a literal.
+    """
+    from polily.core.config import ApiConfig
+
+    ua = ApiConfig().user_agent
+    assert ua.startswith("polily/"), (
+        f"user_agent {ua!r} must start with 'polily/'"
+    )
+    assert polily.__version__ in ua, (
+        f"user_agent {ua!r} must contain polily.__version__="
+        f"{polily.__version__!r}"
+    )
+
+
+def test_no_hardcoded_version_literal_in_config_example_yaml():
+    """``config.example.yaml`` must not pin a version into ``user_agent``.
+
+    Either the key is absent (so the dynamic ``default_factory`` in ApiConfig
+    kicks in) or it is an empty / non-versioned string with an explanatory
+    comment. This prevents the example config from re-drifting the same way
+    the Pydantic default did in v0.9.0–v0.9.2.
+    """
+    yaml_path = Path(__file__).parent.parent / "config.example.yaml"
+    text = yaml_path.read_text()
+    hardcoded = re.search(
+        r"""^\s*user_agent\s*:\s*["'][^"']*\d+\.\d+""",
+        text,
+        flags=re.MULTILINE,
+    )
+    assert hardcoded is None, (
+        f"Found hardcoded versioned user_agent in config.example.yaml: "
+        f"{hardcoded.group(0) if hardcoded else ''!r}. "
+        "Remove the version literal — the ApiConfig default_factory handles it."
     )
 
 
