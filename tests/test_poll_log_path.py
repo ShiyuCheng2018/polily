@@ -15,10 +15,19 @@ def test_log_goes_to_data_logs_subdir(tmp_path):
 
 
 def test_log_filename_has_version_and_timestamp(tmp_path):
-    """Filename pattern: poll-v<MAJOR.MINOR.PATCH>-<YYYYMMDD-HHMMSS>.log."""
+    """Filename pattern: poll-v<PEP440-version>-<YYYYMMDD-HHMMSS>.log.
+
+    After v0.9.3 the version string is derived from the git tag via
+    hatch-vcs, so dev builds produce PEP 440 local-version forms like
+    `0.9.3.dev2+gd88666991.d20260424`. The regex must accept those too,
+    not just clean `X.Y.Z` tag builds.
+    """
     p = _build_poll_log_path(project_root=tmp_path)
+    # Version segment: digits/dots, optional .devN / .postN / aN / bN / rcN,
+    # optional +local tag (alphanumeric + dots). Matches tests/test_version.py.
+    version_pat = r"\d+(\.\d+)*((a|b|rc|\.dev|\.post)\d+)*(\+[a-zA-Z0-9.]+)?"
     assert re.match(
-        r"^poll-v\d+\.\d+\.\d+-\d{8}-\d{6}\.log$", p.name,
+        rf"^poll-v{version_pat}-\d{{8}}-\d{{6}}\.log$", p.name,
     ), f"unexpected filename: {p.name}"
 
 
