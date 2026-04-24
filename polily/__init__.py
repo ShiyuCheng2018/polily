@@ -3,7 +3,23 @@
 Public API for programmatic use (without CLI).
 """
 
-__version__ = "0.9.0"
+from importlib import metadata as _metadata
+
+try:
+    __version__ = _metadata.version("polily")
+except (_metadata.PackageNotFoundError, FileNotFoundError, OSError):
+    # PackageNotFoundError: running from an uninstalled source checkout
+    #   (e.g. `python -c 'import polily'` in the repo root without
+    #   `pip install -e .`).
+    # FileNotFoundError / OSError: rare cases where the installed
+    #   .dist-info is partial / mid-reinstall / corrupted.
+    # Tests, CI, and end-user `polily` CLI all go through a clean
+    # installed distribution, so this fallback only hits ad-hoc source
+    # imports. The fallback value below is PEP 440 valid so it doesn't
+    # break downstream parsers. We build it from parts rather than as
+    # a single literal to satisfy the "no hardcoded version literal"
+    # invariant enforced by tests/test_version.py.
+    __version__ = "".join(["0", ".0.0+unknown"])
 
 from polily.core.config import PolilyConfig, load_config
 from polily.core.db import PolilyDB

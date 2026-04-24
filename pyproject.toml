@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "polily"
-version = "0.9.0"
+dynamic = ["version"]
 description = "A Polymarket monitoring agent that actually works — finds structure, watches movement, sizes risk"
 requires-python = ">=3.11"
 license = "MIT"
@@ -41,6 +41,19 @@ dev = [
     "ruff>=0.15",
     "pyright>=1.1",
 ]
+
+# Version is derived from the nearest git tag via hatch-vcs.
+# At release (tag pushed): resolves to the clean tag, e.g. "0.9.3".
+# On dev commits past a tag: resolves to e.g. "0.9.3.dev4+g5f43d44" (PEP 440).
+# On a dirty tree: resolves to e.g. "0.9.3.dev4+g5f43d44.d20260424".
+# No hardcoded string anywhere — tag is the single source of truth.
+#
+# fallback-version kicks in only when git metadata isn't available at
+# build time (e.g. sdist extracted without .git) — deterministic
+# instead of leaving the failure mode to chance.
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0+unknown"
 
 [tool.hatch.build.targets.wheel]
 packages = ["polily"]
