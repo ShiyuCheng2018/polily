@@ -234,21 +234,23 @@ class MovementWeights(BaseModel):
 
 
 class MovementConfig(BaseModel):
-    enabled: bool = True
+    """Movement scorer config for AI-trigger decisions.
+
+    Phase 0 (2026-04-25) cleanup: removed dead `enabled`,
+    `rolling_window_hours`, `cusum_drift`, `cusum_threshold`,
+    `drift_cooldown_seconds`, `drift_windows` fields. The drift
+    detector module (polily/monitor/drift.py) is deleted in the same
+    commit; movement scoring in scorer.py is the sole movement signal
+    pipeline post-v0.7.
+
+    `enabled` was removed because no production code path checks
+    `if config.movement.enabled:` — movement is unconditionally on
+    whenever the daemon runs. If a future user wants an off-switch,
+    re-add as a wired-up gate, not a silent flag.
+    """
     magnitude_threshold: float = 70
     quality_threshold: float = 60
     daily_analysis_limit: int = 10  # max AI analyses per market per day
-    rolling_window_hours: int = 6   # baseline window for volume ratio
-    # Drift detection — rolling window thresholds per market type
-    # {market_type: {window_minutes: absolute_change_threshold}}
-    drift_windows: dict[str, dict[int, float]] = {
-        "crypto": {5: 0.05, 30: 0.08, 60: 0.12, 240: 0.18},
-        "political": {5: 0.03, 30: 0.05, 60: 0.08, 240: 0.12},
-        "default": {5: 0.03, 30: 0.05, 60: 0.08, 240: 0.12},
-    }
-    cusum_drift: float = 0.003          # noise filter per tick
-    cusum_threshold: float = 0.06       # cumulative trigger level
-    drift_cooldown_seconds: int = 3600  # 60 min cooldown for drift-triggered analysis
 
     # Note: open_interest_delta and correlated_asset_move removed —
     # Polymarket CLOB API does not expose per-poll OI or correlated assets.
