@@ -43,22 +43,12 @@ class TestLoadConfig:
     def test_load_example_config(self):
         config = load_config(Path("config.example.yaml"))
         assert config is not None
-        assert config.filters.max_spread_pct == 0.04
         assert config.scoring.thresholds.tier_a_min_score == 70
 
     def test_load_minimal_config_merges_with_defaults(self):
         config = load_config(Path("config.minimal.yaml"), defaults_path=Path("config.example.yaml"))
         # inherits all defaults from example
-        assert config.filters.max_spread_pct == 0.04
         assert config.scoring.thresholds.tier_a_min_score == 70
-
-    def test_filters_thresholds_consistent(self):
-        config = load_config(Path("config.example.yaml"))
-        f = config.filters
-        assert f.hard_reject_below_yes_price < f.min_yes_price
-        assert f.hard_reject_above_yes_price > f.max_yes_price
-        assert f.preferred_min_yes_price >= f.min_yes_price
-        assert f.preferred_max_yes_price <= f.max_yes_price
 
     def test_ai_config_has_narrative_writer(self):
         config = load_config(Path("config.example.yaml"))
@@ -67,8 +57,6 @@ class TestLoadConfig:
 
     def test_custom_yaml(self):
         yaml_content = """
-filters:
-  max_spread_pct: 0.02
 scoring:
   thresholds:
     tier_a_min_score: 80
@@ -77,5 +65,4 @@ scoring:
             f.write(yaml_content)
             f.flush()
             config = load_config(Path(f.name), defaults_path=Path("config.example.yaml"))
-            assert config.filters.max_spread_pct == 0.02
             assert config.scoring.thresholds.tier_a_min_score == 80

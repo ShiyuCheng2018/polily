@@ -54,54 +54,6 @@ class CliConfig(BaseModel):
     polymarket_base_url: str = "https://polymarket.com/event/"
 
 
-class FiltersConfig(BaseModel):
-    require_objective_market: bool = True
-    require_clear_rules: bool = False
-    require_named_resolution_source: bool = False
-
-    min_yes_price: float = 0.20
-    max_yes_price: float = 0.80
-    hard_reject_below_yes_price: float = 0.15
-    hard_reject_above_yes_price: float = 0.85
-    preferred_min_yes_price: float = 0.30
-    preferred_max_yes_price: float = 0.70
-
-    min_days_to_resolution: float = 0.5
-    max_days_to_resolution: float = 14
-    preferred_min_days_to_resolution: float = 0.5
-    preferred_max_days_to_resolution: float = 7
-
-    # Spread threshold applies to the best-side % (cheaper of YES vs NO), so
-    # a low-YES market with a tradeable NO side isn't rejected for YES-side
-    # math the user never actually pays.
-    max_spread_pct: float = 0.04
-    preferred_max_spread_pct: float = 0.02
-    max_round_trip_friction_pct: float = 0.08
-
-    min_volume: float = 1000
-    min_open_interest: float = 1000
-
-    min_bid_depth_usd: float = 100
-    max_slippage_at_20usd: float = 0.02
-
-    reject_ultra_short_noise_markets: bool = True
-    reject_long_dated_narrative_markets: bool = True
-    long_dated_narrative_days_cutoff: float = 30
-
-    flag_uma_only_resolution: bool = True
-    reject_high_resolution_risk: bool = False
-
-
-class HeuristicsConfig(BaseModel):
-    objective_whitelist_keywords: list[str] = []
-    objective_blacklist_keywords: list[str] = []
-    noise_market_keywords: list[str] = []
-    noise_max_days: float = 0.1
-    noise_categories: list[str] = []
-    narrative_market_keywords: list[str] = []
-    resolution_source_bonus_keywords: list[str] = []
-
-
 class ScoringThresholds(BaseModel):
     tier_a_min_score: int = 70
     tier_b_min_score: int = 45
@@ -281,8 +233,6 @@ class PolilyConfig(BaseModel):
 
     api: ApiConfig = ApiConfig()
     cli: CliConfig = CliConfig()
-    filters: FiltersConfig = FiltersConfig()
-    heuristics: HeuristicsConfig = HeuristicsConfig()
     scoring: ScoringConfig = ScoringConfig()
     market_types: dict[str, MarketTypeConfig] = {}
     ai: AiConfig = AiConfig()
