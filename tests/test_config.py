@@ -48,10 +48,7 @@ class TestLoadConfig:
 
     def test_load_minimal_config_merges_with_defaults(self):
         config = load_config(Path("config.minimal.yaml"), defaults_path=Path("config.example.yaml"))
-        # minimal sets discipline values
-        assert config.discipline.account_size_usd == 150
-        assert config.discipline.max_single_trade_usd == 20
-        # inherits all other defaults from example
+        # inherits all defaults from example
         assert config.filters.max_spread_pct == 0.04
         assert config.scoring.weights.objective_verifiability == 25
 

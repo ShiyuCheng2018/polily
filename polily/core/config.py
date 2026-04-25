@@ -174,17 +174,6 @@ class PaperTradingConfig(BaseModel):
     assumed_round_trip_friction_pct: float = 0.04
 
 
-class DisciplineConfig(BaseModel):
-    account_size_usd: float = 150
-    max_single_trade_pct: float = 0.13
-    max_single_trade_usd: float = 20
-    max_concurrent_positions: int = 3
-    max_total_exposure_pct: float = 0.40
-    max_trades_per_week: int = 5
-    pause_threshold_usd: float = 80
-    paper_trading_first_days: int = 14
-
-
 class ReportingConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -284,8 +273,8 @@ class PolilyConfig(BaseModel):
 
     Can be constructed programmatically:
         config = PolilyConfig()  # all defaults
-        config = PolilyConfig(discipline=DisciplineConfig(account_size_usd=100))
-        config = PolilyConfig.from_dict({"discipline": {"account_size_usd": 100}})
+        config = PolilyConfig(wallet=WalletConfig(starting_balance=200.0))
+        config = PolilyConfig.from_dict({"wallet": {"starting_balance": 200.0}})
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -310,7 +299,6 @@ class PolilyConfig(BaseModel):
     mispricing: MispricingConfig = MispricingConfig()
     counterparty: CounterpartyConfig = CounterpartyConfig()
     paper_trading: PaperTradingConfig = PaperTradingConfig()
-    discipline: DisciplineConfig = DisciplineConfig()
     reporting: ReportingConfig = ReportingConfig()
     archiving: ArchivingConfig = ArchivingConfig()
     wallet: WalletConfig = Field(default_factory=WalletConfig)
