@@ -49,30 +49,61 @@ def test_grep_production_refs_disambiguates_shared_last_segment():
     """`enabled` is shared by multiple config sections — the cascade
     heuristic must NOT collapse them at high specificity.
 
-    Test scenario: at audit time, both `MovementConfig.enabled` (about
-    to be deleted in Task 5) and `MispricingConfig.enabled` (alive,
-    consumed at `mispricing.py:121` as `config.enabled`) exist. The
-    cascade should distinguish them:
-      - `grep_production_refs("movement.enabled")` should return 0 at
-        full_path (`\\.movement\\.enabled\\b`) and two_seg
-        (`\\.enabled\\b` after `\\.movement\\.`); only at last_seg
-        could it potentially confuse with `mispricing.enabled`.
-      - If the cascade falls through to last_seg and finds the
-        mispricing match, the heuristic flags this as low-specificity —
-        a human reviewer (or the `LOW_SPECIFICITY_VERIFIED` registry)
-        must confirm vs reject.
+    Test scenario: at audit time, `MispricingConfig.enabled` is consumed
+    via `config.enabled` in mispricing.py:121. `MovementConfig.enabled`
+    is dead (no production consumer). The cascade for
+    `grep_production_refs("movement.enabled")` should:
+      - Level 1 (full_path `\\.movement\\.enabled\\b`): 0 matches
+      - Level 2 (two_seg `\\.movement\\.enabled\\b`): same as level 1, 0 matches
+      - Level 3 (last_seg `\\.enabled\\b`): falls through, matches mispricing
+      - Result: tagged "[last_seg]" — flagged for human review
     """
     n, samples = audit.grep_production_refs("movement.enabled")
-    # At this point in Phase 0 timeline (Task 2 — before Task 5 deletes
-    # MovementConfig.enabled), the field still exists in PolilyConfig
-    # but has no production consumer. Ideal cascade behavior:
-    #   - Levels 1-2 (full_path, two_seg): 0 matches (correct)
-    #   - Level 3 (last_seg): may match mispricing's `.enabled` → tagged "[last_seg]"
-    # Test enforces: high-specificity levels do NOT spuriously match.
-    if n > 0:
-        levels = [s.split("] ")[0].lstrip("[") for s in samples]
-        assert "full_path" not in levels and "two_seg" not in levels, (
-            f"movement.enabled should not match at full_path or two_seg "
-            f"levels (no `.movement.enabled` literal in production code); "
-            f"got samples: {samples}"
-        )
+    # Cascade MUST find at least one match (mispricing.enabled at last_seg)
+    assert n > 0, (
+        f"Expected fall-through to last_seg matching `mispricing.enabled` "
+        f"in mispricing.py; got n=0. Cascade may be broken."
+    )
+    levels = [s.split("] ")[0].lstrip("[") for s in samples]
+    # Must NOT match at full_path or two_seg (would mean false-positive
+    # disambiguation failure)
+    assert "full_path" not in levels, (
+        f"movement.enabled spuriously matched at full_path: {samples}"
+    )
+    assert "two_seg" not in levels, (
+        f"movement.enabled spuriously matched at two_seg: {samples}"
+    )
+    # SHOULD match at last_seg (the documented fall-through behavior)
+    assert "last_seg" in levels, (
+        f"Expected last_seg fall-through; actual levels: {levels}"
+    )
+
+
+def test_enumerate_handles_empty_dict_with_basemodel_value():
+    """Empty-default dict fields with BaseModel value type must surface
+    in the leaf list (via <empty> placeholder), otherwise dead-config
+    audits would silently miss them.
+
+    Reproduces the original bug where `market_types: dict[str, MarketTypeConfig] = {}`
+    produced zero leaves and was invisible to the audit.
+    """
+    from pydantic import BaseModel
+
+    class _SubField(BaseModel):
+        threshold: int = 100
+        label: str = "x"
+
+    class _Container(BaseModel):
+        empty_typed_dict: dict[str, _SubField] = {}
+        regular_field: int = 42
+
+    leaves = audit.enumerate_pydantic_leaves(_Container())
+    # The empty dict's value-type leaves must be exposed
+    assert any("empty_typed_dict.<empty>.threshold" in lf for lf in leaves), (
+        f"Empty typed dict not surfaced; leaves: {leaves}"
+    )
+    assert any("empty_typed_dict.<empty>.label" in lf for lf in leaves), (
+        f"Empty typed dict label not surfaced; leaves: {leaves}"
+    )
+    # Regular fields still work
+    assert "regular_field" in leaves

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import typing
 from pathlib import Path
 from typing import Any
 
@@ -22,24 +23,87 @@ PRODUCTION_GLOB_DIRS = ["polily"]
 EXCLUDED_FILES = {"polily/core/config.py"}
 
 
+def _extract_dict_value_type(annotation: Any) -> Any:
+    """Given a type annotation like `dict[str, MarketTypeConfig]`, return the
+    value type (`MarketTypeConfig`). Returns None if the annotation is not a
+    dict-like generic or has no extractable value type.
+
+    Handles `Optional[dict[...]]` by unwrapping Union types as well.
+    """
+    if annotation is None:
+        return None
+    # Unwrap Optional / Union — pick the first non-None arg that looks like a dict
+    origin = typing.get_origin(annotation)
+    if origin is typing.Union:
+        for arg in typing.get_args(annotation):
+            if arg is type(None):
+                continue
+            result = _extract_dict_value_type(arg)
+            if result is not None:
+                return result
+        return None
+    # dict[K, V] → return V
+    if origin is dict:
+        args = typing.get_args(annotation)
+        if len(args) >= 2:
+            return args[1]
+    return None
+
+
 def enumerate_pydantic_leaves(model: BaseModel, prefix: str = "") -> list[str]:
     """Walk a Pydantic model and return all leaf paths in dot notation.
 
-    Leaves include: scalars (int/float/str/bool), lists, and dict values
-    (treated as leaves at one level deep — `dict[str, X]` becomes
-    `prefix.<key>` per dict key).
+    Leaves include: scalars (int/float/str/bool), lists, and dict values.
+    For dicts:
+      - Non-empty dicts: enumerate per key. If the value is a BaseModel,
+        recurse into its fields; if the value is itself a dict, recurse into
+        its keys (one level — scalar leaves at depth 2 are sufficient for
+        current polily config).
+      - Empty dicts whose value-type annotation is a BaseModel subclass:
+        instantiate the value type and recurse under a `<empty>` placeholder
+        key, so empty-default typed dicts (e.g. `dict[str, MarketTypeConfig] = {}`)
+        remain visible to the audit instead of silently disappearing.
     """
     leaves: list[str] = []
-    for field_name, _field_info in type(model).model_fields.items():
+    for field_name, field_info in type(model).model_fields.items():
         value = getattr(model, field_name)
         path = f"{prefix}.{field_name}" if prefix else field_name
         if isinstance(value, BaseModel):
             leaves.extend(enumerate_pydantic_leaves(value, path))
         elif isinstance(value, dict):
+            if not value:
+                # Empty dict — try to introspect the value-type annotation so
+                # typed-dict fields don't silently disappear from the audit.
+                value_type = _extract_dict_value_type(field_info.annotation)
+                if value_type is not None and isinstance(value_type, type) and issubclass(value_type, BaseModel):
+                    try:
+                        placeholder_instance = value_type()
+                    except Exception:
+                        # Value type requires args to construct — emit the path itself
+                        # with <empty> marker so the field is at least visible.
+                        leaves.append(f"{path}.<empty>")
+                    else:
+                        leaves.extend(
+                            enumerate_pydantic_leaves(
+                                placeholder_instance, f"{path}.<empty>"
+                            )
+                        )
+                else:
+                    # Untyped or non-BaseModel value type — emit the field
+                    # itself with <empty> marker so it's not silently dropped.
+                    leaves.append(f"{path}.<empty>")
+                continue
             for key, sub_value in value.items():
                 sub_path = f"{path}.{key}"
                 if isinstance(sub_value, BaseModel):
                     leaves.extend(enumerate_pydantic_leaves(sub_value, sub_path))
+                elif isinstance(sub_value, dict):
+                    # Nested dict (e.g., drift_windows: dict[str, dict[int, float]]).
+                    # Recurse one more level so inner keys aren't lost — without
+                    # this, the leaf collapses at sub_path and false-alives via
+                    # last-segment grep.
+                    for sub_key, sub_sub_value in sub_value.items():
+                        leaves.append(f"{sub_path}.{sub_key}")
                 else:
                     leaves.append(sub_path)
         else:
@@ -101,6 +165,16 @@ def grep_production_refs(key_path: str) -> tuple[int, list[str]]:
             *[str(REPO_ROOT / d) for d in PRODUCTION_GLOB_DIRS],
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        # grep exit codes (per `man grep`): 0 = match found, 1 = no match,
+        # >=2 = real error (binary missing, search dir wrong, regex invalid…).
+        # Treating real errors as "no match" would silently produce false-DEAD
+        # verdicts for ALL leaves — catastrophic for downstream deletion tasks.
+        # Fail loud instead.
+        if result.returncode >= 2:
+            raise RuntimeError(
+                f"grep failed for pattern {pattern!r}: rc={result.returncode}, "
+                f"stderr={result.stderr!r}"
+            )
         lines = [
             ln for ln in result.stdout.splitlines()
             if not any(excl in ln for excl in EXCLUDED_FILES)
