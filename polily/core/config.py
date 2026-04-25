@@ -159,13 +159,6 @@ class MispricingConfig(BaseModel):
     multi_outcome: MultiOutcomeConfig = MultiOutcomeConfig()
 
 
-class CounterpartyConfig(BaseModel):
-    flag_large_trades: bool = True
-    large_trade_threshold_usd: float = 500
-    flag_book_imbalance: bool = True
-    book_imbalance_ratio: float = 3.0
-
-
 class PaperTradingConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -297,7 +290,6 @@ class PolilyConfig(BaseModel):
     market_types: dict[str, MarketTypeConfig] = {}
     ai: AiConfig = AiConfig()
     mispricing: MispricingConfig = MispricingConfig()
-    counterparty: CounterpartyConfig = CounterpartyConfig()
     paper_trading: PaperTradingConfig = PaperTradingConfig()
     reporting: ReportingConfig = ReportingConfig()
     archiving: ArchivingConfig = ArchivingConfig()
