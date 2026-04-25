@@ -44,23 +44,13 @@ class TestLoadConfig:
         config = load_config(Path("config.example.yaml"))
         assert config is not None
         assert config.filters.max_spread_pct == 0.04
-        assert config.scoring.weights.objective_verifiability == 25
+        assert config.scoring.thresholds.tier_a_min_score == 70
 
     def test_load_minimal_config_merges_with_defaults(self):
         config = load_config(Path("config.minimal.yaml"), defaults_path=Path("config.example.yaml"))
         # inherits all defaults from example
         assert config.filters.max_spread_pct == 0.04
-        assert config.scoring.weights.objective_verifiability == 25
-
-    def test_scoring_weights_sum_to_100(self):
-        config = load_config(Path("config.example.yaml"))
-        w = config.scoring.weights
-        total = (
-            w.liquidity_structure + w.objective_verifiability
-            + w.probability_space + w.time_structure
-            + w.trading_friction
-        )
-        assert total == 100
+        assert config.scoring.thresholds.tier_a_min_score == 70
 
     def test_filters_thresholds_consistent(self):
         config = load_config(Path("config.example.yaml"))
@@ -80,16 +70,12 @@ class TestLoadConfig:
 filters:
   max_spread_pct: 0.02
 scoring:
-  weights:
-    liquidity_structure: 35
-    objective_verifiability: 20
-    probability_space: 20
-    time_structure: 15
-    trading_friction: 10
+  thresholds:
+    tier_a_min_score: 80
 """
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             f.flush()
             config = load_config(Path(f.name), defaults_path=Path("config.example.yaml"))
             assert config.filters.max_spread_pct == 0.02
-            assert config.scoring.weights.liquidity_structure == 35
+            assert config.scoring.thresholds.tier_a_min_score == 80

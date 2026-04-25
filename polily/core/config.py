@@ -102,14 +102,6 @@ class HeuristicsConfig(BaseModel):
     resolution_source_bonus_keywords: list[str] = []
 
 
-class ScoringWeights(BaseModel):
-    liquidity_structure: int = 30
-    objective_verifiability: int = 25
-    probability_space: int = 20
-    time_structure: int = 15
-    trading_friction: int = 10
-
-
 class ScoringThresholds(BaseModel):
     tier_a_min_score: int = 70
     tier_b_min_score: int = 45
@@ -117,7 +109,12 @@ class ScoringThresholds(BaseModel):
 
 
 class ScoringConfig(BaseModel):
-    weights: ScoringWeights = ScoringWeights()
+    """Structure-score config — only thresholds remain configurable.
+
+    Per-dimension weights live in `polily/scan/scoring.py`'s
+    `_TYPE_WEIGHTS` and `_DEFAULT_WEIGHTS` module constants because they
+    are tightly coupled with the scoring algorithm and not user-tunable.
+    """
     thresholds: ScoringThresholds = ScoringThresholds()
 
 

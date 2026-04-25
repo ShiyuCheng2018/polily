@@ -126,12 +126,8 @@ heuristics:
     - "federal reserve"
 
 scoring:
-  weights:
-    liquidity_structure: 30           # spread + log-scale depth + bid/ask balance
-    objective_verifiability: 25       # resolution source + rules + title analysis
-    probability_space: 20             # symmetric min(p, 1-p) linear
-    time_structure: 15                # sweet spot [1,5] days + catalyst proximity
-    trading_friction: 10              # pure friction 6-tier
+  # Per-dimension weights live in code, not YAML — see
+  # polily/scan/scoring.py (_TYPE_WEIGHTS / _DEFAULT_WEIGHTS).
 
   thresholds:
     tier_a_min_score: 70
