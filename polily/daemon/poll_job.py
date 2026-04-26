@@ -813,7 +813,10 @@ def _check_event_trigger(
 
     # Check trigger threshold
     agg = MovementResult(magnitude=max_m, quality=max_q)
-    if not agg.should_trigger(mc.magnitude_threshold, mc.quality_threshold):
+    if not agg.should_trigger(
+        m_threshold=mc.magnitude_threshold,
+        q_threshold=mc.quality_threshold,
+    ):
         return
 
     # Check cooldown: last triggered analysis for this event
