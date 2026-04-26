@@ -26,6 +26,10 @@ structured release notes — see `git log` for history.
 
 - **Audit tooling: `scripts/audit_config_usage.py`.** One-shot tool that enumerates every `PolilyConfig` leaf and greps production usage via a 4-level cascade heuristic (`full_path → two_seg → last_seg → quoted_key`), returning `(count, sample_lines)` with each sample tagged by match level. Drove the wholesale code deletion in this Phase 0; available for future audits when adding or restructuring config sections.
 
+- **Audit script Level 3 cascade hardened.** `scripts/audit_config_usage.py` Level 3 (`last_seg`) now skips non-identifier segments — mirrors the existing Level 4 (`quoted_key`) `isidentifier()` guard. Phase 0 Task 5 review caught: numeric leaf segments like `5`/`30`/`60` matched `0.5`/`0.30`/`0.60` float literals in production source, falsely flagging `movement.drift_windows.*.{5,30,60}` (9 leaves) ALIVE. Bug was already theoretical after drift_windows deletion (no other nested-numeric dicts in PolilyConfig), but the cascade is hardened against future config additions.
+
+- **`Widget.recompose()` calls fixed (4 TUI sites).** Replaced sync calls to async `Widget.recompose()` with `Widget.refresh(recompose=True)` — the sync-safe equivalent that internally schedules the async recompose. Sites: `event_detail.py`, `score_result.py`, `changelog.py`, `scan_log.py`. Caught by `RuntimeWarning: coroutine 'Widget.recompose' was never awaited` in `test_event_detail_coalesces_heartbeat_fan_out`. In production this likely worked-by-accident (Textual's reactive system re-renders on next tick), but the silent coroutine drop could have caused intermittent UI staleness. Behavior is now explicit + correct.
+
 ## [0.9.4] — 2026-04-24
 
 ### Fixed
