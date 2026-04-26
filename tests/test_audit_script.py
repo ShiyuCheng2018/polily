@@ -107,3 +107,31 @@ def test_enumerate_handles_empty_dict_with_basemodel_value():
     )
     # Regular fields still work
     assert "regular_field" in leaves
+
+
+def test_grep_production_refs_skips_numeric_last_segment():
+    """Level 3 (last_seg) cascade must skip non-identifier segments to
+    avoid false-alives matching float literals (e.g., leaf segment "5"
+    matching "0.5" in source).
+
+    Phase 0 Task 5 review caught this: movement.drift_windows.crypto.5
+    was falsely ALIVE because "0.5" appeared in monitor/signals.py.
+    Bug became theoretical after drift_windows deletion, but the audit
+    tool is hardened so future numeric-key dicts don't false-alive.
+    """
+    # Use a synthetic numeric-segment leaf path. Don't grep production
+    # for an actual existing path — we want to verify behavior on a
+    # known-shape leaf that has no full_path/two_seg match in code.
+    n, samples = audit.grep_production_refs("nonexistent.parent.5")
+    # Level 3 should be skipped because "5" is non-identifier.
+    # The cascade should fall through. If Level 1+2+3 all skip/miss,
+    # we either get 0 matches or only Level 4 (which is also gated
+    # behind isidentifier and would skip too).
+    if samples:
+        levels = [s.split("] ")[0].lstrip("[") for s in samples]
+        # Critical: NO match should be tagged "last_seg" because the
+        # last segment "5" is a numeric token and Level 3 should skip.
+        assert "last_seg" not in levels, (
+            f"Level 3 should skip non-identifier last segments to avoid "
+            f"false-alives. Got samples: {samples}"
+        )

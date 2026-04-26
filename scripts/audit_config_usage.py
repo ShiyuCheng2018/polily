@@ -148,9 +148,13 @@ def grep_production_refs(key_path: str) -> tuple[int, list[str]]:
         patterns_to_try.append(("two_seg", two_seg_re))
 
     # Level 3: last segment ONLY (noisy, last resort)
+    # Skip for non-identifier segments (e.g., dict numeric keys "5", "30")
+    # to avoid false-alives matching float literals like "0.5" or "0.30"
+    # in production source code.
     last_segment = segments[-1]
-    last_seg_re = rf"\.{re.escape(last_segment)}\b"
-    patterns_to_try.append(("last_seg", last_seg_re))
+    if last_segment.isidentifier():
+        last_seg_re = rf"\.{re.escape(last_segment)}\b"
+        patterns_to_try.append(("last_seg", last_seg_re))
 
     # Level 4: quoted (for dict-key access like config.weights["price_z_score"])
     # Only if last segment is a valid Python identifier (excludes things like "5")
