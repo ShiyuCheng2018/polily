@@ -12,119 +12,6 @@ api:
   # `polily/<current-version>`, which stays in sync with the installed
   # package version automatically. Only set it if you need a custom label.
 
-# CLI output modes
-cli:
-  default_mode: "default"  # "brief", "default", "verbose"
-  # Tier B display limit in terminal (full list always in JSON)
-  tier_b_terminal_limit: 5
-  # Tier C: never shown in terminal, only in JSON
-  show_tier_c_in_terminal: false
-  # Generate Polymarket direct links
-  generate_market_links: true
-  # Polymarket base URL for link generation
-  polymarket_base_url: "https://polymarket.com/event/"
-
-filters:
-  require_objective_market: true
-  require_clear_rules: false
-  require_named_resolution_source: false  # if true, reject markets resolved only by UMA vote
-
-  min_yes_price: 0.20
-  max_yes_price: 0.80
-  hard_reject_below_yes_price: 0.15
-  hard_reject_above_yes_price: 0.85
-  # Preferred range for probability_zone scoring (markets in this range score highest)
-  preferred_min_yes_price: 0.30
-  preferred_max_yes_price: 0.70
-
-  min_days_to_resolution: 0.5
-  max_days_to_resolution: 14
-  preferred_min_days_to_resolution: 0.5
-  preferred_max_days_to_resolution: 7
-
-  # Spread thresholds — applied to the best-side % (cheaper of YES vs NO),
-  # so a low-YES market with a tradeable NO side isn't rejected for YES-side
-  # math the user would never actually pay.
-  max_spread_pct: 0.04
-  preferred_max_spread_pct: 0.02
-  max_round_trip_friction_pct: 0.08  # hard reject if estimated buy+sell friction exceeds this
-
-  min_volume: 1000
-  min_open_interest: 1000
-
-  # Order book depth filters (core, not optional)
-  min_bid_depth_usd: 100             # minimum total bid depth within 5% of mid price
-  max_slippage_at_20usd: 0.02        # reject if $20 order moves price more than 2%
-
-  reject_ultra_short_noise_markets: true
-  reject_long_dated_narrative_markets: true
-  long_dated_narrative_days_cutoff: 30
-
-  # Resolution risk
-  flag_uma_only_resolution: true     # flag (not necessarily reject) markets with UMA-only resolution
-  reject_high_resolution_risk: false  # if true, hard reject markets flagged as high resolution risk
-
-heuristics:
-  objective_whitelist_keywords:
-    - "will"
-    - "above"
-    - "below"
-    - "by"
-    - "before"
-    - "on"
-    - "wins"
-    - "winner"
-    - "rate cut"
-    - "cpi"
-    - "earnings"
-    - "etf"
-    - "price"
-    - "market cap"
-    - "which"
-    - "exceed"
-    - "reach"
-    - "fall"
-    - "drop"
-    - "close"
-
-  objective_blacklist_keywords:
-    - "best"
-    - "favorite"
-    - "most impressive"
-    - "dominant"
-    - "successful"
-    - "leading"
-    - "strongest"
-
-  noise_market_keywords:
-    - "5 min"
-    - "5-minute"
-    - "next 5 minutes"
-    - "up or down"
-    - "1 minute"
-
-  # Noise detection also uses: days_to_resolution < noise_max_days AND category in noise_categories
-  noise_max_days: 0.1  # ~2.4 hours
-  noise_categories:
-    - "Crypto"  # short-term crypto up/down markets
-
-  narrative_market_keywords:
-    - "largest ipo in"
-    - "what will x ticker be"
-    - "best ai model"
-    - "most valuable by end of year"
-
-  # Resolution source quality keywords (bonus for objectivity score)
-  resolution_source_bonus_keywords:
-    - "coingecko"
-    - "coinmarketcap"
-    - "binance"
-    - "associated press"
-    - "reuters"
-    - "official"
-    - "bureau of labor statistics"
-    - "federal reserve"
-
 scoring:
   # Per-dimension weights live in code, not YAML — see
   # polily/scan/scoring.py (_TYPE_WEIGHTS / _DEFAULT_WEIGHTS).
@@ -135,33 +22,6 @@ scoring:
     # Tier A mode: set false so Tier A is score-only (always has content)
     # Set true to require mispricing signal (stricter, may be empty most days)
     tier_a_require_mispricing: false
-
-# Market type classification and type-specific scoring adjustments
-market_types:
-  # Note: scoring_overrides are no longer used in the 5-dimension system.
-  # Market type config retained for mispricing_enabled and classification.
-  crypto_threshold:
-    keywords: ["btc", "eth", "bitcoin", "ethereum", "above", "below", "price"]
-    scoring_overrides: {}
-    mispricing_enabled: true          # can compute theoretical fair value from vol model
-  political:
-    keywords: ["election", "president", "governor", "senate", "vote", "nominee", "party"]
-    scoring_overrides: {}
-    mispricing_enabled: false         # no quantitative model available
-  economic_data:
-    keywords: ["cpi", "inflation", "rate cut", "fomc", "jobs", "gdp", "nonfarm", "earnings"]
-    scoring_overrides: {}
-    mispricing_enabled: false         # consensus data too efficient for retail edge
-    note: "Repricing happens instantly at data release — no exit window for repricing trades"
-  sports:
-    keywords: ["game", "match", "championship", "playoff", "super bowl", "world cup", "mvp"]
-    scoring_overrides: {}
-    mispricing_enabled: false         # would need sportsbook odds integration
-  tech:
-    keywords: ["ai", "openai", "google", "apple", "nvidia", "model", "launch", "release", "regulation"]
-    scoring_overrides: {}
-    mispricing_enabled: false         # thin liquidity, ambiguous resolution
-    note: "Tech markets often have thin liquidity and ambiguous resolution — use limit orders only"
 
 # AI Agent configuration
 # All agents use Claude Code CLI (claude -p), included in subscription — no API key, no per-token cost.
@@ -189,33 +49,6 @@ mispricing:
     enabled: true
     max_sum_deviation: 0.10           # flag if outcome YES prices sum deviates >10% from 1.0
 
-# Counterparty analysis
-counterparty:
-  flag_large_trades: true
-  large_trade_threshold_usd: 500     # flag trades above this size in recent history
-  flag_book_imbalance: true
-  book_imbalance_ratio: 3.0          # flag if bid/ask depth ratio exceeds 3:1
-
-# Paper trading
-paper_trading:
-  enabled: true
-  default_position_size_usd: 20     # assumed notional for PnL calculations
-  # Friction assumption for adjusted PnL
-  assumed_round_trip_friction_pct: 0.04
-
-# Risk discipline
-discipline:
-  account_size_usd: 150
-  max_single_trade_pct: 0.13         # 13% of account = ~$20
-  max_single_trade_usd: 20
-  max_concurrent_positions: 3
-  max_total_exposure_pct: 0.40       # 40% of account
-  max_trades_per_week: 5             # soft limit — display warning if exceeded
-  # Account stop-loss: if account drops to this level, recommend pausing
-  pause_threshold_usd: 80            # ~47% drawdown
-  # Paper trading recommendation for new users
-  paper_trading_first_days: 14       # recommend paper-only for first N days
-
 # Onboarding
 onboarding:
   enabled: true
@@ -229,42 +62,13 @@ checklists:
   # Checklist is shown in Layer 2 (verbose/inspect) output
   show_in_layer: 2
 
-reporting:
-  write_json: true
-  write_csv: true
-  write_terminal_summary: true
-  include_score_breakdown: true
-  include_risk_flags: true
-  include_why_it_passed: true
-  include_friction_estimate: true
-  include_counterparty_note: true
-  include_mispricing_signal: true
-  include_research_checklist: true    # in verbose/inspect mode
-  include_worst_case_loss: true
-  include_net_edge_after_friction: true
-  include_discipline_status: true
-  # Every report header must include this disclaimer
-  disclaimer: "Polily output is a research prompt, not a trade recommendation. High scores indicate good market structure, not guaranteed edge."
-
 # Database
 archiving:
-  enabled: true
   db_file: "./data/polily.db"
 
 # Wallet (v0.6.0 paper trading system)
 wallet:
   starting_balance: 100.0              # initial cash when wallet is first created or reset
-
-execution_hints:
-  small_account_mode: true
-  default_trade_style: "research_candidate"
-  suggest_manual_review_only: true
-  suggest_auto_trading: false
-  # Estimated round-trip friction floor — if no edge exceeds this, say so honestly
-  friction_floor_pct: 0.04
-  # Show conditional direction advice ("如果你看涨: 有 edge")
-  # Default off — enable with --lean flag or set true here
-  show_conditional_advice: false
 
 watchlist:
   enabled: true
@@ -276,8 +80,6 @@ watchlist:
   alert_on_mispricing_signal: "moderate"  # alert when mispricing signal reaches this level
 
 movement:
-  enabled: true
   magnitude_threshold: 70
   quality_threshold: 60
   daily_analysis_limit: 10
-  rolling_window_hours: 6
