@@ -11,8 +11,6 @@ from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_PROMPT_CHARS = 5000
-
 # Global registry of active subprocess PIDs for cleanup on exit
 _active_pids: set[int] = set()
 
@@ -93,7 +91,8 @@ class BaseAgent:
         json_schema: dict,
         model: str = "sonnet",
         cli_command: str | None = None,
-        max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+        *,
+        max_prompt_chars: int,  # required keyword-only; sourced from AgentConfig.max_prompt_chars
         allowed_tools: list[str] | None = None,
         # Legacy compat — these are ignored now (no system kill)
         idle_timeout_seconds: float = 0,

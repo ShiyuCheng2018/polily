@@ -74,3 +74,23 @@ def test_movement_config_min_history_default():
     cfg = MovementConfig()
     assert cfg.min_history_entries == 5
     assert cfg.stale_threshold_seconds == 600
+
+
+def test_agent_config_max_prompt_chars_default():
+    """Phase 0 Task 13: DEFAULT_MAX_PROMPT_CHARS lifted into AgentConfig."""
+    from polily.core.config import AgentConfig
+    cfg = AgentConfig()
+    assert cfg.max_prompt_chars == 5000
+
+
+def test_agent_config_no_dead_fields():
+    """Phase 0 Task 13: AgentConfig has only the 3 fields actually consumed.
+
+    Removed: enabled, max_concurrent, max_candidates (zero consumers per audit).
+    Kept: model, timeout_seconds, max_prompt_chars.
+    """
+    from polily.core.config import AgentConfig
+    fields = set(AgentConfig.model_fields.keys())
+    assert fields == {"model", "timeout_seconds", "max_prompt_chars"}, (
+        f"AgentConfig should have only 3 fields after Phase 0; got: {fields}"
+    )

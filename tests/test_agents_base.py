@@ -15,6 +15,7 @@ class TestBaseAgentInvoke:
             system_prompt="You are a test agent.",
             json_schema={"type": "object", "properties": {"score": {"type": "integer"}}},
             model="haiku",
+            max_prompt_chars=5000,
         )
         expected = {"score": 42}
         stdout = make_cli_response(expected)
@@ -34,6 +35,7 @@ class TestBaseAgentInvoke:
             system_prompt="You are X.",
             json_schema={"type": "object"},
             model="sonnet",
+            max_prompt_chars=5000,
         )
         stdout = make_cli_response({"ok": True})
 
@@ -96,6 +98,7 @@ class TestBaseAgentErrorMessage:
             system_prompt="X",
             json_schema={"type": "object"},
             model="sonnet",
+            max_prompt_chars=5000,
         )
         stdout = _json.dumps({
             "type": "result",
@@ -130,6 +133,7 @@ class TestBaseAgentErrorMessage:
             system_prompt="X",
             json_schema={"type": "object"},
             model="sonnet",
+            max_prompt_chars=5000,
         )
         stdout = _json.dumps([
             {"type": "system", "subtype": "init"},
@@ -161,6 +165,7 @@ class TestBaseAgentErrorMessage:
             system_prompt="X",
             json_schema={"type": "object"},
             model="sonnet",
+            max_prompt_chars=5000,
         )
 
         with patch("polily.agents.base.asyncio.create_subprocess_exec") as mock_exec:
@@ -184,6 +189,7 @@ class TestBaseAgentToolMode:
             system_prompt="test",
             json_schema={"type": "object"},
             model="sonnet",
+            max_prompt_chars=5000,
             allowed_tools=["Read", "Bash", "WebSearch", "StructuredOutput"],
         )
         stdout = make_cli_response({"ok": True})
@@ -211,6 +217,7 @@ class TestBaseAgentToolMode:
             system_prompt="test",
             json_schema={"type": "object"},
             model="sonnet",
+            max_prompt_chars=5000,
         )
         stdout = make_cli_response({"ok": True})
 
@@ -233,6 +240,7 @@ class TestBaseAgentToolMode:
             system_prompt="You are a helpful assistant.",
             json_schema={"type": "object"},
             model="sonnet",
+            max_prompt_chars=5000,
             allowed_tools=["StructuredOutput"],
         )
         stdout = make_cli_response({"ok": True})
@@ -262,6 +270,7 @@ class TestBaseAgentBatch:
             system_prompt="X",
             json_schema={"type": "object", "properties": {"n": {"type": "integer"}}},
             model="haiku",
+            max_prompt_chars=5000,
         )
 
         call_count = 0
@@ -301,6 +310,7 @@ class TestBaseAgentCliCommandResolution:
         monkeypatch.setenv("POLILY_CLAUDE_CLI", str(fake))
         agent = BaseAgent(
             system_prompt="x", json_schema={"type": "object"}, model="haiku",
+            max_prompt_chars=5000,
         )
         assert agent.cli_command == str(fake)
 
@@ -308,6 +318,7 @@ class TestBaseAgentCliCommandResolution:
         monkeypatch.delenv("POLILY_CLAUDE_CLI", raising=False)
         agent = BaseAgent(
             system_prompt="x", json_schema={"type": "object"}, model="haiku",
+            max_prompt_chars=5000,
         )
         assert agent.cli_command == "claude"
 
@@ -322,6 +333,7 @@ class TestBaseAgentCliCommandResolution:
         with caplog.at_level(_logging.WARNING, logger="polily.agents.base"):
             agent = BaseAgent(
                 system_prompt="x", json_schema={"type": "object"}, model="haiku",
+                max_prompt_chars=5000,
             )
         assert agent.cli_command == "claude"
         assert any(
@@ -342,5 +354,6 @@ class TestBaseAgentCliCommandResolution:
             json_schema={"type": "object"},
             model="haiku",
             cli_command=str(fake),
+            max_prompt_chars=5000,
         )
         assert agent.cli_command == str(fake)

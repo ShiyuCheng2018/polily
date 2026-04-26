@@ -43,6 +43,7 @@ class NarrativeWriterAgent:
             json_schema=NarrativeWriterOutput.model_json_schema(),
             model=config.model,
             timeout_seconds=config.timeout_seconds,
+            max_prompt_chars=config.max_prompt_chars,  # NEW (Phase 0 Task 13)
             allowed_tools=AGENT_TOOLS,
         )
 

@@ -58,16 +58,24 @@ class ScoringConfig(BaseModel):
 
 
 class AgentConfig(BaseModel):
-    enabled: bool = True
+    """Per-agent runtime config — only fields actually consumed.
+
+    Phase 0 (2026-04-25): removed unused `enabled`, `max_concurrent`,
+    `max_candidates` fields (zero production consumers per audit).
+    """
     model: str = "sonnet"
-    max_concurrent: int = 3
-    timeout_seconds: int = 60
-    max_candidates: int = 15  # max markets to AI-analyze per scan
+    timeout_seconds: int = 120
+    max_prompt_chars: int = 5000  # truncation threshold for tool-mode prompts (was DEFAULT_MAX_PROMPT_CHARS in agents/base.py)
 
 
 class AiConfig(BaseModel):
-    cli_command: str = "claude"
-    narrative_writer: AgentConfig = AgentConfig(model="sonnet", max_candidates=8, max_concurrent=2, timeout_seconds=300)
+    """AI agent runtime config.
+
+    Phase 0 (2026-04-25): removed dead `cli_command` field (set in
+    config but never threaded into BaseAgent constructor; BaseAgent
+    has its own POLILY_CLAUDE_CLI env var → 'claude' fallback chain).
+    """
+    narrative_writer: AgentConfig = AgentConfig(model="sonnet", timeout_seconds=300)
 
 
 class CryptoMispricingConfig(BaseModel):
