@@ -66,3 +66,11 @@ scoring:
             f.flush()
             config = load_config(Path(f.name), defaults_path=Path("config.example.yaml"))
             assert config.scoring.thresholds.tier_a_min_score == 80
+
+
+def test_movement_config_min_history_default():
+    """Phase 0 Task 12: hardcoded _MIN_HISTORY/_STALE_SECONDS lifted into MovementConfig."""
+    from polily.core.config import MovementConfig
+    cfg = MovementConfig()
+    assert cfg.min_history_entries == 5
+    assert cfg.stale_threshold_seconds == 600

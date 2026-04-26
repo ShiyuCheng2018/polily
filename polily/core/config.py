@@ -123,6 +123,8 @@ class MovementConfig(BaseModel):
     magnitude_threshold: float = 70
     quality_threshold: float = 60
     daily_analysis_limit: int = 10  # max AI analyses per market per day
+    min_history_entries: int = 5  # min movement_log rows before scoring kicks in (was poll_job _MIN_HISTORY)
+    stale_threshold_seconds: int = 600  # data older than this skipped (was poll_job _STALE_SECONDS)
 
     # Note: open_interest_delta and correlated_asset_move removed —
     # Polymarket CLOB API does not expose per-poll OI or correlated assets.
