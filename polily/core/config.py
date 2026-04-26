@@ -78,6 +78,17 @@ class AiConfig(BaseModel):
     narrative_writer: AgentConfig = AgentConfig(model="sonnet", timeout_seconds=300)
 
 
+class TuiConfig(BaseModel):
+    """TUI runtime config — UI behavior knobs.
+
+    Phase 0 (2026-04-25) introduced this section to lift hardcoded UI
+    constants (e.g., HEARTBEAT_SECONDS) out of view files. Will accumulate
+    additional TUI-only knobs (theme, font, refresh intervals) in future
+    PRs.
+    """
+    heartbeat_seconds: float = 5.0  # interval for bus_heartbeat refresh tick
+
+
 class CryptoMispricingConfig(BaseModel):
     volatility_lookback_days: int = 30
     min_deviation_pct: float = 0.08
@@ -185,6 +196,7 @@ class PolilyConfig(BaseModel):
     api: ApiConfig = ApiConfig()
     scoring: ScoringConfig = ScoringConfig()
     ai: AiConfig = AiConfig()
+    tui: TuiConfig = TuiConfig()
     mispricing: MispricingConfig = MispricingConfig()
     archiving: ArchivingConfig = ArchivingConfig()
     wallet: WalletConfig = Field(default_factory=WalletConfig)

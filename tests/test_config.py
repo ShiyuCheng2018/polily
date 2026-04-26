@@ -94,3 +94,10 @@ def test_agent_config_no_dead_fields():
     assert fields == {"model", "timeout_seconds", "max_prompt_chars"}, (
         f"AgentConfig should have only 3 fields after Phase 0; got: {fields}"
     )
+
+
+def test_tui_config_heartbeat_default():
+    """Phase 0 Task 14: HEARTBEAT_SECONDS lifted into new TuiConfig section."""
+    from polily.core.config import PolilyConfig
+    cfg = PolilyConfig()
+    assert cfg.tui.heartbeat_seconds == 5.0

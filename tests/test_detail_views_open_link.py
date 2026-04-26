@@ -27,6 +27,7 @@ from polily.tui.service import PolilyService
 @pytest.fixture
 def svc_with_slug(tmp_path):
     cfg = MagicMock()
+    cfg.tui.heartbeat_seconds = 5.0  # Phase 0 Task 14: real float for Textual timer
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "s.db")
     upsert_event(
@@ -40,6 +41,7 @@ def svc_with_slug(tmp_path):
 @pytest.fixture
 def svc_no_slug(tmp_path):
     cfg = MagicMock()
+    cfg.tui.heartbeat_seconds = 5.0  # Phase 0 Task 14: real float for Textual timer
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "s.db")
     upsert_event(

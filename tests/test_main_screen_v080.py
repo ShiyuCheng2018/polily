@@ -18,6 +18,7 @@ def svc(tmp_path):
     cfg.wallet.starting_balance = 100.0
     cfg.paper_trading.default_position_size_usd = 20
     cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
+    cfg.tui.heartbeat_seconds = 5.0  # Phase 0 Task 14: TuiConfig field — Textual timer requires real float
     db = PolilyDB(tmp_path / "ms.db")
     yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()
