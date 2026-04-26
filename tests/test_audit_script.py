@@ -84,8 +84,8 @@ def test_enumerate_handles_empty_dict_with_basemodel_value():
     in the leaf list (via <empty> placeholder), otherwise dead-config
     audits would silently miss them.
 
-    Reproduces the original bug where `market_types: dict[str, MarketTypeConfig] = {}`
-    produced zero leaves and was invisible to the audit.
+    Reproduces the original bug where empty-default `dict[str, BaseModel]`
+    fields produced zero leaves and were invisible to the audit.
     """
     from pydantic import BaseModel
 

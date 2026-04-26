@@ -46,14 +46,6 @@ class ApiConfig(BaseModel):
     user_agent: str = Field(default_factory=_default_user_agent)
 
 
-class CliConfig(BaseModel):
-    default_mode: str = "default"
-    tier_b_terminal_limit: int = 5
-    show_tier_c_in_terminal: bool = False
-    generate_market_links: bool = True
-    polymarket_base_url: str = "https://polymarket.com/event/"
-
-
 class ScoringThresholds(BaseModel):
     tier_a_min_score: int = 70
     tier_b_min_score: int = 45
@@ -68,13 +60,6 @@ class ScoringConfig(BaseModel):
     are tightly coupled with the scoring algorithm and not user-tunable.
     """
     thresholds: ScoringThresholds = ScoringThresholds()
-
-
-class MarketTypeConfig(BaseModel):
-    keywords: list[str] = []
-    scoring_overrides: dict[str, int] = {}
-    mispricing_enabled: bool = False
-    note: str | None = None
 
 
 class AgentConfig(BaseModel):
@@ -108,34 +93,7 @@ class MispricingConfig(BaseModel):
     multi_outcome: MultiOutcomeConfig = MultiOutcomeConfig()
 
 
-class PaperTradingConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    enabled: bool = True
-    default_position_size_usd: float = 20
-    assumed_round_trip_friction_pct: float = 0.04
-
-
-class ReportingConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    write_json: bool = True
-    write_csv: bool = True
-    write_terminal_summary: bool = True
-    include_score_breakdown: bool = True
-    include_risk_flags: bool = True
-    include_why_it_passed: bool = True
-    include_friction_estimate: bool = True
-    include_counterparty_note: bool = True
-    include_mispricing_signal: bool = True
-    include_worst_case_loss: bool = True
-    include_net_edge_after_friction: bool = True
-    include_discipline_status: bool = True
-    disclaimer: str = "Polily output is a research prompt, not a trade recommendation."
-
-
 class ArchivingConfig(BaseModel):
-    enabled: bool = True
     db_file: str = "./data/polily.db"
 
 
@@ -146,16 +104,6 @@ class WalletConfig(BaseModel):
         ge=1.0,
         description="Initial cash when wallet is first created or reset.",
     )
-
-
-class ExecutionHintsConfig(BaseModel):
-    small_account_mode: bool = True
-    default_trade_style: str = "research_candidate"
-    suggest_manual_review_only: bool = True
-    suggest_auto_trading: bool = False
-    friction_floor_pct: float = 0.04
-    # Conditional advice ("if you're bullish, this may have edge") — off by default, enable with --lean
-    show_conditional_advice: bool = False
 
 
 class MovementWeights(BaseModel):
@@ -232,16 +180,11 @@ class PolilyConfig(BaseModel):
         return cls()
 
     api: ApiConfig = ApiConfig()
-    cli: CliConfig = CliConfig()
     scoring: ScoringConfig = ScoringConfig()
-    market_types: dict[str, MarketTypeConfig] = {}
     ai: AiConfig = AiConfig()
     mispricing: MispricingConfig = MispricingConfig()
-    paper_trading: PaperTradingConfig = PaperTradingConfig()
-    reporting: ReportingConfig = ReportingConfig()
     archiving: ArchivingConfig = ArchivingConfig()
     wallet: WalletConfig = Field(default_factory=WalletConfig)
-    execution_hints: ExecutionHintsConfig = ExecutionHintsConfig()
     movement: MovementConfig = MovementConfig()
 
 
