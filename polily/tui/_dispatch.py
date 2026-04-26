@@ -53,7 +53,7 @@ def once_per_tick(method: Callable) -> Callable:
         class MyView(Widget):
             @once_per_tick
             def refresh_data(self):
-                self.recompose()
+                self.refresh(recompose=True)
 
             def _on_price_update(self, payload):
                 self.refresh_data()

@@ -150,7 +150,7 @@ class ChangelogView(Widget):
         try:
             self.query_one("#changelog-md", Markdown).update(_load_changelog())
         except Exception:
-            self.recompose()
+            self.refresh(recompose=True)
             return
 
         from polily import __version__ as current

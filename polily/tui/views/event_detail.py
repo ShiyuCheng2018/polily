@@ -255,7 +255,7 @@ class EventDetailView(Widget):
             pass  # keep current
         elif analyses:
             self._version_idx = len(analyses) - 1
-        self.recompose()
+        self.refresh(recompose=True)
 
     # ------------------------------------------------------------------
     # Actions

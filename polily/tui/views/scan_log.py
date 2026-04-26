@@ -740,7 +740,7 @@ class ScanLogDetailView(Widget):
         )
         if fresh is not None:
             self.log_entry = fresh
-        self.recompose()
+        self.refresh(recompose=True)
 
     def action_go_back(self) -> None:
         self.post_message(BackToScanLog())
