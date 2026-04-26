@@ -10,6 +10,8 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.9.5] — 2026-04-26
+
 ### Removed
 
 - **Dead config sections cleared from `PolilyConfig`.** A wholesale audit found ~15 config subsections with zero production consumers — leftover vocabulary from the v0.5-era batch-scan pipeline that didn't survive the URL-driven redesign. Removed in full: `DisciplineConfig` (8 fields), `CounterpartyConfig` (4 fields), `ScoringWeights` (5 fields, replaced by `_TYPE_WEIGHTS` constants in `polily/scan/scoring.py`), `FiltersConfig`, `HeuristicsConfig`, `CliConfig`, `ReportingConfig`, `ExecutionHintsConfig`, `PaperTradingConfig`, `MarketTypeConfig`. Trimmed in part: `MovementConfig` (`enabled`, `rolling_window_hours`, `cusum_drift`, `cusum_threshold`, `drift_cooldown_seconds`, `drift_windows`), `ApiConfig` (`provider`, `max_retries`, `backoff_seconds`, `use_cache`, `cache_dir`), `CryptoMispricingConfig` (`price_source`, `prefer_implied_vol`), `ArchivingConfig` (`enabled`), `AgentConfig` (`enabled`, `max_concurrent`, `max_candidates`), `AiConfig` (`cli_command`). The `config.example.yaml` mirror was scrubbed in lockstep — 9 top-level dead sections + 3 orphans (`onboarding`, `checklists`, `watchlist`) + matching nested fields. **Action for users:** if your local `config.yaml` references any of these keys, no action is required — Pydantic's `extra="ignore"` silently drops them, so nothing breaks at runtime; but pruning your local config keeps it readable and matches the new shape.
@@ -484,7 +486,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.4...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.5...dev
+[0.9.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.5
 [0.9.4]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.4
 [0.9.3]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.3
 [0.9.2]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.2
