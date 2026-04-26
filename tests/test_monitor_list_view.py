@@ -16,8 +16,6 @@ from tests.conftest import make_event, setup_event_and_market
 
 def _service() -> PolilyService:
     cfg = MagicMock()
-    cfg.paper_trading.default_position_size_usd = 20
-    cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
     tmp = tempfile.TemporaryDirectory()
     db = PolilyDB(Path(tmp.name) / "polily.db")
     svc = PolilyService(config=cfg, db=db)

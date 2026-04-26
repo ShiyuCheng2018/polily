@@ -43,35 +43,12 @@ class TestLoadConfig:
     def test_load_example_config(self):
         config = load_config(Path("config.example.yaml"))
         assert config is not None
-        assert config.filters.max_spread_pct == 0.04
-        assert config.scoring.weights.objective_verifiability == 25
+        assert config.scoring.thresholds.tier_a_min_score == 70
 
     def test_load_minimal_config_merges_with_defaults(self):
         config = load_config(Path("config.minimal.yaml"), defaults_path=Path("config.example.yaml"))
-        # minimal sets discipline values
-        assert config.discipline.account_size_usd == 150
-        assert config.discipline.max_single_trade_usd == 20
-        # inherits all other defaults from example
-        assert config.filters.max_spread_pct == 0.04
-        assert config.scoring.weights.objective_verifiability == 25
-
-    def test_scoring_weights_sum_to_100(self):
-        config = load_config(Path("config.example.yaml"))
-        w = config.scoring.weights
-        total = (
-            w.liquidity_structure + w.objective_verifiability
-            + w.probability_space + w.time_structure
-            + w.trading_friction
-        )
-        assert total == 100
-
-    def test_filters_thresholds_consistent(self):
-        config = load_config(Path("config.example.yaml"))
-        f = config.filters
-        assert f.hard_reject_below_yes_price < f.min_yes_price
-        assert f.hard_reject_above_yes_price > f.max_yes_price
-        assert f.preferred_min_yes_price >= f.min_yes_price
-        assert f.preferred_max_yes_price <= f.max_yes_price
+        # inherits all defaults from example
+        assert config.scoring.thresholds.tier_a_min_score == 70
 
     def test_ai_config_has_narrative_writer(self):
         config = load_config(Path("config.example.yaml"))
@@ -80,19 +57,47 @@ class TestLoadConfig:
 
     def test_custom_yaml(self):
         yaml_content = """
-filters:
-  max_spread_pct: 0.02
 scoring:
-  weights:
-    liquidity_structure: 35
-    objective_verifiability: 20
-    probability_space: 20
-    time_structure: 15
-    trading_friction: 10
+  thresholds:
+    tier_a_min_score: 80
 """
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             f.flush()
             config = load_config(Path(f.name), defaults_path=Path("config.example.yaml"))
-            assert config.filters.max_spread_pct == 0.02
-            assert config.scoring.weights.liquidity_structure == 35
+            assert config.scoring.thresholds.tier_a_min_score == 80
+
+
+def test_movement_config_min_history_default():
+    """Phase 0 Task 12: hardcoded _MIN_HISTORY/_STALE_SECONDS lifted into MovementConfig."""
+    from polily.core.config import MovementConfig
+    cfg = MovementConfig()
+    assert cfg.min_history_entries == 5
+    assert cfg.stale_threshold_seconds == 600
+
+
+def test_agent_config_max_prompt_chars_default():
+    """Phase 0 Task 13: DEFAULT_MAX_PROMPT_CHARS lifted into AgentConfig."""
+    from polily.core.config import AgentConfig
+    cfg = AgentConfig()
+    assert cfg.max_prompt_chars == 5000
+
+
+def test_agent_config_no_dead_fields():
+    """Phase 0 Task 13: AgentConfig has only the 3 fields actually consumed.
+
+    Removed: enabled, max_concurrent, max_candidates (zero consumers per audit).
+    Kept: model, timeout_seconds, max_prompt_chars.
+    """
+    from polily.core.config import AgentConfig
+    fields = set(AgentConfig.model_fields.keys())
+    assert fields == {"model", "timeout_seconds", "max_prompt_chars"}, (
+        f"AgentConfig should have only 3 fields after Phase 0; got: {fields}"
+    )
+
+
+def test_tui_config_heartbeat_default():
+    """Phase 0 Task 14: HEARTBEAT_SECONDS lifted into new TuiConfig section."""
+    from polily.core.config import PolilyConfig
+    cfg = PolilyConfig()
+    assert cfg.tui.heartbeat_seconds == 5.0

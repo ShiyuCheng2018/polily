@@ -49,8 +49,12 @@ class MovementResult(BaseModel):
             return "slow_build"
         return "noise"
 
-    def should_trigger(self, m_threshold: float = 70, q_threshold: float = 60) -> bool:
-        """Whether this movement should trigger a full AI analysis."""
+    def should_trigger(self, *, m_threshold: float, q_threshold: float) -> bool:
+        """Decide if movement scores cross both thresholds.
+
+        Phase 0 (2026-04-25): args are keyword-only required to force callers
+        to source values from MovementConfig (no DRY-violating defaults).
+        """
         return self.magnitude >= m_threshold and self.quality >= q_threshold
 
     @property

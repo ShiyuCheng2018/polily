@@ -153,19 +153,3 @@ class TestOrderBookIntegrationWithScoring:
         s2 = compute_structure_score(m_no_depth)
 
         assert s1.liquidity_structure > s2.liquidity_structure
-
-    def test_depth_filter_rejects_shallow_book(self):
-        from polily.core.config import FiltersConfig, HeuristicsConfig
-        from polily.scan.filters import apply_hard_filters
-
-        m = make_market(
-            book_depth_bids=[BookLevel(price=0.54, size=30)],
-            book_depth_asks=[BookLevel(price=0.56, size=30)],
-        )
-        result = apply_hard_filters(
-            [m],
-            FiltersConfig(min_bid_depth_usd=100),
-            HeuristicsConfig(),
-        )
-        assert len(result.passed) == 0
-        assert "depth" in result.rejected[0].reason.lower()

@@ -15,6 +15,7 @@ from polily.tui.service import PolilyService
 @pytest.fixture
 def svc(tmp_path):
     cfg = MagicMock()
+    cfg.tui.heartbeat_seconds = 5.0  # Phase 0 Task 14: real float for Textual timer
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(EventRow(event_id="ev1", title="Test Market Event", updated_at="now"), db)

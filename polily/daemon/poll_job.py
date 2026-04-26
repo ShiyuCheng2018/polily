@@ -516,8 +516,8 @@ def _run_intelligence_layer(db: PolilyDB) -> None:
                 continue
 
             # --- Per-sub-market signal computation ---
-            _MIN_HISTORY = 5  # minimum entries for meaningful signals
-            _STALE_SECONDS = 600  # 10 min — data older than this is stale
+            min_history = mc.min_history_entries
+            stale_seconds = mc.stale_threshold_seconds
 
             # Fetch once per event (not per market)
             recent = get_event_movements(event_id, db, hours=6)
@@ -528,7 +528,7 @@ def _run_intelligence_layer(db: PolilyDB) -> None:
                 ]
 
                 # Guard: check data sufficiency and freshness
-                is_cold = len(market_entries) < _MIN_HISTORY
+                is_cold = len(market_entries) < min_history
                 is_stale = False
                 if market_entries:
                     latest_ts = market_entries[0].get("created_at", "")
@@ -537,7 +537,7 @@ def _run_intelligence_layer(db: PolilyDB) -> None:
                         if latest_dt.tzinfo is None:
                             latest_dt = latest_dt.replace(tzinfo=UTC)
                         age = (datetime.now(UTC) - latest_dt).total_seconds()
-                        is_stale = age > _STALE_SECONDS
+                        is_stale = age > stale_seconds
                     except (ValueError, TypeError):
                         is_stale = True
 
@@ -813,7 +813,10 @@ def _check_event_trigger(
 
     # Check trigger threshold
     agg = MovementResult(magnitude=max_m, quality=max_q)
-    if not agg.should_trigger(mc.magnitude_threshold, mc.quality_threshold):
+    if not agg.should_trigger(
+        m_threshold=mc.magnitude_threshold,
+        q_threshold=mc.quality_threshold,
+    ):
         return
 
     # Check cooldown: last triggered analysis for this event
