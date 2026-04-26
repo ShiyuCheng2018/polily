@@ -37,12 +37,7 @@ def deep_merge(base: dict, override: dict) -> dict:
 
 
 class ApiConfig(BaseModel):
-    provider: str = "polymarket"
     request_timeout_seconds: int = 20
-    max_retries: int = 3
-    backoff_seconds: float = 1.5
-    use_cache: bool = True
-    cache_dir: str = "./data/cache"
     user_agent: str = Field(default_factory=_default_user_agent)
 
 
@@ -76,10 +71,8 @@ class AiConfig(BaseModel):
 
 
 class CryptoMispricingConfig(BaseModel):
-    price_source: str = "binance"
     volatility_lookback_days: int = 30
     min_deviation_pct: float = 0.08
-    prefer_implied_vol: bool = True
 
 
 class MultiOutcomeConfig(BaseModel):
