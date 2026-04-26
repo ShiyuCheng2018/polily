@@ -10,6 +10,22 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Removed
+
+- **Dead config sections cleared from `PolilyConfig`.** A wholesale audit found ~15 config subsections with zero production consumers — leftover vocabulary from the v0.5-era batch-scan pipeline that didn't survive the URL-driven redesign. Removed in full: `DisciplineConfig` (8 fields), `CounterpartyConfig` (4 fields), `ScoringWeights` (5 fields, replaced by `_TYPE_WEIGHTS` constants in `polily/scan/scoring.py`), `FiltersConfig`, `HeuristicsConfig`, `CliConfig`, `ReportingConfig`, `ExecutionHintsConfig`, `PaperTradingConfig`, `MarketTypeConfig`. Trimmed in part: `MovementConfig` (`enabled`, `rolling_window_hours`, `cusum_drift`, `cusum_threshold`, `drift_cooldown_seconds`, `drift_windows`), `ApiConfig` (`provider`, `max_retries`, `backoff_seconds`, `use_cache`, `cache_dir`), `CryptoMispricingConfig` (`price_source`, `prefer_implied_vol`), `ArchivingConfig` (`enabled`), `AgentConfig` (`enabled`, `max_concurrent`, `max_candidates`), `AiConfig` (`cli_command`). The `config.example.yaml` mirror was scrubbed in lockstep — 9 top-level dead sections + 3 orphans (`onboarding`, `checklists`, `watchlist`) + matching nested fields. **Action for users:** if your local `config.yaml` references any of these keys, no action is required — Pydantic's `extra="ignore"` silently drops them, so nothing breaks at runtime; but pruning your local config keeps it readable and matches the new shape.
+
+- **Dead modules deleted.** `polily/monitor/drift.py` (CUSUM drift detector — superseded by movement scoring in v0.7+) and `polily/scan/filters.py` (hard-filter pass — not invoked by the URL-driven pipeline) are removed along with their test files (`tests/test_drift_detector.py`, `tests/test_event_filter.py`, `tests/test_filters.py`, plus one surgical removal in `tests/test_two_pass.py`). Both modules were test-imported only; no production caller existed.
+
+### Internal
+
+- **Hardcoded constants migrated to `PolilyConfig`.** `_MIN_HISTORY = 5` and `_STALE_SECONDS = 600` (in `polily/daemon/poll_job.py`) moved to `MovementConfig.min_history_entries` / `MovementConfig.stale_threshold_seconds`. `DEFAULT_MAX_PROMPT_CHARS = 5000` (in `polily/agents/base.py`) moved to `AgentConfig.max_prompt_chars`. `HEARTBEAT_SECONDS = 5` (in `polily/tui/screens/main.py`) moved to a new `TuiConfig.heartbeat_seconds`. All defaults preserved exactly — zero behavior change. Sets up a future TUI Config view to surface these as user-tunable knobs without further refactoring.
+
+- **DRY violations fixed at config consumption sites.** `polily.monitor.models.Movement.should_trigger` previously hardcoded threshold defaults that mirrored `MovementConfig` defaults — they're now keyword-only required (`*, m_threshold, q_threshold`), forcing callers to source values from `PolilyConfig` instead of accidentally falling back to method-level defaults. Same treatment for `BaseAgent.__init__(max_prompt_chars: int)`. Production callers updated to kwarg form; the "defaults shadowing config" bug class is now structurally prevented.
+
+- **CI meta-test added: every config field must have a production consumer.** New `tests/test_config_field_consumption.py` enforces two invariants on every `PolilyConfig` leaf: (1) it has at least one production consumer (no dead fields), and (2) any low-specificity grep match must be documented in a `LOW_SPECIFICITY_VERIFIED` registry with a `file:line` consumer reference. Pre-populated with 80 `movement.weights` anchors (dict iteration in `polily/monitor/scorer.py`) and 13 parameter-based-access anchors. Future config additions that don't get wired up will fail CI; refactors that orphan a config field will fail CI. The "config knobs that do nothing" bug class is now caught at PR time.
+
+- **Audit tooling: `scripts/audit_config_usage.py`.** One-shot tool that enumerates every `PolilyConfig` leaf and greps production usage via a 4-level cascade heuristic (`full_path → two_seg → last_seg → quoted_key`), returning `(count, sample_lines)` with each sample tagged by match level. Drove the wholesale code deletion in this Phase 0; available for future audits when adding or restructuring config sections.
+
 ## [0.9.4] — 2026-04-24
 
 ### Fixed
