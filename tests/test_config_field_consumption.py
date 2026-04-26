@@ -73,6 +73,63 @@ LOW_SPECIFICITY_VERIFIED: dict[str, str] = {
     # non-existent leaves are harmless (they only matter if the meta-test
     # encounters that leaf). The test will only check entries it
     # actually finds in the cascade.
+
+    # Phase 0 Task 15.5: legitimate alive consumers at low-specificity.
+    # These match only at last_seg level because production code accesses
+    # them via a local variable / parameter binding, so the full dotted
+    # path never appears as a literal in source. Each has a verified
+    # file:line anchor.
+    "api.user_agent": (
+        "api.py:223 — self.config.user_agent (config is APIConfig instance)"
+    ),
+    "mispricing.enabled": (
+        "scan/mispricing.py:121 — config.enabled "
+        "(config is MispricingConfig param)"
+    ),
+    "scoring.thresholds.tier_a_min_score": (
+        "scan/reporting.py:38 — thresholds.tier_a_min_score "
+        "(thresholds is param)"
+    ),
+    "scoring.thresholds.tier_a_require_mispricing": (
+        "scan/reporting.py:39 — thresholds.tier_a_require_mispricing "
+        "(thresholds is param)"
+    ),
+    "scoring.thresholds.tier_b_min_score": (
+        "scan/reporting.py:43 — thresholds.tier_b_min_score "
+        "(thresholds is param)"
+    ),
+    "movement.magnitude_threshold": (
+        "daemon/poll_job.py:817 — mc.magnitude_threshold "
+        "(mc = _ctx.config.movement)"
+    ),
+    "movement.quality_threshold": (
+        "daemon/poll_job.py:818 — mc.quality_threshold "
+        "(mc = _ctx.config.movement)"
+    ),
+    "movement.daily_analysis_limit": (
+        "daemon/poll_job.py:847,850 — mc.daily_analysis_limit "
+        "(mc = _ctx.config.movement)"
+    ),
+    "movement.min_history_entries": (
+        "daemon/poll_job.py:519 — mc.min_history_entries "
+        "(Phase 0 Task 12 migration: bound from _ctx.config.movement)"
+    ),
+    "movement.stale_threshold_seconds": (
+        "daemon/poll_job.py:520 — mc.stale_threshold_seconds "
+        "(Phase 0 Task 12 migration: bound from _ctx.config.movement)"
+    ),
+    "ai.narrative_writer.model": (
+        "agents/narrative_writer.py:44 — config.model "
+        "(config is AgentConfig param)"
+    ),
+    "ai.narrative_writer.timeout_seconds": (
+        "agents/narrative_writer.py:45 — config.timeout_seconds "
+        "(config is AgentConfig param)"
+    ),
+    "ai.narrative_writer.max_prompt_chars": (
+        "agents/narrative_writer.py:46 — config.max_prompt_chars "
+        "(Phase 0 Task 13 migration: AgentConfig param)"
+    ),
 }
 
 
