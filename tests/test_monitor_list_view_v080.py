@@ -17,8 +17,6 @@ def svc(tmp_path):
     cfg = MagicMock()
     cfg.tui.heartbeat_seconds = 5.0  # Phase 0 Task 14: real float for Textual timer
     cfg.wallet.starting_balance = 100.0
-    cfg.paper_trading.default_position_size_usd = 20
-    cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
     db = PolilyDB(tmp_path / "m.db")
     upsert_event(EventRow(event_id="ev1", title="Test Event A", updated_at="now"), db)
     upsert_event(EventRow(event_id="ev2", title="Test Event B", updated_at="now"), db)

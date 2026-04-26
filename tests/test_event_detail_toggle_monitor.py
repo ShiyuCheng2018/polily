@@ -25,8 +25,6 @@ from polily.tui.service import PolilyService
 
 def _service():
     cfg = MagicMock()
-    cfg.paper_trading.default_position_size_usd = 20
-    cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
     cfg.wallet.starting_balance = 100.0
     tmp = tempfile.TemporaryDirectory()
     db = PolilyDB(Path(tmp.name) / "t.db")

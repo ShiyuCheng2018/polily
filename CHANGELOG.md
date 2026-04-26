@@ -30,6 +30,8 @@ structured release notes — see `git log` for history.
 
 - **`Widget.recompose()` calls fixed (4 TUI sites).** Replaced sync calls to async `Widget.recompose()` with `Widget.refresh(recompose=True)` — the sync-safe equivalent that internally schedules the async recompose. Sites: `event_detail.py`, `score_result.py`, `changelog.py`, `scan_log.py`. Caught by `RuntimeWarning: coroutine 'Widget.recompose' was never awaited` in `test_event_detail_coalesces_heartbeat_fan_out`. In production this likely worked-by-accident (Textual's reactive system re-renders on next tick), but the silent coroutine drop could have caused intermittent UI staleness. Behavior is now explicit + correct.
 
+- **Vestigial test fixture cleanup.** Phase 0 Task 10 deleted `PaperTradingConfig` from `PolilyConfig` (zero production consumers). However ~36 fixture lines across 18 test files still set `cfg.paper_trading.{default_position_size_usd, assumed_round_trip_friction_pct}` on `MagicMock()` instances — auto-passed because MagicMock auto-creates attributes, but misled future readers about what config sections existed. All 36 lines removed; tests still green at 1298 passing. (Tracked separately by chip: `MagicMock(spec=PolilyConfig)` refactor for structural fixture hardening, deferred to a future PR.)
+
 ## [0.9.4] — 2026-04-24
 
 ### Fixed

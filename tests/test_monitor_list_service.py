@@ -11,8 +11,6 @@ from tests.conftest import setup_event_and_market
 
 def _service(db) -> PolilyService:
     cfg = MagicMock()
-    cfg.paper_trading.default_position_size_usd = 20
-    cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
     return PolilyService(config=cfg, db=db)
 
 
