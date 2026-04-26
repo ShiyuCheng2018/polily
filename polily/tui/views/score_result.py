@@ -174,7 +174,7 @@ class ScoreResultView(Widget):
     def action_refresh(self) -> None:
         """Manual refresh — recompose so the latest event detail
         (prices, monitor flag, markets) is re-read from the service."""
-        self.recompose()
+        self.refresh(recompose=True)
 
     def action_open_link(self) -> None:
         """`o` → open the Polymarket event page in the system browser."""

@@ -3,9 +3,8 @@
 
 import json
 import sqlite3
-import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 DB_PATH = "data/polily.db"
 
@@ -109,13 +108,13 @@ def section_events(conn: sqlite3.Connection):
 
     # tier distribution
     tier_dist = Counter(e["tier"] for e in events)
-    print(f"\n  tier 分布:")
+    print("\n  tier 分布:")
     for t, c in tier_dist.most_common():
         print(f"    {str(t):<20s} {c:>6d} ({c/n*100:.1f}%)")
 
     # closed distribution
     closed_dist = Counter(e["closed"] for e in events)
-    print(f"\n  closed 分布:")
+    print("\n  closed 分布:")
     for c_val, cnt in closed_dist.most_common():
         print(f"    closed={str(c_val):<10s} {cnt:>6d} ({cnt/n*100:.1f}%)")
 
@@ -134,7 +133,7 @@ def section_events(conn: sqlite3.Connection):
 
     # market_type distribution
     mt_dist = Counter(e["market_type"] for e in events)
-    print(f"\n  market_type 分布:")
+    print("\n  market_type 分布:")
     for mt, c in mt_dist.most_common():
         print(f"    {str(mt):<20s} {c:>6d} ({c/n*100:.1f}%)")
 
@@ -259,25 +258,25 @@ def section_markets(conn: sqlite3.Connection):
     cols = [c["name"] for c in conn.execute("PRAGMA table_info(markets)").fetchall()]
     if "market_type" in cols:
         mt_dist = Counter(m["market_type"] for m in markets)
-        print(f"\n  market_type 分布 (markets表):")
+        print("\n  market_type 分布 (markets表):")
         for mt, c in mt_dist.most_common():
             print(f"    {str(mt):<20s} {c:>6d} ({c/n*100:.1f}%)")
     else:
         # Use event-level market_type
-        print(f"\n  (markets表无 market_type 列，使用 events 表关联)")
+        print("\n  (markets表无 market_type 列，使用 events 表关联)")
         rows = conn.execute("""
             SELECT e.market_type, count(*) as cnt
             FROM markets m JOIN events e ON m.event_id = e.event_id
             GROUP BY e.market_type
             ORDER BY cnt DESC
         """).fetchall()
-        print(f"  market_type 分布 (via events):")
+        print("  market_type 分布 (via events):")
         for r in rows:
             print(f"    {str(r['market_type']):<20s} {r['cnt']:>6d}")
 
     # closed distribution
     closed_dist = Counter(m["closed"] for m in markets)
-    print(f"\n  closed 分布:")
+    print("\n  closed 分布:")
     for c_val, cnt in closed_dist.most_common():
         print(f"    closed={str(c_val):<10s} {cnt:>6d} ({cnt/n*100:.1f}%)")
 
@@ -430,7 +429,7 @@ def section_quality(conn: sqlite3.Connection):
         marker = OK if nulls == 0 else (WARN if pct < 20 else FAIL)
         print(f"  {marker} {f:<25s} NULL: {nulls:>5d}/{n_e} ({pct:.1f}%)")
 
-    print(f"\n  --- Markets 关键字段 NULL 统计 ---")
+    print("\n  --- Markets 关键字段 NULL 统计 ---")
     market_fields = [
         "market_id", "event_id", "question", "yes_price", "no_price",
         "structure_score", "score_breakdown", "best_bid", "best_ask",
@@ -451,7 +450,7 @@ def section_quality(conn: sqlite3.Connection):
 
     # Expired but not closed
     print("\n  --- 过期但未关闭 ---")
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     expired_open_events = conn.execute("""
         SELECT count(*) FROM events
         WHERE end_date IS NOT NULL AND end_date < ? AND closed = 0
@@ -524,7 +523,7 @@ def section_other_tables(conn: sqlite3.Connection):
             "SELECT scan_id, type, started_at, finished_at, status, total_markets, research_count, watchlist_count, filtered_count "
             "FROM scan_logs ORDER BY started_at DESC LIMIT 3"
         ).fetchall()
-        print(f"\n  最近3条扫描记录:")
+        print("\n  最近3条扫描记录:")
         for r in recent:
             print(
                 f"    {r['started_at'][:19]} type={r['type']:<10s} status={r['status']:<10s} "
@@ -633,7 +632,7 @@ def section_summary(conn: sqlite3.Connection):
 
 def main():
     print(f"\n{'#'*70}")
-    print(f"  Polily 数据库完整性验证报告")
+    print("  Polily 数据库完整性验证报告")
     print(f"  数据库: {DB_PATH}")
     print(f"  时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'#'*70}")
@@ -657,7 +656,7 @@ def main():
 
     conn.close()
     print(f"\n{'='*70}")
-    print(f"  验证完成")
+    print("  验证完成")
     print(f"{'='*70}\n")
 
 

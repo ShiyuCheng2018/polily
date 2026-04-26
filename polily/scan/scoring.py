@@ -33,6 +33,12 @@ class ScoreBreakdown:
     total: float = 0.0             # 0-100
 
 
+# Per-dimension weights for the structure score. These live in code
+# (not PolilyConfig) because they are tightly coupled with the scoring
+# functions below — moving them to config would require keeping config
+# and code in lockstep, which is fragile. If you want different weights
+# at runtime, propose a config refactor; don't add them piecemeal.
+#
 # Type-specific weight profiles (all sum to 100)
 _TYPE_WEIGHTS = {
     "crypto": {

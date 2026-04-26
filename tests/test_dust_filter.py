@@ -24,8 +24,6 @@ from tests.conftest import make_event
 def _svc(tmp_path):
     cfg = MagicMock()
     cfg.wallet.starting_balance = 100.0
-    cfg.paper_trading.default_position_size_usd = 20
-    cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(make_event(event_id="ev1"), db)
     upsert_market(

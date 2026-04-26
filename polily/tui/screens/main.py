@@ -61,12 +61,6 @@ from polily.tui.views.score_result import (
 )
 from polily.tui.widgets.sidebar import MenuSelected, Sidebar
 
-# Heartbeat cadence (seconds). Matches daemon poll_job interval — no
-# point going faster, the daemon only writes new prices every 30s. But
-# spacing it 5s makes the TUI feel responsive when the user DID change
-# something and a bus event is imminent.
-HEARTBEAT_SECONDS = 5
-
 
 class MainScreen(Screen):
     """Main screen with sidebar navigation and content area."""
@@ -135,7 +129,11 @@ class MainScreen(Screen):
         # omit `event_id` / `status` so per-event filters treat them as
         # match-all (see EventDetailView._on_price_update,
         # MainScreen._on_scan_updated).
-        self.set_interval(HEARTBEAT_SECONDS, self._bus_heartbeat)
+        # Heartbeat cadence: matches daemon poll_job interval — no point going
+        # faster, the daemon only writes new prices every 30s. But spacing
+        # it 5s makes the TUI feel responsive when the user DID change
+        # something and a bus event is imminent. Configurable via tui.heartbeat_seconds.
+        self.set_interval(self.service.config.tui.heartbeat_seconds, self._bus_heartbeat)
         # Scan lifecycle updates (running / completed / failed) publish
         # to the event bus from worker threads; reflect them in the
         # status bar + tasks sidebar pill without manual polling.

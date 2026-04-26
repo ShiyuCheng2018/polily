@@ -13,8 +13,6 @@ from polily.tui.service import AnalysisInProgressError, PolilyService
 
 def _mk_service(tmp_path):
     cfg = MagicMock()
-    cfg.paper_trading.default_position_size_usd = 20
-    cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
     cfg.wallet.starting_balance = 100.0
     cfg.ai.narrative_writer = MagicMock(model="sonnet", timeout_seconds=60)
     db = PolilyDB(tmp_path / "t.db")

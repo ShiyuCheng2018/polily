@@ -27,8 +27,6 @@ from polily.tui.service import MonitorRequiredError, PolilyService
 def svc(tmp_path):
     cfg = MagicMock()
     cfg.wallet.starting_balance = 100.0
-    cfg.paper_trading.default_position_size_usd = 20
-    cfg.paper_trading.assumed_round_trip_friction_pct = 0.04
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(
         EventRow(event_id="ev1", title="Test", slug="s", updated_at="now"),

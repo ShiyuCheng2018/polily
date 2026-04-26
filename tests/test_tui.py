@@ -22,8 +22,7 @@ def _mock_service():
     from polily.core.db import PolilyDB
 
     config = MagicMock()
-    config.paper_trading.default_position_size_usd = 20
-    config.paper_trading.assumed_round_trip_friction_pct = 0.04
+    config.tui.heartbeat_seconds = 5.0  # Phase 0 Task 14: TuiConfig field — Textual timer requires real float
     _tmp = tempfile.TemporaryDirectory()
     db = PolilyDB(Path(_tmp.name) / "polily.db")
     service = PolilyService(config=config, db=db)
