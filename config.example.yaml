@@ -49,19 +49,6 @@ mispricing:
     enabled: true
     max_sum_deviation: 0.10           # flag if outcome YES prices sum deviates >10% from 1.0
 
-# Onboarding
-onboarding:
-  enabled: true
-  marker_file: "./data/.onboarding_done"
-  # Show onboarding message on first run
-
-# Research checklists
-checklists:
-  enabled: true
-  templates_dir: "./data/checklists"
-  # Checklist is shown in Layer 2 (verbose/inspect) output
-  show_in_layer: 2
-
 # Database
 archiving:
   db_file: "./data/polily.db"
@@ -69,15 +56,6 @@ archiving:
 # Wallet (v0.6.0 paper trading system)
 wallet:
   starting_balance: 100.0              # initial cash when wallet is first created or reset
-
-watchlist:
-  enabled: true
-  alert_on_score_cross: 75
-  alert_on_spread_improvement_pct: 0.02
-  alert_on_price_enter_range:
-    min_yes_price: 0.30
-    max_yes_price: 0.70
-  alert_on_mispricing_signal: "moderate"  # alert when mispricing signal reaches this level
 
 movement:
   magnitude_threshold: 70
