@@ -1,16 +1,12 @@
 # config.example.yaml
 
 api:
-  provider: "polymarket"
   request_timeout_seconds: 20
-  max_retries: 3
-  backoff_seconds: 1.5
-  use_cache: true
-  cache_dir: "./data/cache"
   # user_agent: HTTP User-Agent header sent to Polymarket APIs.
   # Omit this key (or leave it unset) to use the built-in default
   # `polily/<current-version>`, which stays in sync with the installed
   # package version automatically. Only set it if you need a custom label.
+  # user_agent: ""
 
 scoring:
   # Per-dimension weights live in code, not YAML — see
@@ -26,24 +22,19 @@ scoring:
 # AI Agent configuration
 # All agents use Claude Code CLI (claude -p), included in subscription — no API key, no per-token cost.
 ai:
-  cli_command: "claude"                  # path to claude CLI binary
-
   narrative_writer:                      # Decision advisor — the only AI agent
-    enabled: true
     model: "sonnet"                      # needs synthesis, web search, generation quality
-    max_candidates: 8                    # max markets to generate analysis for
-    max_concurrent: 2                    # reduced from 3 (web search is heavier)
     timeout_seconds: 300                 # 5 min — agent does web searches, needs time
+    # max_prompt_chars: 5000             # truncation threshold for tool-mode prompts (Phase 0 Task 13)
 
 # Mispricing detection configuration
 mispricing:
   enabled: true
   # Crypto threshold markets: compare market price vs. volatility-implied probability
+  # Price source is Binance via ccxt (no API key, 6000/min); implied vol uses Deribit when available.
   crypto:
-    price_source: "binance"            # via ccxt, no API key needed, rate limit 6000/min
     volatility_lookback_days: 30
     min_deviation_pct: 0.08           # was 0.05 — must exceed round-trip friction (4-6%) to be real edge
-    prefer_implied_vol: true          # use Deribit implied vol if available, fallback to realized
   # Multi-outcome consistency check
   multi_outcome:
     enabled: true
@@ -61,3 +52,9 @@ movement:
   magnitude_threshold: 70
   quality_threshold: 60
   daily_analysis_limit: 10
+  # min_history_entries: 5             # min movement_log rows before scoring kicks in (Phase 0 Task 12)
+  # stale_threshold_seconds: 600       # data older than this skipped, in seconds (Phase 0 Task 12)
+
+# TUI configuration (Phase 0 Task 14)
+# tui:
+#   heartbeat_seconds: 5.0             # interval for bus_heartbeat refresh tick
