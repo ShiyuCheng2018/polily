@@ -93,10 +93,10 @@ def _seed_full_fixture(db):
     Positions: 2 open.
     Analyses: 1 version on the primary event.
     """
+    from polily.analysis_store import AnalysisVersion, append_analysis
     from polily.core.event_store import EventRow, MarketRow, upsert_event, upsert_market
     from polily.core.monitor_store import upsert_event_monitor
-    from polily.analysis_store import AnalysisVersion, append_analysis
-    from polily.scan_log import insert_pending_scan, finish_scan, _make_scan_id
+    from polily.scan_log import _make_scan_id, insert_pending_scan
 
     # --- Events (3 live + 1 archived) ---
     ev_btc = EventRow(
@@ -391,8 +391,8 @@ def _make_service(tmpdb_path: Path):
 
 async def _capture_one(target: str, svc):
     """Capture one snapshot target. Returns (name, svg_path, error_or_None)."""
-    from polily.tui.app import PolilyApp
     import polily.tui.screens.main as main_screen_mod
+    from polily.tui.app import PolilyApp
 
     app = PolilyApp(service=svc)
     app._restart_daemon = lambda: None
@@ -646,7 +646,7 @@ async def main(selected_targets: list[str]):
             "scan_modals_cancel": "Confirm cancel scan modal (ongoing analysis)",
             "monitor_modals_unmonitor": "Confirm unmonitor modal",
         }
-        for name, svg_path, err in results:
+        for name, _svg_path, err in results:
             status = "OK" if not err else "FAIL"
             f.write(f"- `{name}.svg` / `{name}.png` — {descriptions.get(name, '')}  [{status}]\n")
             if err:

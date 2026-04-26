@@ -17,7 +17,6 @@ from typing import Any
 
 from pydantic import BaseModel
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PRODUCTION_GLOB_DIRS = ["polily"]
 EXCLUDED_FILES = {"polily/core/config.py"}
@@ -102,7 +101,7 @@ def enumerate_pydantic_leaves(model: BaseModel, prefix: str = "") -> list[str]:
                     # Recurse one more level so inner keys aren't lost — without
                     # this, the leaf collapses at sub_path and false-alives via
                     # last-segment grep.
-                    for sub_key, sub_sub_value in sub_value.items():
+                    for sub_key in sub_value:
                         leaves.append(f"{sub_path}.{sub_key}")
                 else:
                     leaves.append(sub_path)

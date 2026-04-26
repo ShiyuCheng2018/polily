@@ -61,8 +61,8 @@ def test_grep_production_refs_disambiguates_shared_last_segment():
     n, samples = audit.grep_production_refs("movement.enabled")
     # Cascade MUST find at least one match (mispricing.enabled at last_seg)
     assert n > 0, (
-        f"Expected fall-through to last_seg matching `mispricing.enabled` "
-        f"in mispricing.py; got n=0. Cascade may be broken."
+        "Expected fall-through to last_seg matching `mispricing.enabled` "
+        "in mispricing.py; got n=0. Cascade may be broken."
     )
     levels = [s.split("] ")[0].lstrip("[") for s in samples]
     # Must NOT match at full_path or two_seg (would mean false-positive

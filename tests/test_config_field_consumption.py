@@ -14,16 +14,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 # Make scripts/ importable
 _SCRIPT_DIR = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(_SCRIPT_DIR))
 
 import audit_config_usage as audit  # noqa: E402
 
-from polily.core.config import PolilyConfig
-
+from polily.core.config import PolilyConfig  # noqa: E402
 
 # Fields that are intentionally not consumed by production code.
 # Each entry needs a comment explaining WHY it's exempt.
