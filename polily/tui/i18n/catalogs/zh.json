@@ -358,5 +358,49 @@
   "monitor_modal.title": "确认取消监控",
   "monitor_modal.body": "[dim]取消后此事件将从监控轮询中移除。[/dim]",
   "monitor_modal.confirm_cancel": "确认取消",
-  "monitor_modal.keep_monitor": "继续监控"
+  "monitor_modal.keep_monitor": "继续监控",
+
+  "sidebar.tasks": "任务记录",
+  "sidebar.monitor": "监控列表",
+  "sidebar.paper": "持仓",
+  "sidebar.wallet": "钱包",
+  "sidebar.history": "历史",
+  "sidebar.archive": "归档",
+  "sidebar.changelog": "更新日志",
+
+  "widget.empty.default": "暂无记录",
+  "widget.loading.default": "加载中",
+  "widget.buy_sell.price_unavailable": "{outcome} (价格不可用)",
+  "widget.buy_sell.with_price": "{verb} {outcome} @ {price:.1f}¢",
+  "widget.buy_sell.verb.buy": "买",
+  "widget.buy_sell.verb.sell": "卖",
+
+  "countdown.expired": "已过期",
+  "countdown.days_hours": "{days}天{hours}小时",
+  "countdown.hours_minutes": "{hours}小时{minutes}分",
+  "countdown.minutes": "{minutes}分钟",
+
+  "main.status.ready": "就绪",
+  "main.status.fetching_event": "获取事件...",
+  "main.status.score_complete": "评分完成: {title} ({score:.0f}分)",
+  "main.status.add_failed": "添加失败: {error}",
+  "main.status.analyzing": "AI 分析中: {title}...",
+  "main.status.analysis_cancelled": "分析已取消",
+  "main.status.analysis_complete": "分析完成",
+  "main.status.analysis_failed": "分析失败: {error}",
+  "main.status.event_not_found_or_invalid": "事件未找到或链接无效",
+  "main.notify.analysis_cancelled": "已取消分析",
+  "main.notify.cannot_cancel_not_running": "无法取消——该行不在 running 状态",
+  "main.notify.daemon_started": "后台监控已自动启动",
+  "main.analyzing_long_template": "[red]AI 可能遇到问题 ({elapsed})[/red] {title} [dim]Esc 取消[/dim]",
+  "main.analyzing_deep_template": "AI 深度分析中，请耐心等待 ({elapsed}) {title} [dim]Esc 取消[/dim]",
+  "main.analyzing_searching_template": "AI 正在搜索分析中 ({elapsed}) {title} [dim]Esc 取消[/dim]",
+  "main.analyzing_template": "AI 分析中 ({elapsed}) {title} [dim]Esc 取消[/dim]",
+
+  "service.error.event_not_found": "事件未找到",
+  "service.error.analysis_in_progress": "该事件已有分析在进行中，请等待完成或先取消后再试",
+  "service.error.tui_closed": "TUI 已关闭，分析中断",
+
+  "app.notify.daemon_restarted": "后台监控已重启 (已加载最新代码)",
+  "app.notify.help_placeholder": "帮助面板 v0.8.0 后续版本提供"
 }

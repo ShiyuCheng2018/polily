@@ -67,7 +67,7 @@ class PolilyApp(App):
         try:
             from polily.daemon.scheduler import restart_daemon
             if restart_daemon():
-                self.notify("后台监控已重启 (已加载最新代码)")
+                self.notify(i18n.t("app.notify.daemon_restarted"))
         except Exception:
             pass  # non-fatal — daemon can be started manually
 
@@ -83,7 +83,7 @@ class PolilyApp(App):
     async def action_help(self) -> None:
         """Placeholder for help overlay — Phase 3 actual overlay widget.
         For now, notify."""
-        self.notify("帮助面板 v0.8.0 后续版本提供", severity="information")
+        self.notify(i18n.t("app.notify.help_placeholder"), severity="information")
 
     async def action_toggle_language(self) -> None:
         """Cycle through available languages, persist to DB, broadcast change.
