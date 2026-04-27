@@ -24,7 +24,6 @@ See docs/runtime-i18n-design.md §4.1 for the full design.
 """
 from __future__ import annotations
 
-import json
 import logging
 import threading
 from collections.abc import Mapping
@@ -40,7 +39,10 @@ _BUNDLED_CATALOGS_DIR = Path(__file__).parent / "catalogs"
 
 _lock = threading.RLock()
 _current_language: str = _FALLBACK_LANG
-_catalogs: dict[str, Mapping[str, str]] = {}
+# dict[str, Mapping[...]] would be cleaner, but Mapping is invariant in
+# the value type so the bundled-catalogs assignment fails type-check.
+# Settle for dict-of-dict; load_catalogs returns the same shape.
+_catalogs: dict[str, dict[str, str]] = {}
 _auto_loaded: bool = False
 
 
@@ -71,7 +73,7 @@ def init_i18n(catalogs: Mapping[str, Mapping[str, str]], default: str) -> None:
     """
     global _current_language, _catalogs, _auto_loaded
     with _lock:
-        _catalogs = dict(catalogs)
+        _catalogs = {lang: dict(cat) for lang, cat in catalogs.items()}
         _auto_loaded = True  # explicit init wins over auto-load
         if default in _catalogs:
             _current_language = default
@@ -83,8 +85,8 @@ def init_i18n(catalogs: Mapping[str, Mapping[str, str]], default: str) -> None:
             _current_language = default
 
 
-def t(key: str, **vars: Any) -> str:
-    """Translate `key` in the current language. Format with **vars (str.format).
+def t(key: str, **fmt_args: Any) -> str:
+    """Translate `key` in the current language. Format with str.format(**fmt_args).
 
     Lookup order: current language -> fallback (zh) -> key itself.
     """
@@ -99,11 +101,11 @@ def t(key: str, **vars: Any) -> str:
             # Note logging.warning, not raising — keeps TUI usable mid-migration.
             logger.warning("i18n: missing key %r in lang=%s", key, _current_language)
             s = key
-    if vars:
+    if fmt_args:
         try:
-            return s.format(**vars)
+            return s.format(**fmt_args)
         except (KeyError, IndexError) as e:
-            logger.warning("i18n: format failed for key=%r vars=%r: %s", key, vars, e)
+            logger.warning("i18n: format failed for key=%r vars=%r: %s", key, fmt_args, e)
             return s
     return s
 

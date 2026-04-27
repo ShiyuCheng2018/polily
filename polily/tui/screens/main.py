@@ -30,7 +30,6 @@ from polily.core.events import (
 )
 from polily.tui._dispatch import dispatch_to_ui
 from polily.tui.service import AnalysisInProgressError, PolilyService
-from polily.tui.widgets.i18n_footer import I18nFooter
 from polily.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 from polily.tui.views.event_detail import (
     AnalyzeRequested,
@@ -60,6 +59,7 @@ from polily.tui.views.score_result import (
     ScoreResultView,
     ScoreViewRescore,
 )
+from polily.tui.widgets.i18n_footer import I18nFooter
 from polily.tui.widgets.sidebar import MenuSelected, Sidebar
 
 
