@@ -109,9 +109,10 @@ def format_ai_version(count: int | None) -> str:
 def format_event_settlement(event, market_summaries: list, *, now=None) -> str:
     """Event-level settlement cell for monitor_list / archived views.
 
-    ACTIVE                   → range via format_settlement_range over TRADING children
-    AWAITING_FULL_SETTLEMENT → '待全部结算'
-    RESOLVED                 → '已结算'
+    ACTIVE                                    → range via format_settlement_range
+                                                over TRADING children
+    AWAITING_FULL_SETTLEMENT / RESOLVED       → translated event-state label
+                                                (see lifecycle_labels)
 
     market_summaries is a list of dicts (from PolilyService._query_events)
     with shape {closed, end_date, resolved_outcome}. Wraps each dict in a
@@ -120,13 +121,12 @@ def format_event_settlement(event, market_summaries: list, *, now=None) -> str:
     from types import SimpleNamespace
 
     from polily.core.lifecycle import EventState, MarketState, event_state, market_state
+    from polily.tui.lifecycle_labels import event_state_label_i18n
 
     markets = [SimpleNamespace(**s) for s in market_summaries]
     state = event_state(event, markets, now=now)
-    if state == EventState.RESOLVED:
-        return "已结算"
-    if state == EventState.AWAITING_FULL_SETTLEMENT:
-        return "待全部结算"
+    if state in (EventState.RESOLVED, EventState.AWAITING_FULL_SETTLEMENT):
+        return event_state_label_i18n(state)
 
     # Filter only TRADING children (not `closed=0`) so PENDING_SETTLEMENT
     # markets with past end_date don't leak "已过期" into format_settlement_range.

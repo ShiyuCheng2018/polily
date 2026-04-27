@@ -40,6 +40,7 @@ from polily.scan_log import (
     load_scan_logs,
     save_scan_log,
 )
+from polily.tui.i18n import t
 from polily.tui.views.scan_log import StepInfo
 
 if TYPE_CHECKING:
@@ -173,7 +174,7 @@ class PolilyService:
             raise
 
         if result is None:
-            self._finish_log("failed", error="事件未找到")
+            self._finish_log("failed", error=t("service.error.event_not_found"))
             return None
 
         event_id = result["event"].event_id
@@ -242,9 +243,7 @@ class PolilyService:
             )
             self.db.conn.commit()
             if cur.rowcount == 0:
-                raise AnalysisInProgressError(
-                    "该事件已有分析在进行中，请等待完成或先取消后再试",
-                )
+                raise AnalysisInProgressError(t("service.error.analysis_in_progress"))
 
         has_position, position_summary = self._compute_position_context(event_id)
         existing = get_event_analyses(event_id, self.db)
@@ -279,7 +278,7 @@ class PolilyService:
             # they close TUI mid-analysis — class name string-match keeps
             # this file decoupled from the textual package.
             if type(agent_error).__name__ == "NoActiveAppError":
-                error_text = "TUI 已关闭，分析中断"
+                error_text = t("service.error.tui_closed")
             else:
                 error_text = f"{type(agent_error).__name__}: {agent_error}"[:200]
             try:

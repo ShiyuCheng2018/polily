@@ -358,5 +358,49 @@
   "monitor_modal.title": "Confirm Stop Monitor",
   "monitor_modal.body": "[dim]Event will be removed from monitor polling.[/dim]",
   "monitor_modal.confirm_cancel": "Confirm Cancel",
-  "monitor_modal.keep_monitor": "Keep Monitor"
+  "monitor_modal.keep_monitor": "Keep Monitor",
+
+  "sidebar.tasks": "Tasks",
+  "sidebar.monitor": "Monitor",
+  "sidebar.paper": "Positions",
+  "sidebar.wallet": "Wallet",
+  "sidebar.history": "History",
+  "sidebar.archive": "Archive",
+  "sidebar.changelog": "Changelog",
+
+  "widget.empty.default": "No records",
+  "widget.loading.default": "Loading",
+  "widget.buy_sell.price_unavailable": "{outcome} (price unavailable)",
+  "widget.buy_sell.with_price": "{verb} {outcome} @ {price:.1f}¢",
+  "widget.buy_sell.verb.buy": "Buy",
+  "widget.buy_sell.verb.sell": "Sell",
+
+  "countdown.expired": "Expired",
+  "countdown.days_hours": "{days}d {hours}h",
+  "countdown.hours_minutes": "{hours}h {minutes}m",
+  "countdown.minutes": "{minutes}m",
+
+  "main.status.ready": "Ready",
+  "main.status.fetching_event": "Fetching event...",
+  "main.status.score_complete": "Scored: {title} ({score:.0f})",
+  "main.status.add_failed": "Add failed: {error}",
+  "main.status.analyzing": "Analyzing: {title}...",
+  "main.status.analysis_cancelled": "Analysis cancelled",
+  "main.status.analysis_complete": "Analysis complete",
+  "main.status.analysis_failed": "Analysis failed: {error}",
+  "main.status.event_not_found_or_invalid": "Event not found or invalid URL",
+  "main.notify.analysis_cancelled": "Analysis cancelled",
+  "main.notify.cannot_cancel_not_running": "Cannot cancel — row is not running",
+  "main.notify.daemon_started": "Background monitor auto-started",
+  "main.analyzing_long_template": "[red]AI may have issues ({elapsed})[/red] {title} [dim]Esc to cancel[/dim]",
+  "main.analyzing_deep_template": "AI deep-analyzing, please wait ({elapsed}) {title} [dim]Esc to cancel[/dim]",
+  "main.analyzing_searching_template": "AI researching ({elapsed}) {title} [dim]Esc to cancel[/dim]",
+  "main.analyzing_template": "AI analyzing ({elapsed}) {title} [dim]Esc to cancel[/dim]",
+
+  "service.error.event_not_found": "Event not found",
+  "service.error.analysis_in_progress": "An analysis is already running for this event; wait for completion or cancel first",
+  "service.error.tui_closed": "TUI closed, analysis interrupted",
+
+  "app.notify.daemon_restarted": "Background monitor restarted (latest code loaded)",
+  "app.notify.help_placeholder": "Help panel coming in a later version"
 }
