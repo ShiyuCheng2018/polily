@@ -27,3 +27,21 @@ from __future__ import annotations
 EPHEMERAL_FIELDS: frozenset[str] = frozenset({
     "api.user_agent",  # Field(default_factory=_default_user_agent) → polily/<__version__>
 })
+
+
+# Per Q1 + Whis SF4 — territory A whitelist single source of truth.
+# Tests (test_config_docs_coverage), production (ConfigView, ConfigEditModal)
+# all import from here so they can't drift independently.
+TERRITORY_A_PREFIXES: tuple[str, ...] = (
+    "movement.",
+    "scoring.thresholds.",
+    "mispricing.",
+    "wallet.",
+)
+
+
+def is_territory_a(key_path: str) -> bool:
+    """True if key_path is TUI-editable (not HIDDEN_IN_TUI, not EPHEMERAL)."""
+    if key_path in EPHEMERAL_FIELDS:
+        return False
+    return any(key_path.startswith(p) for p in TERRITORY_A_PREFIXES)
