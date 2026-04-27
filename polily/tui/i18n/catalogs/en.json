@@ -1,0 +1,27 @@
+{
+  "binding.quit": "Quit",
+  "binding.help": "Help",
+  "binding.back": "Back",
+  "binding.toggle_language": "Toggle Language",
+  "binding.new_item": "New",
+  "binding.edit_item": "Edit",
+  "binding.delete_item": "Delete",
+  "binding.open_item": "Open",
+  "binding.refresh": "Refresh",
+  "binding.cursor_down": "Down",
+  "binding.cursor_up": "Up",
+  "binding.cursor_top": "Top",
+  "binding.cursor_bottom": "Bottom",
+  "binding.search": "Search",
+
+  "status.pending": "Pending",
+  "status.running": "Running",
+  "status.completed": "Completed",
+  "status.failed": "Failed",
+  "status.cancelled": "Cancelled",
+  "status.superseded": "Superseded",
+
+  "trigger.manual": "Manual",
+  "trigger.scheduled": "Scheduled",
+  "trigger.movement": "Movement"
+}
