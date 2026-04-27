@@ -150,15 +150,26 @@ def status(config_path: str = typer.Option(None, "--config", "-c")):
 
 
 def _load_user_config():
-    """Layered config load used by reset paths. Isolated so tests can stub it."""
-    from polily.core.config import PolilyConfig, load_config
-    minimal = Path("config.minimal.yaml")
-    example = Path("config.example.yaml")
-    if minimal.exists() and example.exists():
-        return load_config(minimal, defaults_path=example)
-    if example.exists():
-        return load_config(example)
-    return PolilyConfig()
+    """Load PolilyConfig from db.config (used by `polily reset` paths).
+
+    Whis SF11 — archiving.db_file is HIDDEN_IN_TUI and effectively
+    "Pydantic-default-only": even if a row exists in db.config for it,
+    we'd need to know the db path BEFORE loading db.config to read
+    that row. So we bootstrap the path from the Pydantic default
+    every time. Practically this means archiving.db_file is an
+    install-time config (set via env var or post-Phase-7 migration),
+    not a runtime knob — its db.config row is informational, not
+    load-bearing.
+    """
+    from polily.core.config import PolilyConfig, load_config_from_db
+    from polily.core.db import PolilyDB
+
+    db_path = PolilyConfig().archiving.db_file
+    db = PolilyDB(db_path)
+    try:
+        return load_config_from_db(db)
+    finally:
+        db.close()
 
 
 def _stop_daemon_if_running() -> None:
