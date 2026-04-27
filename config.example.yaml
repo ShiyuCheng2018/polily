@@ -58,3 +58,4 @@ movement:
 # TUI configuration (Phase 0 Task 14)
 # tui:
 #   heartbeat_seconds: 5.0             # interval for bus_heartbeat refresh tick
+#   language: zh                       # default UI language ("zh"/"en"); runtime override stored in DB user_prefs (per-launch toggle wins)

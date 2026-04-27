@@ -1,6 +1,7 @@
 # tests/test_event_bus.py
 """v0.8.0 Task 10: EventBus publish/subscribe + topic constants."""
 from polily.core.events import (
+    TOPIC_LANGUAGE_CHANGED,
     TOPIC_MONITOR_UPDATED,
     TOPIC_POSITION_UPDATED,
     TOPIC_SCAN_UPDATED,
@@ -52,5 +53,14 @@ def test_handler_exception_does_not_break_other_handlers():
 
 def test_topics_are_strings():
     for t in (TOPIC_SCAN_UPDATED, TOPIC_WALLET_UPDATED,
-              TOPIC_MONITOR_UPDATED, TOPIC_POSITION_UPDATED):
+              TOPIC_MONITOR_UPDATED, TOPIC_POSITION_UPDATED,
+              TOPIC_LANGUAGE_CHANGED):
         assert isinstance(t, str) and len(t) > 0
+
+
+def test_language_changed_payload_delivers_language_field():
+    bus = EventBus()
+    received = []
+    bus.subscribe(TOPIC_LANGUAGE_CHANGED, received.append)
+    bus.publish(TOPIC_LANGUAGE_CHANGED, {"language": "en"})
+    assert received == [{"language": "en"}]

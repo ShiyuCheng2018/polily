@@ -87,6 +87,7 @@ class TuiConfig(BaseModel):
     PRs.
     """
     heartbeat_seconds: float = 5.0  # interval for bus_heartbeat refresh tick
+    language: str = "zh"  # default UI language (BCP-47-ish code, e.g. "zh"/"en"); only used at startup when DB user_prefs.language is unset
 
 
 class CryptoMispricingConfig(BaseModel):

@@ -1,0 +1,27 @@
+{
+  "binding.quit": "退出",
+  "binding.help": "帮助",
+  "binding.back": "返回",
+  "binding.toggle_language": "切换语言",
+  "binding.new_item": "新建",
+  "binding.edit_item": "编辑",
+  "binding.delete_item": "删除",
+  "binding.open_item": "打开",
+  "binding.refresh": "刷新",
+  "binding.cursor_down": "下",
+  "binding.cursor_up": "上",
+  "binding.cursor_top": "顶部",
+  "binding.cursor_bottom": "底部",
+  "binding.search": "搜索",
+
+  "status.pending": "待执行",
+  "status.running": "运行中",
+  "status.completed": "已完成",
+  "status.failed": "失败",
+  "status.cancelled": "已取消",
+  "status.superseded": "已覆盖",
+
+  "trigger.manual": "手动",
+  "trigger.scheduled": "定时",
+  "trigger.movement": "监控"
+}

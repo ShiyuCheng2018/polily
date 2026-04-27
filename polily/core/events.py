@@ -44,6 +44,10 @@ TOPIC_POSITION_UPDATED = "position.updated"
 # Payload: {"event_id": str, "market_id": str, "mid": float, "spread": float}
 TOPIC_PRICE_UPDATED = "price.updated"
 
+# Payload: {"language": str}  — emitted when user toggles the active TUI language.
+# Subscribers (views, custom Footer) re-render their visible text via t() lookup.
+TOPIC_LANGUAGE_CHANGED = "lang.changed"
+
 
 class EventBus:
     """Thread-safe topic pub/sub. Handlers run synchronously on publish."""
