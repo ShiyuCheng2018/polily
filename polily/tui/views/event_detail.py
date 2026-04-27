@@ -20,16 +20,15 @@ from textual.widget import Widget
 from textual.widgets import Static
 
 from polily.core.events import (
+    TOPIC_LANGUAGE_CHANGED,
     TOPIC_POSITION_UPDATED,
     TOPIC_PRICE_UPDATED,
 )
 from polily.core.lifecycle import (
     MarketState,
     market_state,
-    market_state_label,
-    settled_winner_suffix,
 )
-from polily.tui._dispatch import once_per_tick
+from polily.tui._dispatch import dispatch_to_ui, once_per_tick
 from polily.tui.components import (
     AnalysisPanel,
     BinaryMarketStructurePanel,
@@ -38,6 +37,7 @@ from polily.tui.components import (
     PositionPanel,
     SubMarketTable,
 )
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_AUTO_MONITOR, ICON_EVENT, ICON_MARKET, ICON_POSITION
 from polily.tui.widgets.polily_zone import PolilyZone
 
@@ -50,12 +50,36 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _market_zone_title_suffix(markets: list, *, now: datetime | None = None) -> str:
-    """Build the '市场' zone border-title suffix showing state breakdown.
+_MARKET_STATE_KEY = {
+    MarketState.TRADING: "lifecycle.market.trading",
+    MarketState.PENDING_SETTLEMENT: "lifecycle.market.pending_settlement",
+    MarketState.SETTLING: "lifecycle.market.settling",
+    MarketState.SETTLED: "lifecycle.market.settled",
+}
 
-    Empty list → '' (caller passes plain '市场' title).
-    Single market → '(交易中)' / '(即将结算)' / '(结算中)' / '(已结算 NO 获胜)'.
-    Multi market → '(活跃 N, 即将结算 N, 结算中 N, 已结算 N)'.
+_OUTCOME_KEY = {
+    "yes": "lifecycle.outcome.yes_won",
+    "no": "lifecycle.outcome.no_won",
+    "split": "lifecycle.outcome.split",
+    "void": "lifecycle.outcome.void",
+}
+
+
+def _settled_outcome_suffix(market) -> str:
+    """Localized outcome suffix appended to '已结算' / 'Settled' for a single
+    settled market. Returns '' when resolved_outcome is unset."""
+    key = _OUTCOME_KEY.get(market.resolved_outcome)
+    return f" {t(key)}" if key else ""
+
+
+def _market_zone_title_suffix(markets: list, *, now: datetime | None = None) -> str:
+    """Build the market zone border-title suffix showing state breakdown.
+
+    Empty list → '' (caller passes plain market title).
+    Single market → '(Trading)' / '(Pending Settlement)' /
+                    '(Settled NO won)' etc., translated.
+    Multi market → '(Active N, Pending N, Settling N, Settled N)' from
+                   event_detail.market_breakdown.full template.
     """
     if not markets:
         return ""
@@ -63,19 +87,20 @@ def _market_zone_title_suffix(markets: list, *, now: datetime | None = None) -> 
     if len(markets) == 1:
         m = markets[0]
         state = market_state(m, now=now)
-        label = market_state_label(state)
+        label = t(_MARKET_STATE_KEY[state])
         if state == MarketState.SETTLED:
-            label = f"{label}{settled_winner_suffix(m)}"
+            label = f"{label}{_settled_outcome_suffix(m)}"
         return f"({label})"
 
     counts = {s: 0 for s in MarketState}
     for m in markets:
         counts[market_state(m, now=now)] += 1
-    return (
-        f"(活跃 {counts[MarketState.TRADING]}, "
-        f"即将结算 {counts[MarketState.PENDING_SETTLEMENT]}, "
-        f"结算中 {counts[MarketState.SETTLING]}, "
-        f"已结算 {counts[MarketState.SETTLED]})"
+    return t(
+        "event_detail.market_breakdown.full",
+        active=counts[MarketState.TRADING],
+        pending=counts[MarketState.PENDING_SETTLEMENT],
+        settling=counts[MarketState.SETTLING],
+        settled=counts[MarketState.SETTLED],
     )
 
 
@@ -119,6 +144,11 @@ class SwitchVersionRequested(Message):
 class EventDetailView(Widget):
     """Event detail dashboard composed from reusable components."""
 
+    # NOTE: I18nFooter renders binding labels via t(f"binding.{action}") at
+    # compose time. Action `toggle_monitor` shares its catalog key with
+    # monitor_list, so footer shows "Stop Monitor" / "关闭监控" — slightly
+    # imprecise on this view (m can also enable monitoring), but consistent
+    # cross-view labelling is worth the trade.
     BINDINGS = [
         Binding("escape", "go_back", "返回"),
         Binding("backspace", "go_back", show=False),
@@ -127,7 +157,7 @@ class EventDetailView(Widget):
         Binding("m", "toggle_monitor", "监控"),
         Binding("v", "switch_version", "版本"),
         Binding("o", "open_link", "链接"),
-        Binding("r", "refresh", "刷新", show=True),  # v0.8.0
+        Binding("r", "refresh", "刷新", show=True),
     ]
 
     DEFAULT_CSS = """
@@ -173,13 +203,13 @@ class EventDetailView(Widget):
         monitor = d.get("monitor")
 
         with VerticalScroll():
-            # Zone: 事件信息 (header + KPI row)
-            with PolilyZone(title=f"{ICON_EVENT} 事件信息", id="event-info-zone"):
+            # Zone: event info (header + KPI row)
+            with PolilyZone(title=f"{ICON_EVENT} {t('event_detail.title.event_info')}", id="event-info-zone"):
                 yield EventHeader(event, monitor, movements, markets=markets)
                 yield EventKpiRow(event, markets)
 
-            # Zone: 市场 (structure panel or sub-market table)
-            title = f"{ICON_MARKET} 市场"
+            # Zone: market (structure panel or sub-market table)
+            title = f"{ICON_MARKET} {t('event_detail.title.market')}"
             suffix = _market_zone_title_suffix(markets)
             if suffix:
                 title = f"{title} {suffix}"
@@ -189,16 +219,16 @@ class EventDetailView(Widget):
                 else:
                     yield SubMarketTable(markets, event)
 
-            # Zone: 持仓
-            with PolilyZone(title=f"{ICON_POSITION} 持仓", id="position-zone"):
+            # Zone: position
+            with PolilyZone(title=f"{ICON_POSITION} {t('event_detail.title.position')}", id="position-zone"):
                 yield PositionPanel(trades, markets, movements)
 
-            # Zone: 叙事分析 (only when analyses exist or analysis in progress)
+            # Zone: narrative analysis (only when analyses exist or analysis in progress)
             if analyses or self._analyzing:
-                with PolilyZone(title=f"{ICON_AUTO_MONITOR} 叙事分析", id="analysis-zone"):
+                with PolilyZone(title=f"{ICON_AUTO_MONITOR} {t('event_detail.title.analysis')}", id="analysis-zone"):
                     yield AnalysisPanel(analyses, self._version_idx, self._analyzing)
             else:
-                yield Static("[dim]按 a 启动 AI 分析[/dim]", classes="row")
+                yield Static(t("event_detail.empty.analysis"), classes="row")
 
     # ------------------------------------------------------------------
     # Lifecycle — bus subscription
@@ -208,11 +238,19 @@ class EventDetailView(Widget):
         """Subscribe to price + position bus topics for auto-refresh."""
         self.service.event_bus.subscribe(TOPIC_PRICE_UPDATED, self._on_price_update)
         self.service.event_bus.subscribe(TOPIC_POSITION_UPDATED, self._on_position_update)
+        self.service.event_bus.subscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
 
     def on_unmount(self) -> None:
         """Clean up bus subscriptions."""
         self.service.event_bus.unsubscribe(TOPIC_PRICE_UPDATED, self._on_price_update)
         self.service.event_bus.unsubscribe(TOPIC_POSITION_UPDATED, self._on_position_update)
+        self.service.event_bus.unsubscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Recompose so all t() calls in compose() pick up the new language.
+        EventDetailView already drives every refresh through recompose, so
+        the language switch follows the existing path."""
+        dispatch_to_ui(self.app, lambda: self.refresh(recompose=True))
 
     def _on_price_update(self, payload: dict) -> None:
         """Bus callback — refresh dispatched via `@once_per_tick` decorator.
@@ -280,7 +318,7 @@ class EventDetailView(Widget):
     def action_trade(self) -> None:
         markets = self._detail.get("markets", []) if self._detail else []
         if not markets:
-            self.notify("无可交易市场")
+            self.notify(t("event_detail.notify.no_tradable_market"))
             return
         # Trading requires an active monitor — positions on an unmonitored
         # event would drift without price polling / narrator attention,
@@ -289,7 +327,7 @@ class EventDetailView(Widget):
         monitor = self._detail.get("monitor") if self._detail else None
         if not (monitor and monitor.get("auto_monitor")):
             self.notify(
-                "需要先激活监控才能进行交易 — 按 m 开启监控",
+                t("event_detail.notify.must_enable_monitor"),
                 severity="warning",
             )
             return
@@ -318,8 +356,7 @@ class EventDetailView(Widget):
         pos_count = self.service.get_event_position_count(self.event_id)
         if pos_count > 0:
             self.notify(
-                f"无法取消监控 — 该事件有 {pos_count} 个持仓未结算，"
-                "请先平仓或等待结算",
+                t("event_detail.notify.cannot_unmonitor", pos_count=pos_count),
                 severity="warning",
             )
             return
@@ -337,8 +374,10 @@ class EventDetailView(Widget):
         self.app.push_screen(ConfirmUnmonitorModal(event_title), _on_dismiss)
 
     def _after_monitor_change(self, state: str) -> None:
-        """Post-toggle side effects shared by enable + confirmed-disable."""
-        self.notify(f"监控 {state}")
+        """Post-toggle side effects shared by enable + confirmed-disable.
+        `state` is either "ON" or "OFF" — left as ASCII (no translation),
+        consistent with how status bar tags are typically rendered."""
+        self.notify(t("event_detail.notify.monitor_state", state=state))
         with contextlib.suppress(AttributeError):
             self.screen.refresh_sidebar_counts()
         self.post_message(SwitchVersionRequested(self.event_id, self._version_idx))
@@ -346,7 +385,7 @@ class EventDetailView(Widget):
     def action_switch_version(self) -> None:
         analyses = self._detail.get("analyses", []) if self._detail else []
         if not analyses:
-            self.notify("无分析版本")
+            self.notify(t("event_detail.notify.no_analysis_version"))
             return
         next_idx = (self._version_idx + 1) % len(analyses)
         self.post_message(SwitchVersionRequested(self.event_id, next_idx))
@@ -359,6 +398,6 @@ class EventDetailView(Widget):
             try:
                 webbrowser.open(url)
             except Exception:
-                self.notify("无法打开浏览器", severity="warning")
+                self.notify(t("event_detail.notify.cannot_open_browser"), severity="warning")
         else:
-            self.notify("无链接信息", severity="warning")
+            self.notify(t("event_detail.notify.no_link"), severity="warning")
