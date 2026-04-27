@@ -145,3 +145,19 @@ def ensure_seeded(db) -> None:
             "INSERT OR IGNORE INTO config (key_path, value, updated_at) VALUES (?, ?, ?)",
             rows,
         )
+
+
+def load_all(db) -> dict[str, Any]:
+    """Read all rows from db.config, return {key_path: deserialized_value}.
+
+    Per design §4.2 — defensive filter excludes EPHEMERAL_FIELDS even if a
+    row exists (someone might have done raw SQL). The Pydantic
+    default_factory is the canonical source for those values.
+    """
+    cur = db.conn.execute("SELECT key_path, value FROM config")
+    flat: dict[str, Any] = {}
+    for key_path, raw_value in cur.fetchall():
+        if key_path in EPHEMERAL_FIELDS:
+            continue
+        flat[key_path] = json.loads(raw_value)
+    return flat

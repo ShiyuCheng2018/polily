@@ -313,3 +313,47 @@ def test_ensure_seeded_safe_across_independent_db_connections(tmp_path):
     finally:
         db_a.close()
         db_b.close()
+
+
+from datetime import UTC, datetime
+
+from polily.core.config_store import load_all
+
+
+def test_load_all_returns_dict_keyed_by_key_path(polily_db):
+    ensure_seeded(polily_db)
+    flat = load_all(polily_db)
+    assert isinstance(flat, dict)
+    assert flat["movement.magnitude_threshold"] == 70
+    assert flat["wallet.starting_balance"] == 100.0
+    assert flat["mispricing.enabled"] is True
+
+
+def test_load_all_decodes_json_values(polily_db):
+    """Values stored as JSON strings round-trip through json.loads."""
+    ensure_seeded(polily_db)
+    flat = load_all(polily_db)
+    # bool / int / float / str must come back as proper Python types
+    assert isinstance(flat["mispricing.enabled"], bool)
+    assert isinstance(flat["movement.daily_analysis_limit"], int)
+    assert isinstance(flat["wallet.starting_balance"], float)
+    assert isinstance(flat["ai.narrative_writer.model"], str)
+
+
+def test_load_all_excludes_ephemeral_fields_even_if_present(polily_db):
+    """Defense-in-depth: even if user inserts api.user_agent via raw SQL,
+    load_all filters it out so PolilyConfig's default_factory wins."""
+    ensure_seeded(polily_db)
+    polily_db.conn.execute(
+        "INSERT INTO config VALUES (?, ?, ?)",
+        ("api.user_agent", json.dumps("polily/EVIL-1.0"), datetime.now(UTC).isoformat()),
+    )
+    polily_db.conn.commit()
+
+    flat = load_all(polily_db)
+    assert "api.user_agent" not in flat, "EPHEMERAL fields must be filtered out"
+
+
+def test_load_all_returns_empty_dict_for_unseeded_db(polily_db):
+    flat = load_all(polily_db)
+    assert flat == {}
