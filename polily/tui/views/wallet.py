@@ -31,11 +31,13 @@ from textual.widget import Widget
 from textual.widgets import Button, DataTable, Static
 
 from polily.core.events import (
+    TOPIC_LANGUAGE_CHANGED,
     TOPIC_POSITION_UPDATED,
     TOPIC_WALLET_UPDATED,
 )
 from polily.tui._dispatch import once_per_tick
 from polily.tui.bindings import NAV_BINDINGS
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_WALLET
 from polily.tui.service import PolilyService
 from polily.tui.views._wallet_overview import compute_wallet_overview
@@ -46,46 +48,51 @@ from polily.tui.widgets.polily_zone import PolilyZone
 logger = logging.getLogger(__name__)
 
 
-_TX_TYPE_LABEL = {
-    "TOPUP": "充值",
-    "WITHDRAW": "提现",
-    "BUY": "买入",
-    "SELL": "卖出",
-    "FEE": "手续费",
-    "RESOLVE": "结算",
-    "MIGRATION": "初始化 v0.6.0",
+# Map ledger DB enum codes → catalog keys. Lookup the catalog at format
+# time (not at module import) so language switches are reflected
+# immediately. Unknown types fall through to the raw enum string.
+_TX_TYPE_KEY = {
+    "TOPUP": "wallet.txn.topup",
+    "WITHDRAW": "wallet.txn.withdraw",
+    "BUY": "wallet.txn.buy",
+    "SELL": "wallet.txn.sell",
+    "FEE": "wallet.txn.fee",
+    "RESOLVE": "wallet.txn.resolve",
+    "MIGRATION": "wallet.txn.migration",
 }
 
 
 def _format_tx_description(tx: dict) -> str:
-    """Condense one wallet_transactions row into '说明' column text."""
-    t = tx["type"]
-    label = _TX_TYPE_LABEL.get(t, t)
+    """Condense one wallet_transactions row into the description column."""
+    tx_type = tx["type"]
+    catalog_key = _TX_TYPE_KEY.get(tx_type)
+    label = t(catalog_key) if catalog_key else tx_type
     # Topup / Withdraw / Migration — just the label + any notes.
-    if t in ("TOPUP", "WITHDRAW", "MIGRATION"):
+    if tx_type in ("TOPUP", "WITHDRAW", "MIGRATION"):
         return label + (f"  {tx['notes']}" if tx.get("notes") else "")
     # Buy / Sell — add market + side + shares@price.
-    if t in ("BUY", "SELL"):
+    if tx_type in ("BUY", "SELL"):
         side = (tx.get("side") or "").upper()
         shares = tx.get("shares")
         price = tx.get("price")
         market = tx.get("market_id") or "?"
         parts = [label, f"{market} {side}"]
         if shares is not None and price is not None:
-            parts.append(f"{shares:.1f}股@{price * 100:.1f}¢")
+            parts.append(t("wallet.txn.shares_at_price", shares=shares, price=price * 100))
         return "  ".join(parts)
     # Fee — pin to market+side for grouping with the trade.
-    if t == "FEE":
+    if tx_type == "FEE":
         side = (tx.get("side") or "").upper()
         market = tx.get("market_id") or "?"
         return f"{label} ({market} {side})"
     # Resolve — mirror buy/sell shape.
-    if t == "RESOLVE":
+    if tx_type == "RESOLVE":
         side = (tx.get("side") or "").upper()
         market = tx.get("market_id") or "?"
         shares = tx.get("shares")
         if shares is not None:
-            return f"{label} {market} {side} {shares:.1f}股"
+            shares_str = t("wallet.txn.shares_only", shares=shares)
+            return f"{label} {market} {side} {shares_str}"
         return f"{label} {market} {side}"
     return label
 
@@ -116,6 +123,9 @@ class WalletView(Widget):
     }
     """
 
+    # NOTE: I18nFooter renders the visible label via t(f"binding.{action}"),
+    # so the strings below are only fallbacks. Don't blank them out —
+    # Textual's Binding.make_bindings sets show=False when description is "".
     BINDINGS = [
         Binding("t", "topup", "充值", show=True),
         Binding("w", "withdraw", "提现", show=True),
@@ -132,14 +142,14 @@ class WalletView(Widget):
         self.service = service
 
     def compose(self) -> ComposeResult:
-        yield PolilyCard(title=f"{ICON_WALLET} 余额概览", id="balance-card")
-        yield PolilyZone(title="交易流水", id="ledger-zone")
+        yield PolilyCard(title=f"{ICON_WALLET} {t('wallet.title.balance_overview')}", id="balance-card")
+        yield PolilyZone(title=t("wallet.title.transactions"), id="ledger-zone")
         with Horizontal(id="action-row"):
             # v0.8.0: the redundant `[t] 充值   [w] 提现   [r] 重置`
             # hint Static was removed — the Footer already surfaces
             # every binding. Only the destructive red button remains
             # as the primary reset entry point.
-            yield Button("重置钱包", id="reset-btn", variant="error", classes="bold")
+            yield Button(t("wallet.button.reset"), id="reset-btn", variant="error", classes="bold")
 
     def on_mount(self) -> None:
         # --- Balance card: mount ONCE with stable IDs so `_render_balance_card`
@@ -148,11 +158,11 @@ class WalletView(Widget):
         # `remove()` is deferred (see v0.8.0 bus-fix commit).
         card = self.query_one("#balance-card", PolilyCard)
         card.mount(Static("", id="wallet-headline", classes="wallet-dynamic"))
-        card.mount(KVRow(id="wallet-cash", label="余额", value="—"))
-        card.mount(KVRow(id="wallet-available", label="可用", value="—"))
-        card.mount(KVRow(id="wallet-positions-value", label="持仓市值", value="—"))
-        card.mount(KVRow(id="wallet-unrealized", label="浮动盈亏", value="—"))
-        card.mount(KVRow(id="wallet-realized", label="累计已实现", value="—"))
+        card.mount(KVRow(id="wallet-cash", label=t("wallet.label.cash"), value="—"))
+        card.mount(KVRow(id="wallet-available", label=t("wallet.label.available"), value="—"))
+        card.mount(KVRow(id="wallet-positions-value", label=t("wallet.label.positions_value"), value="—"))
+        card.mount(KVRow(id="wallet-unrealized", label=t("wallet.label.unrealized"), value="—"))
+        card.mount(KVRow(id="wallet-realized", label=t("wallet.label.realized"), value="—"))
         card.mount(Static("", id="wallet-footnote", classes="wallet-dynamic"))
 
         # --- Ledger table
@@ -161,15 +171,16 @@ class WalletView(Widget):
         ledger_zone.mount(table)
         table.cursor_type = "row"
         table.add_columns(
-            ("时间", "time"),
-            ("说明", "desc"),
-            ("金额", "amount"),
-            ("余额", "balance"),
+            (t("wallet.col.time"), "time"),
+            (t("wallet.col.desc"), "desc"),
+            (t("wallet.col.amount"), "amount"),
+            (t("wallet.col.balance"), "balance"),
         )
 
         # Subscribe to event bus topics
         self.service.event_bus.subscribe(TOPIC_WALLET_UPDATED, self._on_wallet_update)
         self.service.event_bus.subscribe(TOPIC_POSITION_UPDATED, self._on_position_update)
+        self.service.event_bus.subscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
         # Initial render bypasses @once_per_tick — callers expect
         # synchronous population by the time on_mount returns.
         type(self)._render_all.__wrapped__(self)
@@ -177,6 +188,7 @@ class WalletView(Widget):
     def on_unmount(self) -> None:
         self.service.event_bus.unsubscribe(TOPIC_WALLET_UPDATED, self._on_wallet_update)
         self.service.event_bus.unsubscribe(TOPIC_POSITION_UPDATED, self._on_position_update)
+        self.service.event_bus.unsubscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
 
     def _on_wallet_update(self, payload: dict) -> None:
         """Bus callback — refresh coalesced by @once_per_tick on _render_all."""
@@ -184,6 +196,54 @@ class WalletView(Widget):
 
     def _on_position_update(self, payload: dict) -> None:
         """Bus callback — refresh coalesced by @once_per_tick on _render_all."""
+        self._render_all()
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Bus callback — language switched, re-fetch all i18n strings.
+
+        Static labels mounted in on_mount (KVRow labels, table column headers,
+        card/zone titles, action button) need explicit updates because they
+        aren't re-evaluated by _render_all. Dynamic content (headline /
+        footnote / ledger rows) is re-resolved on every _render_all call
+        so it picks up the new language for free.
+        """
+        import contextlib
+        with contextlib.suppress(Exception):
+            # Card / zone titles
+            self.query_one("#balance-card .polily-card-title", Static).update(
+                f"{ICON_WALLET} {t('wallet.title.balance_overview')}",
+            )
+            self.query_one("#ledger-zone .polily-zone-title", Static).update(
+                t("wallet.title.transactions"),
+            )
+            # KVRow labels — query the inner .kv-label static (KVRow exposes
+            # set_value but not set_label; reaching into the child Static is
+            # the minimal-touch alternative)
+            kv_labels = {
+                "#wallet-cash": "wallet.label.cash",
+                "#wallet-available": "wallet.label.available",
+                "#wallet-positions-value": "wallet.label.positions_value",
+                "#wallet-unrealized": "wallet.label.unrealized",
+                "#wallet-realized": "wallet.label.realized",
+            }
+            for kv_id, key in kv_labels.items():
+                self.query_one(f"{kv_id} .kv-label", Static).update(t(key))
+            # Action button
+            self.query_one("#reset-btn", Button).label = t("wallet.button.reset")
+            # Ledger table column headers — DataTable.columns is keyed by
+            # column key (the second tuple element we passed in add_columns).
+            table = self.query_one("#wallet-table", DataTable)
+            col_keys = {
+                "time": "wallet.col.time",
+                "desc": "wallet.col.desc",
+                "amount": "wallet.col.amount",
+                "balance": "wallet.col.balance",
+            }
+            for col_key, cat_key in col_keys.items():
+                if col_key in table.columns:
+                    table.columns[col_key].label = t(cat_key)
+            # Force header repaint
+            table.refresh()
         self._render_all()
 
     @once_per_tick
@@ -239,8 +299,8 @@ class WalletView(Widget):
         total_color = "green" if ov["total_pnl"] > 0 else "red" if ov["total_pnl"] < 0 else "dim"
         total_sign = "+" if ov["total_pnl"] > 0 else ""
         headline = (
-            f"总资产 [bold]${ov['equity']:.2f}[/bold]"
-            f"   ·   累计回报 "
+            f"{t('wallet.headline.equity')} [bold]${ov['equity']:.2f}[/bold]"
+            f"   ·   {t('wallet.headline.total_return')} "
             f"[{total_color}]{total_sign}${ov['total_pnl']:.2f} "
             f"({ov['roi_pct']:+.2f}%)[/{total_color}]"
         )
@@ -253,10 +313,10 @@ class WalletView(Widget):
         unreal_sign = "+" if unreal > 0 else ""
 
         footnote = (
-            f"净投入 ${ov['net_inflow']:.2f}  =  "
-            f"初始 ${ov['starting_balance']:.2f}  +  "
-            f"充值 ${ov['topup_total']:.2f}  -  "
-            f"提现 ${ov['withdraw_total']:.2f}"
+            f"{t('wallet.footnote.net_inflow')} ${ov['net_inflow']:.2f}  =  "
+            f"{t('wallet.footnote.starting')} ${ov['starting_balance']:.2f}  +  "
+            f"{t('wallet.footnote.topup')} ${ov['topup_total']:.2f}  -  "
+            f"{t('wallet.footnote.withdraw')} ${ov['withdraw_total']:.2f}"
         )
 
         try:
@@ -264,7 +324,8 @@ class WalletView(Widget):
             self.query_one("#wallet-cash", KVRow).set_value(f"${ov['cash_usd']:.2f}")
             self.query_one("#wallet-available", KVRow).set_value(f"${ov['cash_usd']:.2f}")
             self.query_one("#wallet-positions-value", KVRow).set_value(
-                f"${ov['positions_market_value']:.2f}   ({ov['open_positions_count']} 个持仓)",
+                f"${ov['positions_market_value']:.2f}   "
+                f"({t('wallet.positions_count', count=ov['open_positions_count'])})",
             )
             self.query_one("#wallet-unrealized", KVRow).set_value(
                 f"[{unreal_color}]{unreal_sign}${unreal:.2f}[/{unreal_color}]",

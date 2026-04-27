@@ -11,7 +11,7 @@ Contract:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from polily.core.db import PolilyDB
 
@@ -26,7 +26,7 @@ def get_pref(db: PolilyDB, key: str, default: str | None = None) -> str | None:
 
 
 def set_pref(db: PolilyDB, key: str, value: str) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     db.conn.execute(
         """
         INSERT INTO user_prefs (key, value, updated_at) VALUES (?, ?, ?)
