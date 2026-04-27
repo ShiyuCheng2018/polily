@@ -35,6 +35,20 @@ def test_ephemeral_fields_is_frozenset():
     assert isinstance(EPHEMERAL_FIELDS, frozenset)
 
 
+def test_ephemeral_fields_exact_membership():
+    """Locks EPHEMERAL_FIELDS to exactly {api.user_agent}.
+
+    The existing `test_ephemeral_fields_contains_user_agent` only checks
+    containment — it would silently pass if a future commit added a second
+    EPHEMERAL field. Lock equality so any addition/removal fires a test.
+
+    To add a new EPHEMERAL field, update both the frozenset and this test
+    in the same commit (forces a conscious decision per design §10.2 YAGNI
+    note about EPHEMERAL_FIELDS schema-extra abstraction).
+    """
+    assert frozenset({"api.user_agent"}) == EPHEMERAL_FIELDS
+
+
 def test_territory_a_prefixes_covers_4_user_facing_sections():
     """Per Q1 — only 4 sections are TUI-editable."""
     assert TERRITORY_A_PREFIXES == (
@@ -76,6 +90,42 @@ def test_territory_a_prefixes_top_levels_align_with_pydantic_schema():
         f"  territory_a:        {sorted(territory_top)}\n"
         f"  hidden:             {sorted(hidden_top)}\n"
         f"  unaccounted:        {sorted(pydantic_top - territory_top - hidden_top)}"
+    )
+
+
+def test_territory_a_total_leaf_count_is_40():
+    """Locks Q1 territory A scope at 40 leaves (movement + scoring.thresholds
+    + mispricing + wallet). If this fails, either:
+    - A new section was added (update TERRITORY_A_PREFIXES + design §3.2 §12.A)
+    - A leaf was added/removed within an existing section (adjust whitelist
+      and document in the design's §12.A appendix)
+
+    Catches schema drift where total stays 47 but the per-tier split changes
+    silently — e.g., promoting api.request_timeout_seconds to territory A
+    would change total to still 47 but territory A becomes 41.
+    """
+    flat = _flatten_pydantic(PolilyConfig())
+    territory_a = {key for key in flat if is_territory_a(key)}
+    assert len(territory_a) == 40, (
+        f"expected 40 territory A leaves, got {len(territory_a)}: "
+        f"{sorted(territory_a)}"
+    )
+
+
+def test_hidden_in_tui_leaf_count_is_6():
+    """Locks Q1 HIDDEN_IN_TUI scope at 6 leaves (api.* × 2 / tui.* × 1 /
+    ai.narrative_writer.* × 3 / archiving.db_file × 1 — minus EPHEMERAL).
+
+    Hidden = leaves in the schema that are NOT EPHEMERAL and NOT territory A.
+    """
+    flat = _flatten_pydantic(PolilyConfig())
+    hidden = {
+        key for key in flat
+        if key not in EPHEMERAL_FIELDS and not is_territory_a(key)
+    }
+    assert len(hidden) == 6, (
+        f"expected 6 HIDDEN_IN_TUI leaves, got {len(hidden)}: "
+        f"{sorted(hidden)}"
     )
 
 
