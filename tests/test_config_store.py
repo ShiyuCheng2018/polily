@@ -187,3 +187,129 @@ def test_ensure_seeded_stores_values_as_json(polily_db):
         "SELECT value FROM config WHERE key_path = 'mispricing.enabled'"
     )
     assert json.loads(cur.fetchone()[0]) is True
+
+
+def test_ensure_seeded_is_idempotent(polily_db):
+    """Running ensure_seeded twice doesn't duplicate rows."""
+    ensure_seeded(polily_db)
+    ensure_seeded(polily_db)
+    cur = polily_db.conn.execute("SELECT COUNT(*) FROM config")
+    assert cur.fetchone()[0] == 46
+
+
+def test_ensure_seeded_does_not_overwrite_user_edited_value(polily_db):
+    """If user already changed a leaf, ensure_seeded leaves it alone (INSERT OR IGNORE)."""
+    ensure_seeded(polily_db)
+
+    # Simulate user TUI edit: set magnitude_threshold to 50
+    polily_db.conn.execute(
+        "UPDATE config SET value = ? WHERE key_path = ?",
+        (json.dumps(50), "movement.magnitude_threshold"),
+    )
+    polily_db.conn.commit()
+
+    # Re-seed (e.g., next polily startup)
+    ensure_seeded(polily_db)
+
+    # User's 50 must survive
+    cur = polily_db.conn.execute(
+        "SELECT value FROM config WHERE key_path = 'movement.magnitude_threshold'"
+    )
+    assert json.loads(cur.fetchone()[0]) == 50, "user-edited value was overwritten"
+
+
+def test_ensure_seeded_restores_user_deleted_row(polily_db):
+    """If user deletes a row via raw SQL, next ensure_seeded re-adds default."""
+    ensure_seeded(polily_db)
+    polily_db.conn.execute(
+        "DELETE FROM config WHERE key_path = ?",
+        ("movement.magnitude_threshold",),
+    )
+    polily_db.conn.commit()
+
+    ensure_seeded(polily_db)
+
+    cur = polily_db.conn.execute(
+        "SELECT value FROM config WHERE key_path = 'movement.magnitude_threshold'"
+    )
+    assert json.loads(cur.fetchone()[0]) == 70  # back to Pydantic default
+
+
+def test_ensure_seeded_safe_under_concurrent_threads_each_with_own_connection(tmp_path):
+    """Whis SF5 (rewritten) — 4 threads each open their own PolilyDB
+    instance and call ensure_seeded concurrently.
+
+    Why per-thread connection: Python's sqlite3 module serializes
+    transactions per connection regardless of check_same_thread=False;
+    sharing one connection across threads in `with conn:` blocks raises
+    InterfaceError. The realistic concurrency scenario in polily is
+    "TUI process and daemon process race during first startup" —
+    different processes, different connections, but same db file.
+    This test simulates that with 4 concurrent threads × own connection,
+    relying on OS-level fcntl + INSERT OR IGNORE for safety.
+    """
+    import threading
+    from polily.core.db import PolilyDB
+
+    db_path = tmp_path / "polily.db"
+    errors = []
+
+    def worker():
+        db = PolilyDB(db_path)
+        try:
+            ensure_seeded(db)
+        except Exception as e:
+            errors.append(e)
+        finally:
+            db.close()
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"ensure_seeded raised under concurrent threads: {errors}"
+    # Verify final state: exactly 46 rows, no duplicates
+    db = PolilyDB(db_path)
+    try:
+        cur = db.conn.execute("SELECT COUNT(*) FROM config")
+        assert cur.fetchone()[0] == 46
+    finally:
+        db.close()
+
+
+def test_ensure_seeded_safe_across_independent_db_connections(tmp_path):
+    """Whis SF6 — TUI process + daemon process opening separate
+    PolilyDB instances on the same db file (real cross-process scenario).
+
+    Simulated within one Python process by opening two PolilyDB instances;
+    OS-level fcntl locking + INSERT OR IGNORE handles the race.
+
+    Note: this test imports load_all from config_store. As of T1.6 commit
+    time, load_all has NOT been implemented yet (lands in T1.7). Until
+    then, this test fails on import. That's intentional — when T1.7
+    lands, the test will pass without changes. Acceptable per plan.
+    """
+    from polily.core.db import PolilyDB
+    from polily.core.config_store import load_all
+
+    db_path = tmp_path / "polily.db"
+    db_a = PolilyDB(db_path)
+    db_b = PolilyDB(db_path)
+    try:
+        # Both call ensure_seeded; second should be a no-op (rows already
+        # exist from first INSERT OR IGNORE)
+        ensure_seeded(db_a)
+        ensure_seeded(db_b)
+
+        cur = db_b.conn.execute("SELECT COUNT(*) FROM config")
+        assert cur.fetchone()[0] == 46  # not 92 (no duplicates)
+
+        # Both connections see the same data
+        flat_a = load_all(db_a)
+        flat_b = load_all(db_b)
+        assert flat_a == flat_b
+    finally:
+        db_a.close()
+        db_b.close()
