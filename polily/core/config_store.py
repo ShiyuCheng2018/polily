@@ -89,3 +89,27 @@ def _flatten_pydantic(model: BaseModel, prefix: str = "") -> dict[str, Any]:
         else:
             flat[path] = value
     return flat
+
+
+def _unflatten(flat: dict[str, Any]) -> dict[str, Any]:
+    """Inverse of _flatten_pydantic — convert dot-notation dict to nested.
+
+    Used by load_all to reconstruct kwargs for `PolilyConfig.model_validate`.
+    """
+    nested: dict[str, Any] = {}
+    for key_path, value in flat.items():
+        parts = key_path.split(".")
+        cursor = nested
+        for part in parts[:-1]:
+            if part not in cursor:
+                cursor[part] = {}
+            elif not isinstance(cursor[part], dict):
+                # Should not happen if _flatten_pydantic was the source —
+                # would mean a key_path is both a scalar leaf and a parent.
+                raise ValueError(
+                    f"_unflatten conflict: {key_path} parent {part!r} "
+                    f"already has scalar value {cursor[part]!r}"
+                )
+            cursor = cursor[part]
+        cursor[parts[-1]] = value
+    return nested

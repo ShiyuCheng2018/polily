@@ -102,3 +102,49 @@ def test_flatten_pydantic_total_leaf_count_is_47():
     """
     flat = _flatten_pydantic(PolilyConfig())
     assert len(flat) == 47, f"expected 47 leaves, got {len(flat)}: {sorted(flat.keys())}"
+
+
+from polily.core.config_store import _unflatten
+
+
+def test_unflatten_scalar_leaves():
+    flat = {
+        "movement.magnitude_threshold": 50,
+        "wallet.starting_balance": 200.0,
+    }
+    nested = _unflatten(flat)
+    assert nested == {
+        "movement": {"magnitude_threshold": 50},
+        "wallet": {"starting_balance": 200.0},
+    }
+
+
+def test_unflatten_deeply_nested_weights():
+    flat = {
+        "movement.weights.crypto.magnitude.price_z_score": 0.15,
+        "movement.weights.crypto.magnitude.book_imbalance": 0.10,
+        "movement.weights.crypto.quality.volume_ratio": 0.40,
+    }
+    nested = _unflatten(flat)
+    assert nested == {
+        "movement": {
+            "weights": {
+                "crypto": {
+                    "magnitude": {
+                        "price_z_score": 0.15,
+                        "book_imbalance": 0.10,
+                    },
+                    "quality": {"volume_ratio": 0.40},
+                },
+            },
+        },
+    }
+
+
+def test_flatten_then_unflatten_roundtrips():
+    """flatten → unflatten → model_validate must equal original PolilyConfig."""
+    original = PolilyConfig()
+    flat = _flatten_pydantic(original)
+    nested = _unflatten(flat)
+    rebuilt = PolilyConfig.model_validate(nested)
+    assert rebuilt.model_dump() == original.model_dump()
