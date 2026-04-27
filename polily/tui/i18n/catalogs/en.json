@@ -13,6 +13,7 @@
   "binding.cursor_top": "Top",
   "binding.cursor_bottom": "Bottom",
   "binding.search": "Search",
+  "binding.command_palette": "Palette",
 
   "status.pending": "Pending",
   "status.running": "Running",
