@@ -17,6 +17,7 @@
   "binding.topup": "Top-up",
   "binding.withdraw": "Withdraw",
   "binding.reset": "Reset",
+  "binding.view_detail": "Detail",
 
   "wallet.title.balance_overview": "Balance Overview",
   "wallet.title.transactions": "Transactions",
@@ -56,5 +57,39 @@
 
   "trigger.manual": "Manual",
   "trigger.scheduled": "Scheduled",
-  "trigger.movement": "Movement"
+  "trigger.movement": "Movement",
+
+  "changelog.title.zone": "Changelog",
+  "changelog.unable_to_fetch": "Unavailable",
+  "changelog.fetching": "Fetching...",
+  "changelog.version_line": "Current: v{current} · Latest stable: {latest}",
+  "changelog.error.read_failed": "# Failed to read CHANGELOG.md\n\n`{detail}`",
+  "changelog.error.read_packaged_failed": "# Failed to read packaged CHANGELOG\n\n`{detail}`",
+  "changelog.error.not_found": "# CHANGELOG.md not found\n\nNeither the repo root CHANGELOG.md nor the packaged resource was found.\n\nFull log: https://github.com/ShiyuCheng2018/polily/blob/master/CHANGELOG.md",
+
+  "history.title.zone": "Realized Trade History",
+  "history.col.market": "Market",
+  "history.col.side": "Side",
+  "history.col.action": "Action",
+  "history.col.shares": "Shares",
+  "history.col.price": "Price",
+  "history.col.pnl": "P&L",
+  "history.col.fee": "Fee",
+  "history.col.time": "Time",
+  "history.empty.title": "[dim]No realized trades yet.[/dim]",
+  "history.empty.body": "After you sell an open position or a market resolves, it shows up here.",
+  "history.summary": "Realized {count} · Total P&L [{pnl_color}]{pnl_sign}${pnl:.2f}[/{pnl_color}] · Total fees {fees_str}",
+
+  "paper.title.zone": "Positions",
+  "paper.col.event": "Event",
+  "paper.col.side": "Side",
+  "paper.col.entry": "Entry",
+  "paper.col.current": "Current",
+  "paper.col.amount": "Amount",
+  "paper.col.value": "Value",
+  "paper.col.pnl": "P&L",
+  "paper.empty": "[dim]No open positions. Press t on a market detail to mark a paper trade.[/dim]",
+  "paper.amount_format": "${size:.0f}({shares:.0f}sh)",
+  "paper.summary": "Total: {count} | Value: ${value:.2f} | Unrealized: [{pnl_color}]{pnl_sign}${pnl:.2f} ({pnl_pct:+.1f}%)[/{pnl_color}]",
+  "paper.due_format": "{date} ({days:.0f}d)"
 }

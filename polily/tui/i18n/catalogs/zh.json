@@ -17,6 +17,7 @@
   "binding.topup": "充值",
   "binding.withdraw": "提现",
   "binding.reset": "重置",
+  "binding.view_detail": "详情",
 
   "wallet.title.balance_overview": "余额概览",
   "wallet.title.transactions": "交易流水",
@@ -56,5 +57,39 @@
 
   "trigger.manual": "手动",
   "trigger.scheduled": "定时",
-  "trigger.movement": "监控"
+  "trigger.movement": "监控",
+
+  "changelog.title.zone": "更新日志",
+  "changelog.unable_to_fetch": "无法获取",
+  "changelog.fetching": "查询中...",
+  "changelog.version_line": "当前版本: v{current} · 最新稳定版: {latest}",
+  "changelog.error.read_failed": "# 读取 CHANGELOG.md 失败\n\n`{detail}`",
+  "changelog.error.read_packaged_failed": "# 读取打包 CHANGELOG 失败\n\n`{detail}`",
+  "changelog.error.not_found": "# 找不到 CHANGELOG.md\n\n源码仓库根目录的 CHANGELOG.md 不存在，打包资源里也没有。\n\n完整日志: https://github.com/ShiyuCheng2018/polily/blob/master/CHANGELOG.md",
+
+  "history.title.zone": "已实现交易历史",
+  "history.col.market": "市场",
+  "history.col.side": "方向",
+  "history.col.action": "操作",
+  "history.col.shares": "股数",
+  "history.col.price": "成交价",
+  "history.col.pnl": "P&L",
+  "history.col.fee": "摩擦",
+  "history.col.time": "时间",
+  "history.empty.title": "[dim]暂无已实现的交易。[/dim]",
+  "history.empty.body": "开仓后卖出或市场结算，将在此留下记录。",
+  "history.summary": "已实现 {count} 笔 · 累计 P&L [{pnl_color}]{pnl_sign}${pnl:.2f}[/{pnl_color}] · 累计摩擦 {fees_str}",
+
+  "paper.title.zone": "持仓",
+  "paper.col.event": "事件",
+  "paper.col.side": "方向",
+  "paper.col.entry": "入场价",
+  "paper.col.current": "现价",
+  "paper.col.amount": "金额",
+  "paper.col.value": "价值",
+  "paper.col.pnl": "P&L",
+  "paper.empty": "[dim]暂无持仓。在市场详情页按 t 标记 paper trade。[/dim]",
+  "paper.amount_format": "${size:.0f}({shares:.0f}股)",
+  "paper.summary": "总计: {count} | 持仓价值: ${value:.2f} | 浮动盈亏: [{pnl_color}]{pnl_sign}${pnl:.2f} ({pnl_pct:+.1f}%)[/{pnl_color}]",
+  "paper.due_format": "{date} ({days:.0f}天)"
 }

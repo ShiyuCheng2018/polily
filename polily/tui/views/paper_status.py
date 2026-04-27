@@ -27,6 +27,7 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Static
 
 from polily.core.events import (
+    TOPIC_LANGUAGE_CHANGED,
     TOPIC_POSITION_UPDATED,
     TOPIC_PRICE_UPDATED,
     TOPIC_WALLET_UPDATED,
@@ -34,6 +35,7 @@ from polily.core.events import (
 from polily.pnl import calc_unrealized_pnl
 from polily.tui._dispatch import once_per_tick
 from polily.tui.bindings import NAV_BINDINGS
+from polily.tui.i18n import t as _t  # `t` collides with `for t in self._trades:` loops
 from polily.tui.icons import ICON_POSITION
 from polily.tui.service import PolilyService
 from polily.tui.widgets.polily_zone import PolilyZone
@@ -41,14 +43,19 @@ from polily.tui.widgets.polily_zone import PolilyZone
 logger = logging.getLogger(__name__)
 
 
+# Stable internal column key -> catalog key for the visible label.
+# NOTE: the legacy "现价" key is preserved as the table-cell update key
+# (paper_status._fill_table writes to update_cell(..., "现价", ...) — keep
+# that key string stable across the i18n migration so existing call sites
+# don't break).
 _COLUMN_SPEC = [
-    ("事件", "title"),
-    ("方向", "side"),
-    ("入场价", "entry"),
-    ("现价", "现价"),
-    ("金额", "amount"),
-    ("价值", "value"),
-    ("P&L", "P&L"),
+    ("title", "paper.col.event"),
+    ("side", "paper.col.side"),
+    ("entry", "paper.col.entry"),
+    ("现价", "paper.col.current"),
+    ("amount", "paper.col.amount"),
+    ("value", "paper.col.value"),
+    ("P&L", "paper.col.pnl"),
 ]
 
 
@@ -63,6 +70,8 @@ class ViewTradeDetail(Message):
 class PaperStatusView(Widget):
     """Portfolio view — reads prices from DB (no independent API fetch)."""
 
+    # NOTE: I18nFooter renders binding labels via t(f"binding.{action}") at
+    # compose time, so the zh strings below are only fallbacks.
     BINDINGS = [
         Binding("enter", "view_detail", "详情", show=True),
         Binding("r", "refresh", "刷新", show=True),
@@ -86,7 +95,7 @@ class PaperStatusView(Widget):
     def compose(self) -> ComposeResult:
         with VerticalScroll():
             yield PolilyZone(
-                title=f"{ICON_POSITION} 持仓",
+                title=f"{ICON_POSITION} {_t('paper.title.zone')}",
                 id="portfolio-zone",
             )
 
@@ -105,7 +114,8 @@ class PaperStatusView(Widget):
             table = DataTable(id="portfolio-table")
             zone.mount(table)
             table.cursor_type = "row"
-            table.add_columns(*_COLUMN_SPEC)
+            for col_key, cat_key in _COLUMN_SPEC:
+                table.add_column(_t(cat_key), key=col_key)
 
         self.service.event_bus.subscribe(
             TOPIC_WALLET_UPDATED, self._on_wallet_update,
@@ -115,6 +125,9 @@ class PaperStatusView(Widget):
         )
         self.service.event_bus.subscribe(
             TOPIC_PRICE_UPDATED, self._on_price_update,
+        )
+        self.service.event_bus.subscribe(
+            TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
         )
         # Initial render bypasses @once_per_tick — callers expect
         # synchronous population by the time on_mount returns.
@@ -130,6 +143,25 @@ class PaperStatusView(Widget):
         self.service.event_bus.unsubscribe(
             TOPIC_PRICE_UPDATED, self._on_price_update,
         )
+        self.service.event_bus.unsubscribe(
+            TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
+        )
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Update zone title + DataTable column headers on language switch.
+        Row content + summary line are re-rendered by _render_all."""
+        with contextlib.suppress(Exception):
+            self.query_one("#portfolio-zone .polily-zone-title", Static).update(
+                f"{ICON_POSITION} {_t('paper.title.zone')}",
+            )
+            table = self.query_one("#portfolio-table", DataTable)
+            for col_key, cat_key in _COLUMN_SPEC:
+                if col_key in table.columns:
+                    # pyright complains about str → ColumnKey + str → Text;
+                    # both work at runtime (see wallet.py for the same note).
+                    table.columns[col_key].label = _t(cat_key)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue]
+            table.refresh()
+        self._render_all()
 
     # -- Bus callbacks (published from non-UI threads — must hop back) --
 
@@ -175,9 +207,7 @@ class PaperStatusView(Widget):
 
         if not self._trades:
             with contextlib.suppress(Exception):
-                self.query_one("#portfolio-summary", Static).update(
-                    "[dim]暂无持仓。在市场详情页按 t 标记 paper trade。[/dim]"
-                )
+                self.query_one("#portfolio-summary", Static).update(_t("paper.empty"))
             return
 
         self._fill_table(table)
@@ -225,7 +255,7 @@ class PaperStatusView(Widget):
                 total_cost += size
 
             entry_str = f"{entry * 100:.1f}¢"
-            amount_str = f"${size:.0f}({shares:.0f}股)"
+            amount_str = _t("paper.amount_format", size=size, shares=shares)
 
             table.add_row(
                 title,
@@ -241,13 +271,19 @@ class PaperStatusView(Widget):
         # Summary line
         pnl_pct_total = total_pnl / total_cost * 100 if total_cost > 0 else 0
         pnl_color = "green" if total_pnl >= 0 else "red"
+        pnl_sign = "+" if total_pnl >= 0 else ""
 
         with contextlib.suppress(Exception):
             self.query_one("#portfolio-summary", Static).update(
-                f"总计: {len(self._trades)} | "
-                f"持仓价值: ${total_value:.2f} | "
-                f"浮动盈亏: [{pnl_color}]{'+' if total_pnl >= 0 else ''}"
-                f"${total_pnl:.2f} ({pnl_pct_total:+.1f}%)[/{pnl_color}]"
+                _t(
+                    "paper.summary",
+                    count=len(self._trades),
+                    value=total_value,
+                    pnl_color=pnl_color,
+                    pnl_sign=pnl_sign,
+                    pnl=total_pnl,
+                    pnl_pct=pnl_pct_total,
+                )
             )
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
@@ -347,12 +383,18 @@ class PaperStatusView(Widget):
         # Update summary
         pnl_pct_total = total_pnl / total_cost * 100 if total_cost > 0 else 0
         pnl_color = "green" if total_pnl >= 0 else "red"
+        pnl_sign = "+" if total_pnl >= 0 else ""
         with contextlib.suppress(Exception):
             self.query_one("#portfolio-summary", Static).update(
-                f"总计: {len(self._trades)} | "
-                f"持仓价值: ${total_value:.2f} | "
-                f"浮动盈亏: [{pnl_color}]{'+' if total_pnl >= 0 else ''}"
-                f"${total_pnl:.2f} ({pnl_pct_total:+.1f}%)[/{pnl_color}]"
+                _t(
+                    "paper.summary",
+                    count=len(self._trades),
+                    value=total_value,
+                    pnl_color=pnl_color,
+                    pnl_sign=pnl_sign,
+                    pnl=total_pnl,
+                    pnl_pct=pnl_pct_total,
+                )
             )
 
     def _format_entry_time(self, marked_at: str) -> str:
@@ -362,6 +404,6 @@ class PaperStatusView(Widget):
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=UTC)
             days = (datetime.now(UTC) - dt).total_seconds() / 86400
-            return f"{dt.strftime('%m-%d')} ({days:.0f}天)"
+            return _t("paper.due_format", date=dt.strftime("%m-%d"), days=days)
         except (ValueError, TypeError):
             return "?"
