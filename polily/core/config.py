@@ -218,3 +218,61 @@ def load_config(
         with open(path) as f:
             merged = yaml.safe_load(f) or {}
     return PolilyConfig.model_validate(merged)
+
+
+class ConfigValidationError(Exception):
+    """Raised when db.config contains values that fail Pydantic validation.
+
+    Per design §7.3 — surfaced as a fatal screen by TUI / exit(1) by daemon.
+    Not auto-recoverable; user must run `polily config reset --all` (or single
+    key) to escape.
+    """
+
+
+def load_config_from_db(db) -> PolilyConfig:
+    """Load config from db.config (the canonical source).
+
+    Per design §4.2 + Phase 2 AC1 + AC3:
+
+    1. Migrate legacy yaml → db (Whis B3) BEFORE seeding defaults — runs once
+       (db.config empty), no-op afterward
+    2. INSERT OR IGNORE Pydantic defaults to fill any leaves not in db
+    3. Steps 1+2 wrapped in BEGIN IMMEDIATE so the cross-process race window
+       (process A migrates while process B seeds → user yaml loss) is closed
+       (AC1)
+    4. Read all rows + filter EPHEMERAL_FIELDS defensively
+    5. Pydantic validate; ConfigValidationError on failure — no fallback (AC3)
+
+    Caller responsibilities:
+      - TUI (polily.tui.app): catch ConfigValidationError → push FatalConfigScreen (Phase 7)
+      - daemon (polily.cli.run_scheduler_daemon): catch ConfigValidationError → exit(1)
+    """
+    from polily.core.config_store import (
+        EPHEMERAL_FIELDS,
+        _migrate_yaml_to_db,
+        _unflatten,
+        ensure_seeded,
+        load_all,
+    )
+
+    # AC1: write-locked transaction prevents cross-process interleaving
+    # of migrate count-check vs seed insert. Without BEGIN IMMEDIATE, two
+    # processes both see count=0 → process B's seed writes defaults →
+    # process A's migrate INSERT OR IGNORE no-ops user yaml values silently.
+    with db.conn:
+        db.conn.execute("BEGIN IMMEDIATE")
+        _migrate_yaml_to_db(db)
+        ensure_seeded(db)
+
+    flat = load_all(db)
+    # Defensive — even if user manually inserted EPHEMERAL_FIELDS rows via
+    # raw SQL, ignore them at validate time so default_factory wins.
+    flat = {k: v for k, v in flat.items() if k not in EPHEMERAL_FIELDS}
+    nested = _unflatten(flat)
+
+    try:
+        return PolilyConfig.model_validate(nested)
+    except Exception as e:
+        # AC3: fail-loud. Wrap Pydantic ValidationError so callers don't
+        # leak Pydantic internals.
+        raise ConfigValidationError(str(e)) from e
