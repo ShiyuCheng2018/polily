@@ -357,3 +357,54 @@ def test_load_all_excludes_ephemeral_fields_even_if_present(polily_db):
 def test_load_all_returns_empty_dict_for_unseeded_db(polily_db):
     flat = load_all(polily_db)
     assert flat == {}
+
+
+import pytest
+from polily.core.config_store import ConfigSaveError, upsert
+
+
+def test_upsert_writes_new_row_for_existing_key(polily_db):
+    """Update existing seeded row."""
+    ensure_seeded(polily_db)
+    upsert(polily_db, "movement.magnitude_threshold", 50)
+
+    flat = load_all(polily_db)
+    assert flat["movement.magnitude_threshold"] == 50
+
+
+def test_upsert_updates_updated_at(polily_db):
+    """updated_at column refreshes on each upsert."""
+    ensure_seeded(polily_db)
+    cur = polily_db.conn.execute(
+        "SELECT updated_at FROM config WHERE key_path = ?",
+        ("movement.magnitude_threshold",),
+    )
+    initial = cur.fetchone()[0]
+
+    import time
+    time.sleep(0.01)
+    upsert(polily_db, "movement.magnitude_threshold", 50)
+
+    cur = polily_db.conn.execute(
+        "SELECT updated_at FROM config WHERE key_path = ?",
+        ("movement.magnitude_threshold",),
+    )
+    after = cur.fetchone()[0]
+    assert after > initial
+
+
+def test_upsert_rejects_ephemeral_field(polily_db):
+    """api.user_agent cannot be persisted — would defeat default_factory."""
+    ensure_seeded(polily_db)
+    with pytest.raises(ConfigSaveError, match="api.user_agent"):
+        upsert(polily_db, "api.user_agent", "polily/HACK")
+
+
+def test_upsert_serializes_complex_value_as_json(polily_db):
+    """List / dict values stored as JSON strings."""
+    ensure_seeded(polily_db)
+    # No list-typed leaves in territory A as of v0.9.5, but the helper
+    # must round-trip them anyway to be future-proof.
+    upsert(polily_db, "movement.magnitude_threshold", 60.5)
+    flat = load_all(polily_db)
+    assert flat["movement.magnitude_threshold"] == 60.5

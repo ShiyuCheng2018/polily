@@ -161,3 +161,37 @@ def load_all(db) -> dict[str, Any]:
             continue
         flat[key_path] = json.loads(raw_value)
     return flat
+
+
+class ConfigSaveError(Exception):
+    """Raised when a config save violates an invariant (EPHEMERAL field, etc.)."""
+
+
+def upsert(db, key_path: str, value: Any) -> None:
+    """Insert or update a single config row.
+
+    Per design §4.2:
+      - Rejects EPHEMERAL_FIELDS (those are runtime-computed, must never persist)
+      - Refreshes updated_at on every write
+      - Caller is responsible for Pydantic validation BEFORE calling this
+        (see polily/core/config.py::save_knob)
+
+    Used by:
+      - TUI Edit modal save handler
+      - polily config reset CLI escape hatch
+    """
+    if key_path in EPHEMERAL_FIELDS:
+        raise ConfigSaveError(
+            f"{key_path} is computed at runtime and cannot be persisted"
+        )
+    now = datetime.now(UTC).isoformat()
+    with db.conn:
+        db.conn.execute(
+            """
+            INSERT INTO config (key_path, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key_path) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (key_path, json.dumps(value), now),
+        )
