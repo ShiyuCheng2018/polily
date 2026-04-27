@@ -8,16 +8,32 @@ configuration. Three field tiers:
 - EPHEMERAL_FIELDS (1 leaf): never persisted; computed at runtime via Pydantic
   default_factory (e.g., api.user_agent which follows __version__)
 
-Public API:
+Public API (all implemented as of Phase 1):
     ensure_seeded(db)           — INSERT OR IGNORE all 47 leaves except EPHEMERAL
     load_all(db) -> dict        — read all rows, returns {key_path: value}
     upsert(db, key, value)      — write/overwrite a single key (TUI Edit modal)
     reset(db, key)              — write Pydantic default for key (modal Reset)
 
+Internal:
+    _migrate_yaml_to_db(db)     — one-shot v0.9.x → v0.10.0 legacy yaml import
+
 The "ephemeral" tier is enforced at three sites — seed skips them, save_knob
 rejects them, load filters them out (defense-in-depth even if user does raw SQL).
 """
 from __future__ import annotations
+
+import json
+import logging
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import BaseModel, ValidationError
+
+from polily.core.config import PolilyConfig
+
+_log = logging.getLogger(__name__)
 
 
 # Per design §3.2 — fields whose value is computed at runtime via Pydantic
@@ -41,15 +57,17 @@ TERRITORY_A_PREFIXES: tuple[str, ...] = (
 
 
 def is_territory_a(key_path: str) -> bool:
-    """True if key_path is TUI-editable (not HIDDEN_IN_TUI, not EPHEMERAL)."""
+    """True if key_path is TUI-editable (not HIDDEN_IN_TUI, not EPHEMERAL).
+
+    EPHEMERAL_FIELDS check happens BEFORE the prefix match, so even a
+    key like 'movement.user_agent' (hypothetical) would be rejected if
+    it lived in EPHEMERAL_FIELDS. This precedence matters for
+    defense-in-depth: territory-A whitelist alone isn't sufficient if
+    a future EPHEMERAL field happens to share a prefix with a real one.
+    """
     if key_path in EPHEMERAL_FIELDS:
         return False
     return any(key_path.startswith(p) for p in TERRITORY_A_PREFIXES)
-
-
-from typing import Any
-
-from pydantic import BaseModel
 
 
 def _flatten_pydantic(model: BaseModel, prefix: str = "") -> dict[str, Any]:
@@ -67,6 +85,14 @@ def _flatten_pydantic(model: BaseModel, prefix: str = "") -> dict[str, Any]:
 
     Includes EPHEMERAL fields — filtering happens at the seed/save/load
     boundary, not here.
+
+    Does not handle:
+      - None-valued fields (would be stored as JSON null; PolilyConfig
+        currently has no Optional models so untested)
+      - list-typed fields (would be stored as Python list object; T1.5 +
+        T1.7 JSON-serialize via dumps/loads. PolilyConfig currently has
+        no list leaves in territory A; add an isinstance(value, list)
+        branch if/when that changes)
     """
     flat: dict[str, Any] = {}
     for field_name, _field_info in type(model).model_fields.items():
@@ -113,12 +139,6 @@ def _unflatten(flat: dict[str, Any]) -> dict[str, Any]:
             cursor = cursor[part]
         cursor[parts[-1]] = value
     return nested
-
-
-import json
-from datetime import UTC, datetime
-
-from polily.core.config import PolilyConfig
 
 
 def ensure_seeded(db) -> None:
@@ -219,14 +239,18 @@ def reset(db, key_path: str) -> None:
     upsert(db, key_path, defaults[key_path])
 
 
-import logging
-from pathlib import Path
-
-_log = logging.getLogger(__name__)
-
-
 def _migrate_yaml_to_db(db) -> None:
     """One-shot v0.9.x → v0.10.0 migration (Whis B3).
+
+    **Call-order invariant**: this function MUST be called in the same
+    code path as ensure_seeded(), with migration FIRST. Phase 2's
+    load_config_from_db() does this correctly. If a future caller
+    invokes ensure_seeded() before _migrate_yaml_to_db() in a separate
+    process, that process would write Pydantic defaults via INSERT OR
+    IGNORE, then this function's count check would see > 0 and skip,
+    silently losing the user's legacy yaml customization. The atomic
+    "migrate then seed" sequence inside load_config_from_db() prevents
+    this race.
 
     Imports any user-customized values from a legacy `config.yaml` into
     db.config, but ONLY if db.config is currently empty (so on subsequent
@@ -251,9 +275,8 @@ def _migrate_yaml_to_db(db) -> None:
         return  # fresh install, no legacy yaml
 
     try:
-        import yaml as yaml_lib
-        raw = yaml_lib.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
-    except Exception as e:  # malformed yaml, IO error, etc.
+        raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, OSError, UnicodeDecodeError) as e:
         _log.warning("Legacy yaml migration skipped (parse error): %s", e)
         return
 
@@ -265,9 +288,8 @@ def _migrate_yaml_to_db(db) -> None:
     # discipline.* removed in v0.9.5), Pydantic ignores them via
     # extra="ignore" in the model_config; no crash.
     try:
-        from polily.core.config import PolilyConfig
         candidate = PolilyConfig.model_validate(raw)
-    except Exception as e:
+    except ValidationError as e:
         _log.warning(
             "Legacy yaml migration skipped (invalid values): %s", e,
         )

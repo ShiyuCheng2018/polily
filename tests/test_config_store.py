@@ -1,7 +1,28 @@
 """Unit tests for polily.core.config_store."""
 from __future__ import annotations
 
-from polily.core.config_store import EPHEMERAL_FIELDS
+import json
+import threading
+import time
+from datetime import UTC, datetime
+
+import pytest
+
+from polily.core.config import PolilyConfig
+from polily.core.config_store import (
+    EPHEMERAL_FIELDS,
+    TERRITORY_A_PREFIXES,
+    ConfigSaveError,
+    _flatten_pydantic,
+    _migrate_yaml_to_db,
+    _unflatten,
+    ensure_seeded,
+    is_territory_a,
+    load_all,
+    reset,
+    upsert,
+)
+from polily.core.db import PolilyDB
 
 
 def test_ephemeral_fields_contains_user_agent():
@@ -12,12 +33,6 @@ def test_ephemeral_fields_contains_user_agent():
 def test_ephemeral_fields_is_frozenset():
     """frozenset enforces immutability — can't be mutated at runtime."""
     assert isinstance(EPHEMERAL_FIELDS, frozenset)
-
-
-from polily.core.config_store import (
-    TERRITORY_A_PREFIXES,
-    is_territory_a,
-)
 
 
 def test_territory_a_prefixes_covers_4_user_facing_sections():
@@ -52,7 +67,6 @@ def test_territory_a_prefixes_top_levels_align_with_pydantic_schema():
     """Schema drift guard — if PolilyConfig adds a top-level section,
     either add it to TERRITORY_A_PREFIXES (visible) or to
     _HIDDEN_TOP_LEVELS (intentionally hidden). Forces conscious choice."""
-    from polily.core.config import PolilyConfig
     pydantic_top = set(PolilyConfig.model_fields.keys())
     territory_top = {p.split(".")[0] for p in TERRITORY_A_PREFIXES}
     hidden_top = {"api", "tui", "ai", "archiving"}
@@ -63,10 +77,6 @@ def test_territory_a_prefixes_top_levels_align_with_pydantic_schema():
         f"  hidden:             {sorted(hidden_top)}\n"
         f"  unaccounted:        {sorted(pydantic_top - territory_top - hidden_top)}"
     )
-
-
-from polily.core.config import PolilyConfig
-from polily.core.config_store import _flatten_pydantic
 
 
 def test_flatten_pydantic_scalar_leaves():
@@ -102,9 +112,6 @@ def test_flatten_pydantic_total_leaf_count_is_47():
     """
     flat = _flatten_pydantic(PolilyConfig())
     assert len(flat) == 47, f"expected 47 leaves, got {len(flat)}: {sorted(flat.keys())}"
-
-
-from polily.core.config_store import _unflatten
 
 
 def test_unflatten_scalar_leaves():
@@ -148,10 +155,6 @@ def test_flatten_then_unflatten_roundtrips():
     nested = _unflatten(flat)
     rebuilt = PolilyConfig.model_validate(nested)
     assert rebuilt.model_dump() == original.model_dump()
-
-
-import json
-from polily.core.config_store import ensure_seeded
 
 
 def test_ensure_seeded_populates_empty_db(polily_db):
@@ -248,9 +251,6 @@ def test_ensure_seeded_safe_under_concurrent_threads_each_with_own_connection(tm
     This test simulates that with 4 concurrent threads × own connection,
     relying on OS-level fcntl + INSERT OR IGNORE for safety.
     """
-    import threading
-    from polily.core.db import PolilyDB
-
     db_path = tmp_path / "polily.db"
     errors = []
 
@@ -291,9 +291,6 @@ def test_ensure_seeded_safe_across_independent_db_connections(tmp_path):
     then, this test fails on import. That's intentional — when T1.7
     lands, the test will pass without changes. Acceptable per plan.
     """
-    from polily.core.db import PolilyDB
-    from polily.core.config_store import load_all
-
     db_path = tmp_path / "polily.db"
     db_a = PolilyDB(db_path)
     db_b = PolilyDB(db_path)
@@ -313,11 +310,6 @@ def test_ensure_seeded_safe_across_independent_db_connections(tmp_path):
     finally:
         db_a.close()
         db_b.close()
-
-
-from datetime import UTC, datetime
-
-from polily.core.config_store import load_all
 
 
 def test_load_all_returns_dict_keyed_by_key_path(polily_db):
@@ -359,10 +351,6 @@ def test_load_all_returns_empty_dict_for_unseeded_db(polily_db):
     assert flat == {}
 
 
-import pytest
-from polily.core.config_store import ConfigSaveError, upsert
-
-
 def test_upsert_writes_new_row_for_existing_key(polily_db):
     """Update existing seeded row."""
     ensure_seeded(polily_db)
@@ -381,7 +369,6 @@ def test_upsert_updates_updated_at(polily_db):
     )
     initial = cur.fetchone()[0]
 
-    import time
     time.sleep(0.01)
     upsert(polily_db, "movement.magnitude_threshold", 50)
 
@@ -400,17 +387,17 @@ def test_upsert_rejects_ephemeral_field(polily_db):
         upsert(polily_db, "api.user_agent", "polily/HACK")
 
 
-def test_upsert_serializes_complex_value_as_json(polily_db):
-    """List / dict values stored as JSON strings."""
+def test_upsert_round_trips_float_value(polily_db):
+    """List / dict values stored as JSON strings — but currently no
+    territory-A leaves are list/dict scalars, so this test exercises
+    the float round-trip (which was the actual concern: float precision
+    through json.dumps/loads)."""
     ensure_seeded(polily_db)
     # No list-typed leaves in territory A as of v0.9.5, but the helper
     # must round-trip them anyway to be future-proof.
     upsert(polily_db, "movement.magnitude_threshold", 60.5)
     flat = load_all(polily_db)
     assert flat["movement.magnitude_threshold"] == 60.5
-
-
-from polily.core.config_store import reset
 
 
 def test_reset_writes_pydantic_default(polily_db):
@@ -460,7 +447,6 @@ def test_migrate_yaml_imports_existing_user_values(polily_db, tmp_path, monkeypa
         encoding="utf-8",
     )
 
-    from polily.core.config_store import _migrate_yaml_to_db, load_all
     _migrate_yaml_to_db(polily_db)
 
     flat = load_all(polily_db)
@@ -471,12 +457,6 @@ def test_migrate_yaml_imports_existing_user_values(polily_db, tmp_path, monkeypa
 def test_migrate_yaml_skips_when_db_already_populated(polily_db, tmp_path, monkeypatch):
     """Idempotent — once db.config has rows, migration is a no-op."""
     monkeypatch.chdir(tmp_path)
-    from polily.core.config_store import (
-        _migrate_yaml_to_db,
-        ensure_seeded,
-        load_all,
-        upsert,
-    )
     ensure_seeded(polily_db)
     upsert(polily_db, "wallet.starting_balance", 100.0)  # canonical value
 
@@ -494,7 +474,6 @@ def test_migrate_yaml_skips_when_db_already_populated(polily_db, tmp_path, monke
 def test_migrate_yaml_skips_when_no_yaml_file(polily_db, tmp_path, monkeypatch):
     """Fresh install path — no yaml exists, no-op."""
     monkeypatch.chdir(tmp_path)
-    from polily.core.config_store import _migrate_yaml_to_db, load_all
     _migrate_yaml_to_db(polily_db)
     assert load_all(polily_db) == {}  # still empty
 
@@ -506,7 +485,6 @@ def test_migrate_yaml_skips_ephemeral_fields(polily_db, tmp_path, monkeypatch):
     yaml_path.write_text(
         "api:\n  user_agent: polily/EVIL\n", encoding="utf-8",
     )
-    from polily.core.config_store import _migrate_yaml_to_db, load_all
     _migrate_yaml_to_db(polily_db)
     flat = load_all(polily_db)
     assert "api.user_agent" not in flat
@@ -517,5 +495,80 @@ def test_migrate_yaml_handles_malformed_yaml_gracefully(polily_db, tmp_path, mon
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(":: this is not yaml ::", encoding="utf-8")
-    from polily.core.config_store import _migrate_yaml_to_db
     _migrate_yaml_to_db(polily_db)  # should not raise
+
+
+def test_unflatten_empty_dict_returns_empty_dict():
+    """load_all on an unseeded db returns {}; _unflatten({}) must be {}."""
+    assert _unflatten({}) == {}
+
+
+def test_load_all_raises_on_garbled_value(polily_db):
+    """If db has corrupted JSON in a value (shouldn't happen via upsert,
+    but possible via raw SQL or DB corruption), load_all raises rather
+    than silently returning a partial dict. Fail-loud beats half-loaded
+    config in production."""
+    ensure_seeded(polily_db)
+    polily_db.conn.execute(
+        "UPDATE config SET value = ? WHERE key_path = ?",
+        ("not valid json {{{", "movement.magnitude_threshold"),
+    )
+    polily_db.conn.commit()
+
+    with pytest.raises(json.JSONDecodeError):
+        load_all(polily_db)
+
+
+def test_upsert_inserts_new_row_when_key_absent(polily_db):
+    """The bare INSERT branch (no ON CONFLICT match) — only the DO UPDATE
+    branch was exercised by other upsert tests. Pin the insert-fresh
+    behavior so a future SQL refactor can't regress to UPDATE-only."""
+    # Don't seed first — db.config is empty, so this is a true insert
+    upsert(polily_db, "movement.magnitude_threshold", 42)
+
+    flat = load_all(polily_db)
+    assert flat == {"movement.magnitude_threshold": 42}
+
+
+def test_reset_writes_default_for_unseeded_key(polily_db):
+    """reset on a key that has no row yet writes the Pydantic default
+    via upsert. Pins the insert-on-reset path against future regression."""
+    # Don't call ensure_seeded — db.config is empty
+    reset(polily_db, "movement.magnitude_threshold")
+
+    flat = load_all(polily_db)
+    assert flat["movement.magnitude_threshold"] == 70  # Pydantic default
+
+
+def test_migrate_yaml_handles_empty_file(polily_db, tmp_path, monkeypatch):
+    """Zero-byte yaml — safe_load returns None, then non-dict guard returns."""
+    monkeypatch.chdir(tmp_path)
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text("", encoding="utf-8")
+    _migrate_yaml_to_db(polily_db)
+    assert load_all(polily_db) == {}
+
+
+def test_migrate_yaml_skips_non_dict_top_level(polily_db, tmp_path, monkeypatch):
+    """yaml top-level is a list/scalar — non-dict guard returns silently."""
+    monkeypatch.chdir(tmp_path)
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text("[1, 2, 3]\n", encoding="utf-8")
+    _migrate_yaml_to_db(polily_db)
+    assert load_all(polily_db) == {}
+
+
+def test_migrate_yaml_drops_pydantic_constraint_violations(polily_db, tmp_path, monkeypatch):
+    """yaml has wallet.starting_balance: -50 (Field has ge=1.0) —
+    Pydantic ValidationError fires, migration warn+skips, db stays empty.
+    User then gets default values via ensure_seeded (run separately)."""
+    monkeypatch.chdir(tmp_path)
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text(
+        "wallet:\n  starting_balance: -50\n", encoding="utf-8",
+    )
+    _migrate_yaml_to_db(polily_db)
+    flat = load_all(polily_db)
+    # Migration is all-or-nothing: invalid yaml → skip everything,
+    # not partial-import. db stays empty, ensure_seeded fills with defaults later.
+    assert flat == {}
