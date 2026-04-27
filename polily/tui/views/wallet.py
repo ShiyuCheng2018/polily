@@ -239,9 +239,13 @@ class WalletView(Widget):
                 "amount": "wallet.col.amount",
                 "balance": "wallet.col.balance",
             }
+            # pyright trips on `table.columns[str]` (wants ColumnKey wrapper) +
+            # `column.label = str` (wants Rich Text); both work at runtime —
+            # DataTable accepts plain str via implicit conversion. Tracked
+            # under the existing `pyright || true` CI relaxation.
             for col_key, cat_key in col_keys.items():
                 if col_key in table.columns:
-                    table.columns[col_key].label = t(cat_key)
+                    table.columns[col_key].label = t(cat_key)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue]
             # Force header repaint
             table.refresh()
         self._render_all()

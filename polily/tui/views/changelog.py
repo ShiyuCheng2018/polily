@@ -24,7 +24,9 @@ from textual.containers import VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Markdown, Static
 
+from polily.core.events import TOPIC_LANGUAGE_CHANGED, get_event_bus
 from polily.tui.bindings import NAV_BINDINGS
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_CHANGELOG
 from polily.tui.widgets.polily_zone import PolilyZone
 
@@ -48,7 +50,7 @@ def _load_changelog() -> str:
         try:
             return dev_path.read_text(encoding="utf-8")
         except Exception as e:
-            return f"# 读取 CHANGELOG.md 失败\n\n`{type(e).__name__}: {e}`"
+            return t("changelog.error.read_failed", detail=f"{type(e).__name__}: {e}")
 
     try:
         from importlib.resources import files
@@ -56,13 +58,9 @@ def _load_changelog() -> str:
         if packaged.is_file():
             return packaged.read_text(encoding="utf-8")
     except Exception as e:
-        return f"# 读取打包 CHANGELOG 失败\n\n`{type(e).__name__}: {e}`"
+        return t("changelog.error.read_packaged_failed", detail=f"{type(e).__name__}: {e}")
 
-    return (
-        "# 找不到 CHANGELOG.md\n\n"
-        "源码仓库根目录的 CHANGELOG.md 不存在，打包资源里也没有。\n\n"
-        "完整日志: https://github.com/ShiyuCheng2018/polily/blob/master/CHANGELOG.md"
-    )
+    return t("changelog.error.not_found")
 
 
 def _fetch_latest_release_tag() -> str:
@@ -77,13 +75,13 @@ def _fetch_latest_release_tag() -> str:
             tag = r.json().get("tag_name")
             return tag if tag else "?"
     except Exception:
-        return "无法获取"
+        return t("changelog.unable_to_fetch")
 
 
 def _format_version_line(current: str, latest: str) -> str:
     """Render the version header line. Kept as a module-level helper so
     tests can assert the exact copy without instantiating the widget."""
-    return f"当前版本: v{current} · 最新稳定版: {latest}"
+    return t("changelog.version_line", current=current, latest=latest)
 
 
 class ChangelogView(Widget):
@@ -95,6 +93,9 @@ class ChangelogView(Widget):
     and clip long changelogs (this was the v0.8.5 fix).
     """
 
+    # NOTE: I18nFooter renders binding labels via t(f"binding.{action}") at
+    # compose time, so the zh strings below are only fallbacks (Textual's
+    # Binding.make_bindings sets show=False for empty descriptions).
     BINDINGS = [
         Binding("r", "refresh", "刷新", show=True),
         *NAV_BINDINGS,
@@ -118,9 +119,9 @@ class ChangelogView(Widget):
         from polily import __version__ as current
 
         with VerticalScroll():
-            with PolilyZone(title=f"{ICON_CHANGELOG} 更新日志", id="changelog-zone"):
+            with PolilyZone(title=f"{ICON_CHANGELOG} {t('changelog.title.zone')}", id="changelog-zone"):
                 yield Static(
-                    _format_version_line(current, "查询中..."),
+                    _format_version_line(current, t("changelog.fetching")),
                     id="changelog-versions",
                 )
                 yield Markdown(_load_changelog(), id="changelog-md")
@@ -133,6 +134,28 @@ class ChangelogView(Widget):
         from a non-UI thread must be marshaled back to the event loop).
         """
         self.run_worker(self._fetch_and_update_version, thread=True, exclusive=True)
+        get_event_bus().subscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
+
+    def on_unmount(self) -> None:
+        get_event_bus().unsubscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Re-render zone title + version line + markdown body. The
+        Markdown widget can be `update`d in place; the PolilyZone title
+        is a child Static reachable by class selector."""
+        with contextlib.suppress(Exception):
+            self.query_one("#changelog-zone .polily-zone-title", Static).update(
+                f"{ICON_CHANGELOG} {t('changelog.title.zone')}",
+            )
+            self.query_one("#changelog-md", Markdown).update(_load_changelog())
+            # Re-render version line in case it carries the i18n "fetching"
+            # placeholder (otherwise the worker's _apply_version handles it).
+            from polily import __version__ as current
+            self.query_one("#changelog-versions", Static).update(
+                _format_version_line(current, t("changelog.fetching")),
+            )
+            # Kick off a fresh fetch so "Unavailable" / "无法获取" updates too.
+            self.run_worker(self._fetch_and_update_version, thread=True, exclusive=True)
 
     def _fetch_and_update_version(self) -> None:
         latest = _fetch_latest_release_tag()
@@ -156,6 +179,6 @@ class ChangelogView(Widget):
         from polily import __version__ as current
         with contextlib.suppress(Exception):
             self.query_one("#changelog-versions", Static).update(
-                _format_version_line(current, "查询中..."),
+                _format_version_line(current, t("changelog.fetching")),
             )
         self.run_worker(self._fetch_and_update_version, thread=True, exclusive=True)

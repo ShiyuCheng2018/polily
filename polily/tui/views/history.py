@@ -32,9 +32,13 @@ from textual.containers import VerticalScroll
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
 
-from polily.core.events import TOPIC_WALLET_UPDATED
+from polily.core.events import (
+    TOPIC_LANGUAGE_CHANGED,
+    TOPIC_WALLET_UPDATED,
+)
 from polily.tui._dispatch import dispatch_to_ui
 from polily.tui.bindings import NAV_BINDINGS
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_COMPLETED
 from polily.tui.service import PolilyService
 from polily.tui.widgets.polily_zone import PolilyZone
@@ -57,15 +61,18 @@ def _fmt_time(created_at: str) -> str:
         return "?"
 
 
+# Column key (stable, internal) -> catalog key for the visible label.
+# Mirroring wallet.py's pattern: `(label, key)` tuples. The internal
+# key is used for column lookups during language switch.
 _COLUMN_SPEC = [
-    "市场",
-    "方向",
-    "操作",
-    "股数",
-    "成交价",
-    "P&L",
-    "摩擦",
-    "时间",
+    ("market", "history.col.market"),
+    ("side", "history.col.side"),
+    ("action", "history.col.action"),
+    ("shares", "history.col.shares"),
+    ("price", "history.col.price"),
+    ("pnl", "history.col.pnl"),
+    ("fee", "history.col.fee"),
+    ("time", "history.col.time"),
 ]
 
 
@@ -93,7 +100,7 @@ class HistoryView(Widget):
     def compose(self) -> ComposeResult:
         with VerticalScroll():
             yield PolilyZone(
-                title=f"{ICON_COMPLETED} 已实现交易历史",
+                title=f"{ICON_COMPLETED} {t('history.title.zone')}",
                 id="history-zone",
             )
 
@@ -116,12 +123,16 @@ class HistoryView(Widget):
             table = DataTable(id="history-table")
             zone.mount(table)
             table.cursor_type = "row"
-            table.add_columns(*_COLUMN_SPEC)
+            for col_key, cat_key in _COLUMN_SPEC:
+                table.add_column(t(cat_key), key=col_key)
 
         # Auto-refresh on new realized rows (SELL / RESOLVE both publish
         # TOPIC_WALLET_UPDATED — see wallet.py / resolution.py).
         self.service.event_bus.subscribe(
             TOPIC_WALLET_UPDATED, self._on_wallet_update,
+        )
+        self.service.event_bus.subscribe(
+            TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
         )
 
         self._render_all()
@@ -130,6 +141,25 @@ class HistoryView(Widget):
         self.service.event_bus.unsubscribe(
             TOPIC_WALLET_UPDATED, self._on_wallet_update,
         )
+        self.service.event_bus.unsubscribe(
+            TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
+        )
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Update zone title + DataTable column headers on language switch.
+        Row content is re-rendered by _render_all (re-fetches summary text)."""
+        with contextlib.suppress(Exception):
+            self.query_one("#history-zone .polily-zone-title", Static).update(
+                f"{ICON_COMPLETED} {t('history.title.zone')}",
+            )
+            table = self.query_one("#history-table", DataTable)
+            for col_key, cat_key in _COLUMN_SPEC:
+                if col_key in table.columns:
+                    # pyright complains about str → ColumnKey + str → Text;
+                    # both work at runtime (see wallet.py for the same note).
+                    table.columns[col_key].label = t(cat_key)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue]
+            table.refresh()
+        self._render_all()
 
     # -- Bus callbacks (published from non-UI threads — must hop back) --
 
@@ -165,10 +195,10 @@ class HistoryView(Widget):
         if not history:
             with contextlib.suppress(Exception):
                 self.query_one("#history-summary", Static).update(
-                    "[dim]暂无已实现的交易。[/dim]",
+                    t("history.empty.title"),
                 )
             if empty_msg is not None:
-                empty_msg.update("开仓后卖出或市场结算，将在此留下记录。")
+                empty_msg.update(t("history.empty.body"))
                 empty_msg.display = True
             return
 
@@ -206,7 +236,12 @@ class HistoryView(Widget):
         )
         with contextlib.suppress(Exception):
             self.query_one("#history-summary", Static).update(
-                f"已实现 {summary['count']} 笔 · "
-                f"累计 P&L [{pnl_color}]{pnl_sign}${summary['total_pnl']:.2f}[/{pnl_color}] · "
-                f"累计摩擦 {fees_str}",
+                t(
+                    "history.summary",
+                    count=summary["count"],
+                    pnl_color=pnl_color,
+                    pnl_sign=pnl_sign,
+                    pnl=summary["total_pnl"],
+                    fees_str=fees_str,
+                ),
             )
