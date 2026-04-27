@@ -74,3 +74,21 @@ async def test_cancel_press_emits_cancelled_message():
         await pilot.pause()
         assert "cancelled" in app.messages
         assert "confirmed" not in app.messages
+
+
+async def test_default_labels_flip_with_language():
+    """When no explicit labels are passed, defaults follow the active i18n
+    language. Compose-time t() lookup ensures English mode shows
+    Confirm/Cancel."""
+    from polily.tui import i18n
+
+    bar = ConfirmCancelBar()
+    app = _Harness(bar)
+    try:
+        i18n.set_language("en")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            labels = {str(b.label) for b in bar.query(Button)}
+            assert labels == {"Confirm", "Cancel"}
+    finally:
+        i18n.set_language("zh")
