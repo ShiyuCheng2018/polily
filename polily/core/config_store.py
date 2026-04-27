@@ -217,3 +217,75 @@ def reset(db, key_path: str) -> None:
             f"{key_path} is not a known PolilyConfig leaf"
         )
     upsert(db, key_path, defaults[key_path])
+
+
+import logging
+from pathlib import Path
+
+_log = logging.getLogger(__name__)
+
+
+def _migrate_yaml_to_db(db) -> None:
+    """One-shot v0.9.x → v0.10.0 migration (Whis B3).
+
+    Imports any user-customized values from a legacy `config.yaml` into
+    db.config, but ONLY if db.config is currently empty (so on subsequent
+    starts the migration becomes a no-op and yaml is overwritten by the
+    Phase 3 generator).
+
+    Skips:
+      - EPHEMERAL_FIELDS (always recomputed at runtime)
+      - Keys that fail Pydantic validation when applied to a candidate
+        PolilyConfig (we silently drop them rather than fail startup —
+        the per-key default will be seeded by ensure_seeded immediately
+        after this migration runs)
+
+    Garbled / unreadable yaml: log a warning and skip (don't crash polily).
+    """
+    cur = db.conn.execute("SELECT COUNT(*) FROM config")
+    if cur.fetchone()[0] > 0:
+        return  # db already populated, nothing to migrate
+
+    yaml_path = Path("config.yaml")
+    if not yaml_path.exists():
+        return  # fresh install, no legacy yaml
+
+    try:
+        import yaml as yaml_lib
+        raw = yaml_lib.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+    except Exception as e:  # malformed yaml, IO error, etc.
+        _log.warning("Legacy yaml migration skipped (parse error): %s", e)
+        return
+
+    if not isinstance(raw, dict) or not raw:
+        return  # empty or non-dict yaml
+
+    # Validate by attempting to construct a candidate PolilyConfig.
+    # If yaml has dropped fields from older polily versions (e.g.,
+    # discipline.* removed in v0.9.5), Pydantic ignores them via
+    # extra="ignore" in the model_config; no crash.
+    try:
+        from polily.core.config import PolilyConfig
+        candidate = PolilyConfig.model_validate(raw)
+    except Exception as e:
+        _log.warning(
+            "Legacy yaml migration skipped (invalid values): %s", e,
+        )
+        return
+
+    flat = _flatten_pydantic(candidate)
+    now = datetime.now(UTC).isoformat()
+    rows = [
+        (key, json.dumps(value), now)
+        for key, value in flat.items()
+        if key not in EPHEMERAL_FIELDS
+    ]
+    with db.conn:
+        db.conn.executemany(
+            "INSERT OR IGNORE INTO config (key_path, value, updated_at) VALUES (?, ?, ?)",
+            rows,
+        )
+    _log.info(
+        "Migrated %d leaves from legacy config.yaml into db.config",
+        len(rows),
+    )

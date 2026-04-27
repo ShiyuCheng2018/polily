@@ -446,3 +446,76 @@ def test_reset_rejects_unknown_key(polily_db):
     ensure_seeded(polily_db)
     with pytest.raises(KeyError, match="movement.does_not_exist"):
         reset(polily_db, "movement.does_not_exist")
+
+
+def test_migrate_yaml_imports_existing_user_values(polily_db, tmp_path, monkeypatch):
+    """Pre-v0.10.0 users with custom config.yaml — values get imported."""
+    monkeypatch.chdir(tmp_path)
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text(
+        "wallet:\n"
+        "  starting_balance: 250.0\n"
+        "movement:\n"
+        "  magnitude_threshold: 55\n",
+        encoding="utf-8",
+    )
+
+    from polily.core.config_store import _migrate_yaml_to_db, load_all
+    _migrate_yaml_to_db(polily_db)
+
+    flat = load_all(polily_db)
+    assert flat["wallet.starting_balance"] == 250.0
+    assert flat["movement.magnitude_threshold"] == 55
+
+
+def test_migrate_yaml_skips_when_db_already_populated(polily_db, tmp_path, monkeypatch):
+    """Idempotent — once db.config has rows, migration is a no-op."""
+    monkeypatch.chdir(tmp_path)
+    from polily.core.config_store import (
+        _migrate_yaml_to_db,
+        ensure_seeded,
+        load_all,
+        upsert,
+    )
+    ensure_seeded(polily_db)
+    upsert(polily_db, "wallet.starting_balance", 100.0)  # canonical value
+
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text(
+        "wallet:\n  starting_balance: 999.0\n", encoding="utf-8",
+    )
+    _migrate_yaml_to_db(polily_db)
+
+    flat = load_all(polily_db)
+    # User's existing 100.0 must NOT be overwritten by yaml's 999.0
+    assert flat["wallet.starting_balance"] == 100.0
+
+
+def test_migrate_yaml_skips_when_no_yaml_file(polily_db, tmp_path, monkeypatch):
+    """Fresh install path — no yaml exists, no-op."""
+    monkeypatch.chdir(tmp_path)
+    from polily.core.config_store import _migrate_yaml_to_db, load_all
+    _migrate_yaml_to_db(polily_db)
+    assert load_all(polily_db) == {}  # still empty
+
+
+def test_migrate_yaml_skips_ephemeral_fields(polily_db, tmp_path, monkeypatch):
+    """Even if yaml has api.user_agent, EPHEMERAL filter rejects it."""
+    monkeypatch.chdir(tmp_path)
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text(
+        "api:\n  user_agent: polily/EVIL\n", encoding="utf-8",
+    )
+    from polily.core.config_store import _migrate_yaml_to_db, load_all
+    _migrate_yaml_to_db(polily_db)
+    flat = load_all(polily_db)
+    assert "api.user_agent" not in flat
+
+
+def test_migrate_yaml_handles_malformed_yaml_gracefully(polily_db, tmp_path, monkeypatch):
+    """Garbled yaml shouldn't crash polily startup — just log and skip."""
+    monkeypatch.chdir(tmp_path)
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text(":: this is not yaml ::", encoding="utf-8")
+    from polily.core.config_store import _migrate_yaml_to_db
+    _migrate_yaml_to_db(polily_db)  # should not raise
