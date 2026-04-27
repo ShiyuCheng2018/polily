@@ -18,6 +18,10 @@
   "binding.withdraw": "Withdraw",
   "binding.reset": "Reset",
   "binding.view_detail": "Detail",
+  "binding.toggle_monitor": "Stop Monitor",
+  "binding.go_back": "Back",
+  "binding.open_event": "Open Event",
+  "binding.open_link": "Link",
 
   "wallet.title.balance_overview": "Balance Overview",
   "wallet.title.transactions": "Transactions",
@@ -91,5 +95,35 @@
   "paper.empty": "[dim]No open positions. Press t on a market detail to mark a paper trade.[/dim]",
   "paper.amount_format": "${size:.0f}({shares:.0f}sh)",
   "paper.summary": "Total: {count} | Value: ${value:.2f} | Unrealized: [{pnl_color}]{pnl_sign}${pnl:.2f} ({pnl_pct:+.1f}%)[/{pnl_color}]",
-  "paper.due_format": "{date} ({days:.0f}d)"
+  "paper.due_format": "{date} ({days:.0f}d)",
+
+  "monitor.title.zone": "Monitor List",
+  "monitor.col.title": "Event",
+  "monitor.col.score": "Score",
+  "monitor.col.count": "Markets",
+  "monitor.col.ai": "AI",
+  "monitor.col.movement": "Movement",
+  "monitor.col.settlement": "Settle",
+  "monitor.col.next_check": "Next Check",
+  "monitor.count.format": "{count}",
+  "monitor.count.binary": "Binary",
+  "monitor.error.cannot_unmonitor": "Cannot stop monitor — this event has {pos_count} unsettled position(s); close them or wait for settlement first",
+  "monitor.notify.unmonitored": "Stopped monitoring: {title}",
+
+  "score.title.steps": "Scoring Steps",
+  "score.title.event_info": "Event Info",
+  "score.title.market": "Market",
+  "score.button.rescore": "Rescore",
+  "score.button.add_monitor": "Add to Monitor",
+  "score.label.already_monitored": "Already in monitor list",
+  "score.notify.no_link": "No link available",
+  "score.notify.cannot_open_browser": "Cannot open browser",
+
+  "archive.title.zone": "Archived Events",
+  "archive.col.title": "Event",
+  "archive.col.score": "Score",
+  "archive.col.count": "Markets",
+  "archive.col.closed_at": "Closed At",
+  "archive.count_summary": "{count} total",
+  "archive.empty": "No archived events yet."
 }
