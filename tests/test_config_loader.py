@@ -98,6 +98,14 @@ def test_load_config_from_db_atomic_migrate_then_seed_under_concurrency(tmp_path
     # Pre-create schema (single-threaded). This leaves config table
     # empty so the upgrade-style race is the one tested.
     seed_db = PolilyDB(db_path)
+    # Phase 2 / Task 2.2 made PolilyDB.__init__ auto-trigger
+    # load_config_from_db via the wallet seed path. That populates
+    # config with Pydantic defaults *before* the racing threads spawn,
+    # which would mask the AC1 race we're trying to detect (migration
+    # would short-circuit on populated table). Wipe to restore the
+    # upgrade-style empty-config-table precondition.
+    seed_db.conn.execute("DELETE FROM config")
+    seed_db.conn.commit()
     seed_db.close()
 
     # All threads must run in tmp_path so each finds the yaml

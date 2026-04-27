@@ -371,26 +371,10 @@ class PolilyDB:
         if row is not None:
             return
 
-        import warnings
         from datetime import UTC, datetime
 
-        from polily.core.config import PolilyConfig
-        try:
-            from polily.core.config import load_config
-            minimal = Path("config.minimal.yaml")
-            example = Path("config.example.yaml")
-            if minimal.exists() and example.exists():
-                cfg = load_config(minimal, defaults_path=example)
-            elif example.exists():
-                cfg = load_config(example)
-            else:
-                cfg = PolilyConfig()
-        except Exception as e:
-            warnings.warn(
-                f"config load failed during wallet seed, using defaults: {e!r}",
-                stacklevel=2,
-            )
-            cfg = PolilyConfig()
+        from polily.core.config import load_config_from_db
+        cfg = load_config_from_db(self)
 
         now = datetime.now(UTC).isoformat()
         starting = cfg.wallet.starting_balance

@@ -397,6 +397,13 @@ def test_load_all_excludes_ephemeral_fields_even_if_present(polily_db):
 
 
 def test_load_all_returns_empty_dict_for_unseeded_db(polily_db):
+    # PolilyDB.__init__ now triggers load_config_from_db via the wallet
+    # seed path (Phase 2 / Task 2.2 in the v0.10.0 TUI-config rollout),
+    # so the config table is auto-populated at fixture creation. Clear
+    # it to recreate the "fresh, unseeded" precondition this test pins.
+    polily_db.conn.execute("DELETE FROM config")
+    polily_db.conn.commit()
+
     flat = load_all(polily_db)
     assert flat == {}
 
@@ -496,6 +503,11 @@ def test_migrate_yaml_imports_existing_user_values(polily_db, tmp_path, monkeypa
         "  magnitude_threshold: 55\n",
         encoding="utf-8",
     )
+    # PolilyDB.__init__ now auto-triggers load_config_from_db via the
+    # wallet seed (Task 2.2). Wipe the eager seed so this test exercises
+    # the legacy-yaml import path on a truly empty config table.
+    polily_db.conn.execute("DELETE FROM config")
+    polily_db.conn.commit()
 
     _migrate_yaml_to_db(polily_db)
 
@@ -524,6 +536,11 @@ def test_migrate_yaml_skips_when_db_already_populated(polily_db, tmp_path, monke
 def test_migrate_yaml_skips_when_no_yaml_file(polily_db, tmp_path, monkeypatch):
     """Fresh install path — no yaml exists, no-op."""
     monkeypatch.chdir(tmp_path)
+    # See test_load_all_returns_empty_dict_for_unseeded_db — Task 2.2
+    # made __init__ auto-seed config; wipe it for the no-yaml fresh-install
+    # invariant this test pins.
+    polily_db.conn.execute("DELETE FROM config")
+    polily_db.conn.commit()
     _migrate_yaml_to_db(polily_db)
     assert load_all(polily_db) == {}  # still empty
 
@@ -573,7 +590,11 @@ def test_upsert_inserts_new_row_when_key_absent(polily_db):
     """The bare INSERT branch (no ON CONFLICT match) — only the DO UPDATE
     branch was exercised by other upsert tests. Pin the insert-fresh
     behavior so a future SQL refactor can't regress to UPDATE-only."""
-    # Don't seed first — db.config is empty, so this is a true insert
+    # PolilyDB.__init__ auto-seeds config via the wallet seed path now
+    # (Task 2.2). Wipe to exercise the true-insert (no-row-yet) branch
+    # this test pins.
+    polily_db.conn.execute("DELETE FROM config")
+    polily_db.conn.commit()
     upsert(polily_db, "movement.magnitude_threshold", 42)
 
     flat = load_all(polily_db)
@@ -595,6 +616,9 @@ def test_migrate_yaml_handles_empty_file(polily_db, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text("", encoding="utf-8")
+    # See test_load_all_returns_empty_dict_for_unseeded_db — Task 2.2.
+    polily_db.conn.execute("DELETE FROM config")
+    polily_db.conn.commit()
     _migrate_yaml_to_db(polily_db)
     assert load_all(polily_db) == {}
 
@@ -604,6 +628,9 @@ def test_migrate_yaml_skips_non_dict_top_level(polily_db, tmp_path, monkeypatch)
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text("[1, 2, 3]\n", encoding="utf-8")
+    # See test_load_all_returns_empty_dict_for_unseeded_db — Task 2.2.
+    polily_db.conn.execute("DELETE FROM config")
+    polily_db.conn.commit()
     _migrate_yaml_to_db(polily_db)
     assert load_all(polily_db) == {}
 
@@ -617,6 +644,9 @@ def test_migrate_yaml_drops_pydantic_constraint_violations(polily_db, tmp_path, 
     yaml_path.write_text(
         "wallet:\n  starting_balance: -50\n", encoding="utf-8",
     )
+    # See test_load_all_returns_empty_dict_for_unseeded_db — Task 2.2.
+    polily_db.conn.execute("DELETE FROM config")
+    polily_db.conn.commit()
     _migrate_yaml_to_db(polily_db)
     flat = load_all(polily_db)
     # Migration is all-or-nothing: invalid yaml → skip everything,
