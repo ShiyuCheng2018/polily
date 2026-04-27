@@ -6,14 +6,17 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
 
+from polily.tui.i18n import t
 from polily.tui.monitor_format import pick_movement_color
 
-_LABEL_CN = {
-    "consensus": "共识异动",
-    "whale_move": "大单异动",
-    "slow_build": "缓慢累积",
-    "noise": "平静",
-}
+
+def movement_label_i18n(label: str) -> str:
+    """Translate movement label enum (consensus / whale_move / slow_build /
+    noise) via t(). Unknown labels are returned as-is to keep the UI usable
+    if a new label appears in the database before the catalog is updated."""
+    key = f"movement.label.{label}"
+    translated = t(key)
+    return translated if translated != key else label
 
 
 def get_event_movement(movements: list[dict]) -> tuple[float, float, str]:
@@ -70,10 +73,11 @@ class MovementSparkline(Widget):
 
     def compose(self) -> ComposeResult:
         m, q, label = get_event_movement(self._movements)
-        label_cn = _LABEL_CN.get(label, label)
+        label_str = movement_label_i18n(label)
         color = pick_movement_color(label, m)
+        title = t("movement.title")
 
         if label == "noise":
-            yield Static(f"[bold]异动[/]  [{color}]{label_cn}[/{color}]  [dim]M:{m:.0f} Q:{q:.0f}[/dim]")
+            yield Static(f"[bold]{title}[/]  [{color}]{label_str}[/{color}]  [dim]M:{m:.0f} Q:{q:.0f}[/dim]")
         else:
-            yield Static(f"[bold]异动[/]  [{color}]{label_cn}[/{color}]  M:{m:.0f} Q:{q:.0f}")
+            yield Static(f"[bold]{title}[/]  [{color}]{label_str}[/{color}]  M:{m:.0f} Q:{q:.0f}")

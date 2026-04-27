@@ -12,6 +12,7 @@ from textual.widget import Widget
 from textual.widgets import Static
 
 from polily.pnl import calc_unrealized_pnl
+from polily.tui.i18n import t as _t  # `t` collides with `for _i, t in self._trades:`
 
 
 class PositionPanel(Widget):
@@ -33,7 +34,7 @@ class PositionPanel(Widget):
 
     def compose(self) -> ComposeResult:
         if not self._trades:
-            yield Static("[dim]无持仓 — 按 t 建仓[/dim]", classes="pos-empty")
+            yield Static(f"[dim]{_t('position.empty')}[/dim]", classes="pos-empty")
             return
 
         markets_by_id = {m.market_id: m for m in self._markets if hasattr(m, "market_id")}
@@ -71,12 +72,13 @@ class PositionPanel(Widget):
             if current_price is not None:
                 color = "green" if pnl >= 0 else "red"
                 sign = "+" if pnl >= 0 else ""
-                pnl_str = f"  |  入场 @ {entry * 100:.1f}¢  [{color}]{sign}${pnl:.2f} ({sign}{pnl_pct:.1f}%)[/{color}]"
+                pnl_str = f"  |  {_t('position.entry_label')} {entry * 100:.1f}¢  [{color}]{sign}${pnl:.2f} ({sign}{pnl_pct:.1f}%)[/{color}]"
 
+            shares_paren = _t("position.shares_paren", shares=shares)
             with Vertical(classes="pos-card"):
                 yield Static(
-                    f"[bold]{title}[/]  {side_display} @ {current_price * 100:.1f}¢  ${size:.0f} ({shares:.0f}股){pnl_str}" if current_price is not None
-                    else f"[bold]{title}[/]  {side_display} @ {entry * 100:.1f}¢  ${size:.0f} ({shares:.0f}股)",
+                    f"[bold]{title}[/]  {side_display} @ {current_price * 100:.1f}¢  ${size:.0f} {shares_paren}{pnl_str}" if current_price is not None
+                    else f"[bold]{title}[/]  {side_display} @ {entry * 100:.1f}¢  ${size:.0f} {shares_paren}",
                     classes="pos-row",
                 )
 
@@ -84,6 +86,6 @@ class PositionPanel(Widget):
             pnl_color = "green" if total_pnl >= 0 else "red"
             pnl_sign = "+" if total_pnl >= 0 else ""
             yield Static(
-                f"合计 ${total_value:.2f}  [{pnl_color}]{pnl_sign}${total_pnl:.2f}[/{pnl_color}]",
+                _t("position.summary", value=total_value, pnl_color=pnl_color, pnl_sign=pnl_sign, pnl=total_pnl),
                 classes="pos-summary",
             )

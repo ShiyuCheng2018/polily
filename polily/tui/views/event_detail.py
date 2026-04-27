@@ -39,6 +39,7 @@ from polily.tui.components import (
 )
 from polily.tui.i18n import t
 from polily.tui.icons import ICON_AUTO_MONITOR, ICON_EVENT, ICON_MARKET, ICON_POSITION
+from polily.tui.lifecycle_labels import market_state_label_i18n, settled_winner_suffix_i18n
 from polily.tui.widgets.polily_zone import PolilyZone
 
 if TYPE_CHECKING:
@@ -50,34 +51,12 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-_MARKET_STATE_KEY = {
-    MarketState.TRADING: "lifecycle.market.trading",
-    MarketState.PENDING_SETTLEMENT: "lifecycle.market.pending_settlement",
-    MarketState.SETTLING: "lifecycle.market.settling",
-    MarketState.SETTLED: "lifecycle.market.settled",
-}
-
-_OUTCOME_KEY = {
-    "yes": "lifecycle.outcome.yes_won",
-    "no": "lifecycle.outcome.no_won",
-    "split": "lifecycle.outcome.split",
-    "void": "lifecycle.outcome.void",
-}
-
-
-def _settled_outcome_suffix(market) -> str:
-    """Localized outcome suffix appended to '已结算' / 'Settled' for a single
-    settled market. Returns '' when resolved_outcome is unset."""
-    key = _OUTCOME_KEY.get(market.resolved_outcome)
-    return f" {t(key)}" if key else ""
-
-
 def _market_zone_title_suffix(markets: list, *, now: datetime | None = None) -> str:
     """Build the market zone border-title suffix showing state breakdown.
 
     Empty list → '' (caller passes plain market title).
     Single market → '(Trading)' / '(Pending Settlement)' /
-                    '(Settled NO won)' etc., translated.
+                    '(Settled NO won)' etc., translated via lifecycle_labels.
     Multi market → '(Active N, Pending N, Settling N, Settled N)' from
                    event_detail.market_breakdown.full template.
     """
@@ -87,9 +66,9 @@ def _market_zone_title_suffix(markets: list, *, now: datetime | None = None) -> 
     if len(markets) == 1:
         m = markets[0]
         state = market_state(m, now=now)
-        label = t(_MARKET_STATE_KEY[state])
+        label = market_state_label_i18n(state)
         if state == MarketState.SETTLED:
-            label = f"{label}{_settled_outcome_suffix(m)}"
+            label = f"{label}{settled_winner_suffix_i18n(m)}"
         return f"({label})"
 
     counts = {s: 0 for s in MarketState}

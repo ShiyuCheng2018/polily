@@ -6,12 +6,9 @@ from datetime import UTC, datetime
 
 _DASH = "—"
 
-_LABEL_CN = {
-    "consensus": "共识异动",
-    "whale_move": "大单异动",
-    "slow_build": "缓慢累积",
-    "noise": "平静",
-}
+# Set of recognized movement labels — used as a guard before
+# delegating to the i18n helper. Translations live in catalogs.
+_KNOWN_MOVEMENT_LABELS = {"consensus", "whale_move", "slow_build", "noise"}
 
 _HIGH_MAGNITUDE_THRESHOLD = 70.0
 
@@ -149,8 +146,9 @@ def format_movement(label: str | None, magnitude: float, quality: float) -> str:
     `pick_movement_color` so the cell renders the same way as the detail-page
     movement views.
     """
-    if not label or label not in _LABEL_CN:
+    if not label or label not in _KNOWN_MOVEMENT_LABELS:
         return _DASH
-    label_cn = _LABEL_CN[label]
+    from polily.tui.components.movement_sparkline import movement_label_i18n
+    label_str = movement_label_i18n(label)
     color = pick_movement_color(label, magnitude)
-    return f"[{color}]{label_cn}[/{color}] M:{magnitude:.0f} Q:{quality:.0f}"
+    return f"[{color}]{label_str}[/{color}] M:{magnitude:.0f} Q:{quality:.0f}"
