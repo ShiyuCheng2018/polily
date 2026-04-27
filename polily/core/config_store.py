@@ -45,3 +45,47 @@ def is_territory_a(key_path: str) -> bool:
     if key_path in EPHEMERAL_FIELDS:
         return False
     return any(key_path.startswith(p) for p in TERRITORY_A_PREFIXES)
+
+
+from typing import Any
+
+from pydantic import BaseModel
+
+
+def _flatten_pydantic(model: BaseModel, prefix: str = "") -> dict[str, Any]:
+    """Walk a Pydantic model and return all leaf paths in dot notation.
+
+    Mirrors the approach of `scripts/audit_config_usage.py::enumerate_pydantic_leaves`
+    but returns the leaf VALUES (not just paths). Used by ensure_seeded
+    to populate db.config with current Pydantic defaults.
+
+    Handles:
+      - scalar leaves (int / float / str / bool) → 1 entry per leaf
+      - nested BaseModel → recurses with extended prefix
+      - dict[str, BaseModel] (e.g., movement.weights) → recurses per dict key
+      - dict[str, scalar] (e.g., MovementWeights.magnitude) → 1 entry per dict key
+
+    Includes EPHEMERAL fields — filtering happens at the seed/save/load
+    boundary, not here.
+    """
+    flat: dict[str, Any] = {}
+    for field_name, _field_info in type(model).model_fields.items():
+        value = getattr(model, field_name)
+        path = f"{prefix}.{field_name}" if prefix else field_name
+        if isinstance(value, BaseModel):
+            flat.update(_flatten_pydantic(value, path))
+        elif isinstance(value, dict):
+            for key, sub_value in value.items():
+                sub_path = f"{path}.{key}"
+                if isinstance(sub_value, BaseModel):
+                    flat.update(_flatten_pydantic(sub_value, sub_path))
+                elif isinstance(sub_value, dict):
+                    # Nested scalar dict (e.g., MovementWeights.magnitude is
+                    # dict[str, float]). Each key is a final leaf.
+                    for sub_key, leaf_value in sub_value.items():
+                        flat[f"{sub_path}.{sub_key}"] = leaf_value
+                else:
+                    flat[sub_path] = sub_value
+        else:
+            flat[path] = value
+    return flat

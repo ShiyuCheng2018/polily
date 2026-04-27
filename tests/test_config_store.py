@@ -63,3 +63,42 @@ def test_territory_a_prefixes_top_levels_align_with_pydantic_schema():
         f"  hidden:             {sorted(hidden_top)}\n"
         f"  unaccounted:        {sorted(pydantic_top - territory_top - hidden_top)}"
     )
+
+
+from polily.core.config import PolilyConfig
+from polily.core.config_store import _flatten_pydantic
+
+
+def test_flatten_pydantic_scalar_leaves():
+    """Top-level scalars become dot-notation keys."""
+    flat = _flatten_pydantic(PolilyConfig())
+    assert flat["movement.magnitude_threshold"] == 70
+    assert flat["movement.quality_threshold"] == 60
+    assert flat["wallet.starting_balance"] == 100.0
+    assert flat["api.request_timeout_seconds"] == 20
+
+
+def test_flatten_pydantic_nested_dict_of_basemodel():
+    """movement.weights[type] dict-of-MovementWeights flattens to leaves."""
+    flat = _flatten_pydantic(PolilyConfig())
+    # Per design §12.A.2 — 26 weights leaves
+    assert flat["movement.weights.crypto.magnitude.price_z_score"] == 0.15
+    assert flat["movement.weights.political.magnitude.sustained_drift"] == 0.40
+    assert flat["movement.weights.default.quality.volume_ratio"] == 0.40
+
+
+def test_flatten_pydantic_includes_ephemeral_fields():
+    """_flatten_pydantic returns ALL leaves; EPHEMERAL filtering happens
+    at seed/save/load layers, not at flatten."""
+    flat = _flatten_pydantic(PolilyConfig())
+    assert "api.user_agent" in flat
+
+
+def test_flatten_pydantic_total_leaf_count_is_47():
+    """Locks the 47-leaf invariant from design §3.2.
+
+    If this fails the schema changed — update the design doc + this test
+    together (and audit territory A whitelist before continuing).
+    """
+    flat = _flatten_pydantic(PolilyConfig())
+    assert len(flat) == 47, f"expected 47 leaves, got {len(flat)}: {sorted(flat.keys())}"
