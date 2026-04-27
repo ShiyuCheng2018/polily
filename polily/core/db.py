@@ -203,6 +203,15 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
     notes               TEXT
 );
 
+-- 11. Config (db-canonical config storage)
+-- Flat key_path → JSON-encoded value mapping. PK on key_path lets reset
+-- operate at single-leaf granularity and concurrent writes don't collide.
+CREATE TABLE IF NOT EXISTS config (
+    key_path   TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_markets_event ON markets(event_id);
 CREATE INDEX IF NOT EXISTS idx_markets_condition ON markets(condition_id);
@@ -231,6 +240,11 @@ class PolilyDB:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
+        # Production hardening: WAL writer contention waits up to 5s before
+        # raising 'database is locked', so concurrent multi-process seed
+        # (TUI + daemon racing on first start) doesn't fail spuriously.
+        # Required for the SF5 concurrency test in tests/test_config_store.py.
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self._init_schema()
 
     def __enter__(self) -> "PolilyDB":
