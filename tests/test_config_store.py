@@ -148,3 +148,42 @@ def test_flatten_then_unflatten_roundtrips():
     nested = _unflatten(flat)
     rebuilt = PolilyConfig.model_validate(nested)
     assert rebuilt.model_dump() == original.model_dump()
+
+
+import json
+from polily.core.config_store import ensure_seeded
+
+
+def test_ensure_seeded_populates_empty_db(polily_db):
+    """First-run seed inserts 46 rows (47 leaves minus 1 EPHEMERAL)."""
+    ensure_seeded(polily_db)
+
+    cur = polily_db.conn.execute("SELECT COUNT(*) FROM config")
+    count = cur.fetchone()[0]
+    assert count == 46, f"expected 46 rows (47 - 1 ephemeral), got {count}"
+
+
+def test_ensure_seeded_skips_ephemeral_fields(polily_db):
+    """api.user_agent must NOT appear in db.config — it's runtime-computed."""
+    ensure_seeded(polily_db)
+
+    cur = polily_db.conn.execute(
+        "SELECT key_path FROM config WHERE key_path = 'api.user_agent'"
+    )
+    assert cur.fetchone() is None, "api.user_agent should not be persisted"
+
+
+def test_ensure_seeded_stores_values_as_json(polily_db):
+    """Values are JSON-encoded so types round-trip cleanly."""
+    ensure_seeded(polily_db)
+
+    cur = polily_db.conn.execute(
+        "SELECT value FROM config WHERE key_path = 'movement.magnitude_threshold'"
+    )
+    raw = cur.fetchone()[0]
+    assert json.loads(raw) == 70
+
+    cur = polily_db.conn.execute(
+        "SELECT value FROM config WHERE key_path = 'mispricing.enabled'"
+    )
+    assert json.loads(cur.fetchone()[0]) is True

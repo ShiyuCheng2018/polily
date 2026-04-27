@@ -113,3 +113,35 @@ def _unflatten(flat: dict[str, Any]) -> dict[str, Any]:
             cursor = cursor[part]
         cursor[parts[-1]] = value
     return nested
+
+
+import json
+from datetime import UTC, datetime
+
+from polily.core.config import PolilyConfig
+
+
+def ensure_seeded(db) -> None:
+    """Idempotent seed — fills any missing leaf with its current Pydantic default.
+
+    Per design §3.3:
+      - Skips EPHEMERAL_FIELDS (api.user_agent etc. — computed at runtime)
+      - Uses INSERT OR IGNORE so concurrent first-run callers (TUI + daemon)
+        don't collide on the PRIMARY KEY constraint
+      - Auto-restores user-deleted rows on next startup ("缺什么补什么")
+      - Auto-adds new leaves when polily schema evolves in a future version
+
+    Called by load_config() at every polily startup; idempotent and cheap.
+    """
+    defaults_flat = _flatten_pydantic(PolilyConfig())
+    now = datetime.now(UTC).isoformat()
+    rows = [
+        (key, json.dumps(value), now)
+        for key, value in defaults_flat.items()
+        if key not in EPHEMERAL_FIELDS
+    ]
+    with db.conn:
+        db.conn.executemany(
+            "INSERT OR IGNORE INTO config (key_path, value, updated_at) VALUES (?, ?, ?)",
+            rows,
+        )
