@@ -28,7 +28,9 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
 
+from polily.core.events import TOPIC_LANGUAGE_CHANGED
 from polily.tui.bindings import NAV_BINDINGS
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_COMPLETED
 from polily.tui.service import PolilyService
 from polily.tui.widgets.polily_zone import PolilyZone
@@ -43,14 +45,16 @@ class ViewArchivedDetail(Message):
 
 
 _COLUMN_SPEC = [
-    ("事件", "title"),
-    ("结构分", "score"),
-    ("子市场", "count"),
-    ("关闭于", "closed_at"),
+    ("title", "archive.col.title"),
+    ("score", "archive.col.score"),
+    ("count", "archive.col.count"),
+    ("closed_at", "archive.col.closed_at"),
 ]
 
 
 class ArchivedEventsView(Widget):
+    # NOTE: I18nFooter renders binding labels via t(f"binding.{action}") at
+    # compose time, so the zh strings below are only fallbacks.
     BINDINGS = [
         Binding("enter", "view_detail", "详情", show=True),
         Binding("r", "refresh", "刷新", show=True),
@@ -74,7 +78,7 @@ class ArchivedEventsView(Widget):
     def compose(self) -> ComposeResult:
         with VerticalScroll():
             yield PolilyZone(
-                title=f"{ICON_COMPLETED} 归档事件",
+                title=f"{ICON_COMPLETED} {t('archive.title.zone')}",
                 id="archive-zone",
             )
 
@@ -101,8 +105,32 @@ class ArchivedEventsView(Widget):
             table = DataTable(id="archive-table")
             zone.mount(table)
             table.cursor_type = "row"
-            table.add_columns(*(label for label, _ in _COLUMN_SPEC))
+            for col_key, cat_key in _COLUMN_SPEC:
+                table.add_column(t(cat_key), key=col_key)
 
+        self.service.event_bus.subscribe(
+            TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
+        )
+        self._render_all()
+
+    def on_unmount(self) -> None:
+        self.service.event_bus.unsubscribe(
+            TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
+        )
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Update zone title + DataTable column headers on language switch.
+        Summary line + count cells are re-rendered by _render_all."""
+        with contextlib.suppress(Exception):
+            self.query_one("#archive-zone .polily-zone-title", Static).update(
+                f"{ICON_COMPLETED} {t('archive.title.zone')}",
+            )
+            table = self.query_one("#archive-table", DataTable)
+            for col_key, cat_key in _COLUMN_SPEC:
+                if col_key in table.columns:
+                    # See wallet.py for the str → ColumnKey/Text note.
+                    table.columns[col_key].label = t(cat_key)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue]
+            table.refresh()
         self._render_all()
 
     # -- Rendering --
@@ -119,7 +147,7 @@ class ArchivedEventsView(Widget):
 
         with contextlib.suppress(Exception):
             self.query_one("#archive-summary", Static).update(
-                f"共 {len(self._events)} 条"
+                t("archive.count_summary", count=len(self._events)),
             )
 
         empty_msg = None
@@ -128,7 +156,7 @@ class ArchivedEventsView(Widget):
 
         if not self._events:
             if empty_msg is not None:
-                empty_msg.update("暂无归档事件。")
+                empty_msg.update(t("archive.empty"))
                 empty_msg.display = True
             return
 
@@ -139,7 +167,9 @@ class ArchivedEventsView(Widget):
             ev = e["event"]
             mc = e["market_count"]
             score_str = f"{ev.structure_score:.0f}" if ev.structure_score else "—"
-            count_str = f"{mc} 个" if mc > 1 else "二元"
+            # Reuse monitor.* keys — same concept ("X 个" / "二元") and
+            # avoiding duplication keeps zh/en in sync naturally.
+            count_str = t("monitor.count.format", count=mc) if mc > 1 else t("monitor.count.binary")
             closed_at = (ev.updated_at or "")[:10]  # YYYY-MM-DD
             table.add_row(
                 ev.title[:45],

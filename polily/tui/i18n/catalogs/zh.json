@@ -18,6 +18,10 @@
   "binding.withdraw": "提现",
   "binding.reset": "重置",
   "binding.view_detail": "详情",
+  "binding.toggle_monitor": "关闭监控",
+  "binding.go_back": "返回",
+  "binding.open_event": "打开事件",
+  "binding.open_link": "链接",
 
   "wallet.title.balance_overview": "余额概览",
   "wallet.title.transactions": "交易流水",
@@ -91,5 +95,35 @@
   "paper.empty": "[dim]暂无持仓。在市场详情页按 t 标记 paper trade。[/dim]",
   "paper.amount_format": "${size:.0f}({shares:.0f}股)",
   "paper.summary": "总计: {count} | 持仓价值: ${value:.2f} | 浮动盈亏: [{pnl_color}]{pnl_sign}${pnl:.2f} ({pnl_pct:+.1f}%)[/{pnl_color}]",
-  "paper.due_format": "{date} ({days:.0f}天)"
+  "paper.due_format": "{date} ({days:.0f}天)",
+
+  "monitor.title.zone": "监控列表",
+  "monitor.col.title": "事件",
+  "monitor.col.score": "结构分",
+  "monitor.col.count": "子市场",
+  "monitor.col.ai": "AI版",
+  "monitor.col.movement": "异动",
+  "monitor.col.settlement": "结算",
+  "monitor.col.next_check": "下次检查",
+  "monitor.count.format": "{count} 个",
+  "monitor.count.binary": "二元",
+  "monitor.error.cannot_unmonitor": "无法取消监控 — 该事件有 {pos_count} 个持仓未结算，请先平仓或等待结算",
+  "monitor.notify.unmonitored": "关闭监控: {title}",
+
+  "score.title.steps": "评分步骤",
+  "score.title.event_info": "事件信息",
+  "score.title.market": "市场",
+  "score.button.rescore": "重新评分",
+  "score.button.add_monitor": "添加到监控",
+  "score.label.already_monitored": "已在监控列表",
+  "score.notify.no_link": "无链接信息",
+  "score.notify.cannot_open_browser": "无法打开浏览器",
+
+  "archive.title.zone": "归档事件",
+  "archive.col.title": "事件",
+  "archive.col.score": "结构分",
+  "archive.col.count": "子市场",
+  "archive.col.closed_at": "关闭于",
+  "archive.count_summary": "共 {count} 条",
+  "archive.empty": "暂无归档事件。"
 }
