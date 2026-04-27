@@ -195,3 +195,25 @@ def upsert(db, key_path: str, value: Any) -> None:
             """,
             (key_path, json.dumps(value), now),
         )
+
+
+def reset(db, key_path: str) -> None:
+    """Reset a single key to its Pydantic default value.
+
+    Per design §4.2 — writes the default back into db (does NOT delete
+    the row), so yaml regen still exports a complete snapshot.
+
+    Raises:
+      ConfigSaveError if key_path is in EPHEMERAL_FIELDS
+      KeyError       if key_path doesn't exist in PolilyConfig schema
+    """
+    if key_path in EPHEMERAL_FIELDS:
+        raise ConfigSaveError(
+            f"{key_path} has no persisted value to reset"
+        )
+    defaults = _flatten_pydantic(PolilyConfig())
+    if key_path not in defaults:
+        raise KeyError(
+            f"{key_path} is not a known PolilyConfig leaf"
+        )
+    upsert(db, key_path, defaults[key_path])

@@ -408,3 +408,41 @@ def test_upsert_serializes_complex_value_as_json(polily_db):
     upsert(polily_db, "movement.magnitude_threshold", 60.5)
     flat = load_all(polily_db)
     assert flat["movement.magnitude_threshold"] == 60.5
+
+
+from polily.core.config_store import reset
+
+
+def test_reset_writes_pydantic_default(polily_db):
+    """reset(key) writes the current PolilyConfig default value."""
+    ensure_seeded(polily_db)
+    upsert(polily_db, "movement.magnitude_threshold", 50)
+
+    reset(polily_db, "movement.magnitude_threshold")
+
+    flat = load_all(polily_db)
+    assert flat["movement.magnitude_threshold"] == 70
+
+
+def test_reset_works_for_deeply_nested_weight(polily_db):
+    """reset works for arbitrary depth (movement.weights.crypto.magnitude.price_z_score)."""
+    ensure_seeded(polily_db)
+    upsert(polily_db, "movement.weights.crypto.magnitude.price_z_score", 0.99)
+
+    reset(polily_db, "movement.weights.crypto.magnitude.price_z_score")
+
+    flat = load_all(polily_db)
+    assert flat["movement.weights.crypto.magnitude.price_z_score"] == 0.15
+
+
+def test_reset_rejects_ephemeral_field(polily_db):
+    ensure_seeded(polily_db)
+    with pytest.raises(ConfigSaveError, match="api.user_agent"):
+        reset(polily_db, "api.user_agent")
+
+
+def test_reset_rejects_unknown_key(polily_db):
+    """Unknown key_path raises clearly instead of silently no-op'ing."""
+    ensure_seeded(polily_db)
+    with pytest.raises(KeyError, match="movement.does_not_exist"):
+        reset(polily_db, "movement.does_not_exist")
