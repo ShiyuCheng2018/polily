@@ -36,3 +36,55 @@ def test_seed_wallet_uses_db_canonical_starting_balance(tmp_path):
         assert cash == 200.0
     finally:
         db.close()
+
+
+def test_steady_state_polily_db_open_skips_config_load(tmp_path, monkeypatch):
+    """Once wallet row exists, opening PolilyDB again must NOT trigger
+    config seeding (BEGIN IMMEDIATE + 46 INSERT OR IGNORE).
+
+    Pins the current invariant: _ensure_wallet_singleton's wallet SELECT
+    + early-return is positioned BEFORE the load_config_from_db call.
+    A future refactor that reorders these (e.g., to use cfg.wallet.foo
+    in the wallet check) would silently make every TUI/CLI startup pay
+    the BEGIN IMMEDIATE write-lock cost.
+    """
+    from polily.core.config_store import load_all, upsert
+    from polily.core.db import PolilyDB
+
+    # First open: fresh file → wallet seeded + config seeded (47 - 1 ephemeral = 46)
+    db1 = PolilyDB(tmp_path / "polily.db")
+    try:
+        # Verify config table got seeded on first open (cold path)
+        assert len(load_all(db1)) == 46
+        # User edits a value
+        upsert(db1, "movement.magnitude_threshold", 50)
+    finally:
+        db1.close()
+
+    # Second open: wallet exists → config seed should NOT run.
+    # Instrument by counting load_config_from_db invocations.
+    call_count = {"n": 0}
+    from polily.core import config as config_module
+    real_fn = config_module.load_config_from_db
+
+    def counting_load_config(db):
+        call_count["n"] += 1
+        return real_fn(db)
+
+    monkeypatch.setattr(config_module, "load_config_from_db", counting_load_config)
+
+    db2 = PolilyDB(tmp_path / "polily.db")
+    try:
+        # Steady-state: wallet existed → load_config_from_db must NOT
+        # have been called from _ensure_wallet_singleton during __init__.
+        assert call_count["n"] == 0, (
+            f"Steady-state PolilyDB.__init__ called load_config_from_db "
+            f"{call_count['n']} time(s) — perf regression. The wallet-row "
+            f"early-return at db.py:370-372 must short-circuit before any "
+            f"config load."
+        )
+        # User's edit still there (sanity check that we're testing the right db)
+        flat = load_all(db2)
+        assert flat["movement.magnitude_threshold"] == 50
+    finally:
+        db2.close()
