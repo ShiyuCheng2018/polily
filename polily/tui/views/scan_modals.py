@@ -13,6 +13,7 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_CANCELLED
 from polily.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 from polily.tui.widgets.polily_zone import PolilyZone
@@ -50,23 +51,22 @@ class ConfirmCancelScanModal(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog-box"):
-            with PolilyZone(title=f"{ICON_CANCELLED} 取消分析"):
+            with PolilyZone(title=f"{ICON_CANCELLED} {t('scan_modal.title.cancel')}"):
                 yield Static(
-                    f"[b]事件:[/b] {self._title}",
+                    t("scan_modal.event_label", title=self._title),
                     classes="row pb-sm",
                 )
                 yield Static(
-                    f"[dim]正在运行的分析已耗时 {self._elapsed:.0f}s[/dim]",
+                    t("scan_modal.elapsed", elapsed=self._elapsed),
                     classes="row pb-sm",
                 )
                 yield Static(
-                    "[b red]⚠  取消后此次分析无法恢复[/b red]\n"
-                    "[dim]    分析记录将标记为已取消。[/dim]",
+                    t("scan_modal.warn.body"),
                     classes="row pb-sm",
                 )
                 yield ConfirmCancelBar(
-                    confirm_label="确认取消",
-                    cancel_label="继续分析",
+                    confirm_label=t("scan_modal.confirm_cancel"),
+                    cancel_label=t("scan_modal.continue_analyzing"),
                     destructive=True,
                 )
 
