@@ -33,6 +33,7 @@ from polily.tui.bindings import NAV_BINDINGS
 from polily.tui.i18n import t
 from polily.tui.icons import ICON_COMPLETED
 from polily.tui.service import PolilyService
+from polily.tui.widgets._datatable_i18n import set_column_labels
 from polily.tui.widgets.polily_zone import PolilyZone
 
 
@@ -126,11 +127,7 @@ class ArchivedEventsView(Widget):
                 f"{ICON_COMPLETED} {t('archive.title.zone')}",
             )
             table = self.query_one("#archive-table", DataTable)
-            for col_key, cat_key in _COLUMN_SPEC:
-                if col_key in table.columns:
-                    # See wallet.py for the str → ColumnKey/Text note.
-                    table.columns[col_key].label = t(cat_key)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue]
-            table.refresh()
+            set_column_labels(table, [(k, t(c)) for k, c in _COLUMN_SPEC])
         self._render_all()
 
     # -- Rendering --

@@ -36,6 +36,7 @@ from polily.tui.icons import (
     ICON_USER,
     STATUS_ICONS,
 )
+from polily.tui.widgets._datatable_i18n import set_column_labels
 from polily.tui.widgets.kv_row import KVRow
 from polily.tui.widgets.polily_zone import PolilyZone
 
@@ -357,16 +358,9 @@ class ScanLogView(Widget):
             self.query_one("#pending-zone .polily-zone-title", Static).update(t("scan_log.title.queue"))
             self.query_one("#history-zone .polily-zone-title", Static).update(t("scan_log.title.history"))
             up_table = self.query_one("#upcoming-table", DataTable)
-            for col_key, cat_key in self._PENDING_COLS:
-                if col_key in up_table.columns:
-                    # See wallet.py for the str → ColumnKey/Text note.
-                    up_table.columns[col_key].label = t(cat_key)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue]
-            up_table.refresh()
+            set_column_labels(up_table, [(k, t(c)) for k, c in self._PENDING_COLS])
             hist_table = self.query_one("#history-table", DataTable)
-            for col_key, cat_key in self._HISTORY_COLS:
-                if col_key in hist_table.columns:
-                    hist_table.columns[col_key].label = t(cat_key)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue]
-            hist_table.refresh()
+            set_column_labels(hist_table, [(k, t(c)) for k, c in self._HISTORY_COLS])
         self._render_all()
 
     def _on_scan_update(self, payload: dict) -> None:

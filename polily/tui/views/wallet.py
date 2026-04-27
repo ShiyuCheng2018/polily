@@ -41,6 +41,7 @@ from polily.tui.i18n import t
 from polily.tui.icons import ICON_WALLET
 from polily.tui.service import PolilyService
 from polily.tui.views._wallet_overview import compute_wallet_overview
+from polily.tui.widgets._datatable_i18n import set_column_labels
 from polily.tui.widgets.kv_row import KVRow
 from polily.tui.widgets.polily_card import PolilyCard
 from polily.tui.widgets.polily_zone import PolilyZone
@@ -230,24 +231,16 @@ class WalletView(Widget):
                 self.query_one(f"{kv_id} .kv-label", Static).update(t(key))
             # Action button
             self.query_one("#reset-btn", Button).label = t("wallet.button.reset")
-            # Ledger table column headers — DataTable.columns is keyed by
-            # column key (the second tuple element we passed in add_columns).
+            # Ledger table column headers (use the i18n helper that also
+            # resizes content_width — Textual won't auto-grow on label-only
+            # changes; see _datatable_i18n).
             table = self.query_one("#wallet-table", DataTable)
-            col_keys = {
-                "time": "wallet.col.time",
-                "desc": "wallet.col.desc",
-                "amount": "wallet.col.amount",
-                "balance": "wallet.col.balance",
-            }
-            # pyright trips on `table.columns[str]` (wants ColumnKey wrapper) +
-            # `column.label = str` (wants Rich Text); both work at runtime —
-            # DataTable accepts plain str via implicit conversion. Tracked
-            # under the existing `pyright || true` CI relaxation.
-            for col_key, cat_key in col_keys.items():
-                if col_key in table.columns:
-                    table.columns[col_key].label = t(cat_key)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue]
-            # Force header repaint
-            table.refresh()
+            set_column_labels(table, [
+                ("time", t("wallet.col.time")),
+                ("desc", t("wallet.col.desc")),
+                ("amount", t("wallet.col.amount")),
+                ("balance", t("wallet.col.balance")),
+            ])
         self._render_all()
 
     @once_per_tick

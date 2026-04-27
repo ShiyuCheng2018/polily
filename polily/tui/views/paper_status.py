@@ -38,6 +38,7 @@ from polily.tui.bindings import NAV_BINDINGS
 from polily.tui.i18n import t as _t  # `t` collides with `for t in self._trades:` loops
 from polily.tui.icons import ICON_POSITION
 from polily.tui.service import PolilyService
+from polily.tui.widgets._datatable_i18n import set_column_labels
 from polily.tui.widgets.polily_zone import PolilyZone
 
 logger = logging.getLogger(__name__)
@@ -155,12 +156,7 @@ class PaperStatusView(Widget):
                 f"{ICON_POSITION} {_t('paper.title.zone')}",
             )
             table = self.query_one("#portfolio-table", DataTable)
-            for col_key, cat_key in _COLUMN_SPEC:
-                if col_key in table.columns:
-                    # pyright complains about str → ColumnKey + str → Text;
-                    # both work at runtime (see wallet.py for the same note).
-                    table.columns[col_key].label = _t(cat_key)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue]
-            table.refresh()
+            set_column_labels(table, [(k, _t(c)) for k, c in _COLUMN_SPEC])
         self._render_all()
 
     # -- Bus callbacks (published from non-UI threads — must hop back) --
