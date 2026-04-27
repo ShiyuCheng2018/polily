@@ -250,3 +250,39 @@ class TestScanLogs:
 class TestHistoryCount:
     def test_history_count(self, db, service):
         assert service.get_history_count() == 0
+
+
+class TestLoadConfigFromDb:
+    """Phase 2 Task 2.3: PolilyService._load_default_config reads from db.config.
+
+    The TUI service must surface user-edited config values immediately at next
+    startup. Yaml fallback (config.minimal.yaml / config.example.yaml) is gone;
+    db.config is the canonical source per design §4.2.
+    """
+
+    def test_polily_service_loads_config_from_db(self, tmp_path, monkeypatch):
+        """_load_default_config returns PolilyConfig built from db.config.
+
+        Setup: PolilyService() with no args bootstraps a PolilyDB at the
+        Pydantic-default `archiving.db_file` path (./data/polily.db), which
+        after `monkeypatch.chdir(tmp_path)` resolves to tmp_path/data/polily.db.
+        Pre-seeding the same path with a non-default value proves the service
+        reads it back through db.config rather than falling through to yaml /
+        Pydantic defaults.
+        """
+        from polily.core.config_store import upsert
+        from polily.tui.service import PolilyService
+
+        monkeypatch.chdir(tmp_path)
+
+        db_path = tmp_path / "data" / "polily.db"
+        db_path.parent.mkdir(exist_ok=True)
+        seed_db = PolilyDB(db_path)
+        upsert(seed_db, "movement.magnitude_threshold", 55)
+        seed_db.close()
+
+        svc = PolilyService()
+        try:
+            assert svc.config.movement.magnitude_threshold == 55
+        finally:
+            svc.db.close()

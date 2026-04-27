@@ -6,12 +6,11 @@ import json
 import logging
 import time
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from polily.agents.narrative_writer import NarrativeWriterAgent
 from polily.analysis_store import AnalysisVersion, append_analysis, get_event_analyses
-from polily.core.config import PolilyConfig, load_config
+from polily.core.config import PolilyConfig
 from polily.core.db import PolilyDB
 from polily.core.event_store import (
     EventRow,
@@ -115,8 +114,20 @@ class PolilyService:
         db: PolilyDB | None = None,
         event_bus: EventBus | None = None,
     ) -> None:
+        # Phase 2 Task 2.3: db.config is the canonical config source, so the db
+        # must be opened BEFORE config is loaded. Bootstrap chicken-and-egg —
+        # `archiving.db_file` lives IN the config, so when no db is injected we
+        # use Pydantic defaults to find the db, then read the actual config out
+        # of it. PolilyDB.__init__ seeds db.config on first open via
+        # _ensure_wallet_singleton → load_config_from_db, so the read after open
+        # is guaranteed to find a populated config table.
+        if db is not None:
+            self.db = db
+        elif config is not None:
+            self.db = PolilyDB(config.archiving.db_file)
+        else:
+            self.db = PolilyDB(PolilyConfig().archiving.db_file)
         self.config = config or self._load_default_config()
-        self.db = db or PolilyDB(self.config.archiving.db_file)
 
         # v0.6.0 wallet system: single dependency point for TUI views
         # (wallet.py / trade_dialog.py / paper_status.py)
@@ -135,15 +146,16 @@ class PolilyService:
         # v0.8.0 event bus: publish mutations to subscribed TUI views
         self.event_bus = event_bus or get_event_bus()
 
-    @staticmethod
-    def _load_default_config() -> PolilyConfig:
-        minimal = Path("config.minimal.yaml")
-        example = Path("config.example.yaml")
-        if minimal.exists() and example.exists():
-            return load_config(minimal, defaults_path=example)
-        if example.exists():
-            return load_config(example)
-        return PolilyConfig()
+    def _load_default_config(self) -> PolilyConfig:
+        """Load config from db.config (per design §4.2).
+
+        Phase 2 Task 2.3: replaces the legacy minimal.yaml / example.yaml /
+        Pydantic-defaults fallback chain. `__init__` opens self.db before
+        calling this, so self.db is guaranteed to be set. yaml files are no
+        longer read by this code path (Phase 7 deletes them).
+        """
+        from polily.core.config import load_config_from_db
+        return load_config_from_db(self.db)
 
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
