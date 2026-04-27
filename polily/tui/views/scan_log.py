@@ -3,7 +3,9 @@
 v0.8.0 changes:
 - ScanLogView(service) — service-driven, not data-driven
 - PolilyZone + KVRow atoms for layout
-- Chinese labels via i18n.translate_status / translate_trigger
+- Bilingual labels via i18n.t() (zh/en) + TOPIC_LANGUAGE_CHANGED bus
+  subscription so titles / column headers / button + input placeholders
+  flip on F2 without losing scroll/cursor state.
 - Event bus subscription (TOPIC_SCAN_UPDATED) for auto-refresh
 - Table columns per user-approved mock: 5 for queue, 6 for history
 - ScanLogDetailView: no scan_id / event_id exposed to user
@@ -22,10 +24,10 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, Static
 
-from polily.core.events import TOPIC_SCAN_UPDATED
+from polily.core.events import TOPIC_LANGUAGE_CHANGED, TOPIC_SCAN_UPDATED
 from polily.scan_log import ScanLogEntry
 from polily.tui._dispatch import dispatch_to_ui
-from polily.tui.i18n import translate_status
+from polily.tui.i18n import t, translate_status
 from polily.tui.icons import (
     ICON_COMPLETED,
     ICON_EVENT,
@@ -89,23 +91,25 @@ def _format_pending_when(log: ScanLogEntry) -> str:
             live = (datetime.now(UTC) - started).total_seconds()
         except (ValueError, TypeError):
             live = 0.0
-        verb = "评分" if log.type == "add_event" else "分析"
-        return f"正在{verb}... ({live:.0f}s)"
+        key = "scan_log.live.scoring" if log.type == "add_event" else "scan_log.live.analyzing"
+        return t(key, elapsed=live)
     if log.scheduled_at:
         try:
             from datetime import UTC, datetime
             sched = datetime.fromisoformat(log.scheduled_at)
             delta = sched - datetime.now(UTC)
             mins = int(delta.total_seconds() // 60)
+            when = _to_local(log.scheduled_at)
             if mins < 0:
-                return f"{_to_local(log.scheduled_at)} (已到)"
+                return t("scan_log.scheduled.due", when=when)
             if mins < 60:
-                return f"{_to_local(log.scheduled_at)} ({mins}分)"
+                return t("scan_log.scheduled.in_minutes", when=when, mins=mins)
             hours = mins // 60
             if hours < 24:
-                return f"{_to_local(log.scheduled_at)} ({hours}h {mins%60}m)"
+                # Numeric h/m suffix is intentionally locale-neutral.
+                return f"{when} ({hours}h {mins%60}m)"
             days = hours // 24
-            return f"{_to_local(log.scheduled_at)} ({days}d {hours%24}h)"
+            return f"{when} ({days}d {hours%24}h)"
         except ValueError:
             return _to_local(log.scheduled_at)
     return _to_local(log.started_at)
@@ -132,30 +136,24 @@ def _trigger_icon(source: str) -> str:
 
 
 def _trigger_who_label(source: str) -> str:
-    """Who / what initiated this scan. Icon + Chinese label.
+    """Who / what initiated this scan. Icon + i18n label.
 
-    manual    → 手动  (user clicked 评分 / 分析)
-    scheduled → 定时  (scheduler daemon fired at scheduled_at)
-    movement  → 监控  (auto-monitor detected price movement)
+    manual / scheduled / movement labels come from the trigger.* catalog
+    keys (already shared with translate_trigger). Returns source as-is for
+    unknown sources.
     """
-    mapping = {
-        "manual":    f"{ICON_USER} 手动",
-        "scheduled": f"{ICON_EVENT} 定时",
-        "movement":  f"{ICON_NOTIFY} 监控",
-    }
-    return mapping.get(source, source)
+    icon_map = {"manual": ICON_USER, "scheduled": ICON_EVENT, "movement": ICON_NOTIFY}
+    if source not in icon_map:
+        return source
+    return f"{icon_map[source]} {t(f'trigger.{source}')}"
 
 
 def _scan_kind_label(type_: str) -> str:
-    """What this scan did.
-
-    analyze   → 分析 (AI narrative run)
-    add_event → 评分 (URL-pasted event scored + persisted)
-    """
-    return {
-        "analyze": "分析",
-        "add_event": "评分",
-    }.get(type_, type_)
+    """What this scan did. analyze / add_event labels come from
+    scan_log.type.* catalog keys."""
+    if type_ in ("analyze", "add_event"):
+        return t(f"scan_log.type.{type_}")
+    return type_
 
 
 @dataclass
@@ -253,6 +251,8 @@ class ScanLogView(Widget):
     Subscribes to TOPIC_SCAN_UPDATED for auto-refresh.
     """
 
+    # NOTE: I18nFooter renders binding labels via t(f"binding.{action}") at
+    # compose time, so the zh strings below are only fallbacks.
     BINDINGS = [
         Binding("c", "cancel_running", "取消正在运行的分析", show=False),
         Binding("r", "refresh", "刷新", show=True),
@@ -280,17 +280,38 @@ class ScanLogView(Widget):
         self._history: list[ScanLogEntry] = []
 
     def compose(self) -> ComposeResult:
-        yield Static(" 任务记录", id="log-title", classes="bold pt-sm")
+        yield Static(t("scan_log.title.records"), id="log-title", classes="bold pt-sm")
         with Horizontal(id="url-row", classes="m-md"):
-            yield Input(placeholder="粘贴 Polymarket 链接...", id="url-input")
-            yield Button("评分", id="score-btn", variant="primary")
+            yield Input(placeholder=t("scan_log.input.placeholder"), id="url-input")
+            yield Button(t("scan_log.button.score"), id="score-btn", variant="primary")
 
         # Live progress section — shown when service has active steps
         yield Static("", id="live-section-placeholder")
 
         # Tables are inside PolilyZone atoms
-        yield PolilyZone(title="任务队列", id="pending-zone")
-        yield PolilyZone(title="历史", id="history-zone")
+        yield PolilyZone(title=t("scan_log.title.queue"), id="pending-zone")
+        yield PolilyZone(title=t("scan_log.title.history"), id="history-zone")
+
+    # Internal column key -> catalog key. Internal keys are stable ids (used
+    # nowhere yet but ready for future update_cell calls); visible labels
+    # come from t() so they flip on language switch.
+    _PENDING_COLS = [
+        ("trigger", "scan_log.col.trigger"),
+        ("type", "scan_log.col.type"),
+        ("status", "scan_log.col.status"),
+        ("event", "scan_log.col.event"),
+        ("scheduled_at", "scan_log.col.scheduled_at"),
+        ("reason", "scan_log.col.reason"),
+    ]
+    _HISTORY_COLS = [
+        ("trigger", "scan_log.col.trigger"),
+        ("type", "scan_log.col.type"),
+        ("status", "scan_log.col.status"),
+        ("event", "scan_log.col.event"),
+        ("finished_at", "scan_log.col.finished_at"),
+        ("elapsed", "scan_log.col.elapsed"),
+        ("error", "scan_log.col.error"),
+    ]
 
     def on_mount(self) -> None:
         # Mount both DataTables ONCE. `_rebuild_*` refreshes rows in
@@ -298,6 +319,7 @@ class ScanLogView(Widget):
         # Textual's deferred `remove()`.
         self._mount_tables()
         self.service.event_bus.subscribe(TOPIC_SCAN_UPDATED, self._on_scan_update)
+        self.service.event_bus.subscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
         self._render_all()
 
     def _mount_tables(self) -> None:
@@ -309,26 +331,43 @@ class ScanLogView(Widget):
         up_table = DataTable(id="upcoming-table")
         pending_zone.mount(up_table)
         up_table.cursor_type = "row"
-        up_table.add_column("触发", key="触发")
-        up_table.add_column("类型", key="类型")
-        up_table.add_column("状态", key="状态")
-        up_table.add_column("事件", key="事件")
-        up_table.add_column("预定时间", key="预定时间")
-        up_table.add_column("原因", key="原因")
+        for col_key, cat_key in self._PENDING_COLS:
+            up_table.add_column(t(cat_key), key=col_key)
 
         hist_table = DataTable(id="history-table")
         history_zone.mount(hist_table)
         hist_table.cursor_type = "row"
-        hist_table.add_column("触发", key="触发")
-        hist_table.add_column("类型", key="类型")
-        hist_table.add_column("状态", key="状态")
-        hist_table.add_column("事件", key="事件")
-        hist_table.add_column("结束时间", key="结束时间")
-        hist_table.add_column("耗时", key="耗时")
-        hist_table.add_column("错误", key="错误")
+        for col_key, cat_key in self._HISTORY_COLS:
+            hist_table.add_column(t(cat_key), key=col_key)
 
     def on_unmount(self) -> None:
         self.service.event_bus.unsubscribe(TOPIC_SCAN_UPDATED, self._on_scan_update)
+        self.service.event_bus.unsubscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Update title / static labels / button / input placeholder /
+        zone titles / DataTable column headers. Row content is re-rendered
+        by _render_all (which re-runs the Chinese-derived helpers like
+        _trigger_who_label / _scan_kind_label / translate_status, all of
+        which now go through t())."""
+        with contextlib.suppress(Exception):
+            self.query_one("#log-title", Static).update(t("scan_log.title.records"))
+            self.query_one("#url-input", Input).placeholder = t("scan_log.input.placeholder")
+            self.query_one("#score-btn", Button).label = t("scan_log.button.score")
+            self.query_one("#pending-zone .polily-zone-title", Static).update(t("scan_log.title.queue"))
+            self.query_one("#history-zone .polily-zone-title", Static).update(t("scan_log.title.history"))
+            up_table = self.query_one("#upcoming-table", DataTable)
+            for col_key, cat_key in self._PENDING_COLS:
+                if col_key in up_table.columns:
+                    # See wallet.py for the str → ColumnKey/Text note.
+                    up_table.columns[col_key].label = t(cat_key)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue]
+            up_table.refresh()
+            hist_table = self.query_one("#history-table", DataTable)
+            for col_key, cat_key in self._HISTORY_COLS:
+                if col_key in hist_table.columns:
+                    hist_table.columns[col_key].label = t(cat_key)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue]
+            hist_table.refresh()
+        self._render_all()
 
     def _on_scan_update(self, payload: dict) -> None:
         """Bus callback — MUST use call_from_thread (called from non-UI thread)."""
@@ -455,7 +494,7 @@ class ScanLogView(Widget):
             return
         log = self._upcoming[table.cursor_row]
         if log.status != "running":
-            self.notify("只能取消正在运行的分析", severity="warning")
+            self.notify(t("scan_log.notify.cancel_running_only"), severity="warning")
             return
         # Compute live elapsed for the modal display
         live_elapsed = 0.0
@@ -521,6 +560,10 @@ class ScanLogDetailView(Widget):
     to users (internal identifiers only).
     """
 
+    # NOTE: I18nFooter renders binding labels via t(f"binding.{action}") at
+    # compose time. action="go_back" maps to binding.go_back ("返回" / "Back");
+    # if you want the longer "返回列表" wording, add a dedicated key under
+    # scan_log.binding.go_back_list and route there.
     BINDINGS = [
         Binding("escape", "go_back", "返回列表"),
         Binding("enter", "open_event", "打开事件", show=True),
@@ -537,6 +580,18 @@ class ScanLogDetailView(Widget):
         super().__init__()
         self.log_entry = log_entry
         self._db = db
+
+    def on_mount(self) -> None:
+        from polily.core.events import get_event_bus
+        get_event_bus().subscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
+
+    def on_unmount(self) -> None:
+        from polily.core.events import get_event_bus
+        get_event_bus().unsubscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Static snapshot view — recompose to re-evaluate every t() call."""
+        dispatch_to_ui(self.app, lambda: self.refresh(recompose=True))
 
     def _get_scan_stats(self) -> dict | None:
         """Query rich scan statistics from DB."""
@@ -587,14 +642,15 @@ class ScanLogDetailView(Widget):
                     delta = dt - now
                     days = delta.days
                     hours = delta.seconds // 3600
+                    date = iso_str[:10]
                     if days < 0:
-                        return f"{iso_str[:10]} ({abs(days)}天前)"
+                        return t("scan_log.time.days_ago", date=date, days=abs(days))
                     elif days == 0:
-                        return f"{iso_str[:10]} ({hours}小时后)"
+                        return t("scan_log.time.hours_later", date=date, hours=hours)
                     elif days == 1:
-                        return f"{iso_str[:10]} (明天)"
+                        return t("scan_log.time.tomorrow", date=date)
                     else:
-                        return f"{iso_str[:10]} ({days}天后)"
+                        return t("scan_log.time.days_later", date=date, days=days)
                 except (ValueError, TypeError):
                     return iso_str[:10] if iso_str else "-"
 
@@ -654,8 +710,7 @@ class ScanLogDetailView(Widget):
         trigger_label = _trigger_who_label(log.trigger_source)
         kind_label = _scan_kind_label(log.type)
 
-        # Title reflects type: analyze → 分析详情; scan / add_event → 扫描详情
-        zone_title = "分析详情" if is_analyze else "扫描详情"
+        zone_title = t("scan_log.title.detail.analysis") if is_analyze else t("scan_log.title.detail.scan")
 
         # For completed analyze runs, try to locate the produced version.
         analysis_version = self._find_analysis_version()
@@ -663,30 +718,32 @@ class ScanLogDetailView(Widget):
         with VerticalScroll():
             with PolilyZone(title=zone_title):
                 # event title — no event_id prefix
-                yield KVRow(label="事件", value=log.market_title or "?")
-                yield KVRow(label="状态", value=status_label)
-                yield KVRow(label="触发", value=trigger_label)
-                yield KVRow(label="类型", value=kind_label)
+                yield KVRow(label=t("scan_log.kv.event"), value=log.market_title or "?")
+                yield KVRow(label=t("scan_log.kv.status"), value=status_label)
+                yield KVRow(label=t("scan_log.kv.trigger"), value=trigger_label)
+                yield KVRow(label=t("scan_log.kv.kind"), value=kind_label)
                 if analysis_version is not None:
-                    yield KVRow(label="版本", value=f"v{analysis_version.version}")
-                yield KVRow(label="开始时间", value=_to_local(log.started_at))
-                yield KVRow(label="结束时间", value=_to_local(log.finished_at))
+                    yield KVRow(label=t("scan_log.kv.version"), value=f"v{analysis_version.version}")
+                yield KVRow(label=t("scan_log.kv.started_at"), value=_to_local(log.started_at))
+                yield KVRow(label=t("scan_log.kv.finished_at"), value=_to_local(log.finished_at))
                 elapsed_display = _format_elapsed(log.total_elapsed) or "?"
-                yield KVRow(label="总耗时", value=elapsed_display)
-                # 原因 moved below 总耗时, full content (no truncation).
+                yield KVRow(label=t("scan_log.kv.elapsed"), value=elapsed_display)
                 if log.scheduled_reason:
-                    yield KVRow(label="原因", value=log.scheduled_reason)
-                # Error only for failed status
+                    yield KVRow(label=t("scan_log.kv.reason"), value=log.scheduled_reason)
                 if log.status == "failed" and log.error:
-                    yield KVRow(label="错误", value=log.error)
+                    yield KVRow(label=t("scan_log.kv.error"), value=log.error)
 
                 # Results summary for add_event / scan type
                 if is_add_event or (not is_analyze):
                     stats = self._get_scan_stats()
                     if stats and (is_add_event or not is_analyze):
                         yield KVRow(
-                            label="事件数",
-                            value=f"{stats['research_events']} 事件 / {stats['research_markets']} 市场",
+                            label=t("scan_log.kv.events_markets_count"),
+                            value=t(
+                                "scan_log.kv.events_markets_value",
+                                events=stats["research_events"],
+                                markets=stats["research_markets"],
+                            ),
                         )
 
             # Analysis content — reuse the EventDetailView AnalysisPanel
@@ -702,7 +759,7 @@ class ScanLogDetailView(Widget):
 
             # Steps zone
             if log.steps:
-                with PolilyZone(title="步骤详情"):
+                with PolilyZone(title=t("scan_log.title.detail.steps")):
                     for step in log.steps:
                         elapsed_str = f"[dim]{step.elapsed:.1f}s[/dim]"
                         detail = f"  [cyan]{step.detail}[/cyan]" if step.detail else ""
@@ -719,7 +776,7 @@ class ScanLogDetailView(Widget):
             yield Static("")
             # Action buttons — keyboard hints live in the footer (via BINDINGS show=True).
             if is_add_event and log.event_id:
-                yield Button("重新评分", id="rescore-btn", variant="primary")
+                yield Button(t("scan_log.button.rescore"), id="rescore-btn", variant="primary")
 
     def action_refresh(self) -> None:
         """Manual refresh — reload the log entry from DB and recompose.
@@ -759,19 +816,19 @@ class ScanLogDetailView(Widget):
         from polily.core.event_store import get_event
 
         if not self.log_entry.event_id or not self._db:
-            self.notify("无链接信息", severity="warning")
+            self.notify(t("scan_log.notify.no_link"), severity="warning")
             return
         event = get_event(self.log_entry.event_id, self._db)
         slug = getattr(event, "slug", None) if event else None
         if not slug:
-            self.notify("无链接信息", severity="warning")
+            self.notify(t("scan_log.notify.no_link"), severity="warning")
             return
         import webbrowser
         url = f"https://polymarket.com/event/{slug}"
         try:
             webbrowser.open(url)
         except Exception:
-            self.notify("无法打开浏览器", severity="warning")
+            self.notify(t("scan_log.notify.cannot_open_browser"), severity="warning")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "rescore-btn" and self.log_entry.event_id:
