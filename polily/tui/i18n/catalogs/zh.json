@@ -13,6 +13,7 @@
   "binding.cursor_top": "顶部",
   "binding.cursor_bottom": "底部",
   "binding.search": "搜索",
+  "binding.command_palette": "命令面板",
 
   "status.pending": "待执行",
   "status.running": "运行中",

@@ -19,7 +19,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Header, Static
 
 from polily.core.events import (
     TOPIC_MONITOR_UPDATED,
@@ -30,6 +30,7 @@ from polily.core.events import (
 )
 from polily.tui._dispatch import dispatch_to_ui
 from polily.tui.service import AnalysisInProgressError, PolilyService
+from polily.tui.widgets.i18n_footer import I18nFooter
 from polily.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 from polily.tui.views.event_detail import (
     AnalyzeRequested,
@@ -106,7 +107,7 @@ class MainScreen(Screen):
             yield Sidebar(id="sidebar")
             with Vertical(id="content-area"):
                 yield ScanLogView(self.service)
-        yield Footer()
+        yield I18nFooter()
 
     def on_mount(self) -> None:
         sidebar = self.query_one("#sidebar", Sidebar)

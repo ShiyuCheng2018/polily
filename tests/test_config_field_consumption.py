@@ -127,11 +127,6 @@ LOW_SPECIFICITY_VERIFIED: dict[str, str] = {
         "agents/narrative_writer.py:46 — config.max_prompt_chars "
         "(Phase 0 Task 13 migration: AgentConfig param)"
     ),
-    "tui.language": (
-        "tui/app.py — startup default fed into init_i18n; runtime override "
-        "stored in DB user_prefs (set via action_toggle_language in PolilyApp). "
-        "Wired in feat/runtime-i18n PR-1 Task 6."
-    ),
 }
 
 
