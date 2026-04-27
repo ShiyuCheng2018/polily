@@ -240,6 +240,11 @@ class PolilyDB:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
+        # Production hardening: WAL writer contention waits up to 5s before
+        # raising 'database is locked', so concurrent multi-process seed
+        # (TUI + daemon racing on first start) doesn't fail spuriously.
+        # Required for the SF5 concurrency test in tests/test_config_store.py.
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self._init_schema()
 
     def __enter__(self) -> "PolilyDB":

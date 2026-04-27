@@ -26,3 +26,15 @@ def test_config_table_exists_after_init(polily_db):
     cur = polily_db.conn.execute("PRAGMA table_info(config)")
     pk_cols = [row[1] for row in cur.fetchall() if row[5] == 1]
     assert pk_cols == ["key_path"], f"expected key_path PK, got {pk_cols}"
+
+
+def test_polilydb_sets_busy_timeout_to_5000ms(polily_db):
+    """Production hardening: WAL writer contention should retry up to 5s
+    instead of immediately raising 'database is locked'.
+
+    Affects multi-process first-run seed (TUI + daemon both calling
+    ensure_seeded). Without this pragma, the SF5 test in test_config_store.py
+    flakes on slow CI under thread contention.
+    """
+    cur = polily_db.conn.execute("PRAGMA busy_timeout")
+    assert cur.fetchone()[0] == 5000
