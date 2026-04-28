@@ -103,6 +103,59 @@ def is_daemon_running() -> bool:
     return '"PID"' in result.stdout
 
 
+def _migrate_legacy_plist() -> bool:
+    """Whis B2 — one-shot v0.9.x → v0.10.0 plist migration.
+
+    Detects ``--config`` in the on-disk plist's ProgramArguments and
+    rewrites without it, then reloads launchctl so the new args take
+    effect on the next daemon spawn.
+
+    Returns True if a migration was performed, False otherwise (no plist
+    on disk / already modern). Idempotent — safe to call on every
+    startup; modern plists are read once and left untouched.
+
+    Why this exists: pre-v0.10.0 plists embedded ``--config <path>`` in
+    ProgramArguments. After T2.5 deleted that flag from the ``scheduler
+    run`` subcommand, launchd respawns the daemon → typer rejects the
+    unknown arg → non-zero exit → KeepAlive=true → infinite crash loop.
+    This helper silently heals the plist on the next TUI launch.
+
+    Note: only writes the new plist + issues unload/load. The full
+    auto-heal flow in ``ensure_daemon_running`` re-runs immediately
+    after, but it'll see the freshly-written modern plist as matching
+    the desired bytes and short-circuit (no double reload).
+    """
+    import subprocess
+
+    if not PLIST_PATH.exists():
+        return False
+
+    content = PLIST_PATH.read_text(encoding="utf-8")
+    if "--config" not in content:
+        return False  # already modern — idempotent no-op
+
+    # Regenerate via the canonical generator — it produces the v0.10.0
+    # ProgramArguments shape (no --config, no other dropped flags).
+    working_dir = str(Path.cwd())
+    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
+    plist_bytes = generate_launchd_plist(working_dir=working_dir)
+    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PLIST_PATH.write_bytes(plist_bytes)
+
+    # Reload so launchd picks up the new args. Both calls are best-effort
+    # (capture_output) — if launchctl is missing or the service isn't
+    # registered yet, we don't want the migration to throw.
+    subprocess.run(
+        ["launchctl", "unload", str(PLIST_PATH)],
+        capture_output=True,
+    )
+    subprocess.run(
+        ["launchctl", "load", str(PLIST_PATH)],
+        capture_output=True,
+    )
+    return True
+
+
 def ensure_daemon_running() -> bool:
     """Start the daemon via launchd if not already running, auto-healing
     stale plists (e.g. across package renames).
@@ -111,6 +164,12 @@ def ensure_daemon_running() -> bool:
     False if the existing running daemon was kept as-is.
     """
     import subprocess
+
+    # B2: one-shot heal of legacy plists carrying `--config` from v0.9.x.
+    # If the migration runs, it already wrote new bytes + reloaded — fall
+    # through anyway so the rest of the auto-heal logic stays the source
+    # of truth for "is daemon running" reporting.
+    _migrate_legacy_plist()
 
     working_dir = str(Path.cwd())
     Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
