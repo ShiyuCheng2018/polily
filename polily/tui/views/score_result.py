@@ -20,7 +20,9 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Static
 
+from polily.core.events import TOPIC_LANGUAGE_CHANGED, get_event_bus
 from polily.scan_log import ScanLogEntry
+from polily.tui._dispatch import dispatch_to_ui
 from polily.tui.bindings import NAV_BINDINGS
 from polily.tui.components import (
     BinaryMarketStructurePanel,
@@ -28,6 +30,7 @@ from polily.tui.components import (
     EventKpiRow,
     SubMarketTable,
 )
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_EVENT, ICON_MARKET, ICON_SCAN
 from polily.tui.service import PolilyService
 from polily.tui.widgets.polily_zone import PolilyZone
@@ -62,6 +65,8 @@ class AddToMonitorRequested(Message):
 class ScoreResultView(Widget):
     """Scoring result: steps + event detail components + action buttons."""
 
+    # NOTE: I18nFooter renders binding labels via t(f"binding.{action}") at
+    # compose time, so the zh strings below are only fallbacks.
     BINDINGS = [
         Binding("escape", "go_back", "返回"),
         Binding("backspace", "go_back", show=False),
@@ -98,7 +103,7 @@ class ScoreResultView(Widget):
         with VerticalScroll(id="scroll-area"):
             # Zone: 评分步骤 (only when a scan log is found)
             if log and log.steps:
-                with PolilyZone(title=f"{ICON_SCAN} 评分步骤", id="steps-zone"):
+                with PolilyZone(title=f"{ICON_SCAN} {t('score.title.steps')}", id="steps-zone"):
                     for step in log.steps:
                         elapsed_str = f"[dim]{step.elapsed:.1f}s[/dim]"
                         detail_text = (
@@ -116,13 +121,13 @@ class ScoreResultView(Widget):
                         )
 
             # Zone: 事件信息 (header + KPI row)
-            with PolilyZone(title=f"{ICON_EVENT} 事件信息", id="event-info-zone"):
+            with PolilyZone(title=f"{ICON_EVENT} {t('score.title.event_info')}", id="event-info-zone"):
                 yield EventHeader(event, monitor, markets=markets)
                 yield EventKpiRow(event, markets)
 
             # Zone: 市场 — binary events show the structure panel (same as
             # EventDetailView); multi-outcome events use SubMarketTable.
-            with PolilyZone(title=f"{ICON_MARKET} 市场", id="market-zone"):
+            with PolilyZone(title=f"{ICON_MARKET} {t('score.title.market')}", id="market-zone"):
                 if len(markets) == 1:
                     yield BinaryMarketStructurePanel(markets[0], event)
                 else:
@@ -137,13 +142,25 @@ class ScoreResultView(Widget):
                 )
             else:
                 with Horizontal(id="action-row"):
-                    yield Button("重新评分", id="rescore-btn", variant="default")
+                    yield Button(t("score.button.rescore"), id="rescore-btn", variant="default")
                     if not is_monitored:
                         yield Button(
-                            "添加到监控", id="monitor-btn", variant="primary",
+                            t("score.button.add_monitor"), id="monitor-btn", variant="primary",
                         )
                     else:
-                        yield Static("  [dim]已在监控列表[/dim]")
+                        yield Static(f"  [dim]{t('score.label.already_monitored')}[/dim]")
+
+    def on_mount(self) -> None:
+        get_event_bus().subscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
+
+    def on_unmount(self) -> None:
+        get_event_bus().unsubscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Score result is a static snapshot view — no mount-once state to
+        preserve, so we just recompose; all t() calls in compose() pick up
+        the new language."""
+        dispatch_to_ui(self.app, lambda: self.refresh(recompose=True))
 
     def _get_log_entry(self) -> ScanLogEntry | None:
         logs = self.service.get_scan_logs()
@@ -182,11 +199,11 @@ class ScoreResultView(Widget):
         event = detail.get("event") if detail else None
         slug = getattr(event, "slug", None) if event else None
         if not slug:
-            self.notify("无链接信息", severity="warning")
+            self.notify(t("score.notify.no_link"), severity="warning")
             return
         import webbrowser
         url = f"https://polymarket.com/event/{slug}"
         try:
             webbrowser.open(url)
         except Exception:
-            self.notify("无法打开浏览器", severity="warning")
+            self.notify(t("score.notify.cannot_open_browser"), severity="warning")

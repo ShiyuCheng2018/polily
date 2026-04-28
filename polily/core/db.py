@@ -185,6 +185,12 @@ CREATE TABLE IF NOT EXISTS positions (
 -- INVARIANT: market_id and event_id are stored WITHOUT FK constraints — the ledger
 -- must survive market soft-close and any future hard-delete cleanup. Orphan lookups
 -- via LEFT JOIN are acceptable; this is an accounting record, not relational master data.
+CREATE TABLE IF NOT EXISTS user_prefs (
+    key                 TEXT PRIMARY KEY,
+    value               TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS wallet_transactions (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at          TEXT NOT NULL,

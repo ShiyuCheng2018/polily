@@ -4,6 +4,7 @@ Global bindings (App level):
   q              quit
   ?              show help overlay
   escape         back / cancel / pop screen
+  f2             toggle UI language (zh ↔ en); function-key to avoid Input focus capture
   ctrl+p         command palette (includes theme switcher) — Textual built-in
 
 CRUD bindings (Screen/Widget level — views opt in):
@@ -26,9 +27,15 @@ go through modal confirm; modal declares y/n or enter/escape.
 from textual.binding import Binding
 
 # --- Global (App level) ---
+# NOTE on description strings: I18nFooter (polily/tui/widgets/i18n_footer.py)
+# resolves the visible label via t(f"binding.{action}") at compose time, so the
+# zh strings below are only used as a fallback when the catalog has no entry.
+# Don't blank them out — Textual's Binding.make_bindings (binding.py:161) coerces
+# show=False when description is empty.
 GLOBAL_BINDINGS = [
     Binding("q", "quit", "退出", show=True),
     Binding("question_mark", "help", "帮助", show=True, key_display="?"),
+    Binding("f2", "toggle_language", "切换语言", show=True),
     Binding("escape", "back", "返回", show=False),
 ]
 

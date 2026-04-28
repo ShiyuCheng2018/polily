@@ -11,10 +11,16 @@ from polily.core.lifecycle import (
     MarketState,
     event_state,
     market_state,
-    market_state_label,
-    settled_winner_suffix,
 )
-from polily.tui.components.movement_sparkline import _LABEL_CN, get_event_movement
+from polily.tui.components.movement_sparkline import (
+    get_event_movement,
+    movement_label_i18n,
+)
+from polily.tui.i18n import t
+from polily.tui.lifecycle_labels import (
+    market_state_label_i18n,
+    settled_winner_suffix_i18n,
+)
 from polily.tui.monitor_format import pick_movement_color
 
 _BREADCRUMB_STATES = [
@@ -43,10 +49,10 @@ def _binary_breadcrumb(market, *, now: datetime | None = None) -> str:
     reinforce the muted look while `$primary bold` pops the current state
     against that muted background.
 
-    Leading phrase:
+    Leading phrase (translated via t() at call time):
       TRADING            → format_countdown(end_date)
-      PENDING_SETTLEMENT → '名义已过期'
-      SETTLING           → '已锁盘'
+      PENDING_SETTLEMENT → event_header.lead.nominally_expired
+      SETTLING           → event_header.lead.locked
       SETTLED            → '' (no lead; chain's last element is highlighted)
     """
     state = market_state(market, now=now)
@@ -56,9 +62,9 @@ def _binary_breadcrumb(market, *, now: datetime | None = None) -> str:
         from polily.tui.utils import format_countdown
         lead = format_countdown(market.end_date) if market.end_date else "?"
     elif state == MarketState.PENDING_SETTLEMENT:
-        lead = "名义已过期"
+        lead = t("event_header.lead.nominally_expired")
     elif state == MarketState.SETTLING:
-        lead = "已锁盘"
+        lead = t("event_header.lead.locked")
     else:  # SETTLED
         lead = ""
 
@@ -66,9 +72,9 @@ def _binary_breadcrumb(market, *, now: datetime | None = None) -> str:
 
     parts: list[str] = []
     for i, s in enumerate(_BREADCRUMB_STATES):
-        label = market_state_label(s)
+        label = market_state_label_i18n(s)
         if s == MarketState.SETTLED and state == MarketState.SETTLED:
-            label = f"{label}{settled_winner_suffix(market)}"
+            label = f"{label}{settled_winner_suffix_i18n(market)}"
 
         if i < current_idx:
             parts.append(f"[dim]{label} ✓[/]")
@@ -84,17 +90,16 @@ def _binary_breadcrumb(market, *, now: datetime | None = None) -> str:
 
 
 def _multi_event_settlement_label(event, markets, *, now: datetime | None = None) -> str:
-    """EventHeader '结算:' label for multi-market events.
+    """EventHeader settlement label for multi-market events.
 
     ACTIVE                   → format_countdown(event.end_date) (current behavior)
-    AWAITING_FULL_SETTLEMENT → '待全部结算'
-    RESOLVED                 → '已结算'
+    AWAITING_FULL_SETTLEMENT / RESOLVED → translated event-state label
     """
+    from polily.tui.lifecycle_labels import event_state_label_i18n
+
     state = event_state(event, markets, now=now)
-    if state == EventState.RESOLVED:
-        return "已结算"
-    if state == EventState.AWAITING_FULL_SETTLEMENT:
-        return "待全部结算"
+    if state in (EventState.RESOLVED, EventState.AWAITING_FULL_SETTLEMENT):
+        return event_state_label_i18n(state)
     from polily.tui.utils import format_countdown
     return format_countdown(event.end_date) if event.end_date else "?"
 
@@ -125,15 +130,15 @@ class EventHeader(Widget):
     def compose(self) -> ComposeResult:
         event = self._event
         if not event:
-            yield Static("[dim]事件未找到[/dim]", classes="hdr-title")
+            yield Static(f"[dim]{t('event_header.not_found')}[/dim]", classes="hdr-title")
             return
 
         yield Static(f"[bold]{event.title}[/bold]", classes="hdr-title")
 
         monitor_str = (
-            "[green]监控 ON[/green]"
+            f"[green]{t('event_header.monitor_on')}[/green]"
             if self._monitor and self._monitor.get("auto_monitor")
-            else "[dim]监控 OFF[/dim]"
+            else f"[dim]{t('event_header.monitor_off')}[/dim]"
         )
         mtype = event.market_type or "other"
 
@@ -142,16 +147,16 @@ class EventHeader(Widget):
         else:
             settlement_str = _multi_event_settlement_label(event, self._markets)
 
-        # Movement status (unchanged)
+        # Movement status
         m, q, label = get_event_movement(self._movements)
-        label_cn = _LABEL_CN.get(label, label)
+        label_str = movement_label_i18n(label)
         color = pick_movement_color(label, m)
         if label == "noise":
-            mov_str = f"[{color}]{label_cn}[/{color}] [dim]M:{m:.0f} Q:{q:.0f}[/dim]"
+            mov_str = f"[{color}]{label_str}[/{color}] [dim]M:{m:.0f} Q:{q:.0f}[/dim]"
         else:
-            mov_str = f"[{color}]{label_cn}[/{color}] M:{m:.0f} Q:{q:.0f}"
+            mov_str = f"[{color}]{label_str}[/{color}] M:{m:.0f} Q:{q:.0f}"
 
         yield Static(
-            f"{mtype} | 结算: {settlement_str} | {monitor_str} | {mov_str}",
+            f"{mtype} | {t('event_header.settlement')}: {settlement_str} | {monitor_str} | {mov_str}",
             classes="hdr-sub",
         )

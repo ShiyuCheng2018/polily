@@ -6,12 +6,9 @@ from datetime import UTC, datetime
 
 _DASH = "—"
 
-_LABEL_CN = {
-    "consensus": "共识异动",
-    "whale_move": "大单异动",
-    "slow_build": "缓慢累积",
-    "noise": "平静",
-}
+# Set of recognized movement labels — used as a guard before
+# delegating to the i18n helper. Translations live in catalogs.
+_KNOWN_MOVEMENT_LABELS = {"consensus", "whale_move", "slow_build", "noise"}
 
 _HIGH_MAGNITUDE_THRESHOLD = 70.0
 
@@ -112,9 +109,10 @@ def format_ai_version(count: int | None) -> str:
 def format_event_settlement(event, market_summaries: list, *, now=None) -> str:
     """Event-level settlement cell for monitor_list / archived views.
 
-    ACTIVE                   → range via format_settlement_range over TRADING children
-    AWAITING_FULL_SETTLEMENT → '待全部结算'
-    RESOLVED                 → '已结算'
+    ACTIVE                                    → range via format_settlement_range
+                                                over TRADING children
+    AWAITING_FULL_SETTLEMENT / RESOLVED       → translated event-state label
+                                                (see lifecycle_labels)
 
     market_summaries is a list of dicts (from PolilyService._query_events)
     with shape {closed, end_date, resolved_outcome}. Wraps each dict in a
@@ -123,13 +121,12 @@ def format_event_settlement(event, market_summaries: list, *, now=None) -> str:
     from types import SimpleNamespace
 
     from polily.core.lifecycle import EventState, MarketState, event_state, market_state
+    from polily.tui.lifecycle_labels import event_state_label_i18n
 
     markets = [SimpleNamespace(**s) for s in market_summaries]
     state = event_state(event, markets, now=now)
-    if state == EventState.RESOLVED:
-        return "已结算"
-    if state == EventState.AWAITING_FULL_SETTLEMENT:
-        return "待全部结算"
+    if state in (EventState.RESOLVED, EventState.AWAITING_FULL_SETTLEMENT):
+        return event_state_label_i18n(state)
 
     # Filter only TRADING children (not `closed=0`) so PENDING_SETTLEMENT
     # markets with past end_date don't leak "已过期" into format_settlement_range.
@@ -149,8 +146,9 @@ def format_movement(label: str | None, magnitude: float, quality: float) -> str:
     `pick_movement_color` so the cell renders the same way as the detail-page
     movement views.
     """
-    if not label or label not in _LABEL_CN:
+    if not label or label not in _KNOWN_MOVEMENT_LABELS:
         return _DASH
-    label_cn = _LABEL_CN[label]
+    from polily.tui.components.movement_sparkline import movement_label_i18n
+    label_str = movement_label_i18n(label)
     color = pick_movement_color(label, magnitude)
-    return f"[{color}]{label_cn}[/{color}] M:{magnitude:.0f} Q:{quality:.0f}"
+    return f"[{color}]{label_str}[/{color}] M:{magnitude:.0f} Q:{quality:.0f}"

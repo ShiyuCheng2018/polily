@@ -24,6 +24,7 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Static
 
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_BUY, ICON_SELL, ICON_SETTINGS, ICON_WALLET
 from polily.tui.widgets.amount_input import AmountInput
 from polily.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
@@ -77,13 +78,13 @@ class TopupModal(ModalScreen[float | None]):
     def compose(self) -> ComposeResult:
         cash = self._service.wallet.get_cash()
         with Vertical(id="dialog-box"):
-            with PolilyCard(title=f"{ICON_BUY} 充值"):
+            with PolilyCard(title=f"{ICON_BUY} {t('topup.title')}"):
                 yield Static(
-                    f"{ICON_WALLET} 当前余额: ${cash:.2f}",
+                    f"{ICON_WALLET} {t('modal.current_balance')}: ${cash:.2f}",
                     classes="balance-line pb-sm text-muted",
                 )
                 yield FieldRow(
-                    label="金额",
+                    label=t("modal.amount_label"),
                     unit="$",
                     input_widget=AmountInput(value="50", id="amount"),
                 )
@@ -111,14 +112,14 @@ class TopupModal(ModalScreen[float | None]):
     def _confirm(self) -> None:
         amt, valid, _ = self.query_one("#amount", AmountInput).parse()
         if not valid or amt is None:
-            self.notify("请输入有效金额 (> 0)", severity="error")
+            self.notify(t("topup.error.invalid_amount"), severity="error")
             return
         try:
             self._service.topup(amt)
         except Exception as e:
-            self.notify(f"充值失败: {e}", severity="error")
+            self.notify(t("topup.error.failed", detail=str(e)), severity="error")
             return
-        self.notify(f"充值成功: +${amt:.2f}")
+        self.notify(t("topup.success", amt=amt))
         self.dismiss(amt)
 
 
@@ -155,23 +156,23 @@ class WithdrawModal(ModalScreen[float | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog-box"):
-            with PolilyCard(title=f"{ICON_SELL} 提现"):
+            with PolilyCard(title=f"{ICON_SELL} {t('withdraw.title')}"):
                 yield Static(
-                    f"{ICON_WALLET} 可提现 (现金): ${self._cash:.2f}",
+                    t("withdraw.available", icon=ICON_WALLET, cash=self._cash),
                     classes="balance-line text-muted",
                 )
                 yield Static(
-                    "[dim]持仓市值不可提现[/dim]",
+                    t("withdraw.positions_locked"),
                     classes="hint pb-sm text-muted",
                 )
                 yield FieldRow(
-                    label="金额",
+                    label=t("modal.amount_label"),
                     unit="$",
                     input_widget=AmountInput(
                         value="", id="amount", max_value=self._cash,
                     ),
                 )
-                yield QuickAmountRow(amounts=[20, 50, "全部"])
+                yield QuickAmountRow(amounts=[20, 50, t("modal.token.all")])
                 yield Static("", id="warn-line")
                 yield ConfirmCancelBar()
 
@@ -188,8 +189,11 @@ class WithdrawModal(ModalScreen[float | None]):
     def on_quick_amount_row_selected(
         self, event: QuickAmountRow.Selected,
     ) -> None:
-        if event.amount == "全部":
-            # Resolve the "max available" token against current cash.
+        # Compare against the translated "All" token. Modal lifecycle is
+        # short — language can't realistically switch between compose and
+        # click — but we still call t() at both ends to avoid baking a
+        # specific language string here.
+        if event.amount == t("modal.token.all"):
             self.query_one("#amount", Input).value = f"{self._cash:.2f}"
         else:
             self.query_one("#amount", Input).value = str(event.amount)
@@ -219,7 +223,7 @@ class WithdrawModal(ModalScreen[float | None]):
             ok_btn.disabled = False
             return
         if reason == "above_max":
-            warn.update(f"[red]超出可提金额[/red] (最多 ${self._cash:.2f})")
+            warn.update(t("withdraw.warn.exceeds", max=self._cash))
         else:
             warn.update("")
         ok_btn.disabled = True
@@ -231,9 +235,9 @@ class WithdrawModal(ModalScreen[float | None]):
         try:
             self._service.withdraw(amt)
         except Exception as e:
-            self.notify(f"提现失败: {e}", severity="error")
+            self.notify(t("withdraw.error.failed", detail=str(e)), severity="error")
             return
-        self.notify(f"提现成功: -${amt:.2f}")
+        self.notify(t("withdraw.success", amt=amt))
         self.dismiss(amt)
 
 
@@ -277,30 +281,29 @@ class WalletResetModal(ModalScreen[bool | None]):
     def compose(self) -> ComposeResult:
         starting = self._service.config.wallet.starting_balance
         with Vertical(id="dialog-box"):
-            with PolilyZone(title=f"{ICON_SETTINGS} 重置钱包"):
+            with PolilyZone(title=f"{ICON_SETTINGS} {t('wallet.button.reset')}"):
                 warn_lines = [
-                    "[b red]⚠  不可撤销！将清除：[/b red]",
-                    f"    · 所有持仓 (当前 {self._open_positions} 个)",
-                    "    · 所有交易流水",
-                    f"    · 现金重置为初始 ${starting:.2f}",
+                    t("reset.warn.irreversible"),
+                    t("reset.warn.line.positions", count=self._open_positions),
+                    t("reset.warn.line.transactions"),
+                    t("reset.warn.line.cash", starting=starting),
                 ]
                 yield Static("\n".join(warn_lines), classes="warn-block pb-sm")
                 if self._daemon_pid is not None:
                     daemon_text = (
-                        f"⚠  后台监控正在运行 (PID {self._daemon_pid})\n"
-                        "    重置会先停止 daemon。完成后请手动执行：\n"
-                        "        polily scheduler restart"
+                        t("reset.warn.daemon_running", pid=self._daemon_pid)
+                        + "        polily scheduler restart"
                     )
                     yield Static(
                         daemon_text,
                         classes="daemon-block pb-sm text-warning",
                     )
-                    yield Checkbox("我知道 daemon 会被停止", id="ack-daemon")
-                yield Static('确认请输入 [bold]reset[/bold] :', id="confirm-prompt")
+                    yield Checkbox(t("reset.ack_daemon"), id="ack-daemon")
+                yield Static(t("reset.confirm_prompt"), id="confirm-prompt")
                 yield Input(value="", id="confirm-input")
                 yield ConfirmCancelBar(
-                    confirm_label="重置",
-                    cancel_label="取消",
+                    confirm_label=t("reset.confirm_button"),
+                    cancel_label=t("binding.cancel"),
                     destructive=True,
                 )
 
@@ -390,20 +393,17 @@ class WalletResetModal(ModalScreen[bool | None]):
 
     def _on_reset_done(self, restart_err: str | None = None) -> None:
         if restart_err is not None:
-            # Reset committed, but auto-restart failed. User still needs to
-            # know a manual restart is required.
             self.notify(
-                f"钱包已重置。daemon 自动重启失败: {restart_err}\n"
-                "请手动执行 polily scheduler restart",
+                t("reset.success.daemon_failed", err=restart_err),
                 severity="warning",
             )
         elif self._daemon_pid is not None:
-            self.notify("钱包已重置。后台监控已自动重启。")
+            self.notify(t("reset.success.daemon_restarted"))
         else:
-            self.notify("钱包已重置。")
+            self.notify(t("reset.success.basic"))
         self.dismiss(True)
 
     def _on_reset_failed(self, err: str) -> None:
-        self.notify(f"重置失败: {err}", severity="error")
+        self.notify(t("reset.error.failed", err=err), severity="error")
         self.query_one("#confirm", Button).disabled = False
         self.query_one("#cancel", Button).disabled = False

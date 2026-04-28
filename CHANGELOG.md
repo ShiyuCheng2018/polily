@@ -10,6 +10,24 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Added
+
+- **Runtime i18n: bilingual TUI with hotkey toggle (zh ↔ en).** Press **F2** anywhere to flip the entire UI between Simplified Chinese (default) and English without restarting; the choice is persisted to `data/polily.db` (`user_prefs.language`) so the next launch starts in the same language. All 9 views (wallet / changelog / history / paper_status / monitor_list / score_result / archived_events / scan_log / event_detail), 7 components (event_header / sub_market_table / analysis_panel / event_kpi / binary_structure_panel / position_panel / movement_sparkline), 4 modal/dialog files (wallet_modals / trade_dialog / scan_modals / monitor_modals), 5 widgets (sidebar / I18nFooter / buy_sell_action_row / empty_state / loading_state / ConfirmCancelBar) and the MainScreen status bar / countdown formatter / lifecycle state labels are all bilingual. Footer / DataTable column headers / KV labels / static texts all update in place — no scroll, cursor or modal state is lost on switch.
+
+- **LLM analysis output follows UI language.** The NarrativeWriter agent prepends a per-language directive (sourced from each catalog's `language.directive_for_llm` key) to every analysis prompt, so when you toggle to English the AI narrative section comes back in English; toggling back gets the next analysis in Chinese. Industry terms (YES/NO, ¢, $, %, market identifiers) stay as-is in both languages.
+
+- **Adding another language is a one-file change.** Drop a `polily/tui/i18n/catalogs/<lang>.json` file with the same key set as `zh.json` / `en.json` and it shows up in the F2 cycle automatically — no code changes needed. CI gate (`tests/test_i18n.py::test_bundled_catalogs_have_consistent_key_sets`) enforces key-set parity across all loaded catalogs so a new language can't ship with missing keys.
+
+- **CI gate against zh string-literal regressions.** `tests/test_no_residual_zh_in_tui.py` walks `polily/tui/**.py` and fails if a new Chinese string literal appears in a non-allowlisted file — pushing future contributors toward `t("catalog.key")` instead of inline literals.
+
+### Internal
+
+- **Design + spike captured in repo.** `docs/runtime-i18n-design.md` documents the architecture (catalog format / event topic / persistence priority order / Footer-refresh root-cause analysis) and `scripts/spike_i18n_footer.py` preserves the minimal Textual reproduction used to validate the chosen approach against rejected alternatives.
+
+- **Shared helpers added.** `polily/tui/i18n/` package (loader + `t()` / `set_language()` / `current_language()` API), `polily/tui/widgets/i18n_footer.py` (Footer subclass that re-translates binding labels at compose time), `polily/tui/widgets/_datatable_i18n.py` (column-label resizer that bumps Textual's `column.content_width` when the new label is wider than the old one — fixes the "Trig/Stat/Reas" header truncation bug on the queue/history tables), `polily/tui/lifecycle_labels.py` (i18n wrappers around `core/lifecycle.py` Chinese label functions, keeping `core/` framework-free).
+
+- **`core/user_prefs.py` + `user_prefs` table** — first user-preference K/V store, scoped to runtime-mutable settings that shouldn't round-trip to YAML (so we don't fight git over user config).
+
 ## [0.9.5] — 2026-04-26
 
 ### Removed

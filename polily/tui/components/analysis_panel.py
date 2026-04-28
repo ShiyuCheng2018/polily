@@ -4,6 +4,7 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Markdown, Static
 
+from polily.tui.i18n import t
 from polily.tui.widgets.cards import DashPanel
 
 CONFIDENCE_BAR = {
@@ -34,7 +35,7 @@ class AnalysisPanel(Widget):
 
     def compose(self) -> ComposeResult:
         if self._analyzing:
-            yield Static("[dim]AI 分析中... 完成后自动更新[/dim]", classes="row")
+            yield Static(f"[dim]{t('analysis.analyzing')}[/dim]", classes="row")
 
         if not self._analyses:
             if not self._analyzing:
@@ -46,7 +47,7 @@ class AnalysisPanel(Widget):
             return
 
         panel = DashPanel(id="panel-analysis")
-        panel.border_title = "AI 分析"
+        panel.border_title = t("analysis.title")
         with panel:
             yield from self._render_narrative(n)
             yield Static("")
@@ -61,7 +62,7 @@ class AnalysisPanel(Widget):
     def _render_narrative(self, n: dict) -> ComposeResult:
         # Operations
         ops = n.get("operations", [])
-        yield Static("── 操作 ──", classes="section-label")
+        yield Static(f"── {t('analysis.section.operations')} ──", classes="section-label")
         for op in ops:
             action = op.get("action", "")
             title = op.get("market_title", "")
@@ -71,15 +72,15 @@ class AnalysisPanel(Widget):
 
             conf = op.get("confidence", "")
             conf_bar = CONFIDENCE_BAR.get(conf, "")
-            conf_label = {"low": "低", "medium": "中", "high": "高"}.get(conf, "")
+            conf_label = t(f"analysis.confidence.{conf}") if conf in ("low", "medium", "high") else ""
             conf_str = f"  {conf_bar} {conf_label}" if conf_bar else ""
 
             yield Static(f"\n▸ {title}")
             parts = [action]
             if entry is not None:
-                parts.append(f"限价 {entry:.2f}")
+                parts.append(f"{t('analysis.entry_price')} {entry:.2f}")
             if size is not None:
-                parts.append(f"仓位 ${size:.0f}")
+                parts.append(f"{t('analysis.position_size')} ${size:.0f}")
             yield Static(f"  {'  '.join(parts)}{conf_str}")
             if reasoning:
                 yield Static(f"  [dim]{reasoning}[/dim]")
@@ -91,9 +92,9 @@ class AnalysisPanel(Widget):
         # Position module
         thesis = n.get("thesis_status")
         if thesis:
-            yield Static("\n\n── 持仓 ──", classes="section-label")
+            yield Static(f"\n\n── {t('analysis.section.position')} ──", classes="section-label")
             ts_icon = {"intact": "[green]✓[/green]", "weakened": "[yellow]~[/yellow]", "broken": "[red]✗[/red]"}.get(thesis, "?")
-            yield Static(f"论点 {ts_icon} {thesis}")
+            yield Static(f"{t('analysis.thesis_label')} {ts_icon} {thesis}")
             tn = n.get("thesis_note", "")
             if tn:
                 yield Static(f"  {tn}")
@@ -102,19 +103,19 @@ class AnalysisPanel(Widget):
             if sl is not None or tp is not None:
                 parts = []
                 if sl is not None:
-                    parts.append(f"止损 {sl:.2f}")
+                    parts.append(f"{t('analysis.stop_loss')} {sl:.2f}")
                 if tp is not None:
-                    parts.append(f"止盈 {tp:.2f}")
+                    parts.append(f"{t('analysis.take_profit')} {tp:.2f}")
                 yield Static(f"  {'  '.join(parts)}")
             alt = n.get("alternative_market_id")
             if alt:
-                yield Static(f"  换仓 → {alt} {n.get('alternative_note', '')}")
+                yield Static(f"  {t('analysis.alternative')} {alt} {n.get('alternative_note', '')}")
             yield Static("")
 
         # Analysis
         analysis_text = n.get("analysis", "")
         if analysis_text:
-            yield Static("\n── 分析 ──", classes="section-label")
+            yield Static(f"\n── {t('analysis.section.analysis')} ──", classes="section-label")
             yield Markdown(analysis_text)
             ac = n.get("analysis_commentary", "")
             if ac:
@@ -125,7 +126,7 @@ class AnalysisPanel(Widget):
         if not findings:
             findings = n.get("supporting_findings", []) + n.get("invalidation_findings", [])
         if findings:
-            yield Static("\n── 互联资讯 ──", classes="section-label")
+            yield Static(f"\n── {t('analysis.section.research')} ──", classes="section-label")
             research_md = ""
             for f in findings:
                 if isinstance(f, dict):
@@ -138,7 +139,7 @@ class AnalysisPanel(Widget):
         # Risk
         risks = n.get("risk_flags", [])
         if risks:
-            yield Static("\n── 风险 ──", classes="section-label")
+            yield Static(f"\n── {t('analysis.section.risk')} ──", classes="section-label")
             risk_md = ""
             for rf in risks:
                 if isinstance(rf, dict):
@@ -154,11 +155,11 @@ class AnalysisPanel(Widget):
         # Summary
         summary = n.get("summary", "")
         if summary:
-            yield Static("\n── 总结 ──", classes="section-label")
+            yield Static(f"\n── {t('analysis.section.summary')} ──", classes="section-label")
             yield Markdown(summary)
 
         # Next steps
-        yield Static("\n── 下一步 ──", classes="section-label")
+        yield Static(f"\n── {t('analysis.section.next')} ──", classes="section-label")
         nc = n.get("next_check_at")
         nr = n.get("next_check_reason", "")
         if nc:
@@ -169,7 +170,7 @@ class AnalysisPanel(Widget):
                 nc_local = local_dt.strftime("%m-%d %H:%M")
             except (ValueError, TypeError):
                 nc_local = nc[:16]
-            yield Static(f"\n下次检查  [cyan]{nc_local}[/cyan]  {nr}")
+            yield Static(f"\n{t('analysis.next_check_at')}  [cyan]{nc_local}[/cyan]  {nr}")
 
     def _render_version_selector(self) -> ComposeResult:
         if not self._analyses or self._version_idx < 0:
@@ -185,8 +186,14 @@ class AnalysisPanel(Widget):
         except (ValueError, TypeError):
             ts = v.created_at[5:16].replace("T", " ")
 
-        trigger_map = {
-            "manual": "手动", "scheduled": "定时", "movement": "监控",
-        }
-        trigger_label = trigger_map.get(v.trigger_source, v.trigger_source)
-        yield Static(f"[dim]v{v.version} ({ts}) [{trigger_label}] ({idx}/{total}) 按v切换[/dim]", classes="row")
+        # trigger label maps to existing trigger.* catalog keys (manual /
+        # scheduled / movement). Unknown triggers render the raw value.
+        trigger_label = (
+            t(f"trigger.{v.trigger_source}")
+            if v.trigger_source in ("manual", "scheduled", "movement")
+            else v.trigger_source
+        )
+        yield Static(
+            f"[dim]{t('analysis.version_footer', version=v.version, ts=ts, trigger=trigger_label, idx=idx, total=total)}[/dim]",
+            classes="row",
+        )

@@ -19,7 +19,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Header, Static
 
 from polily.core.events import (
     TOPIC_MONITOR_UPDATED,
@@ -29,6 +29,7 @@ from polily.core.events import (
     TOPIC_WALLET_UPDATED,
 )
 from polily.tui._dispatch import dispatch_to_ui
+from polily.tui.i18n import t
 from polily.tui.service import AnalysisInProgressError, PolilyService
 from polily.tui.views.archived_events import ArchivedEventsView, ViewArchivedDetail
 from polily.tui.views.event_detail import (
@@ -59,6 +60,7 @@ from polily.tui.views.score_result import (
     ScoreResultView,
     ScoreViewRescore,
 )
+from polily.tui.widgets.i18n_footer import I18nFooter
 from polily.tui.widgets.sidebar import MenuSelected, Sidebar
 
 
@@ -101,12 +103,12 @@ class MainScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("就绪", id="status-bar")
+        yield Static(t("main.status.ready"), id="status-bar")
         with Horizontal(id="main-container"):
             yield Sidebar(id="sidebar")
             with Vertical(id="content-area"):
                 yield ScanLogView(self.service)
-        yield Footer()
+        yield I18nFooter()
 
     def on_mount(self) -> None:
         sidebar = self.query_one("#sidebar", Sidebar)
@@ -255,7 +257,7 @@ class MainScreen(Screen):
             return
         self._loading = True
         self._add_url = message.url
-        self.query_one("#status-bar", Static).update("获取事件...")
+        self.query_one("#status-bar", Static).update(t("main.status.fetching_event"))
         if self._current_menu == "tasks":
             self._navigate_to("tasks")
         self.run_worker(self._do_add_event, name="add_event", thread=True, exclusive=True)
@@ -270,7 +272,9 @@ class MainScreen(Screen):
             self.app.call_from_thread(self._on_add_failed, str(e))
             return
         if result is None:
-            self.app.call_from_thread(self._on_add_failed, "事件未找到或链接无效")
+            self.app.call_from_thread(
+                self._on_add_failed, t("main.status.event_not_found_or_invalid"),
+            )
             return
         self.app.call_from_thread(self._on_add_complete, result)
 
@@ -279,7 +283,7 @@ class MainScreen(Screen):
         event = result["event"]
         score = result["event_score"].total
         self.query_one("#status-bar", Static).update(
-            f"评分完成: {event.title[:30]} ({score:.0f}分)"
+            t("main.status.score_complete", title=event.title[:30], score=score)
         )
         self._switch_view(
             ScoreResultView(event_id=event.event_id, service=self.service)
@@ -288,7 +292,9 @@ class MainScreen(Screen):
 
     def _on_add_failed(self, error: str):
         self._loading = False
-        self.query_one("#status-bar", Static).update(f"添加失败: {error[:60]}")
+        self.query_one("#status-bar", Static).update(
+            t("main.status.add_failed", error=error[:60]),
+        )
         if self._current_menu == "tasks":
             self._navigate_to("tasks")
 
@@ -346,7 +352,9 @@ class MainScreen(Screen):
         # Get event title for status bar
         detail = self.service.get_event_detail(message.event_id)
         title_short = (detail["event"].title[:30] if detail else message.event_id[:30])
-        self.query_one("#status-bar", Static).update(f"AI 分析中: {title_short}...")
+        self.query_one("#status-bar", Static).update(
+            t("main.status.analyzing", title=title_short),
+        )
         self._switch_view(EventDetailView(
             event_id=message.event_id, service=self.service, analyzing=True,
         ))
@@ -358,7 +366,7 @@ class MainScreen(Screen):
             return
         self._analyzing = False
         self.service.cancel_analysis()
-        self.query_one("#status-bar", Static).update("分析已取消")
+        self.query_one("#status-bar", Static).update(t("main.status.analysis_cancelled"))
         if self._analyzing_event_id:
             self._switch_view(EventDetailView(
                 event_id=self._analyzing_event_id, service=self.service,
@@ -405,31 +413,25 @@ class MainScreen(Screen):
         secs = int(elapsed) % 60
         time_str = f"{mins}:{secs:02d}" if mins else f"{secs}s"
 
-        if status == "unresponsive":
-            self.query_one("#status-bar", Static).update(
-                f"[red]AI 可能遇到问题 ({time_str})[/red] {title} [dim]Esc 取消[/dim]"
-            )
-        elif status == "long":
-            self.query_one("#status-bar", Static).update(
-                f"AI 深度分析中，请耐心等待 ({time_str}) {title} [dim]Esc 取消[/dim]"
-            )
-        elif status == "searching":
-            self.query_one("#status-bar", Static).update(
-                f"AI 正在搜索分析中 ({time_str}) {title} [dim]Esc 取消[/dim]"
-            )
-        else:
-            self.query_one("#status-bar", Static).update(
-                f"AI 分析中 ({time_str}) {title} [dim]Esc 取消[/dim]"
-            )
+        key = {
+            "unresponsive": "main.analyzing_long_template",
+            "long": "main.analyzing_deep_template",
+            "searching": "main.analyzing_searching_template",
+        }.get(status, "main.analyzing_template")
+        self.query_one("#status-bar", Static).update(
+            t(key, elapsed=time_str, title=title),
+        )
 
     def _on_analysis_complete(self, event_id: str):
-        self.query_one("#status-bar", Static).update("分析完成")
+        self.query_one("#status-bar", Static).update(t("main.status.analysis_complete"))
         self.query_one("#sidebar", Sidebar).mark_new_data("tasks")
         self._switch_view(EventDetailView(event_id=event_id, service=self.service))
 
     def _on_analysis_failed(self, error: str):
         error_short = error[:80] if len(error) > 80 else error
-        self.query_one("#status-bar", Static).update(f"分析失败: {error_short}")
+        self.query_one("#status-bar", Static).update(
+            t("main.status.analysis_failed", error=error_short),
+        )
         if self._analyzing_event_id:
             self._switch_view(EventDetailView(
                 event_id=self._analyzing_event_id, service=self.service,
@@ -442,9 +444,9 @@ class MainScreen(Screen):
         """Cancel a running scan from the 待办 zone."""
         ok = self.service.cancel_running_scan(message.scan_id)
         if ok:
-            self.notify("已取消分析")
+            self.notify(t("main.notify.analysis_cancelled"))
         else:
-            self.notify("无法取消——该行不在 running 状态", severity="warning")
+            self.notify(t("main.notify.cannot_cancel_not_running"), severity="warning")
         # Re-render the scan log view so the row flips to cancelled
         if self._current_menu == "tasks":
             self._navigate_to("tasks")
@@ -495,7 +497,7 @@ class MainScreen(Screen):
         try:
             from polily.daemon.scheduler import ensure_daemon_running
             if ensure_daemon_running():
-                self.notify("后台监控已自动启动")
+                self.notify(t("main.notify.daemon_started"))
         except Exception:
             pass
 

@@ -8,23 +8,25 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
 
-from polily.core.lifecycle import MarketState, market_state, market_state_label
+from polily.core.lifecycle import MarketState, market_state
+from polily.tui.i18n import t
+from polily.tui.lifecycle_labels import market_state_label_i18n
 
 
 def _settlement_cell_text(market, *, now: datetime | None = None) -> str:
-    """Render the '结算' column cell for a sub-market.
+    """Render the settlement column cell for a sub-market.
 
     TRADING → countdown string (e.g. '04-25 10:00 (3天0小时)').
-    Non-TRADING → bracketed state label (e.g. '[即将结算]').
+    Non-TRADING → bracketed translated state label (e.g. '[即将结算]' / '[Pending Settlement]').
 
     Column is narrow so SETTLED does NOT include winner suffix — that
-    lives in the '市场' zone title (single market) or the breadcrumb.
+    lives in the market zone title (single market) or the breadcrumb.
     """
     state = market_state(market, now=now)
     if state == MarketState.TRADING:
         from polily.tui.utils import format_countdown
         return format_countdown(market.end_date) if market.end_date else "?"
-    return f"[{market_state_label(state)}]"
+    return f"[{market_state_label_i18n(state)}]"
 
 
 class SubMarketTable(Widget):
@@ -47,7 +49,15 @@ class SubMarketTable(Widget):
         yield Static("")
         table = DataTable(id="sub-market-table")
         table.cursor_type = "row"
-        table.add_columns("选项", "YES", "NO", "价差", "成交量", "结算", "评分")
+        table.add_columns(
+            t("sub_market.col.option"),
+            "YES",
+            "NO",
+            t("sub_market.col.spread"),
+            t("sub_market.col.volume"),
+            t("sub_market.col.settlement"),
+            t("sub_market.col.score"),
+        )
         yield table
 
     def on_mount(self) -> None:
@@ -102,13 +112,15 @@ class SubMarketTable(Widget):
 
         if bd:
             breakdown = [
-                ("流动性", bd.get("liquidity", 0), tw["liquidity"]),
-                ("可验证性", bd.get("verifiability", 0), tw["verifiability"]),
-                ("概率空间", bd.get("probability", 0), tw["probability"]),
-                ("时间", bd.get("time", 0), tw["time"]),
-                ("摩擦", bd.get("friction", 0), tw["friction"]),
+                (t("scoring.dim.liquidity"), bd.get("liquidity", 0), tw["liquidity"]),
+                (t("scoring.dim.verifiability"), bd.get("verifiability", 0), tw["verifiability"]),
+                (t("scoring.dim.probability"), bd.get("probability", 0), tw["probability"]),
+                (t("scoring.dim.time"), bd.get("time", 0), tw["time"]),
+                (t("scoring.dim.friction"), bd.get("friction", 0), tw["friction"]),
             ]
             if tw.get("net_edge", 0) > 0:
+                # 'Edge' is intentionally untranslated — it's the project's
+                # canonical term for the dimension (matches scan/scoring.py).
                 breakdown.append(("Edge", bd.get("net_edge", 0), tw["net_edge"]))
         else:
             breakdown = []

@@ -7,6 +7,7 @@ from textual.app import ComposeResult
 from textual.containers import HorizontalGroup
 from textual.widget import Widget
 
+from polily.tui.i18n import t
 from polily.tui.widgets.cards import MetricCard
 
 
@@ -23,17 +24,16 @@ def _subcount_label(markets: list) -> str:
 def _kpi_end_label(event, markets: list, *, now=None) -> str:
     """kpi-end MetricCard content — event state aware.
 
-    ACTIVE                   → format_countdown_range over TRADING children
-    AWAITING_FULL_SETTLEMENT → '待全部结算'
-    RESOLVED                 → '已结算'
+    ACTIVE                                    → format_countdown_range
+                                                over TRADING children
+    AWAITING_FULL_SETTLEMENT / RESOLVED       → translated event-state label
     """
     from polily.core.lifecycle import EventState, MarketState, event_state, market_state
+    from polily.tui.lifecycle_labels import event_state_label_i18n
 
     state = event_state(event, markets, now=now)
-    if state == EventState.RESOLVED:
-        return "已结算"
-    if state == EventState.AWAITING_FULL_SETTLEMENT:
-        return "待全部结算"
+    if state in (EventState.RESOLVED, EventState.AWAITING_FULL_SETTLEMENT):
+        return event_state_label_i18n(state)
 
     # ACTIVE: range only over TRADING children. Filtering by lifecycle
     # state (not `closed=0`) excludes PENDING_SETTLEMENT markets whose
@@ -74,17 +74,17 @@ class EventKpiRow(Widget):
                 leader_label = self._leader_card_label(event, markets)
                 yield self._make_card("kpi-leader", leader_label)
                 if event.neg_risk:
-                    yield self._make_card("kpi-overround", "溢价率")
+                    yield self._make_card("kpi-overround", t("kpi.card.overround"))
                 else:
-                    yield self._make_card("kpi-overround", "最小价差")
-                yield self._make_card("kpi-count", "子市场")
-                yield self._make_card("kpi-end", "结算")
-                yield self._make_card("kpi-score", "评分")
+                    yield self._make_card("kpi-overround", t("kpi.card.min_spread"))
+                yield self._make_card("kpi-count", t("kpi.card.subcount"))
+                yield self._make_card("kpi-end", t("kpi.card.settlement"))
+                yield self._make_card("kpi-score", t("kpi.card.score"))
             else:
                 yield self._make_card("kpi-yes", "YES")
                 yield self._make_card("kpi-no", "NO")
-                yield self._make_card("kpi-spread", "价差")
-                yield self._make_card("kpi-score", "评分")
+                yield self._make_card("kpi-spread", t("kpi.card.spread"))
+                yield self._make_card("kpi-score", t("kpi.card.score"))
 
     def on_mount(self) -> None:
         self._fill_kpi()
@@ -111,7 +111,7 @@ class EventKpiRow(Widget):
 
         score = event.structure_score
         mkt_summary = self._market_score_summary(markets)
-        score_text = f"事件 {score:.0f}" if score else "?"
+        score_text = t("kpi.event_score", score=score) if score else "?"
         if mkt_summary:
             score_text += f"\n{mkt_summary}"
         self._set_card("kpi-score", score_text)
@@ -132,7 +132,10 @@ class EventKpiRow(Widget):
                 net = overround + total_spread
                 sign = "+" if overround >= 0 else ""
                 net_sign = "+" if net >= 0 else ""
-                self._set_card("kpi-overround", f"{sign}{overround:.1%}\n净{net_sign}{net * 100:.1f}¢")
+                self._set_card(
+                    "kpi-overround",
+                    f"{sign}{overround:.1%}\n{t('kpi.overround_net_prefix')}{net_sign}{net * 100:.1f}¢",
+                )
             else:
                 self._set_card("kpi-overround", "?")
         else:
@@ -152,7 +155,7 @@ class EventKpiRow(Widget):
 
         score = event.structure_score
         mkt_summary = self._market_score_summary(markets)
-        score_text = f"事件 {score:.0f}" if score else "?"
+        score_text = t("kpi.event_score", score=score) if score else "?"
         if mkt_summary:
             score_text += f"\n{mkt_summary}"
         self._set_card("kpi-score", score_text)
@@ -160,13 +163,13 @@ class EventKpiRow(Widget):
     @staticmethod
     def _leader_card_label(event, markets) -> str:
         if event.neg_risk:
-            return "领先"
+            return t("kpi.leader.leader")
         title = event.title or ""
         if re.search(r'\b(above|below|exceed|reach)\b', title, re.I):
-            return "关注区"
+            return t("kpi.leader.watch_zone")
         if re.search(r'\bby\b', title, re.I) or re.search(r'ends?\s+by', title, re.I):
-            return "最近窗口"
-        return "最高概率"
+            return t("kpi.leader.recent_window")
+        return t("kpi.leader.most_likely")
 
     def _fill_leader_neg_risk(self, active) -> None:
         leader = max(active, key=lambda m: m.yes_price or 0, default=None)
@@ -185,7 +188,7 @@ class EventKpiRow(Widget):
             name = (best.group_item_title or best.question)[:20]
             self._set_card("kpi-leader", f"{name}\nYES:{best.yes_price * 100:.1f}¢ NO:{best.no_price * 100:.1f}¢")
         else:
-            self._set_card("kpi-leader", "无可交易标的")
+            self._set_card("kpi-leader", t("kpi.leader.no_tradable"))
 
     @staticmethod
     def _market_score_summary(markets) -> str:
@@ -193,7 +196,7 @@ class EventKpiRow(Widget):
         if not scores:
             return ""
         avg = sum(scores) / len(scores)
-        return f"市场 {avg:.0f} ({min(scores):.0f}~{max(scores):.0f})"
+        return t("kpi.market_score", avg=avg, lo=min(scores), hi=max(scores))
 
     @staticmethod
     def _make_card(card_id: str, title: str) -> MetricCard:

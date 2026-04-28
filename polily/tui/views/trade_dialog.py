@@ -46,6 +46,7 @@ from textual.widgets import (
 from polily.core.event_store import get_event_markets
 from polily.core.events import TOPIC_PRICE_UPDATED
 from polily.tui._dispatch import dispatch_to_ui
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_BUY, ICON_MARKET, ICON_SELL, ICON_WALLET
 from polily.tui.views._trade_preview import (
     compute_buy_preview,
@@ -82,10 +83,10 @@ class BuyPane(Widget):
         self._action_row = BuySellActionRow(side="buy")
 
     def compose(self) -> ComposeResult:
-        with PolilyZone(title=f"{ICON_BUY} 买入", id="buy-zone"):
+        with PolilyZone(title=f"{ICON_BUY} {t('trade.zone.buy')}", id="buy-zone"):
             yield Static("", id="buy-holding-line")
             yield FieldRow(
-                label="金额",
+                label=t("modal.amount_label"),
                 unit="$",
                 input_widget=AmountInput(value="10", id="buy-amount"),
                 helper="",
@@ -148,14 +149,18 @@ class BuyPane(Widget):
     def _refresh_holdings(self) -> None:
         line = self.query_one("#buy-holding-line", Static)
         if not self._positions_here:
-            line.update("[dim]已持有: —[/dim]")
+            line.update(t("trade.holding_empty"))
             return
-        parts = []
-        for p in self._positions_here:
-            parts.append(
-                f"{p['side'].upper()} {p['shares']:.1f}股 @ {p['avg_cost'] * 100:.1f}¢",
+        parts = [
+            t(
+                "trade.holding_format",
+                side=p["side"].upper(),
+                shares=p["shares"],
+                price=p["avg_cost"] * 100,
             )
-        line.update("[dim]已持有:[/dim] " + " · ".join(parts))
+            for p in self._positions_here
+        ]
+        line.update(f"{t('trade.holding_label')} " + " · ".join(parts))
 
     def _refresh_button_labels(self) -> None:
         yes_p = self._side_price("yes")
@@ -174,7 +179,7 @@ class BuyPane(Widget):
         no_p = self._side_price("no")
 
         if amount is None or (yes_p is None and no_p is None):
-            preview.update("[dim]输入有效金额后显示折算[/dim]")
+            preview.update(t("trade.preview.empty"))
             fee_line.update("")
             return
 
@@ -193,7 +198,7 @@ class BuyPane(Widget):
             except ValueError:
                 continue
             rows.append(
-                f"{side_label}→{p['shares']:.1f}股 赢${p['to_win']:.2f}",
+                t("trade.preview.buy", side=side_label, shares=p["shares"], win=p["to_win"]),
             )
             max_cash_required = max(max_cash_required, p["cash_required"])
             max_fee = max(max_fee, p["fee"])
@@ -203,21 +208,25 @@ class BuyPane(Widget):
         # Insufficient-funds advisory (worst-case side).
         if max_cash_required > self._cash:
             fee_line.update(
-                f"[red]余额不足[/red] · 手续费 ≈ ${max_fee:.2f} · 需 ${max_cash_required:.2f} / 有 ${self._cash:.2f}",
+                t(
+                    "trade.warn.insufficient",
+                    fee=max_fee,
+                    need=max_cash_required,
+                    have=self._cash,
+                ),
             )
-            # Disable both sides — TradeEngine would reject anyway.
             self._action_row.update(yes_disabled=True, no_disabled=True)
         else:
-            fee_line.update(f"[dim]手续费 ≈ ${max_fee:.2f}[/dim]")
+            fee_line.update(t("trade.fee_estimate", fee=max_fee))
 
     def _execute(self, side: str) -> None:
         amount = self._parse_amount()
         if amount is None:
-            self.notify("请输入有效金额")
+            self.notify(t("trade.notify.no_amount"))
             return
         price = self._side_price(side)
         if price is None or self._market is None:
-            self.notify("该方向价格不可用")
+            self.notify(t("trade.notify.no_price"))
             return
         try:
             p = compute_buy_preview(
@@ -226,7 +235,7 @@ class BuyPane(Widget):
                 fee_rate=getattr(self._market, "fee_rate", None),
             )
         except ValueError as e:
-            self.notify(f"无法执行: {e}")
+            self.notify(t("trade.notify.exec_failed", err=str(e)))
             return
         self.post_message(self.BuyConfirmed(
             market_id=self._market.market_id,
@@ -253,16 +262,15 @@ class SellPane(Widget):
         self._positions_sig: tuple | None = None  # change-detection for _rebuild_radio
 
     def compose(self) -> ComposeResult:
-        with PolilyZone(title=f"{ICON_SELL} 卖出", id="sell-zone"):
-            # No "持仓:" static label — the radio set is self-evident, saving a row.
+        with PolilyZone(title=f"{ICON_SELL} {t('trade.zone.sell')}", id="sell-zone"):
             yield RadioSet(id="sell-side-radio")
             yield Static("", id="sell-empty-hint")
             with Horizontal(id="sell-pct-row"):
-                yield Label("卖出比例", classes="field-label")
+                yield Label(t("trade.sell_ratio_label"), classes="field-label")
                 for pct in _QUICK_PCTS:
                     yield Button(f"{pct}%", id=f"sell-pct-{pct}", classes="quick-btn")
             yield FieldRow(
-                label="股数",
+                label=t("trade.shares_label"),
                 input_widget=AmountInput(value="", id="sell-shares"),
                 helper="",
                 helper_id="sell-preview",
@@ -271,7 +279,7 @@ class SellPane(Widget):
             yield Static("", id="sell-pnl-line", classes="preview-secondary")
             with Horizontal(id="sell-action-row"):
                 yield Button(
-                    "卖出",
+                    t("trade.button.sell"),
                     id="btn-sell",
                     variant="warning",
                     classes="trade-btn bold",
@@ -359,7 +367,12 @@ class SellPane(Widget):
             btn.remove()
         for p in self._positions_here:
             radio.mount(RadioButton(
-                f"{p['side'].upper()}  {p['shares']:.1f}股 @ {p['avg_cost'] * 100:.1f}¢",
+                t(
+                    "trade.holding_format",
+                    side=p["side"].upper(),
+                    shares=p["shares"],
+                    price=p["avg_cost"] * 100,
+                ),
                 value=(p["side"] == self._selected_side),
             ))
 
@@ -386,7 +399,7 @@ class SellPane(Widget):
         preview = self.query_one("#sell-preview", Static)
 
         if not self._positions_here:
-            hint.update("[dim]该子市场暂无持仓。切到 '买入' tab 建仓。[/dim]")
+            hint.update(t("trade.preview.sell_no_position"))
             hint.display = True
             radio.display = False
             pct_row.display = False
@@ -408,11 +421,12 @@ class SellPane(Widget):
             return
         price = self._exit_price(self._selected_side)
         btn = self.query_one("#btn-sell", Button)
+        side_upper = self._selected_side.upper()
         if price is None:
-            btn.label = f"卖出 {self._selected_side.upper()} (价格不可用)"
+            btn.label = t("trade.button.sell_no_price", side=side_upper)
             btn.disabled = True
         else:
-            btn.label = f"卖出 {self._selected_side.upper()} @ {price * 100:.1f}¢"
+            btn.label = t("trade.button.sell_with_price", side=side_upper, price=price * 100)
             btn.disabled = False
 
     def _refresh_preview(self) -> None:
@@ -428,12 +442,12 @@ class SellPane(Widget):
         price = self._exit_price(self._selected_side) if self._selected_side else None
 
         if pos is None or shares is None or price is None:
-            preview.update("[dim]选择比例或输入股数[/dim]")
+            preview.update(t("trade.preview.sell_empty"))
             pnl_line.update("")
             return
 
         if shares > pos["shares"]:
-            preview.update(f"[red]超出持仓 (有 {pos['shares']:.2f} 股)[/red]")
+            preview.update(t("trade.preview.sell_exceeds", shares=pos["shares"]))
             pnl_line.update("")
             self.query_one("#btn-sell", Button).disabled = True
             return
@@ -446,28 +460,25 @@ class SellPane(Widget):
                 avg_cost=pos["avg_cost"],
             )
         except ValueError:
-            preview.update("[dim]输入无效[/dim]")
+            preview.update(t("trade.preview.sell_invalid"))
             pnl_line.update("")
             return
 
-        preview.update(
-            f"净到账 ${p['net_received']:.2f}  ·  手续费 ${p['fee']:.2f}",
-        )
+        preview.update(t("trade.preview.sell_net", net=p["net_received"], fee=p["fee"]))
         pnl = p["realized_pnl"]
         color = "green" if pnl > 0 else "red" if pnl < 0 else "dim"
         sign = "+" if pnl > 0 else ""
-        pnl_line.update(f"已实现盈亏: [{color}]{sign}${pnl:.2f}[/{color}]")
-        # Re-enable button if we disabled it on over-sell before.
+        pnl_line.update(t("trade.realized_pnl", color=color, sign=sign, pnl=pnl))
         self.query_one("#btn-sell", Button).disabled = False
 
     def _execute(self) -> None:
         pos = self._current_position()
         shares = self._parse_shares()
         if pos is None or shares is None:
-            self.notify("请选择要卖出的股数")
+            self.notify(t("trade.notify.must_select_shares"))
             return
         if shares > pos["shares"]:
-            self.notify(f"超出持仓 (有 {pos['shares']:.2f} 股)")
+            self.notify(t("trade.notify.exceeds_position", shares=pos["shares"]))
             return
         if self._market is None or self._selected_side is None:
             return
@@ -608,14 +619,15 @@ class TradeDialog(ModalScreen[dict | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog-box"):
-            # Header card: title + live balance. PolilyCard gives us a softer
-            # secondary-bordered frame so the header doesn't compete visually
-            # with the thick primary outer dialog border.
             with PolilyCard(id="header-card"):
                 with Horizontal(id="dialog-header"):
-                    yield Static(f"{ICON_MARKET} 交易", id="dialog-title", classes="bold")
+                    yield Static(
+                        f"{ICON_MARKET} {t('trade.title')}",
+                        id="dialog-title",
+                        classes="bold",
+                    )
                     yield Static("", id="balance-label", classes="bold")
-            yield Static("子市场:", classes="field-label")
+            yield Static(t("trade.submarket_label"), classes="field-label")
             with RadioSet(id="market-radios"):
                 for i, m in enumerate(self._markets):
                     label = m.group_item_title or (m.question or "")[:30]
@@ -624,9 +636,9 @@ class TradeDialog(ModalScreen[dict | None]):
                     no = f"{no_raw * 100:.1f}¢"
                     yield RadioButton(f"{label}  Y:{yes} N:{no}", value=i == 0)
             with TabbedContent(initial=self._default_tab, id="tabs"):
-                with TabPane("买入", id="buy"):
+                with TabPane(t("trade.tab.buy"), id="buy"):
                     yield self._buy_pane
-                with TabPane("卖出", id="sell"):
+                with TabPane(t("trade.tab.sell"), id="sell"):
                     yield self._sell_pane
 
     def on_mount(self) -> None:
@@ -672,17 +684,19 @@ class TradeDialog(ModalScreen[dict | None]):
             )
         except MonitorRequiredError:
             # Race: monitor got disabled between dialog open and confirm.
-            self.notify(
-                "需要先激活监控才能进行交易 — 按 m 开启监控",
-                severity="warning",
-            )
+            self.notify(t("trade.notify.must_enable_monitor"), severity="warning")
             return
         except Exception as e:
-            self.notify(f"买入失败: {e}", severity="error")
+            self.notify(t("trade.notify.buy_failed", err=str(e)), severity="error")
             return
         self.notify(
-            f"买入成功: {event.side.upper()} {event.shares:.2f}股 "
-            f"@ {result['price'] * 100:.1f}¢  手续费 ${result['fee']:.2f}",
+            t(
+                "trade.notify.buy_success",
+                side=event.side.upper(),
+                shares=event.shares,
+                price=result["price"] * 100,
+                fee=result["fee"],
+            ),
         )
         self.dismiss({"action": "buy", **result, "side": event.side, "shares": event.shares})
 
@@ -695,22 +709,22 @@ class TradeDialog(ModalScreen[dict | None]):
                 shares=event.shares,
             )
         except MonitorRequiredError:
-            # Defence-in-depth — `toggle_monitor` blocks disabling when
-            # positions exist, so reaching here means DB drift. Surface
-            # it as a monitor-activation prompt.
-            self.notify(
-                "需要先激活监控才能进行交易 — 按 m 开启监控",
-                severity="warning",
-            )
+            self.notify(t("trade.notify.must_enable_monitor"), severity="warning")
             return
         except Exception as e:
-            self.notify(f"卖出失败: {e}", severity="error")
+            self.notify(t("trade.notify.sell_failed", err=str(e)), severity="error")
             return
         pnl = result["realized_pnl"]
         sign = "+" if pnl >= 0 else ""
         self.notify(
-            f"卖出成功: {event.side.upper()} {event.shares:.2f}股 "
-            f"@ {result['price'] * 100:.1f}¢  已实现 {sign}${pnl:.2f}",
+            t(
+                "trade.notify.sell_success",
+                side=event.side.upper(),
+                shares=event.shares,
+                price=result["price"] * 100,
+                sign=sign,
+                pnl=pnl,
+            ),
         )
         self.dismiss({"action": "sell", **result, "side": event.side, "shares": event.shares})
 
@@ -733,7 +747,7 @@ class TradeDialog(ModalScreen[dict | None]):
         try:
             cash = self._service.wallet.get_cash()
             self.query_one("#balance-label", Static).update(
-                f"{ICON_WALLET} 余额 ${cash:.2f}",
+                t("trade.balance_display", icon=ICON_WALLET, cash=cash),
             )
         except Exception:
             pass

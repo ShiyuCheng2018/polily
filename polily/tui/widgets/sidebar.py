@@ -14,6 +14,8 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static
 
+from polily.core.events import TOPIC_LANGUAGE_CHANGED, get_event_bus
+from polily.tui.i18n import t
 from polily.tui.icons import (
     ICON_AUTO_MONITOR,
     ICON_CHANGELOG,
@@ -45,25 +47,32 @@ MENU_ICONS: dict[str, str] = {
 
 
 class SidebarItem(Static):
-    """A clickable sidebar menu item."""
+    """A clickable sidebar menu item.
 
-    def __init__(self, label: str, menu_id: str, count: int = 0):
-        super().__init__(label)
+    `label_key` is the i18n catalog key (sidebar.<menu_id>); the visible
+    label is resolved via t() at render time so it flips on language switch.
+    """
+
+    def __init__(self, label_key: str, menu_id: str, count: int = 0):
+        super().__init__(t(label_key))
         self.menu_id = menu_id
         self.count = count
-        self._label = label
+        self._label_key = label_key
         self._icon = MENU_ICONS.get(menu_id, "")
         self._has_new = False
         self._update_display()
 
     def _update_display(self):
+        # Resolve the label via t() each render so it picks up language
+        # changes when the sidebar receives TOPIC_LANGUAGE_CHANGED.
+        label = t(self._label_key)
         count_str = f" ({self.count})" if self.count > 0 else ""
         new_mark = " [bold yellow]*[/bold yellow]" if self._has_new else ""
         icon = f"{self._icon} " if self._icon else ""
         if self.has_class("-active"):
-            self.update(f"[b]{icon}{self._label}{count_str}{new_mark}[/b]")
+            self.update(f"[b]{icon}{label}{count_str}{new_mark}[/b]")
         else:
-            self.update(f"{icon}{self._label}{count_str}{new_mark}")
+            self.update(f"{icon}{label}{count_str}{new_mark}")
 
     def set_count(self, count: int):
         self.count = count
@@ -134,14 +143,26 @@ class Sidebar(Widget):
     def compose(self) -> ComposeResult:
         yield Static("[bold]POLILY[/bold]", classes="sidebar-title")
         yield Static("")
-        yield SidebarItem("任务记录", "tasks")
-        yield SidebarItem("监控列表", "monitor")
-        yield SidebarItem("持仓", "paper")
-        yield SidebarItem("钱包", "wallet")
-        yield SidebarItem("历史", "history")
-        yield SidebarItem("归档", "archive")
-        yield SidebarItem("更新日志", "changelog")
+        yield SidebarItem("sidebar.tasks", "tasks")
+        yield SidebarItem("sidebar.monitor", "monitor")
+        yield SidebarItem("sidebar.paper", "paper")
+        yield SidebarItem("sidebar.wallet", "wallet")
+        yield SidebarItem("sidebar.history", "history")
+        yield SidebarItem("sidebar.archive", "archive")
+        yield SidebarItem("sidebar.changelog", "changelog")
         yield Static("  [dim]POLL[/dim] --", id="poll-indicator")
+
+    def on_mount(self) -> None:
+        get_event_bus().subscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
+
+    def on_unmount(self) -> None:
+        get_event_bus().unsubscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        # Refresh every item's display in place so labels flip without
+        # remounting (preserves count badges + active highlight + scroll).
+        for item in self.query(SidebarItem):
+            item._update_display()
 
     def set_poll_status(self, alive: bool) -> None:
         """Update poll indicator: green dot if alive, dim dot if not.
