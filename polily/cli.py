@@ -58,20 +58,29 @@ def _pid_alive(pid: int) -> bool:
 
 
 @scheduler_app.command(name="run")
-def run_scheduler_daemon(config_path: str = typer.Option(None, "--config", "-c")):
-    """Run the scheduler daemon in the foreground (called by launchd, not user)."""
-    from polily.core.config import PolilyConfig, load_config
+def run_scheduler_daemon():
+    """Run the scheduler daemon in the foreground (called by launchd, not user).
+
+    v0.10.0 BREAKING: --config flag removed. db.config is the only
+    config source; use TUI → ⚙ 配置 or `polily config reset` to manage.
+    """
+    from polily.core.config import (
+        ConfigValidationError,
+        default_db_path,
+        load_config_from_db,
+    )
     from polily.core.db import PolilyDB
     from polily.daemon.scheduler import run_daemon
 
-    if config_path:
-        config = load_config(Path(config_path))
-    else:
-        config = PolilyConfig()
-
-    db_file = config.archiving.db_file
-    db = PolilyDB(db_file)
+    db = PolilyDB(default_db_path())
     try:
+        try:
+            config = load_config_from_db(db)
+        except ConfigValidationError as e:
+            # Per design §7.3 — daemon validate-fail exits 1 (no fallback).
+            # User repairs via TUI fatal screen or `polily config reset`.
+            typer.echo(f"FATAL: db.config has invalid values: {e}", err=True)
+            raise typer.Exit(1) from e
         run_daemon(db, config=config)
     finally:
         db.close()
@@ -112,7 +121,7 @@ def stop():
 
 
 @scheduler_app.command()
-def restart(config_path: str = typer.Option(None, "--config", "-c")):
+def restart():
     """Restart the scheduler daemon (stop + start via launchd)."""
     pid = _read_pid()
     if pid is not None and _pid_alive(pid):
@@ -133,7 +142,7 @@ def restart(config_path: str = typer.Option(None, "--config", "-c")):
 
 
 @scheduler_app.command()
-def status(config_path: str = typer.Option(None, "--config", "-c")):
+def status():
     """Show scheduler daemon status and pending jobs."""
     pid = _read_pid()
     if pid is None:
