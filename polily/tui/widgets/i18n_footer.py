@@ -80,6 +80,24 @@ class I18nFooter(Footer):
 
         self.styles.grid_size_columns = len(action_to_bindings)
 
+        # NOTE on compact: parent Footer.compose chains
+        #   `.data_bind(compact=Footer.compact)`
+        # on each FooterKey to propagate Footer's `compact` reactive (default
+        # False) into the child. We can't use data_bind here — it raises
+        # `ReactiveError: Footer is not defined on PolilyApp` because Textual's
+        # `data_bind` reads `active_message_pump.get()` and binds via
+        # `reactive.owner == Footer`, which fails the subclass-vs-PolilyApp
+        # check in some recompose paths. Without that propagation, FooterKey's
+        # own `compact = reactive(True)` default kicks in — which collapses
+        # the description's right padding and produces "Top-upw Withdrawr"
+        # crash-together rendering. Fix: explicitly assign `key.compact =
+        # False` after construction so each FooterKey lands in the same
+        # non-compact CSS branch the unmodified Footer renders.
+        def _make_key(*args, **kwargs):
+            key = FooterKey(*args, **kwargs)
+            key.compact = False
+            return key
+
         for group, multi_bindings_iterable in groupby(
             action_to_bindings.values(),
             lambda multi_bindings_: multi_bindings_[0][0].group,
@@ -90,17 +108,7 @@ class I18nFooter(Footer):
                     for multi in multi_bindings:
                         binding, enabled, tooltip = multi[0]
                         description = resolve_description(binding.action, binding.description)
-                        # NOTE: parent Footer.compose does
-                        #   `.data_bind(compact=Footer.compact)` here to propagate
-                        # the App-level compact reactive into each FooterKey.
-                        # We omit it because data_bind raises ReactiveError
-                        # ("Footer is not defined on PolilyApp") when the
-                        # composing class is the I18nFooter subclass — Textual
-                        # binds via reactive.owner == Footer and the active
-                        # message-pump at recompose time is the App, not us.
-                        # Polily doesn't toggle compact at runtime, so static
-                        # default behavior is fine.
-                        yield FooterKey(
+                        yield _make_key(
                             binding.key,
                             self.app.get_key_display(binding),
                             "",
@@ -114,7 +122,7 @@ class I18nFooter(Footer):
                 for multi in multi_bindings:
                     binding, enabled, tooltip = multi[0]
                     description = resolve_description(binding.action, binding.description)
-                    yield FooterKey(
+                    yield _make_key(
                         binding.key,
                         self.app.get_key_display(binding),
                         description,
@@ -131,7 +139,7 @@ class I18nFooter(Footer):
                 pass
             else:
                 description = resolve_description(binding.action, binding.description)
-                yield FooterKey(
+                yield _make_key(
                     binding.key,
                     self.app.get_key_display(binding),
                     description,
