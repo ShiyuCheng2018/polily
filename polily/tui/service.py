@@ -121,12 +121,13 @@ class PolilyService:
         # of it. PolilyDB.__init__ seeds db.config on first open via
         # _ensure_wallet_singleton → load_config_from_db, so the read after open
         # is guaranteed to find a populated config table.
+        from polily.core.config import default_db_path
         if db is not None:
             self.db = db
         elif config is not None:
             self.db = PolilyDB(config.archiving.db_file)
         else:
-            self.db = PolilyDB(PolilyConfig().archiving.db_file)
+            self.db = PolilyDB(default_db_path())
         self.config = config or self._load_default_config()
 
         # v0.6.0 wallet system: single dependency point for TUI views

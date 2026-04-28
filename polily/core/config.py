@@ -276,3 +276,22 @@ def load_config_from_db(db) -> PolilyConfig:
         # AC3: fail-loud. Wrap Pydantic ValidationError so callers don't
         # leak Pydantic internals.
         raise ConfigValidationError(str(e)) from e
+
+
+def default_db_path() -> Path:
+    """Return the default polily db file path.
+
+    Per Whis SF11 — `archiving.db_file` is HIDDEN_IN_TUI and
+    "Pydantic-default-only": even if a row exists in db.config for it,
+    we'd need to know the db path BEFORE loading db.config to read
+    that row. So all callers (TUI service, CLI reset, daemon startup)
+    bootstrap the path from the Pydantic-default value.
+
+    Practically this means archiving.db_file is an install-time config
+    (set via env var or post-Phase-7 migration), not a runtime knob —
+    its db.config row is informational, not load-bearing.
+
+    Returns:
+        Path object for the default db file (typically './data/polily.db').
+    """
+    return Path(PolilyConfig().archiving.db_file)
