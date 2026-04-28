@@ -402,5 +402,7 @@
   "service.error.tui_closed": "TUI closed, analysis interrupted",
 
   "app.notify.daemon_restarted": "Background monitor restarted (latest code loaded)",
-  "app.notify.help_placeholder": "Help panel coming in a later version"
+  "app.notify.help_placeholder": "Help panel coming in a later version",
+
+  "language.directive_for_llm": "**Response language requirement**: Respond in English. All markdown text (analysis, action recommendations, thesis, risk flags, summary, next-step notes, research finding descriptions, etc.) must be in English. Industry terms like market identifiers, API field names, and price symbols (YES/NO/¢/$/%) stay as-is."
 }
