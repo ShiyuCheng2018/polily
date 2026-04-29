@@ -32,6 +32,20 @@ from polily.tui.widgets.polily_card import PolilyCard
 _ = EPHEMERAL_FIELDS  # noqa: F401
 
 
+def _count_pending_changes(loaded: dict, current: dict) -> int:
+    """Count knobs whose db value differs from the snapshot TUI loaded
+    at startup. Filters EPHEMERAL_FIELDS (api.user_agent never persists).
+
+    Per design §5.5.1 — equivalent to comparing db to yaml on disk
+    (yaml = mirror of loaded snapshot at startup). In-memory comparison
+    is cheaper than re-reading + parsing yaml each refresh.
+    """
+    return sum(
+        1 for k in current
+        if k not in EPHEMERAL_FIELDS and current.get(k) != loaded.get(k)
+    )
+
+
 class LeafRow(Widget):
     """A single config leaf — 2-line layout per Q7.
 
@@ -211,6 +225,8 @@ class ConfigView(Widget):
 
     DEFAULT_CSS = """
     ConfigView { height: 1fr; padding: 1 2; }
+    ConfigView #drift-banner { height: 1; padding: 0 1; margin-bottom: 1; }
+    ConfigView #drift-banner.hidden { display: none; }
     ConfigView #config-scroll { height: 1fr; }
     """
 
@@ -241,6 +257,11 @@ class ConfigView(Widget):
         self.current_config = merged
 
     def compose(self) -> ComposeResult:
+        yield Static(
+            self._banner_text(),
+            id="drift-banner",
+            classes="banner",
+        )
         yield PolilyCard(
             title=f"{ICON_CONFIG} 配置",
             id="config-card",
@@ -250,6 +271,15 @@ class ConfigView(Widget):
             yield ConfigSection("scoring", "评分 (Scoring)", view=self)
             yield ConfigSection("mispricing", "错误定价 (Mispricing)", view=self)
             yield ConfigSection("wallet", "钱包 (Wallet)", view=self)
+
+    def _banner_text(self) -> str:
+        n = _count_pending_changes(self.loaded_config, self.current_config)
+        if n == 0:
+            return "[dim]无未生效改动[/dim]"
+        return (
+            f"[yellow]●[/yellow] [bold]{n} 项改动未生效[/bold]   "
+            f"[dim](按 Ctrl+R 重启 polily 应用)[/dim]"
+        )
 
     def action_refresh(self) -> None:
         self._refresh_state()

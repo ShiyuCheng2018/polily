@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 from textual.app import App, ComposeResult
 from textual.widget import Widget
+from textual.widgets import Static
 
 from polily.tui.service import PolilyService
 from polily.tui.views.config import ConfigView
@@ -94,3 +95,39 @@ async def test_leaf_row_shows_default_or_user_label(service):
         rows_by_key = {r.key_path: r for r in rows}
         assert rows_by_key["movement.magnitude_threshold"].source_label == "你"
         assert rows_by_key["movement.quality_threshold"].source_label == "默认"
+
+
+@pytest.mark.asyncio
+async def test_banner_shows_zero_when_no_pending_edits(service):
+    view = ConfigView(service)
+    async with _Harness(view).run_test() as pilot:
+        await pilot.pause()
+        banner = view.query_one("#drift-banner", Static)
+        rendered = str(banner.render())
+        # Either shows "无未生效改动" or hidden state — fresh service has no edits
+        assert "无未生效改动" in rendered or "0 项" in rendered
+
+
+@pytest.mark.asyncio
+async def test_banner_shows_count_when_user_edits_db(service):
+    """User edits db → loaded_config != current_config → banner counts."""
+    from polily.core.config_store import upsert
+    upsert(service.db, "movement.magnitude_threshold", 50)
+    upsert(service.db, "wallet.starting_balance", 200.0)
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test() as pilot:
+        await pilot.pause()
+        banner = view.query_one("#drift-banner", Static)
+        rendered = str(banner.render())
+        # Per §5.2 — "[有 N 项改动未生效 · ⟲ 重启 polily 应用]"
+        assert "2 项" in rendered
+        assert "重启 polily" in rendered
+
+
+def test_count_pending_changes_filters_ephemeral():
+    """EPHEMERAL_FIELDS aren't counted in drift (they don't persist)."""
+    from polily.tui.views.config import _count_pending_changes
+    loaded = {"api.user_agent": "polily/0.10.0", "movement.magnitude_threshold": 70}
+    current = {"api.user_agent": "polily/0.10.1", "movement.magnitude_threshold": 70}
+    assert _count_pending_changes(loaded, current) == 0
