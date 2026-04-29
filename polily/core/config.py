@@ -368,3 +368,35 @@ def _coerce_value(raw: str, annotation):
     if annotation is str:
         return raw
     raise ValueError(f"不支持的类型 {annotation!r}")
+
+
+def save_knob(db, key_path: str, new_value: Any) -> None:
+    """Validate and persist a single config knob change.
+
+    Per design §4.2 + §7.2 + Whis SF8:
+      1. Read current db.config rows directly (no double round-trip
+         through load_config_from_db → _flatten_pydantic)
+      2. Apply new_value to the flat dict
+      3. Filter EPHEMERAL_FIELDS (defensive — they're not in db anyway)
+      4. Pydantic validate — raises ConfigValidationError on failure
+      5. Only after validation passes, upsert into db
+
+    Used by TUI Edit modal save handler. EPHEMERAL_FIELDS rejection happens
+    inside config_store.upsert (defense-in-depth).
+    """
+    from polily.core.config_store import (
+        EPHEMERAL_FIELDS,
+        _unflatten,
+        load_all,
+        upsert,
+    )
+
+    flat = load_all(db)  # already filters EPHEMERAL_FIELDS, returns dict
+    flat[key_path] = new_value
+    # Defensive — even if a future caller pre-populates flat differently
+    flat = {k: v for k, v in flat.items() if k not in EPHEMERAL_FIELDS}
+    try:
+        PolilyConfig.model_validate(_unflatten(flat))
+    except Exception as e:
+        raise ConfigValidationError(str(e)) from e
+    upsert(db, key_path, new_value)

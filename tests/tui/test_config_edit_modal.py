@@ -126,3 +126,54 @@ async def test_live_validation_passes_for_valid_value(service):
         await pilot.pause()
         error = modal.query_one("#modal-error", Static)
         assert str(error.render()).strip() == ""
+
+
+@pytest.mark.asyncio
+async def test_save_writes_to_db_and_dismisses_with_true(service):
+    from textual.widgets import Input
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.magnitude_threshold",
+        current_value=70,
+        default_value=70,
+    )
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        modal.query_one("#modal-input", Input).value = "55"
+        await pilot.pause()
+        await pilot.click("#confirm")
+        await pilot.pause()
+
+    from polily.core.config_store import load_all
+    flat = load_all(service.db)
+    assert flat["movement.magnitude_threshold"] == 55
+
+
+@pytest.mark.asyncio
+async def test_save_rejects_value_failing_pydantic_validation(service):
+    """starting_balance has Field(ge=1.0) — saving 0.5 must fail full validation."""
+    from textual.widgets import Input
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="wallet.starting_balance",
+        current_value=100.0,
+        default_value=100.0,
+    )
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        modal.query_one("#modal-input", Input).value = "0.5"
+        await pilot.pause()
+        # Live validation passes (it's a float). Save-time validation fails.
+        await pilot.click("#confirm")
+        await pilot.pause()
+        error = modal.query_one("#modal-error", Static)
+        rendered = str(error.render())
+        # Pydantic ValidationError mentions the constraint
+        assert ("ge" in rendered.lower()) or ("greater" in rendered.lower()) or ("1" in rendered)
+
+    # db should NOT have the invalid value
+    from polily.core.config_store import load_all
+    flat = load_all(service.db)
+    assert flat["wallet.starting_balance"] == 100.0

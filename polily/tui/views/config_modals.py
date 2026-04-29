@@ -150,7 +150,39 @@ class ConfigEditModal(ModalScreen[bool | None]):
         self._show_error("")
 
     def _show_error(self, message: str) -> None:
+        # Pydantic ValidationError messages contain `[type=...]` brackets that
+        # Static.update() interprets as Rich markup → MarkupError. Escape to
+        # render literally (T6.3).
+        from rich.markup import escape as _escape_markup
+        safe = _escape_markup(message) if message else ""
         with contextlib.suppress(Exception):
-            self.query_one("#modal-error", Static).update(message)
+            self.query_one("#modal-error", Static).update(safe)
         with contextlib.suppress(Exception):
             self.query_one("#confirm", Button).disabled = bool(message)
+
+    def on_confirm_cancel_bar_confirmed(
+        self, event: ConfirmCancelBar.Confirmed,
+    ) -> None:
+        self._do_save()
+
+    def _do_save(self) -> None:
+        from polily.core.config import (
+            ConfigValidationError,
+            _coerce_value,
+            _resolve_field_annotation,
+            save_knob,
+        )
+        raw = self.query_one("#modal-input", Input).value
+        annotation = _resolve_field_annotation(self._key_path)
+        try:
+            new_value = _coerce_value(raw, annotation)
+        except ValueError as e:
+            self._show_error(str(e))
+            return
+        try:
+            save_knob(self._service.db, self._key_path, new_value)
+        except ConfigValidationError as e:
+            self._show_error(f"Pydantic 校验失败: {e}")
+            return
+        self.notify(f"已保存 {self._key_path} = {new_value}")
+        self.dismiss(True)
