@@ -75,3 +75,34 @@ def test_status_does_not_accept_config_flag():
 
     sig = inspect.signature(status)
     assert "config_path" not in sig.parameters
+
+
+def test_main_callback_regenerates_yaml_on_tui_launch(tmp_path, monkeypatch):
+    """Launching `polily` (no subcommand) overwrites config.yaml from db.
+
+    Per design §4.4 — TUI startup is one of the two yaml regen hooks
+    (the other is daemon startup, T3.3)."""
+    monkeypatch.chdir(tmp_path)
+
+    from polily.core.config_store import upsert
+    from polily.core.db import PolilyDB
+    db_path = tmp_path / "data" / "polily.db"
+    db_path.parent.mkdir(exist_ok=True)
+    db = PolilyDB(db_path)
+    upsert(db, "movement.magnitude_threshold", 42)
+    db.close()
+
+    # Mock run_tui to avoid actually launching Textual
+    import polily.tui.app as tui_app
+    monkeypatch.setattr(tui_app, "run_tui", lambda service=None: None)
+
+    from typer.testing import CliRunner
+
+    from polily.cli import app
+    runner = CliRunner()
+    result = runner.invoke(app, [])
+    assert result.exit_code == 0
+
+    yaml_content = (tmp_path / "config.yaml").read_text(encoding="utf-8")
+    assert "magnitude_threshold: 42" in yaml_content
+    assert "READ ONLY" in yaml_content

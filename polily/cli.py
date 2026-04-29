@@ -10,12 +10,32 @@ import typer
 app = typer.Typer(help="Polily — A Polymarket Monitoring Agent That Actually Works", invoke_without_command=True)
 
 
+def _regenerate_yaml_snapshot(config) -> None:
+    """Overwrite config.yaml with a fresh snapshot from the loaded PolilyConfig.
+
+    Best-effort: log + continue if disk is read-only or parent dir missing.
+    yaml is a debug snapshot, not load-bearing — runtime works without it.
+    """
+    from polily.core.config_yaml import generate_yaml
+    target = Path("config.yaml")
+    try:
+        generate_yaml(config, target)
+    except OSError as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Could not regenerate %s: %s", target, e
+        )
+
+
 @app.callback()
 def main(ctx: typer.Context):
     """Polily — A Polymarket Monitoring Agent That Actually Works. Launches TUI when no subcommand given."""
     if ctx.invoked_subcommand is None:
         from polily.tui.app import run_tui
-        run_tui()
+        from polily.tui.service import PolilyService
+        service = PolilyService()
+        _regenerate_yaml_snapshot(service.config)
+        run_tui(service=service)
 
 
 # --- Scheduler daemon commands ---

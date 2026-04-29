@@ -60,9 +60,14 @@ class PolilyApp(App):
         self.notify("帮助面板 v0.8.0 后续版本提供", severity="information")
 
 
-def run_tui():
-    """Entry point for TUI mode."""
-    app = PolilyApp()
+def run_tui(service: PolilyService | None = None) -> None:
+    """Entry point for TUI mode.
+
+    If `service` is provided, the TUI uses it directly (avoids double-loading
+    config from db when the CLI already built one for the yaml regen hook).
+    Otherwise the TUI builds its own PolilyService.
+    """
+    app = PolilyApp(service=service)
     try:
         app.run()
     finally:
