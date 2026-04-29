@@ -54,3 +54,17 @@ def test_generate_yaml_includes_user_agent_even_though_ephemeral(tmp_path):
 
     content = target.read_text(encoding="utf-8")
     assert "user_agent: polily/" in content
+
+
+def test_generate_yaml_header_contains_required_lines(tmp_path):
+    """Pin the header format so users always see the same READ ONLY warning."""
+    target = tmp_path / "config.yaml"
+    generate_yaml(PolilyConfig(), target)
+
+    lines = target.read_text(encoding="utf-8").splitlines()
+    # First non-empty line is the box top
+    assert any(
+        "═" in ln and len(ln) > 50 for ln in lines[:3]
+    ), "expected box-drawing top line"
+    assert any("READ ONLY" in ln for ln in lines[:5])
+    assert any("polily → ⚙ 配置" in ln for ln in lines[:10])
