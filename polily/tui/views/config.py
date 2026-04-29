@@ -280,8 +280,12 @@ class ConfigSection(Widget):
 
     def compose(self) -> ComposeResult:
         marker = "▼" if self.expanded else "▶"
+        badge = ""
+        if self._view is not None:
+            changed, total = self._count_section_changes()
+            badge = f"   [dim][已改 {changed} / {total}][/dim]"
         yield Static(
-            f"{marker}  {self.section_title}",
+            f"{marker}  {self.section_title}{badge}",
             classes="section-header",
             id=f"header-{self.section_id}",
         )
@@ -311,6 +315,32 @@ class ConfigSection(Widget):
             self._view.loaded_config,
             self._view.default_config,
         )
+
+    def _count_section_changes(self) -> tuple[int, int]:
+        """Count (user_edited, total) leaves under this section's prefix.
+
+        EPHEMERAL_FIELDS excluded. user_edited = current_value != Pydantic default.
+        """
+        section_prefixes = {
+            "movement": "movement.",
+            "scoring": "scoring.thresholds.",
+            "mispricing": "mispricing.",
+            "wallet": "wallet.",
+        }
+        prefix = section_prefixes[self.section_id]
+        view = self._view
+        assert view is not None  # guarded at compose-call site
+        total = 0
+        changed = 0
+        for k, v in view.current_config.items():
+            if not k.startswith(prefix):
+                continue
+            if k in EPHEMERAL_FIELDS:
+                continue
+            total += 1
+            if v != view.default_config[k]:
+                changed += 1
+        return changed, total
 
     def action_toggle(self) -> None:
         self.expanded = not self.expanded

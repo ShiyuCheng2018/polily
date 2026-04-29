@@ -156,3 +156,18 @@ async def test_weights_show_sum_badge(service):
             str(s.render()) for s in node.query("Static")
         )
         assert "sum = 1.00" in sum_text or "sum=1.00" in sum_text
+
+
+@pytest.mark.asyncio
+async def test_section_header_shows_changed_count(service):
+    """Per §5.2 — section header right side shows [已改 N/M]."""
+    from polily.core.config_store import upsert
+    upsert(service.db, "movement.magnitude_threshold", 50)
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test() as pilot:
+        await pilot.pause()
+        movement_section_header = view.query_one("#header-movement", Static)
+        text = str(movement_section_header.render())
+        # 1 of 31 movement leaves changed (5 scalar + 26 weights)
+        assert "已改 1 / 31" in text or "已改 1/31" in text
