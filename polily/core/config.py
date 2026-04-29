@@ -1,10 +1,14 @@
-"""Config loading with deep merge for minimal + full config overlay."""
+"""Pydantic config models + db-canonical config loader.
 
-import copy
+Yaml is no longer a config input as of v0.10.0 — `db.config` is the
+canonical source. The yaml file (``config.yaml``) is regenerated
+read-only by every polily startup (see ``polily/core/config_yaml.py``)
+and exists purely as a human-readable export.
+"""
+
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -15,23 +19,6 @@ def _default_user_agent() -> str:
     # version bumped out from under it).
     from polily import __version__
     return f"polily/{__version__}"
-
-
-def deep_merge(base: dict, override: dict) -> dict:
-    """Recursively merge override into base. Does not mutate inputs."""
-    result = {}
-    for key in base:
-        if key in override:
-            if isinstance(base[key], dict) and isinstance(override[key], dict):
-                result[key] = deep_merge(base[key], override[key])
-            else:
-                result[key] = copy.deepcopy(override[key])
-        else:
-            result[key] = copy.deepcopy(base[key])
-    for key in override:
-        if key not in base:
-            result[key] = copy.deepcopy(override[key])
-    return result
 
 
 # --- Pydantic config models ---
@@ -202,23 +189,6 @@ class PolilyConfig(BaseModel):
     archiving: ArchivingConfig = ArchivingConfig()
     wallet: WalletConfig = Field(default_factory=WalletConfig)
     movement: MovementConfig = MovementConfig()
-
-
-def load_config(
-    path: Path,
-    defaults_path: Path | None = None,
-) -> PolilyConfig:
-    """Load config from YAML, optionally merging with defaults."""
-    if defaults_path is not None:
-        with open(defaults_path) as f:
-            base_raw = yaml.safe_load(f) or {}
-        with open(path) as f:
-            override_raw = yaml.safe_load(f) or {}
-        merged = deep_merge(base_raw, override_raw)
-    else:
-        with open(path) as f:
-            merged = yaml.safe_load(f) or {}
-    return PolilyConfig.model_validate(merged)
 
 
 class ConfigValidationError(Exception):

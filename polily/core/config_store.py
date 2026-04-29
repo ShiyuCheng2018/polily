@@ -151,7 +151,7 @@ def ensure_seeded(db) -> None:
       - Auto-restores user-deleted rows on next startup ("缺什么补什么")
       - Auto-adds new leaves when polily schema evolves in a future version
 
-    Called by load_config() at every polily startup; idempotent and cheap.
+    Called by load_config_from_db() at every polily startup; idempotent and cheap.
     """
     defaults_flat = _flatten_pydantic(PolilyConfig())
     now = datetime.now(UTC).isoformat()

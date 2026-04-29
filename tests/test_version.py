@@ -7,11 +7,13 @@ anywhere in the source tree — this is enforced by `test_no_hardcoded_version_l
 and `test_no_hardcoded_version_literal_in_pyproject`.
 
 The HTTP `User-Agent` header sent to Polymarket APIs is part of the same
-invariant: `polily/core/config.py` and `config.example.yaml` must not
-hardcode a version literal into `user_agent`. Enforced by
-`test_no_hardcoded_version_literal_in_config_py`,
-`test_api_config_user_agent_uses_dynamic_version`, and
-`test_no_hardcoded_version_literal_in_config_example_yaml`.
+invariant: `polily/core/config.py` must not hardcode a version literal
+into `user_agent`. Enforced by `test_no_hardcoded_version_literal_in_config_py`
+and `test_api_config_user_agent_uses_dynamic_version`.
+
+(v0.10.0 deleted `config.example.yaml`; yaml is no longer a config input.
+The drift-trap that test once protected — yaml mirroring a hardcoded
+version — is gone with the file.)
 """
 from __future__ import annotations
 
@@ -104,28 +106,6 @@ def test_api_config_user_agent_uses_dynamic_version():
     assert polily.__version__ in ua, (
         f"user_agent {ua!r} must contain polily.__version__="
         f"{polily.__version__!r}"
-    )
-
-
-def test_no_hardcoded_version_literal_in_config_example_yaml():
-    """``config.example.yaml`` must not pin a version into ``user_agent``.
-
-    Either the key is absent (so the dynamic ``default_factory`` in ApiConfig
-    kicks in) or it is an empty / non-versioned string with an explanatory
-    comment. This prevents the example config from re-drifting the same way
-    the Pydantic default did in v0.9.0–v0.9.2.
-    """
-    yaml_path = Path(__file__).parent.parent / "config.example.yaml"
-    text = yaml_path.read_text()
-    hardcoded = re.search(
-        r"""^\s*user_agent\s*:\s*["'][^"']*\d+\.\d+""",
-        text,
-        flags=re.MULTILINE,
-    )
-    assert hardcoded is None, (
-        f"Found hardcoded versioned user_agent in config.example.yaml: "
-        f"{hardcoded.group(0) if hardcoded else ''!r}. "
-        "Remove the version literal — the ApiConfig default_factory handles it."
     )
 
 

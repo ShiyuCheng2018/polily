@@ -18,7 +18,7 @@ def test_public_api_symbols_importable():
         compute_structure_score,
         detect_mispricing,
         fetch_and_score_event,
-        load_config,
+        load_config_from_db,
     )
     # Types: assert each is a concrete class (catches accidental re-export
     # of None or a stale proxy).
@@ -28,7 +28,7 @@ def test_public_api_symbols_importable():
     ):
         assert isinstance(cls, type), f"{cls!r} is not a class"
     # Callables:
-    assert callable(load_config)
+    assert callable(load_config_from_db)
     assert callable(fetch_and_score_event)
     assert callable(compute_structure_score)
     assert callable(detect_mispricing)
