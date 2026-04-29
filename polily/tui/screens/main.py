@@ -72,7 +72,8 @@ class MainScreen(Screen):
         Binding("3", "show_wallet", show=False),
         Binding("4", "show_history", show=False),
         Binding("5", "show_archive", show=False),
-        Binding("6", "show_changelog", show=False),
+        Binding("6", "show_config", show=False),
+        Binding("7", "show_changelog", show=False),
         Binding("up", "menu_prev", show=False),
         Binding("down", "menu_next", show=False),
     ]
@@ -89,7 +90,8 @@ class MainScreen(Screen):
     }
     """
 
-    MENU_ORDER = ["tasks", "monitor", "paper", "wallet", "history", "archive", "changelog"]
+    MENU_ORDER = ["tasks", "monitor", "paper", "wallet", "history",
+                  "archive", "config", "changelog"]
 
     def __init__(self, service: PolilyService):
         super().__init__()
@@ -548,6 +550,9 @@ class MainScreen(Screen):
             self._switch_view(HistoryView(self.service), "history")
         elif menu_id == "archive":
             self._switch_view(ArchivedEventsView(self.service), "archive")
+        elif menu_id == "config":
+            from polily.tui.views.config import ConfigView
+            self._switch_view(ConfigView(self.service), "config")
         elif menu_id == "changelog":
             from polily.tui.views.changelog import ChangelogView
             self._switch_view(ChangelogView(), "changelog")
@@ -570,6 +575,9 @@ class MainScreen(Screen):
 
     def action_show_archive(self) -> None:
         self._navigate_to("archive")
+
+    def action_show_config(self) -> None:
+        self._navigate_to("config")
 
     def action_show_changelog(self) -> None:
         self._navigate_to("changelog")

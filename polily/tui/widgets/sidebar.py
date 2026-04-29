@@ -18,6 +18,7 @@ from polily.tui.icons import (
     ICON_AUTO_MONITOR,
     ICON_CHANGELOG,
     ICON_COMPLETED,
+    ICON_CONFIG,
     ICON_EVENT,
     ICON_POSITION,
     ICON_SCAN,
@@ -40,6 +41,7 @@ MENU_ICONS: dict[str, str] = {
     "wallet": ICON_WALLET,
     "history": ICON_COMPLETED,
     "archive": ICON_EVENT,
+    "config": ICON_CONFIG,
     "changelog": ICON_CHANGELOG,
 }
 
@@ -140,6 +142,7 @@ class Sidebar(Widget):
         yield SidebarItem("钱包", "wallet")
         yield SidebarItem("历史", "history")
         yield SidebarItem("归档", "archive")
+        yield SidebarItem("配置", "config")
         yield SidebarItem("更新日志", "changelog")
         yield Static("  [dim]POLL[/dim] --", id="poll-indicator")
 

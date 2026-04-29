@@ -39,6 +39,9 @@ ICON_USER = "\uf007"          # fa-user (manual-trigger scans, user-initiated ac
 # Docs
 ICON_CHANGELOG = "\uf249"     # fa-sticky-note (updates / release notes)
 
+# Config
+ICON_CONFIG = ""  # Nerd Font gear (nf-fa-cog / nf-cod-settings_gear)
+
 
 STATUS_ICONS = {
     "pending": ICON_PENDING,
