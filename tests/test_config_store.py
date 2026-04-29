@@ -302,16 +302,31 @@ def test_ensure_seeded_safe_under_concurrent_threads_each_with_own_connection(tm
     relying on OS-level fcntl + INSERT OR IGNORE for safety.
     """
     db_path = tmp_path / "polily.db"
+    # Pre-create the schema so the workers race on ensure_seeded (the
+    # function under test), NOT on PolilyDB.__init__'s journal_mode=WAL
+    # pragma which can't be retried via busy_timeout (changing journal
+    # mode requires SQLITE_LOCKED-not-BUSY EXCLUSIVE access). The realistic
+    # production scenario this test models is "two processes both
+    # reaching ensure_seeded after the db file is already created",
+    # which is what happens once launchd has restarted the daemon at
+    # least once after a crash.
+    init_db = PolilyDB(db_path)
+    init_db.conn.execute("DELETE FROM config")
+    init_db.conn.commit()
+    init_db.close()
+
     errors = []
 
     def worker():
-        db = PolilyDB(db_path)
+        db = None
         try:
+            db = PolilyDB(db_path)
             ensure_seeded(db)
         except Exception as e:
             errors.append(e)
         finally:
-            db.close()
+            if db is not None:
+                db.close()
 
     threads = [threading.Thread(target=worker) for _ in range(4)]
     for t in threads:

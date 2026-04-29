@@ -238,13 +238,15 @@ class PolilyDB:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA foreign_keys=ON")
-        # Production hardening: WAL writer contention waits up to 5s before
-        # raising 'database is locked', so concurrent multi-process seed
-        # (TUI + daemon racing on first start) doesn't fail spuriously.
+        # busy_timeout MUST be set before journal_mode=WAL — on Linux CI,
+        # 4-thread SF5 race against `PRAGMA journal_mode=WAL` raised
+        # 'database is locked' instantly because no retry budget existed.
+        # Setting busy_timeout first gives subsequent pragmas (and all
+        # later writes) up to 5s of retry headroom under WAL contention.
         # Required for the SF5 concurrency test in tests/test_config_store.py.
         self.conn.execute("PRAGMA busy_timeout=5000")
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
 
     def __enter__(self) -> "PolilyDB":
@@ -378,9 +380,16 @@ class PolilyDB:
 
         now = datetime.now(UTC).isoformat()
         starting = cfg.wallet.starting_balance
+        # INSERT OR IGNORE makes the multi-process first-init race safe:
+        # if TUI process A and daemon process B both reach this point
+        # concurrently (both saw row==None on their respective SELECT),
+        # whichever wins the writer lock seeds the row; the other's
+        # INSERT no-ops instead of raising IntegrityError. Both processes
+        # would have computed the same starting_balance from db.config,
+        # so the persisted value is identical regardless of who wins.
         self.conn.execute(
-            "INSERT INTO wallet (id,cash_usd,starting_balance,topup_total,"
-            "withdraw_total,created_at,updated_at) VALUES (1,?,?,0,0,?,?)",
+            "INSERT OR IGNORE INTO wallet (id,cash_usd,starting_balance,"
+            "topup_total,withdraw_total,created_at,updated_at) VALUES (1,?,?,0,0,?,?)",
             (starting, starting, now, now),
         )
         self.conn.commit()
