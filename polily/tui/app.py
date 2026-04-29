@@ -66,7 +66,30 @@ def run_tui(service: PolilyService | None = None) -> None:
     If `service` is provided, the TUI uses it directly (avoids double-loading
     config from db when the CLI already built one for the yaml regen hook).
     Otherwise the TUI builds its own PolilyService.
+
+    If service construction fails with ConfigValidationError (db.config has
+    invalid values that Pydantic refuses), show FatalConfigScreen instead of
+    the normal app — user must run a CLI escape hatch
+    (`polily config reset --all` / `polily config reset <key>`) and relaunch.
+    Per design §7.3 / Q4.
     """
+    if service is None:
+        from polily.core.config import ConfigValidationError
+        try:
+            service = PolilyService()
+        except ConfigValidationError as e:
+            from polily.tui.views._config_fatal_screen import FatalConfigScreen
+
+            error_message = str(e)
+
+            class _FatalApp(App):
+                def on_mount(self) -> None:
+                    self.push_screen(FatalConfigScreen(error_message=error_message))
+
+            _FatalApp().run()
+            import os
+            os._exit(1)
+
     app = PolilyApp(service=service)
     try:
         app.run()
