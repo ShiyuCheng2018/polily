@@ -67,12 +67,14 @@ class LeafRow(Widget):
         current_value: Any,
         loaded_value: Any,
         default_value: Any,
+        view: ConfigView | None = None,
     ) -> None:
         super().__init__()
         self.key_path = key_path
         self.current_value = current_value
         self.loaded_value = loaded_value
         self.default_value = default_value
+        self._view = view  # SF7 — used by on_click + _on_modal_closed
 
     @property
     def last_segment_label(self) -> str:
@@ -113,12 +115,37 @@ class LeafRow(Widget):
             classes="leaf-line-2",
         )
 
+    def on_click(self) -> None:
+        if self._view is None:
+            return
+        from polily.tui.views.config_modals import ConfigEditModal
+        try:
+            modal = ConfigEditModal(
+                service=self._view.service,
+                key_path=self.key_path,
+                current_value=self.current_value,
+                default_value=self.default_value,
+            )
+        except ValueError:
+            # T6.7 reject (HIDDEN_IN_TUI / EPHEMERAL) — UI shouldn't have
+            # rendered this row in the first place, but defensive no-op.
+            return
+        self.app.push_screen(modal, self._on_modal_closed)
+
+    def _on_modal_closed(self, result) -> None:
+        """SF7 — direct view reference, no parent walk."""
+        if self._view is None:
+            return
+        self._view._refresh_state()
+        self._view.refresh(recompose=True)
+
 
 def _leaves_under_section(
     section_id: str,
     current: dict,
     loaded: dict,
     defaults: dict,
+    view: ConfigView | None = None,
 ) -> list[LeafRow]:
     """Build LeafRow list for one section.
 
@@ -154,6 +181,7 @@ def _leaves_under_section(
             current_value=current[key],
             loaded_value=loaded.get(key, defaults.get(key)),
             default_value=defaults[key],
+            view=view,
         ))
     return rows
 
@@ -203,12 +231,20 @@ class MarketTypeNode(Widget):
     MarketTypeNode .market-type-header { color: $primary; }
     """
 
-    def __init__(self, market_type: str, current: dict, loaded: dict, defaults: dict) -> None:
+    def __init__(
+        self,
+        market_type: str,
+        current: dict,
+        loaded: dict,
+        defaults: dict,
+        view: ConfigView | None = None,
+    ) -> None:
         super().__init__()
         self.market_type = market_type
         self._current = current
         self._loaded = loaded
         self._defaults = defaults
+        self._view = view
 
     def compose(self) -> ComposeResult:
         yield Static(
@@ -226,6 +262,7 @@ class MarketTypeNode(Widget):
                         current_value=self._current[k],
                         loaded_value=self._loaded.get(k, self._defaults.get(k)),
                         default_value=self._defaults[k],
+                        view=self._view,
                     ))
             if family_leaves:
                 yield WeightFamilyNode(self.market_type, family, family_leaves)
@@ -239,17 +276,25 @@ class WeightsTree(Widget):
     WeightsTree .weights-header { color: $primary; text-style: bold; }
     """
 
-    def __init__(self, current: dict, loaded: dict, defaults: dict) -> None:
+    def __init__(
+        self,
+        current: dict,
+        loaded: dict,
+        defaults: dict,
+        view: ConfigView | None = None,
+    ) -> None:
         super().__init__(id="movement-weights-tree")
         self._current = current
         self._loaded = loaded
         self._defaults = defaults
+        self._view = view
 
     def compose(self) -> ComposeResult:
         yield Static("  ▼ weights (异动信号权重)", classes="weights-header")
         for market_type in ("crypto", "political", "economic_data", "default"):
             yield MarketTypeNode(
                 market_type, self._current, self._loaded, self._defaults,
+                view=self._view,
             )
 
 
@@ -259,6 +304,7 @@ class ConfigSection(Widget):
     DEFAULT_CSS = """
     ConfigSection { height: auto; padding: 1 0; }
     ConfigSection .section-header { color: $primary; text-style: bold; padding: 0 1; }
+    ConfigSection .section-body { height: auto; }
     ConfigSection.collapsed .section-body { display: none; }
     """
 
@@ -299,6 +345,7 @@ class ConfigSection(Widget):
                 self._view.current_config,
                 self._view.loaded_config,
                 self._view.default_config,
+                view=self._view,
             ))
         yield Widget(
             *children,
@@ -314,6 +361,7 @@ class ConfigSection(Widget):
             self._view.current_config,
             self._view.loaded_config,
             self._view.default_config,
+            view=self._view,
         )
 
     def _count_section_changes(self) -> tuple[int, int]:

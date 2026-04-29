@@ -210,3 +210,19 @@ async def test_config_view_subscribes_to_dedicated_heartbeat_topic(service):
             bus.publish(TOPIC_HEARTBEAT, {"source": "test"})
             await pilot.pause()
             assert view.current_config.get("movement.magnitude_threshold") == 99
+
+
+@pytest.mark.asyncio
+async def test_clicking_leaf_row_pushes_edit_modal(service):
+    """LeafRow click → ConfigEditModal pushed onto screen stack."""
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        # Find the magnitude_threshold row and click it
+        rows = list(view.query("LeafRow"))
+        target = next(r for r in rows if r.key_path == "movement.magnitude_threshold")
+        await pilot.click(target)
+        await pilot.pause()
+        # ConfigEditModal should now be on the screen stack
+        from polily.tui.views.config_modals import ConfigEditModal
+        assert any(isinstance(s, ConfigEditModal) for s in pilot.app.screen_stack)
