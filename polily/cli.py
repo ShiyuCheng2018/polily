@@ -181,6 +181,94 @@ def status():
     typer.echo(f"Scheduler: RUNNING (PID {pid})")
 
 
+# --- Config escape-hatch command ---
+
+config_app = typer.Typer(help="Manage polily configuration")
+app.add_typer(config_app, name="config")
+
+
+@config_app.command(name="reset")
+def cmd_config_reset(
+    key_path: str = typer.Argument(
+        None,
+        help="key_path to reset (e.g., movement.magnitude_threshold). Omit if using --all.",
+    ),
+    all: bool = typer.Option(  # noqa: A002 — `--all` is the standard CLI flag name
+        False, "--all",
+        help="Reset ALL config values to Pydantic defaults (clears db.config).",
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Skip confirmation prompt for --all.",
+    ),
+):
+    """Reset config to Pydantic defaults.
+
+    Use cases:
+      - polily config reset --all          # full reset (after fatal screen)
+      - polily config reset movement.magnitude_threshold  # single key
+
+    Whis SF11 — archiving.db_file is bootstrapped from Pydantic default
+    (same pattern as `_load_user_config` and `run_scheduler_daemon`). Its
+    db.config row is informational; the actual db path is install-time.
+    """
+    from polily.core.config import PolilyConfig, default_db_path
+    from polily.core.config_store import (
+        EPHEMERAL_FIELDS,
+        ConfigSaveError,
+        _flatten_pydantic,
+        ensure_seeded,
+    )
+    from polily.core.config_store import (
+        reset as reset_key,
+    )
+    from polily.core.db import PolilyDB
+
+    db = PolilyDB(default_db_path())
+    try:
+        if all:
+            if not yes and not typer.confirm(
+                "重置 ALL config 为默认 (db.config 清空重新 seed)？此操作不可撤销。"
+            ):
+                typer.echo("Cancelled")
+                raise typer.Exit(0)
+            db.conn.execute("DELETE FROM config")
+            db.conn.commit()
+            ensure_seeded(db)
+            typer.echo("✅ 已重置所有配置为默认。")
+            return
+
+        if key_path is None:
+            typer.echo(
+                "Either provide a key_path or pass --all. "
+                "See `polily config reset --help`.",
+                err=True,
+            )
+            raise typer.Exit(2)
+
+        if key_path in EPHEMERAL_FIELDS:
+            typer.echo(
+                f"{key_path} is a runtime-computed field, "
+                "no persisted value to reset.",
+                err=True,
+            )
+            raise typer.Exit(2)
+
+        defaults_flat = _flatten_pydantic(PolilyConfig())
+        if key_path not in defaults_flat:
+            typer.echo(f"Unknown key_path: {key_path}", err=True)
+            raise typer.Exit(2)
+
+        try:
+            reset_key(db, key_path)
+        except ConfigSaveError as e:
+            typer.echo(str(e), err=True)
+            raise typer.Exit(2) from e
+        typer.echo(f"✅ 已重置 {key_path} = {defaults_flat[key_path]}")
+    finally:
+        db.close()
+
+
 def _load_user_config():
     """Load PolilyConfig from db.config (used by `polily reset` paths).
 
