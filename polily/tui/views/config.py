@@ -415,3 +415,29 @@ class ConfigView(Widget):
     def action_refresh(self) -> None:
         self._refresh_state()
         self.refresh(recompose=True)
+
+    def on_mount(self) -> None:
+        from polily.core.events import TOPIC_HEARTBEAT
+        self.service.event_bus.subscribe(TOPIC_HEARTBEAT, self._on_heartbeat)
+
+    def on_unmount(self) -> None:
+        import contextlib
+
+        from polily.core.events import TOPIC_HEARTBEAT
+        with contextlib.suppress(Exception):
+            self.service.event_bus.unsubscribe(
+                TOPIC_HEARTBEAT, self._on_heartbeat,
+            )
+
+    def _on_heartbeat(self, payload: dict) -> None:
+        """SF10 — dedicated heartbeat topic, no business-topic hijacking.
+        Re-read db, recompute banner."""
+        import contextlib
+
+        from polily.tui._dispatch import dispatch_to_ui
+        with contextlib.suppress(Exception):
+            dispatch_to_ui(self.app, self._refresh_and_redraw)
+
+    def _refresh_and_redraw(self) -> None:
+        self._refresh_state()
+        self.refresh(recompose=True)

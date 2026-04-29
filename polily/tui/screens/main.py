@@ -22,6 +22,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
 from polily.core.events import (
+    TOPIC_HEARTBEAT,
     TOPIC_MONITOR_UPDATED,
     TOPIC_POSITION_UPDATED,
     TOPIC_PRICE_UPDATED,
@@ -205,6 +206,7 @@ class MainScreen(Screen):
             TOPIC_WALLET_UPDATED,
             TOPIC_MONITOR_UPDATED,
             TOPIC_SCAN_UPDATED,
+            TOPIC_HEARTBEAT,  # SF10 — pure heartbeat for views needing timer refresh
         ):
             with contextlib.suppress(Exception):
                 bus.publish(topic, payload)

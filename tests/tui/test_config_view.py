@@ -171,3 +171,42 @@ async def test_section_header_shows_changed_count(service):
         text = str(movement_section_header.render())
         # 1 of 31 movement leaves changed (5 scalar + 26 weights)
         assert "已改 1 / 31" in text or "已改 1/31" in text
+
+
+@pytest.mark.asyncio
+async def test_config_view_subscribes_to_dedicated_heartbeat_topic(service):
+    """SF10 — ConfigView listens to TOPIC_HEARTBEAT, not TOPIC_MONITOR_UPDATED.
+
+    Locks the design intent: ConfigView's timer-based refresh must come from
+    a dedicated heartbeat topic, not by hijacking a business-event topic.
+    """
+    from polily.core.events import TOPIC_HEARTBEAT, TOPIC_MONITOR_UPDATED
+    view = ConfigView(service)
+    async with _Harness(view).run_test() as pilot:
+        await pilot.pause()
+
+        # ConfigView should be subscribed to TOPIC_HEARTBEAT.
+        # We verify behaviorally by publishing a heartbeat and checking
+        # _refresh_state was called (it would update view.current_config
+        # from db.config). Mock service's event_bus subscriber list if it
+        # has _subscribers; otherwise verify by integration.
+        bus = service.event_bus
+        # Try direct attribute access first (most polily EventBus impls)
+        if hasattr(bus, "_subscribers"):
+            heartbeat_subs = bus._subscribers.get(TOPIC_HEARTBEAT, [])
+            monitor_subs = bus._subscribers.get(TOPIC_MONITOR_UPDATED, [])
+            # ConfigView's _on_heartbeat is bound to view; check by __self__
+            assert any(
+                getattr(cb, "__self__", None) is view for cb in heartbeat_subs
+            ), "ConfigView didn't subscribe to TOPIC_HEARTBEAT"
+            # AND must NOT have subscribed to monitor topic
+            assert not any(
+                getattr(cb, "__self__", None) is view for cb in monitor_subs
+            ), "ConfigView wrongly subscribed to TOPIC_MONITOR_UPDATED"
+        else:
+            # Behavioral fallback: publish heartbeat, check view state changes
+            from polily.core.config_store import upsert
+            upsert(service.db, "movement.magnitude_threshold", 99)
+            bus.publish(TOPIC_HEARTBEAT, {"source": "test"})
+            await pilot.pause()
+            assert view.current_config.get("movement.magnitude_threshold") == 99
