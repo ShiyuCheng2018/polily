@@ -11,16 +11,137 @@ Edit interaction (modal) is Phase 6.
 """
 from __future__ import annotations
 
+from typing import Any
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Static
 
+from polily.core.config_store import EPHEMERAL_FIELDS, _flatten_pydantic, is_territory_a
 from polily.tui.bindings import NAV_BINDINGS
 from polily.tui.icons import ICON_CONFIG
 from polily.tui.service import PolilyService
 from polily.tui.widgets.polily_card import PolilyCard
+
+# `EPHEMERAL_FIELDS` is re-exported here so future T5.x leaf-tree code can
+# defensively skip ephemerals without re-importing from config_store. The
+# `is_territory_a` helper already filters them, so this import is currently
+# unused in this module — keep it for symmetry with the plan + downstream use.
+_ = EPHEMERAL_FIELDS  # noqa: F401
+
+
+class LeafRow(Widget):
+    """A single config leaf — 2-line layout per Q7.
+
+    Line 1:  <last_segment>      <value>   <source-tag>   ⓘ
+    Line 2 (dim small):  <full key_path>
+    """
+
+    DEFAULT_CSS = """
+    LeafRow { height: 2; padding: 0 1; }
+    LeafRow .leaf-line-1 { color: $text; }
+    LeafRow .leaf-line-2 { color: $text-muted; padding-left: 2; }
+    LeafRow .leaf-changed-marker { color: $warning; }
+    LeafRow .leaf-source { color: $text-muted; }
+    """
+
+    def __init__(
+        self,
+        key_path: str,
+        current_value: Any,
+        loaded_value: Any,
+        default_value: Any,
+    ) -> None:
+        super().__init__()
+        self.key_path = key_path
+        self.current_value = current_value
+        self.loaded_value = loaded_value
+        self.default_value = default_value
+
+    @property
+    def last_segment_label(self) -> str:
+        return self.key_path.rsplit(".", 1)[-1]
+
+    @property
+    def is_user_edited(self) -> bool:
+        """User edited this leaf if current_value != Pydantic default."""
+        return self.current_value != self.default_value
+
+    @property
+    def source_label(self) -> str:
+        return "你" if self.is_user_edited else "默认"
+
+    @property
+    def is_pending(self) -> bool:
+        """User edited it AND polily hasn't loaded the new value yet."""
+        return self.current_value != self.loaded_value
+
+    def compose(self) -> ComposeResult:
+        # Line 1: leaf name + value (with → if pending) + source + info icon
+        if self.is_pending:
+            value_str = (
+                f"[dim]{self.loaded_value}[/dim] [yellow]→[/yellow] "
+                f"[bold]{self.current_value}[/bold]"
+            )
+        else:
+            value_str = f"{self.current_value}"
+
+        line1 = (
+            f"  {self.last_segment_label:<32} "
+            f"{value_str:>14}   "
+            f"[dim]{self.source_label}[/dim]   ⓘ"
+        )
+        yield Static(line1, classes="leaf-line-1")
+        yield Static(
+            f"     {self.key_path}",
+            classes="leaf-line-2",
+        )
+
+
+def _leaves_under_section(
+    section_id: str,
+    current: dict,
+    loaded: dict,
+    defaults: dict,
+) -> list[LeafRow]:
+    """Build LeafRow list for one section.
+
+    Filters to territory A only via is_territory_a (Whis SF4 — single source).
+    HIDDEN_IN_TUI / EPHEMERAL_FIELDS are auto-excluded by that helper.
+    Movement scalar (5) come first; weights subtree comes from T5.8.
+    """
+    section_prefixes = {
+        "movement": "movement.",
+        "scoring": "scoring.thresholds.",
+        "mispricing": "mispricing.",
+        "wallet": "wallet.",
+    }
+    prefix = section_prefixes[section_id]
+    rows: list[LeafRow] = []
+    # Iterate in `defaults` order — that's the Pydantic model field-declaration
+    # order from `_flatten_pydantic`, which is what users (and the design doc
+    # examples) expect to see. Sorting alphabetically would scramble the
+    # logical grouping of related knobs.
+    # Exclude movement.weights.* from the flat list — weights get their own
+    # tree widget in T5.8.
+    for key in defaults.keys():
+        if not key.startswith(prefix):
+            continue
+        if not is_territory_a(key):
+            continue
+        if section_id == "movement" and key.startswith("movement.weights."):
+            continue  # weights tree handled separately
+        if key not in current:
+            continue  # defensive: should not happen since current ⊇ defaults
+        rows.append(LeafRow(
+            key_path=key,
+            current_value=current[key],
+            loaded_value=loaded.get(key, defaults.get(key)),
+            default_value=defaults[key],
+        ))
+    return rows
 
 
 class ConfigSection(Widget):
@@ -39,14 +160,14 @@ class ConfigSection(Widget):
         section_id: str,
         title: str,
         *,
-        icon: str = "",
+        view: ConfigView | None = None,
         expanded: bool = False,
     ) -> None:
         super().__init__()
         self.section_id = section_id
         self.section_title = title
-        self.section_icon = icon
         self.expanded = expanded
+        self._view = view  # SF7 — injected reference for LeafRow click handling later
 
     def compose(self) -> ComposeResult:
         marker = "▼" if self.expanded else "▶"
@@ -55,10 +176,26 @@ class ConfigSection(Widget):
             classes="section-header",
             id=f"header-{self.section_id}",
         )
-        # Body is mounted-but-hidden when collapsed; fills with rows in T5.6.
-        body_classes = "section-body"
-        body = Widget(classes=body_classes, id=f"body-{self.section_id}")
-        yield body
+        # Build LeafRow children inline (passed to body Widget's constructor
+        # via *children) — avoids the on_mount lazy-mount race where the
+        # body Widget yielded in compose() may not exist yet when on_mount
+        # runs against the still-composing tree.
+        rows = self._build_rows()
+        yield Widget(
+            *rows,
+            classes="section-body",
+            id=f"body-{self.section_id}",
+        )
+
+    def _build_rows(self) -> list[LeafRow]:
+        if self._view is None:
+            return []
+        return _leaves_under_section(
+            self.section_id,
+            self._view.current_config,
+            self._view.loaded_config,
+            self._view.default_config,
+        )
 
     def action_toggle(self) -> None:
         self.expanded = not self.expanded
@@ -85,6 +222,23 @@ class ConfigView(Widget):
     def __init__(self, service: PolilyService) -> None:
         super().__init__()
         self.service = service
+        self._refresh_state()
+
+    def _refresh_state(self) -> None:
+        """Snapshot the 3 dicts: defaults, loaded (TUI startup snapshot), current (latest db)."""
+        from polily.core.config import PolilyConfig
+        from polily.core.config_store import load_all
+        self.default_config = _flatten_pydantic(PolilyConfig())
+        self.loaded_config = _flatten_pydantic(self.service.config)
+        try:
+            db_flat = load_all(self.service.db)
+        except Exception:
+            db_flat = {}
+        # Merge: db edits win over loaded snapshot. EPHEMERAL_FIELDS
+        # already filtered by load_all.
+        merged = dict(self.loaded_config)
+        merged.update(db_flat)
+        self.current_config = merged
 
     def compose(self) -> ComposeResult:
         yield PolilyCard(
@@ -92,10 +246,11 @@ class ConfigView(Widget):
             id="config-card",
         )
         with VerticalScroll(id="config-scroll"):
-            yield ConfigSection("movement", "异动触发 (Movement)", expanded=True)
-            yield ConfigSection("scoring", "评分 (Scoring)")
-            yield ConfigSection("mispricing", "错误定价 (Mispricing)")
-            yield ConfigSection("wallet", "钱包 (Wallet)")
+            yield ConfigSection("movement", "异动触发 (Movement)", view=self, expanded=True)
+            yield ConfigSection("scoring", "评分 (Scoring)", view=self)
+            yield ConfigSection("mispricing", "错误定价 (Mispricing)", view=self)
+            yield ConfigSection("wallet", "钱包 (Wallet)", view=self)
 
     def action_refresh(self) -> None:
+        self._refresh_state()
         self.refresh(recompose=True)
