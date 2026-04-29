@@ -29,20 +29,44 @@ class ConfigSection(Widget):
     DEFAULT_CSS = """
     ConfigSection { height: auto; padding: 1 0; }
     ConfigSection .section-header { color: $primary; text-style: bold; padding: 0 1; }
+    ConfigSection.collapsed .section-body { display: none; }
     """
 
-    def __init__(self, section_id: str, title: str, *, icon: str = "") -> None:
+    BINDINGS = [Binding("enter", "toggle", show=False)]
+
+    def __init__(
+        self,
+        section_id: str,
+        title: str,
+        *,
+        icon: str = "",
+        expanded: bool = False,
+    ) -> None:
         super().__init__()
         self.section_id = section_id
         self.section_title = title
         self.section_icon = icon
+        self.expanded = expanded
 
     def compose(self) -> ComposeResult:
+        marker = "▼" if self.expanded else "▶"
         yield Static(
-            f"{self.section_icon}  {self.section_title}",
+            f"{marker}  {self.section_title}",
             classes="section-header",
+            id=f"header-{self.section_id}",
         )
-        # Leaf rows are mounted in T5.5 / T5.6; skeleton is empty for now.
+        # Body is mounted-but-hidden when collapsed; fills with rows in T5.6.
+        body_classes = "section-body"
+        body = Widget(classes=body_classes, id=f"body-{self.section_id}")
+        yield body
+
+    def action_toggle(self) -> None:
+        self.expanded = not self.expanded
+        if self.expanded:
+            self.remove_class("collapsed")
+        else:
+            self.add_class("collapsed")
+        self.refresh(recompose=True)
 
 
 class ConfigView(Widget):
@@ -68,10 +92,10 @@ class ConfigView(Widget):
             id="config-card",
         )
         with VerticalScroll(id="config-scroll"):
-            yield ConfigSection("movement", "异动触发 (Movement)", icon="●")
-            yield ConfigSection("scoring", "评分 (Scoring)", icon="●")
-            yield ConfigSection("mispricing", "错误定价 (Mispricing)", icon="●")
-            yield ConfigSection("wallet", "钱包 (Wallet)", icon="●")
+            yield ConfigSection("movement", "异动触发 (Movement)", expanded=True)
+            yield ConfigSection("scoring", "评分 (Scoring)")
+            yield ConfigSection("mispricing", "错误定价 (Mispricing)")
+            yield ConfigSection("wallet", "钱包 (Wallet)")
 
     def action_refresh(self) -> None:
         self.refresh(recompose=True)

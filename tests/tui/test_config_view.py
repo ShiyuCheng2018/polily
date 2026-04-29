@@ -43,3 +43,16 @@ async def test_config_view_has_4_top_level_sections(service):
         await pilot.pause()
         section_titles = [w.section_id for w in view.query("ConfigSection")]
         assert section_titles == ["movement", "scoring", "mispricing", "wallet"]
+
+
+@pytest.mark.asyncio
+async def test_section_starts_collapsed_except_movement(service):
+    """Per design §5.2 — only movement is expanded by default."""
+    view = ConfigView(service)
+    async with _Harness(view).run_test() as pilot:
+        await pilot.pause()
+        sections = {s.section_id: s for s in view.query("ConfigSection")}
+        assert sections["movement"].expanded is True
+        assert sections["scoring"].expanded is False
+        assert sections["mispricing"].expanded is False
+        assert sections["wallet"].expanded is False
