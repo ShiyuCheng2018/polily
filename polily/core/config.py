@@ -2,6 +2,7 @@
 
 import copy
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -295,3 +296,75 @@ def default_db_path() -> Path:
         Path object for the default db file (typically './data/polily.db').
     """
     return Path(PolilyConfig().archiving.db_file)
+
+
+def _resolve_field_annotation(key_path: str):
+    """Walk PolilyConfig schema to find the type annotation for a key_path.
+
+    For nested dict[str, BaseModel] (e.g. movement.weights.crypto.magnitude.X)
+    descends into the dict's value type. For dict[str, scalar] returns the
+    scalar value type. Returns None if the key doesn't resolve.
+
+    Used by Edit modal live validation — coerce raw input to the right type
+    before attempting full PolilyConfig.model_validate().
+    """
+    import typing as _t
+
+    parts = key_path.split(".")
+    cursor: Any = PolilyConfig
+
+    for i, part in enumerate(parts):
+        is_last = i == len(parts) - 1
+
+        # Resolve cursor → field type
+        if isinstance(cursor, type) and issubclass(cursor, BaseModel):
+            field = cursor.model_fields.get(part)
+            if field is None:
+                return None
+            cursor = field.annotation
+            if is_last:
+                return cursor
+            continue
+
+        # cursor is dict[str, X] or dict[str, dict[str, X]] — unwrap one level.
+        origin = _t.get_origin(cursor)
+        if origin is dict:
+            args = _t.get_args(cursor)
+            if len(args) >= 2:
+                cursor = args[1]
+                if isinstance(cursor, type) and issubclass(cursor, BaseModel):
+                    continue
+                inner_origin = _t.get_origin(cursor)
+                if inner_origin is dict:
+                    inner_args = _t.get_args(cursor)
+                    if len(inner_args) >= 2:
+                        cursor = inner_args[1]
+                if is_last:
+                    return cursor
+                continue
+        return None
+
+    return cursor
+
+
+def _coerce_value(raw: str, annotation):
+    """Try to parse `raw` as `annotation`. Raises ValueError on failure."""
+    if annotation is bool:
+        if raw.lower() in ("true", "1", "yes", "on"):
+            return True
+        if raw.lower() in ("false", "0", "no", "off"):
+            return False
+        raise ValueError(f"无法解析 {raw!r} 为 bool")
+    if annotation is int:
+        try:
+            return int(raw)
+        except ValueError as e:
+            raise ValueError(f"无法解析 {raw!r} 为 int") from e
+    if annotation is float:
+        try:
+            return float(raw)
+        except ValueError as e:
+            raise ValueError(f"无法解析 {raw!r} 为 float") from e
+    if annotation is str:
+        return raw
+    raise ValueError(f"不支持的类型 {annotation!r}")

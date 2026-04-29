@@ -12,6 +12,7 @@ keys as defense-in-depth (T6.7).
 """
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from textual.app import ComposeResult
@@ -132,3 +133,24 @@ class ConfigEditModal(ModalScreen[bool | None]):
         self, event: ConfirmCancelBar.Cancelled,
     ) -> None:
         self.dismiss(None)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "modal-input":
+            return
+        from polily.core.config import _coerce_value, _resolve_field_annotation
+        annotation = _resolve_field_annotation(self._key_path)
+        if annotation is None:
+            self._show_error(f"无法定位 {self._key_path} 的类型")
+            return
+        try:
+            _coerce_value(event.value, annotation)
+        except ValueError as e:
+            self._show_error(str(e))
+            return
+        self._show_error("")
+
+    def _show_error(self, message: str) -> None:
+        with contextlib.suppress(Exception):
+            self.query_one("#modal-error", Static).update(message)
+        with contextlib.suppress(Exception):
+            self.query_one("#confirm", Button).disabled = bool(message)

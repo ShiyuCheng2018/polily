@@ -86,3 +86,43 @@ async def test_modal_rejects_construction_for_ephemeral_field(service):
             current_value="polily/0.10.0",
             default_value="polily/0.10.0",
         )
+
+
+@pytest.mark.asyncio
+async def test_live_validation_shows_error_for_invalid_int(service):
+    """Typing 'abc' for an int leaf shows red border + error text."""
+    from textual.widgets import Input
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.daily_analysis_limit",
+        current_value=10,
+        default_value=10,
+    )
+    async with _Harness(modal).run_test() as pilot:
+        await pilot.pause()
+        input_widget = modal.query_one("#modal-input", Input)
+        input_widget.value = "abc"
+        await pilot.pause()
+        error = modal.query_one("#modal-error", Static)
+        rendered = str(error.render())
+        assert "无法解析" in rendered or "invalid" in rendered.lower()
+
+
+@pytest.mark.asyncio
+async def test_live_validation_passes_for_valid_value(service):
+    from textual.widgets import Input
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.daily_analysis_limit",
+        current_value=10,
+        default_value=10,
+    )
+    async with _Harness(modal).run_test() as pilot:
+        await pilot.pause()
+        input_widget = modal.query_one("#modal-input", Input)
+        input_widget.value = "20"
+        await pilot.pause()
+        error = modal.query_one("#modal-error", Static)
+        assert str(error.render()).strip() == ""
