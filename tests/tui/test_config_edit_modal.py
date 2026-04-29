@@ -203,3 +203,63 @@ async def test_reset_writes_default_and_updates_input(service):
 
     flat = load_all(service.db)
     assert flat["movement.magnitude_threshold"] == 70
+
+
+@pytest.mark.asyncio
+async def test_cancel_button_dismisses_with_none(service):
+    """Cancel discards user input — db unchanged even with invalid pending value."""
+    from textual.widgets import Input
+
+    from polily.core.config_store import load_all
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.magnitude_threshold",
+        current_value=70,
+        default_value=70,
+    )
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        modal.query_one("#modal-input", Input).value = "999"  # would fail Pydantic validation if saved
+        await pilot.click("#cancel")
+        await pilot.pause()
+
+    # db must be unchanged (cancel discards input)
+    flat = load_all(service.db)
+    assert flat["movement.magnitude_threshold"] == 70
+
+
+@pytest.mark.asyncio
+async def test_escape_key_dismisses_modal(service):
+    """ESC binding dismisses the modal screen with None.
+
+    Canonical polily pattern (per tests/test_wallet_view.py:186-191): instead of
+    asserting `not modal.is_mounted` (unreliable for ModalScreen post-dismiss),
+    use a host App that captures dismiss_result via callback.
+
+    priority=True on the ESC Binding (config_modals.py:68) is required —
+    otherwise the focused Input widget consumes escape before the screen-level
+    binding fires.
+    """
+    from textual.app import App
+
+    captured = {}
+
+    class _CallbackHarness(App):
+        def on_mount(self) -> None:
+            self.push_screen(
+                ConfigEditModal(
+                    service=service,
+                    key_path="movement.magnitude_threshold",
+                    current_value=70,
+                    default_value=70,
+                ),
+                lambda result: captured.setdefault("result", result),
+            )
+
+    async with _CallbackHarness().run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+    assert captured.get("result") is None  # ESC → dismiss(None)

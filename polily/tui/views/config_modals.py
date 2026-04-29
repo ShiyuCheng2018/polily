@@ -65,7 +65,11 @@ class ConfigEditModal(ModalScreen[bool | None]):
         min-width: 14;
     }}
     """
-    BINDINGS = [Binding("escape", "cancel", "取消")]
+    # priority=True: Input widget at #modal-input takes focus on mount and would
+    # otherwise consume the escape key before the screen-level binding fires.
+    # priority bindings run BEFORE focused-widget key handling, so ESC reliably
+    # dismisses regardless of which child has focus.
+    BINDINGS = [Binding("escape", "cancel", "取消", priority=True)]
 
     def __init__(
         self,
