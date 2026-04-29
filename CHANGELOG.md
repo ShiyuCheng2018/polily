@@ -10,6 +10,45 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### BREAKING
+
+- **db.config is now the only config source.** Users edit via `polily → ⚙ 配置`. `config.yaml` is regenerated as a read-only snapshot on every polily startup; manual edits to `config.yaml` are silently overwritten.
+- **`polily scheduler run --config <path>` flag deleted.** The daemon reads from `data/polily.db`'s `config` table at startup. Use the TUI for daily editing or `polily config reset` for emergencies.
+- **`config.example.yaml` and `config.minimal.yaml` deleted.** Per-knob documentation lives in `polily/core/config_docs/*.md`.
+- **First-run upgrade behavior:** existing `config.yaml` files are silently overwritten on first launch of v0.10.0. Users with custom yaml edits should re-apply them via the new TUI Config view (Ctrl+R restart afterward).
+- **Pre-v0.9.x plist auto-migration:** users upgrading from old polily versions whose launchd plist contained `--config <path>` will have their plist auto-rewritten on first daemon launch (Whis B2). No manual action needed.
+
+### Added
+
+- New TUI Config view at sidebar position 6 (`⚙ 配置`) — see `docs/internal/plans/2026-04-26-tui-config-design.md`
+- 4 sections (Movement / Scoring / Mispricing / Wallet) covering 40 user-editable knobs (territory A)
+- Drift banner shows count of pending changes; Ctrl+R triggers polily restart sequence
+- 3-tier validation: live (per keystroke) / save-time (full PolilyConfig) / startup (fatal screen)
+- `polily config reset --all` / `polily config reset <key_path>` CLI escape hatches
+- `polily/core/config_docs/*.md` per-knob documentation, parsed by `_loader.load_all()`
+- New SQLite `config` table — flat dot-notation key_path → JSON value
+- One-shot legacy yaml → db migration on first run (Whis B3): pre-v0.10.0 user customization auto-imported
+
+### Internal
+
+- New `polily/core/config_store.py` module with `EPHEMERAL_FIELDS`, `TERRITORY_A_PREFIXES`, `ensure_seeded`, `load_all`, `upsert`, `reset`, `_migrate_yaml_to_db`
+- New `polily/core/config_yaml.py` for read-only yaml snapshot generation
+- New `polily/core/config.py::load_config_from_db` (zero-arg, replaces 4 legacy yaml callers)
+- New `polily/tui/views/config.py` with `ConfigView`, `ConfigSection`, `LeafRow`, `WeightsTree`, `MarketTypeNode`, `WeightFamilyNode`
+- New `polily/tui/views/config_modals.py` with `ConfigEditModal`
+- New `polily/tui/views/_config_fatal_screen.py` for startup config-error UX
+- New CI gate `tests/test_config_docs_coverage.py` requires markdown docs for all 40 territory A keys
+- `PRAGMA busy_timeout=5000` set explicitly on PolilyDB connection (was implicitly via Python sqlite3 default)
+- New `TOPIC_HEARTBEAT` event topic (Whis SF10) for views that need timer-based refresh
+
+### Removed
+
+- `polily/core/config.py::load_config(path)` (yaml-based)
+- `polily/core/config.py::deep_merge`
+- `polily.cli.py::run_scheduler_daemon --config` argument
+- `polily.cli.py::restart --config` and `status --config` arguments (unused)
+- `config.example.yaml` and `config.minimal.yaml`
+
 ## [0.9.5] — 2026-04-26
 
 ### Removed
