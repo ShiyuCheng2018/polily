@@ -39,7 +39,7 @@ class ConfigEditModal(ModalScreen[bool | None]):
     ConfigEditModal #dialog-box {{
         width: {_MODAL_WIDTH};
         height: auto;
-        max-height: 28;
+        max-height: 32;
     }}
     ConfigEditModal #dialog-box > PolilyCard {{
         height: auto;
@@ -186,3 +186,20 @@ class ConfigEditModal(ModalScreen[bool | None]):
             return
         self.notify(f"已保存 {self._key_path} = {new_value}")
         self.dismiss(True)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "reset-btn":
+            self._do_reset()
+
+    def _do_reset(self) -> None:
+        from polily.core.config_store import reset
+        try:
+            reset(self._service.db, self._key_path)
+        except Exception as e:
+            self._show_error(f"重置失败: {e}")
+            return
+        # Update the input + cleared current_value tracking
+        self.query_one("#modal-input", Input).value = str(self._default_value)
+        self._current_value = self._default_value
+        self._show_error("")
+        self.notify(f"已重置 {self._last_segment} 为默认 {self._default_value}")

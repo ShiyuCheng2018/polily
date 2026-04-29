@@ -177,3 +177,29 @@ async def test_save_rejects_value_failing_pydantic_validation(service):
     from polily.core.config_store import load_all
     flat = load_all(service.db)
     assert flat["wallet.starting_balance"] == 100.0
+
+
+@pytest.mark.asyncio
+async def test_reset_writes_default_and_updates_input(service):
+    """Reset button writes Pydantic default to db AND updates the input field."""
+    from textual.widgets import Input
+
+    from polily.core.config_store import load_all, upsert
+
+    upsert(service.db, "movement.magnitude_threshold", 50)
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.magnitude_threshold",
+        current_value=50,
+        default_value=70,
+    )
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        await pilot.click("#reset-btn")
+        await pilot.pause()
+        # Input should reflect the default
+        assert modal.query_one("#modal-input", Input).value == "70"
+
+    flat = load_all(service.db)
+    assert flat["movement.magnitude_threshold"] == 70
