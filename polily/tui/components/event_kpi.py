@@ -47,7 +47,7 @@ def _kpi_end_label(event, markets: list, *, now=None) -> str:
     ]
     if not ends:
         return "?"
-    return format_countdown_range(min(ends), max(ends))
+    return format_countdown_range(min(ends), max(ends), now=now)
 
 
 class EventKpiRow(Widget):
