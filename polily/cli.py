@@ -101,6 +101,9 @@ def run_scheduler_daemon():
             # User repairs via TUI fatal screen or `polily config reset`.
             typer.echo(f"FATAL: db.config has invalid values: {e}", err=True)
             raise typer.Exit(1) from e
+        # Regenerate yaml snapshot so disk reflects daemon's runtime state.
+        # Per design §4.4 — both TUI and daemon are yaml regen hooks.
+        _regenerate_yaml_snapshot(config)
         run_daemon(db, config=config)
     finally:
         db.close()

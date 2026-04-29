@@ -106,3 +106,31 @@ def test_main_callback_regenerates_yaml_on_tui_launch(tmp_path, monkeypatch):
     yaml_content = (tmp_path / "config.yaml").read_text(encoding="utf-8")
     assert "magnitude_threshold: 42" in yaml_content
     assert "READ ONLY" in yaml_content
+
+
+def test_run_scheduler_regenerates_yaml(tmp_path, monkeypatch):
+    """daemon startup also regenerates config.yaml from db (per design §4.4).
+
+    Both TUI and daemon paths regen yaml; whichever process starts last
+    leaves its snapshot on disk. Both reflect the same db.config so
+    content is identical (only the timestamp in the header differs).
+    """
+    monkeypatch.chdir(tmp_path)
+    from polily.core.config_store import upsert
+    from polily.core.db import PolilyDB
+    db_path = tmp_path / "data" / "polily.db"
+    db_path.parent.mkdir(exist_ok=True)
+    db = PolilyDB(db_path)
+    upsert(db, "movement.quality_threshold", 75)
+    db.close()
+
+    monkeypatch.setattr(
+        "polily.daemon.scheduler.run_daemon", lambda db, config: None
+    )
+
+    from polily.cli import run_scheduler_daemon
+    run_scheduler_daemon()
+
+    yaml_content = (tmp_path / "config.yaml").read_text(encoding="utf-8")
+    assert "quality_threshold: 75" in yaml_content
+    assert "READ ONLY" in yaml_content
