@@ -158,6 +158,101 @@ def _leaves_under_section(
     return rows
 
 
+class WeightFamilyNode(Widget):
+    """Container for one family (magnitude or quality) of a market type."""
+
+    DEFAULT_CSS = """
+    WeightFamilyNode { height: auto; padding: 0 0 0 4; }
+    WeightFamilyNode .family-header { color: $primary; }
+    WeightFamilyNode .family-sum { color: $text-muted; padding-left: 2; }
+    """
+
+    def __init__(
+        self,
+        market_type: str,
+        family: str,
+        leaves: list[LeafRow],
+    ) -> None:
+        super().__init__(id=f"weights-{market_type}-{family}")
+        self.market_type = market_type
+        self.family = family
+        self._leaves = leaves
+
+    @property
+    def family_sum(self) -> float:
+        return sum(leaf.current_value for leaf in self._leaves)
+
+    def compose(self) -> ComposeResult:
+        sum_color = "green" if 0.99 <= self.family_sum <= 1.01 else "yellow"
+        yield Static(
+            f"   ▼ {self.family}",
+            classes="family-header",
+        )
+        yield Static(
+            f"     [dim]sum = [{sum_color}]{self.family_sum:.2f}[/{sum_color}][/dim]",
+            classes="family-sum",
+        )
+        yield from self._leaves
+
+
+class MarketTypeNode(Widget):
+    """Container for one market type (crypto / political / economic_data / default)."""
+
+    DEFAULT_CSS = """
+    MarketTypeNode { height: auto; padding: 0 0 0 2; }
+    MarketTypeNode .market-type-header { color: $primary; }
+    """
+
+    def __init__(self, market_type: str, current: dict, loaded: dict, defaults: dict) -> None:
+        super().__init__()
+        self.market_type = market_type
+        self._current = current
+        self._loaded = loaded
+        self._defaults = defaults
+
+    def compose(self) -> ComposeResult:
+        yield Static(
+            f"  ▼ {self.market_type}",
+            classes="market-type-header",
+        )
+        for family in ("magnitude", "quality"):
+            prefix = f"movement.weights.{self.market_type}.{family}."
+            family_leaves: list[LeafRow] = []
+            # Iterate defaults to preserve declaration order (T5.6 lesson)
+            for k in self._defaults:
+                if k.startswith(prefix):
+                    family_leaves.append(LeafRow(
+                        key_path=k,
+                        current_value=self._current[k],
+                        loaded_value=self._loaded.get(k, self._defaults.get(k)),
+                        default_value=self._defaults[k],
+                    ))
+            if family_leaves:
+                yield WeightFamilyNode(self.market_type, family, family_leaves)
+
+
+class WeightsTree(Widget):
+    """Top-level weights subtree under the Movement section."""
+
+    DEFAULT_CSS = """
+    WeightsTree { height: auto; padding: 1 0 0 2; }
+    WeightsTree .weights-header { color: $primary; text-style: bold; }
+    """
+
+    def __init__(self, current: dict, loaded: dict, defaults: dict) -> None:
+        super().__init__(id="movement-weights-tree")
+        self._current = current
+        self._loaded = loaded
+        self._defaults = defaults
+
+    def compose(self) -> ComposeResult:
+        yield Static("  ▼ weights (异动信号权重)", classes="weights-header")
+        for market_type in ("crypto", "political", "economic_data", "default"):
+            yield MarketTypeNode(
+                market_type, self._current, self._loaded, self._defaults,
+            )
+
+
 class ConfigSection(Widget):
     """One foldable section. Holds a header + list of LeafRow children."""
 
@@ -194,9 +289,15 @@ class ConfigSection(Widget):
         # via *children) — avoids the on_mount lazy-mount race where the
         # body Widget yielded in compose() may not exist yet when on_mount
         # runs against the still-composing tree.
-        rows = self._build_rows()
+        children: list[Widget] = list(self._build_rows())
+        if self.section_id == "movement" and self._view is not None:
+            children.append(WeightsTree(
+                self._view.current_config,
+                self._view.loaded_config,
+                self._view.default_config,
+            ))
         yield Widget(
-            *rows,
+            *children,
             classes="section-body",
             id=f"body-{self.section_id}",
         )

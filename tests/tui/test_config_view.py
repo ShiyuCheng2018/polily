@@ -131,3 +131,28 @@ def test_count_pending_changes_filters_ephemeral():
     loaded = {"api.user_agent": "polily/0.10.0", "movement.magnitude_threshold": 70}
     current = {"api.user_agent": "polily/0.10.1", "movement.magnitude_threshold": 70}
     assert _count_pending_changes(loaded, current) == 0
+
+
+@pytest.mark.asyncio
+async def test_movement_weights_tree_renders_4_market_types(service):
+    """Per design §5.2 — weights subtree under Movement, 4 market types."""
+    view = ConfigView(service)
+    async with _Harness(view).run_test() as pilot:
+        await pilot.pause()
+        tree = view.query_one("#movement-weights-tree")
+        market_types = [n.market_type for n in tree.query("MarketTypeNode")]
+        assert market_types == ["crypto", "political", "economic_data", "default"]
+
+
+@pytest.mark.asyncio
+async def test_weights_show_sum_badge(service):
+    """Each magnitude/quality family shows sum=X.XX."""
+    view = ConfigView(service)
+    async with _Harness(view).run_test() as pilot:
+        await pilot.pause()
+        # Find crypto.magnitude family — its sum is 0.15+0.10+0.40+0.20+0.15 = 1.00
+        node = view.query_one("#weights-crypto-magnitude")
+        sum_text = "\n".join(
+            str(s.render()) for s in node.query("Static")
+        )
+        assert "sum = 1.00" in sum_text or "sum=1.00" in sum_text
