@@ -63,3 +63,23 @@ def test_load_all_aggregates_all_md_files_in_config_docs(tmp_path, monkeypatch):
     assert "movement.magnitude_threshold" in docs
     assert "scoring.thresholds.tier_a_min_score" in docs
     assert "should_be_ignored" not in docs
+
+
+def test_loader_output_contains_default_value_phrase():
+    """Every territory A description starts with `**默认 X。**`
+    (or `**默认 X.Y。**` etc.). Convention pin so future docs follow."""
+    docs = load_all()
+    territory_a = [
+        (k, v) for k, v in docs.items()
+        if k.startswith(("movement.", "scoring.", "mispricing.", "wallet."))
+    ]
+    no_default_phrase = [k for k, v in territory_a if "**默认" not in v]
+    assert not no_default_phrase, (
+        f"{len(no_default_phrase)} sections lack `**默认 X。**` phrase:\n"
+        + "\n".join(f"  - {k}" for k in sorted(no_default_phrase))
+    )
+
+
+def test_loader_handles_empty_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr("polily.core.config_docs._loader._DOCS_DIR", tmp_path)
+    assert load_all() == {}
