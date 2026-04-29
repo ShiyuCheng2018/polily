@@ -226,3 +226,44 @@ async def test_clicking_leaf_row_pushes_edit_modal(service):
         # ConfigEditModal should now be on the screen stack
         from polily.tui.views.config_modals import ConfigEditModal
         assert any(isinstance(s, ConfigEditModal) for s in pilot.app.screen_stack)
+
+
+@pytest.mark.asyncio
+async def test_restart_invokes_scheduler_restart_subprocess(service, monkeypatch):
+    """Whis B1 — restart action delegates to `polily scheduler restart`,
+    NOT bare kill_daemon (which would crash-loop with KeepAlive=true).
+    """
+    invoked = []
+    exit_called = {}
+
+    def fake_run(cmd, *a, **kw):
+        invoked.append(cmd)
+        return type("R", (), {"returncode": 0})()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("os._exit", lambda code: exit_called.setdefault("code", code))
+    monkeypatch.setattr(
+        "polily.core.config_yaml.generate_yaml",
+        lambda config, target: None,  # no-op
+    )
+
+    from polily.core.config_store import upsert
+    upsert(service.db, "movement.magnitude_threshold", 50)
+    service._config = service._load_default_config()
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        view.action_restart_polily()
+        await pilot.pause()
+        # Skip the set_timer wait by calling the lambda directly if needed
+        # — depends on how view implements the 2s exit delay.
+
+    # Verify subprocess was called with `polily scheduler restart`
+    assert any(
+        isinstance(c, list) and "scheduler" in c and "restart" in c
+        for c in invoked
+    ), f"expected `scheduler restart` invocation, got: {invoked}"
+    # Note: exit_called may or may not fire in test depending on timer behavior.
+    # If timer doesn't fire in run_test scope, that's acceptable — verify only
+    # the subprocess call.

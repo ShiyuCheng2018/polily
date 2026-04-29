@@ -411,6 +411,7 @@ class ConfigView(Widget):
 
     BINDINGS = [
         Binding("r", "refresh", "刷新", show=True),
+        Binding("ctrl+r", "restart_polily", "重启 polily", show=True),
         *NAV_BINDINGS,
     ]
 
@@ -463,6 +464,52 @@ class ConfigView(Widget):
     def action_refresh(self) -> None:
         self._refresh_state()
         self.refresh(recompose=True)
+
+    def action_restart_polily(self) -> None:
+        """Restart polily so config changes take effect.
+
+        Per design §5.5.2 + Whis B1:
+          1. Regenerate yaml so disk mirror is current
+          2. Delegate to `polily scheduler restart` (existing CLI command)
+             — handles unload + kill + ensure_daemon_running with the
+             correct sequence that v0.9.0 established. Avoids bare
+             kill_daemon(TERM) which would trigger launchd crash loop
+             due to KeepAlive=true.
+          3. Notify user + 2s delay + os._exit(0). User re-runs `polily`.
+
+        We do NOT directly call ensure_daemon_running ourselves — the
+        scheduler restart subcommand is the canonical path and is already
+        tested + maintained.
+        """
+        import contextlib
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        from polily.core.config_yaml import generate_yaml
+
+        # Step 1: regenerate yaml so disk reflects current db state.
+        # best-effort — yaml is a snapshot, not load-bearing.
+        with contextlib.suppress(Exception):
+            generate_yaml(self.service.config, Path("config.yaml"))
+
+        # Step 2: delegate to canonical `polily scheduler restart` command.
+        # if scheduler restart fails, we still exit TUI.
+        with contextlib.suppress(Exception):
+            polily_cmd = sys.argv[0] if sys.argv else "polily"
+            subprocess.run(
+                [polily_cmd, "scheduler", "restart"],
+                capture_output=True,
+                timeout=10,
+            )
+
+        # Step 3: notify user + small delay + exit TUI
+        self.notify(
+            "polily 已关闭。请重新运行 `polily` 应用改动。",
+            title="重启 polily",
+        )
+        self.set_timer(2.0, lambda: os._exit(0))
 
     def on_mount(self) -> None:
         from polily.core.events import TOPIC_HEARTBEAT
