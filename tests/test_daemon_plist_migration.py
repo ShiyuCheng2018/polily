@@ -1,6 +1,10 @@
 """Whis B2 — legacy plist with --config arg gets migrated on startup."""
 from __future__ import annotations
 
+import subprocess
+
+import pytest
+
 
 def test_legacy_plist_with_config_flag_gets_rewritten(tmp_path, monkeypatch):
     """User upgrading from v0.9.x has a plist containing --config xxx;
@@ -83,3 +87,66 @@ def test_missing_plist_skips_migration(tmp_path, monkeypatch):
 
     from polily.daemon.scheduler import _migrate_legacy_plist
     assert _migrate_legacy_plist() is False
+
+
+def test_migration_load_failure_propagates(tmp_path, monkeypatch):
+    """If launchctl load fails after the rewrite, error propagates so the
+    daemon-startup caller (ensure_daemon_running) can react. Silent failure
+    here would defeat B2's purpose — daemon would keep crash-looping with
+    legacy plist until reboot."""
+    plist_path = tmp_path / "com.polily.scheduler.plist"
+    plist_path.write_text(
+        '<?xml version="1.0"?><plist><dict>'
+        "<key>ProgramArguments</key><array>"
+        "<string>polily</string><string>scheduler</string><string>run</string>"
+        "<string>--config</string><string>/x.yaml</string>"
+        "</array></dict></plist>",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+
+    def fake_run(cmd, *a, **kw):
+        # unload succeeds (rc=0); load fails. check=True on the load call
+        # turns the non-zero rc into a real CalledProcessError that the
+        # migration code is expected to propagate.
+        if "load" in cmd:
+            raise subprocess.CalledProcessError(
+                returncode=1, cmd=cmd, stderr="bad plist",
+            )
+        return type("R", (), {"returncode": 0, "stderr": ""})()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    from polily.daemon.scheduler import _migrate_legacy_plist
+    with pytest.raises(subprocess.CalledProcessError):
+        _migrate_legacy_plist()
+
+
+def test_migration_called_twice_second_call_is_noop(tmp_path, monkeypatch):
+    """First call rewrites legacy plist; second call sees modern plist
+    and returns False without invoking launchctl."""
+    plist_path = tmp_path / "com.polily.scheduler.plist"
+    plist_path.write_text(
+        '<?xml version="1.0"?><plist><dict>'
+        "<key>ProgramArguments</key><array>"
+        "<string>polily</string><string>scheduler</string><string>run</string>"
+        "<string>--config</string><string>/x.yaml</string>"
+        "</array></dict></plist>",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    invocations = []
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda cmd, *a, **kw: invocations.append(cmd)
+        or type("R", (), {"returncode": 0, "stderr": ""})(),
+    )
+
+    from polily.daemon.scheduler import _migrate_legacy_plist
+    assert _migrate_legacy_plist() is True   # first call: rewrites
+    invocations_after_first = len(invocations)
+    assert _migrate_legacy_plist() is False  # second call: no-op
+    # No further launchctl calls on second invocation
+    assert len(invocations) == invocations_after_first

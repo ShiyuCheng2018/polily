@@ -142,17 +142,40 @@ def _migrate_legacy_plist() -> bool:
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     PLIST_PATH.write_bytes(plist_bytes)
 
-    # Reload so launchd picks up the new args. Both calls are best-effort
-    # (capture_output) — if launchctl is missing or the service isn't
-    # registered yet, we don't want the migration to throw.
-    subprocess.run(
+    # Reload so launchd picks up the new args. unload is best-effort —
+    # service may not be currently loaded (e.g. first boot, or user ran
+    # `launchctl unload` manually). Non-zero rc here is expected and not
+    # fatal, but log it for diagnostics.
+    unload_result = subprocess.run(
         ["launchctl", "unload", str(PLIST_PATH)],
         capture_output=True,
+        text=True,
     )
-    subprocess.run(
-        ["launchctl", "load", str(PLIST_PATH)],
-        capture_output=True,
-    )
+    if unload_result.returncode != 0:
+        logger.warning(
+            "launchctl unload during plist migration returned %d: %s",
+            unload_result.returncode,
+            unload_result.stderr.strip() or "(no stderr)",
+        )
+
+    # load is critical — if it fails, launchd keeps the legacy spec
+    # in memory until reboot, defeating B2's whole purpose (the daemon
+    # crash-loops because the in-memory plist still carries --config).
+    # Propagate so ensure_daemon_running's caller can react.
+    try:
+        subprocess.run(
+            ["launchctl", "load", str(PLIST_PATH)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(
+            "launchctl load during plist migration failed (rc=%d): %s",
+            e.returncode,
+            (e.stderr or "").strip() or "(no stderr)",
+        )
+        raise
     return True
 
 
