@@ -269,6 +269,135 @@ async def test_restart_invokes_scheduler_restart_subprocess(service, monkeypatch
     # the subprocess call.
 
 
+# ---- SF4: restart subprocess fail-loud -------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_restart_does_not_exit_when_subprocess_returns_nonzero(
+    service, monkeypatch,
+):
+    """SF4 — if `polily scheduler restart` returns non-zero rc, surface error
+    via notify and DO NOT schedule os._exit. Otherwise the TUI silently exits
+    while the daemon stays dead → user reopens 30s later and discovers nothing
+    is running.
+    """
+    timer_calls = []
+    notify_calls = []
+
+    def fake_run(cmd, *a, **kw):
+        return type("R", (), {
+            "returncode": 1,
+            "stderr": "launchctl: bootstrap denied",
+            "stdout": "",
+        })()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "polily.core.config_yaml.generate_yaml",
+        lambda config, target: None,
+    )
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        # Patch view.set_timer + notify after mount so we capture the calls
+        monkeypatch.setattr(
+            view, "set_timer",
+            lambda delay, fn: timer_calls.append((delay, fn)),
+        )
+        monkeypatch.setattr(
+            view, "notify",
+            lambda msg, **kw: notify_calls.append((msg, kw)),
+        )
+        view.action_restart_polily()
+        await pilot.pause()
+
+    # No exit timer scheduled
+    assert timer_calls == [], (
+        f"set_timer should NOT have been called on subprocess failure, "
+        f"got: {timer_calls}"
+    )
+    # Error notify fired
+    assert any(
+        kw.get("severity") == "error" and "失败" in msg
+        for msg, kw in notify_calls
+    ), f"expected error notify on rc=1, got: {notify_calls}"
+
+
+@pytest.mark.asyncio
+async def test_restart_does_not_exit_when_subprocess_raises(service, monkeypatch):
+    """SF4 — if subprocess.run raises (TimeoutExpired / FileNotFoundError /
+    PermissionError), surface error via notify and DO NOT exit."""
+    import subprocess
+
+    timer_calls = []
+    notify_calls = []
+
+    def fake_run(cmd, *a, **kw):
+        raise subprocess.TimeoutExpired(cmd, 10)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "polily.core.config_yaml.generate_yaml",
+        lambda config, target: None,
+    )
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(
+            view, "set_timer",
+            lambda delay, fn: timer_calls.append((delay, fn)),
+        )
+        monkeypatch.setattr(
+            view, "notify",
+            lambda msg, **kw: notify_calls.append((msg, kw)),
+        )
+        view.action_restart_polily()
+        await pilot.pause()
+
+    assert timer_calls == [], (
+        f"set_timer should NOT fire when subprocess raises, got: {timer_calls}"
+    )
+    assert any(
+        kw.get("severity") == "error" and "失败" in msg
+        for msg, kw in notify_calls
+    ), f"expected error notify on subprocess raise, got: {notify_calls}"
+
+
+@pytest.mark.asyncio
+async def test_restart_schedules_exit_only_on_subprocess_success(
+    service, monkeypatch,
+):
+    """SF4 — happy path: rc=0 → set_timer fires for the os._exit call."""
+    timer_calls = []
+
+    def fake_run(cmd, *a, **kw):
+        return type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "polily.core.config_yaml.generate_yaml",
+        lambda config, target: None,
+    )
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(
+            view, "set_timer",
+            lambda delay, fn: timer_calls.append((delay, fn)),
+        )
+        view.action_restart_polily()
+        await pilot.pause()
+
+    assert len(timer_calls) == 1, (
+        f"expected 1 set_timer call on success, got: {timer_calls}"
+    )
+    # Delay should be the existing 2.0s grace period
+    assert timer_calls[0][0] == 2.0
+
+
 # ---- B3: LeafRow keyboard accessibility ------------------------------------
 
 

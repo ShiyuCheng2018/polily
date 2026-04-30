@@ -596,14 +596,24 @@ class ConfigView(Widget):
              correct sequence that v0.9.0 established. Avoids bare
              kill_daemon(TERM) which would trigger launchd crash loop
              due to KeepAlive=true.
-          3. Notify user + 2s delay + os._exit(0). User re-runs `polily`.
+          3. On success: notify user + 2s delay + os._exit(0).
+             On failure (rc != 0 or subprocess raises): surface error
+             via notify and DO NOT exit (SF4) — otherwise the TUI
+             silently dies while the daemon stays dead, and the user
+             reopens 30s later to find no daemon running with no clue
+             why.
 
         We do NOT directly call ensure_daemon_running ourselves — the
         scheduler restart subcommand is the canonical path and is already
         tested + maintained.
+
+        SF17 (Batch 6) will move the subprocess to a worker thread so a
+        hung restart doesn't freeze the event loop. The synchronous
+        version here is fine — just fail-loud.
         """
         import contextlib
         import os
+        import shutil
         import subprocess
         import sys
         from pathlib import Path
@@ -616,19 +626,39 @@ class ConfigView(Widget):
             generate_yaml(self.service.config, Path("config.yaml"))
 
         # Step 2: delegate to canonical `polily scheduler restart` command.
-        # if scheduler restart fails, we still exit TUI.
-        with contextlib.suppress(Exception):
-            polily_cmd = sys.argv[0] if sys.argv else "polily"
-            subprocess.run(
+        polily_cmd = shutil.which("polily") or (
+            sys.argv[0] if sys.argv else "polily"
+        )
+        try:
+            result = subprocess.run(
                 [polily_cmd, "scheduler", "restart"],
                 capture_output=True,
                 timeout=10,
+                text=True,
             )
+        except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError) as e:
+            self.notify(
+                f"❌ 重启 daemon 失败: {type(e).__name__}: {e}",
+                severity="error",
+                timeout=10,
+            )
+            return
 
-        # Step 3: notify user + small delay + exit TUI
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "").strip()[:500]
+            self.notify(
+                f"❌ 重启 daemon 失败 (rc={result.returncode}): "
+                f"{err or '(no output)'}",
+                severity="error",
+                timeout=10,
+            )
+            return
+
+        # Step 3: success — notify user + small delay + exit TUI
         self.notify(
-            "polily 已关闭。请重新运行 `polily` 应用改动。",
+            "✅ Daemon 已重启。polily TUI 将在 2 秒后关闭，请重开。",
             title="重启 polily",
+            timeout=2,
         )
         self.set_timer(2.0, lambda: os._exit(0))
 
