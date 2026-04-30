@@ -144,12 +144,43 @@ def _flatten_pydantic(model: BaseModel, prefix: str = "") -> dict[str, Any]:
                     # Nested scalar dict (e.g., MovementWeights.magnitude is
                     # dict[str, float]). Each key is a final leaf.
                     for sub_key, leaf_value in sub_value.items():
+                        _assert_supported_scalar(
+                            f"{sub_path}.{sub_key}", leaf_value,
+                        )
                         flat[f"{sub_path}.{sub_key}"] = leaf_value
                 else:
+                    _assert_supported_scalar(sub_path, sub_value)
                     flat[sub_path] = sub_value
         else:
+            _assert_supported_scalar(path, value)
             flat[path] = value
     return flat
+
+
+def _assert_supported_scalar(path: str, value: Any) -> None:
+    """Reject sequence-typed and None-valued leaves with a clear error.
+
+    SF9 (v0.10.0) — _flatten_pydantic / _unflatten / TUI Edit modal all
+    assume scalar leaves. If a future schema-edit slips a list-typed or
+    Optional-None-valued field in, every consumer would silently fall
+    out of sync (db round-trips the JSON, model_validate accepts it, but
+    _resolve_field_annotation + _coerce_value can't render or coerce
+    the value in the Edit modal). Fail loud here so the regression
+    surfaces at the seed/migrate boundary instead of as a half-broken
+    UI later.
+    """
+    if isinstance(value, (list, tuple, set)):
+        raise NotImplementedError(
+            f"_flatten_pydantic doesn't support sequence-typed leaves yet "
+            f"(got {type(value).__name__} at '{path}'). "
+            f"Add explicit handling here + matching un-flatten + TUI editor support."
+        )
+    if value is None:
+        raise NotImplementedError(
+            f"_flatten_pydantic doesn't support None-valued leaves "
+            f"(at '{path}'). Use a non-Optional field with a sensible default, "
+            f"or extend this helper."
+        )
 
 
 def _unflatten(flat: dict[str, Any]) -> dict[str, Any]:
