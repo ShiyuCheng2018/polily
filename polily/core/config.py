@@ -280,12 +280,47 @@ def default_db_path() -> Path:
     return Path(PolilyConfig().archiving.db_file)
 
 
+def _unwrap_annotation(ann):
+    """Strip Optional[X] → X and Annotated[X, ...] → X.
+
+    Repeated until neither wrapping applies. Generic Union[X, Y] (multiple
+    non-None args) is returned as-is; ``_coerce_value`` will raise the
+    ``不支持的类型`` error which is the right behavior — config knobs
+    aren't supposed to be sum types.
+
+    SF8 (v0.10.0): added so live validation in the TUI Edit modal still
+    works after a future schema-evolution slap of ``Optional[int]`` or
+    ``Annotated[float, Field(ge=1.0)]`` on a leaf. Without this, those
+    wrappings would fall through to ``_coerce_value`` and hit the
+    ``不支持的类型`` branch even when the underlying scalar is coercible.
+    """
+    import typing as _t
+
+    while True:
+        # Annotated[X, metadata...] (PEP 593)
+        if hasattr(ann, "__metadata__"):
+            ann = _t.get_args(ann)[0]
+            continue
+        # Optional[X] = Union[X, None] — unwrap only when exactly one
+        # non-None arg remains (i.e. genuine Optional, not generic Union).
+        origin = _t.get_origin(ann)
+        if origin is _t.Union:
+            args = [a for a in _t.get_args(ann) if a is not type(None)]
+            if len(args) == 1:
+                ann = args[0]
+                continue
+        return ann
+
+
 def _resolve_field_annotation(key_path: str):
     """Walk PolilyConfig schema to find the type annotation for a key_path.
 
     For nested dict[str, BaseModel] (e.g. movement.weights.crypto.magnitude.X)
     descends into the dict's value type. For dict[str, scalar] returns the
     scalar value type. Returns None if the key doesn't resolve.
+
+    Optional[X] / Annotated[X, ...] wrappings are stripped via
+    ``_unwrap_annotation`` at every annotation read (SF8).
 
     Used by Edit modal live validation — coerce raw input to the right type
     before attempting full PolilyConfig.model_validate().
@@ -303,7 +338,7 @@ def _resolve_field_annotation(key_path: str):
             field = cursor.model_fields.get(part)
             if field is None:
                 return None
-            cursor = field.annotation
+            cursor = _unwrap_annotation(field.annotation)
             if is_last:
                 return cursor
             continue
@@ -313,14 +348,14 @@ def _resolve_field_annotation(key_path: str):
         if origin is dict:
             args = _t.get_args(cursor)
             if len(args) >= 2:
-                cursor = args[1]
+                cursor = _unwrap_annotation(args[1])
                 if isinstance(cursor, type) and issubclass(cursor, BaseModel):
                     continue
                 inner_origin = _t.get_origin(cursor)
                 if inner_origin is dict:
                     inner_args = _t.get_args(cursor)
                     if len(inner_args) >= 2:
-                        cursor = inner_args[1]
+                        cursor = _unwrap_annotation(inner_args[1])
                 if is_last:
                     return cursor
                 continue
