@@ -111,8 +111,9 @@ def _migrate_legacy_plist() -> bool:
     effect on the next daemon spawn.
 
     Returns True if a migration was performed, False otherwise (no plist
-    on disk / already modern). Idempotent — safe to call on every
-    startup; modern plists are read once and left untouched.
+    on disk / already modern / non-Darwin / launchctl missing).
+    Idempotent — safe to call on every startup; modern plists are read
+    once and left untouched.
 
     Why this exists: pre-v0.10.0 plists embedded ``--config <path>`` in
     ProgramArguments. After T2.5 deleted that flag from the ``scheduler
@@ -124,8 +125,24 @@ def _migrate_legacy_plist() -> bool:
     auto-heal flow in ``ensure_daemon_running`` re-runs immediately
     after, but it'll see the freshly-written modern plist as matching
     the desired bytes and short-circuit (no double reload).
+
+    SF7 (v0.10.0): platform-guarded so non-Darwin dev boxes / Linux CI
+    don't crash on ``FileNotFoundError`` when ``launchctl`` isn't on
+    PATH. Also skips when launchctl can't be resolved on Darwin (rare,
+    but possible in stripped sandbox environments).
     """
     import subprocess
+
+    # Platform guard — launchctl is macOS-only. On Linux/Windows, the
+    # whole concept of a launchd plist doesn't apply.
+    if sys.platform != "darwin":
+        return False
+
+    # Defense-in-depth: even on Darwin, skip if launchctl can't be found.
+    # subprocess.run with FileNotFoundError would propagate out of the
+    # daemon-startup auto-heal path and crash the TUI on launch.
+    if shutil.which("launchctl") is None:
+        return False
 
     if not PLIST_PATH.exists():
         return False

@@ -230,10 +230,22 @@ def load_config_from_db(db) -> PolilyConfig:
     # of migrate count-check vs seed insert. Without BEGIN IMMEDIATE, two
     # processes both see count=0 → process B's seed writes defaults →
     # process A's migrate INSERT OR IGNORE no-ops user yaml values silently.
-    with db.conn:
-        db.conn.execute("BEGIN IMMEDIATE")
+    #
+    # SF6 (v0.10.0): explicit BEGIN IMMEDIATE / commit / rollback rather
+    # than `with db.conn:` wrapping. Python's default isolation_level
+    # opens an implicit transaction inside `with db.conn:`, then issuing
+    # `BEGIN IMMEDIATE` inside is either a no-op or — on stricter sqlite
+    # builds — `OperationalError: cannot start a transaction within a
+    # transaction`. Explicit control sidesteps both ambiguity and the
+    # nested-with confusion (ensure_seeded itself uses `with db.conn:`).
+    db.conn.execute("BEGIN IMMEDIATE")
+    try:
         _migrate_yaml_to_db(db)
         ensure_seeded(db)
+        db.conn.commit()
+    except Exception:
+        db.conn.rollback()
+        raise
 
     flat = load_all(db)
     # Defensive — even if user manually inserted EPHEMERAL_FIELDS rows via

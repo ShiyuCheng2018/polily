@@ -123,6 +123,69 @@ def test_migration_load_failure_propagates(tmp_path, monkeypatch):
         _migrate_legacy_plist()
 
 
+def test_migration_no_op_on_non_darwin(tmp_path, monkeypatch):
+    """SF7 (v0.10.0) — `_migrate_legacy_plist` must be a no-op on Linux /
+    other non-Darwin platforms. CI runs on Linux; before this guard,
+    `subprocess.run(['launchctl', ...])` raised FileNotFoundError when
+    launchctl wasn't on PATH, propagating out of every daemon-startup code
+    path that called the helper."""
+    plist_path = tmp_path / "com.polily.scheduler.plist"
+    # Even with a legacy plist on disk, non-Darwin must skip cleanly.
+    plist_path.write_text(
+        '<?xml version="1.0"?><plist><dict>'
+        "<key>ProgramArguments</key><array>"
+        "<string>polily</string><string>scheduler</string><string>run</string>"
+        "<string>--config</string><string>/x.yaml</string>"
+        "</array></dict></plist>",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    monkeypatch.setattr("sys.platform", "linux")
+
+    # subprocess.run must NEVER be called — if it is, the test is asserting
+    # the wrong behavior (the guard should skip *before* any subprocess work).
+    def fail_subprocess_run(*a, **kw):
+        raise AssertionError(
+            "subprocess.run was called on non-Darwin platform — "
+            "the SF7 guard should have already returned False.",
+        )
+
+    monkeypatch.setattr("subprocess.run", fail_subprocess_run)
+
+    from polily.daemon.scheduler import _migrate_legacy_plist
+    assert _migrate_legacy_plist() is False
+    # Plist file should still be on disk untouched
+    assert "--config" in plist_path.read_text(encoding="utf-8")
+
+
+def test_migration_no_op_when_launchctl_not_on_path(tmp_path, monkeypatch):
+    """SF7 — even on Darwin, if `shutil.which('launchctl')` returns None
+    (extreme fringe case: `/bin` stripped from PATH, or sandboxed env),
+    the helper must still skip gracefully rather than blowing up with
+    FileNotFoundError when subprocess.run tries to exec launchctl."""
+    plist_path = tmp_path / "com.polily.scheduler.plist"
+    plist_path.write_text(
+        '<?xml version="1.0"?><plist><dict>'
+        "<key>ProgramArguments</key><array>"
+        "<string>polily</string><string>scheduler</string><string>run</string>"
+        "<string>--config</string><string>/x.yaml</string>"
+        "</array></dict></plist>",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    monkeypatch.setattr("sys.platform", "darwin")
+    # Force which() to report launchctl missing
+    monkeypatch.setattr("shutil.which", lambda name: None)
+
+    def fail_subprocess_run(*a, **kw):
+        raise AssertionError("subprocess.run called despite missing launchctl")
+
+    monkeypatch.setattr("subprocess.run", fail_subprocess_run)
+
+    from polily.daemon.scheduler import _migrate_legacy_plist
+    assert _migrate_legacy_plist() is False
+
+
 def test_migration_called_twice_second_call_is_noop(tmp_path, monkeypatch):
     """First call rewrites legacy plist; second call sees modern plist
     and returns False without invoking launchctl."""
