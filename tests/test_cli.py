@@ -134,3 +134,90 @@ def test_run_scheduler_regenerates_yaml(tmp_path, monkeypatch):
     yaml_content = (tmp_path / "config.yaml").read_text(encoding="utf-8")
     assert "quality_threshold: 75" in yaml_content
     assert "READ ONLY" in yaml_content
+
+
+# --- S6: launchctl-flavored scheduler subcommand messages -----------------
+#
+# v0.9.0 made `launchctl list com.polily.scheduler` the single source of
+# truth for daemon aliveness; the `data/scheduler.pid` file is no longer
+# written. These tests pin user-visible copy in `polily scheduler stop`
+# and `polily scheduler status` so it doesn't lie about a "PID file" that
+# polily hasn't touched in over a release cycle.
+
+
+def test_scheduler_stop_message_when_not_running(monkeypatch):
+    """`scheduler stop` with no daemon should not mention 'PID file'."""
+    from typer.testing import CliRunner
+
+    from polily.cli import app
+
+    monkeypatch.setattr("polily.cli._read_pid", lambda: None)
+    # Avoid actual launchctl unload on the test host.
+    import subprocess
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **kw: subprocess.CompletedProcess(a, 0, b"", b""),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["scheduler", "stop"])
+    assert result.exit_code == 1
+    assert "PID file" not in result.stdout
+    assert "launchctl" in result.stdout
+
+
+def test_scheduler_stop_message_when_pid_stale(monkeypatch):
+    """Stale PID path: message must reflect launchctl, not a file."""
+    from typer.testing import CliRunner
+
+    from polily.cli import app
+
+    monkeypatch.setattr("polily.cli._read_pid", lambda: 12345)
+    monkeypatch.setattr("polily.cli._pid_alive", lambda pid: False)
+    import subprocess
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **kw: subprocess.CompletedProcess(a, 0, b"", b""),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["scheduler", "stop"])
+    assert result.exit_code == 1
+    assert "PID file" not in result.stdout
+    assert "12345" in result.stdout
+    assert "launchctl" in result.stdout
+
+
+def test_scheduler_status_message_when_not_running(monkeypatch):
+    """`scheduler status` with no daemon should not mention 'PID file'."""
+    from typer.testing import CliRunner
+
+    from polily.cli import app
+
+    monkeypatch.setattr("polily.cli._read_pid", lambda: None)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["scheduler", "status"])
+    assert result.exit_code == 0
+    assert "PID file" not in result.stdout
+    assert "NOT RUNNING" in result.stdout
+    assert "launchctl" in result.stdout
+
+
+def test_scheduler_status_message_when_pid_stale(monkeypatch):
+    """Stale PID via status: launchctl-flavored message, no file unlink."""
+    from typer.testing import CliRunner
+
+    from polily.cli import app
+
+    monkeypatch.setattr("polily.cli._read_pid", lambda: 99999)
+    monkeypatch.setattr("polily.cli._pid_alive", lambda pid: False)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["scheduler", "status"])
+    assert result.exit_code == 0
+    assert "PID file" not in result.stdout
+    assert "NOT RUNNING" in result.stdout
+    assert "99999" in result.stdout

@@ -93,10 +93,12 @@ def main(ctx: typer.Context):
 scheduler_app = typer.Typer(help="Manage the background scheduler daemon")
 app.add_typer(scheduler_app, name="scheduler")
 
-# Path kept for Task C one-shot stale-file cleanup on daemon startup
-# and for the `reset` command's legacy-file deletion table. No read
-# logic in this module relies on it — launchctl is authoritative.
-PID_FILE = Path("data/scheduler.pid")
+# v0.9.0: launchctl is the single source of truth for daemon aliveness
+# (see `polily/daemon/launchctl_query.py`). Polily no longer writes
+# `data/scheduler.pid`; the legacy file is one-shot swept on daemon
+# startup via `polily/daemon/scheduler.py::_sweep_legacy_pid_file`.
+# Nothing in this module reads or writes a PID file anymore — copy
+# below MUST NOT mention one.
 
 
 def _read_pid() -> int | None:
@@ -178,14 +180,16 @@ def stop():
 
     pid = _read_pid()
     if pid is None:
-        typer.echo("Scheduler is not running (no PID file).")
+        typer.echo("Scheduler is not running (launchctl: not loaded).")
         # Still attempt unload so any registered launchctl entry gets cleared.
         subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
         raise typer.Exit(1)
 
     if not _pid_alive(pid):
-        typer.echo(f"Scheduler PID {pid} is not running. Cleaning up stale PID file.")
-        PID_FILE.unlink(missing_ok=True)
+        typer.echo(
+            f"Scheduler PID {pid} is not running. "
+            "Stale launchctl entry — will be replaced on next start."
+        )
         subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
         raise typer.Exit(1)
 
@@ -223,13 +227,12 @@ def status():
     """Show scheduler daemon status and pending jobs."""
     pid = _read_pid()
     if pid is None:
-        typer.echo("Scheduler: NOT RUNNING (no PID file)")
+        typer.echo("Scheduler: NOT RUNNING (launchctl: not loaded)")
         raise typer.Exit(0)
 
     alive = _pid_alive(pid)
     if not alive:
-        typer.echo(f"Scheduler: NOT RUNNING (stale PID {pid})")
-        PID_FILE.unlink(missing_ok=True)
+        typer.echo(f"Scheduler: NOT RUNNING (stale launchctl PID {pid})")
         raise typer.Exit(0)
 
     typer.echo(f"Scheduler: RUNNING (PID {pid})")
