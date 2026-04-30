@@ -57,14 +57,14 @@ def test_hidden_in_tui_exact_membership():
     """Lock the 6 currently-hidden leaves. Future additions to
     HIDDEN_IN_TUI must update this test in the same commit (forces a
     conscious choice, mirrors EPHEMERAL_FIELDS pattern)."""
-    assert HIDDEN_IN_TUI == frozenset({
+    assert frozenset({
         "api.request_timeout_seconds",
         "ai.narrative_writer.model",
         "ai.narrative_writer.timeout_seconds",
         "ai.narrative_writer.max_prompt_chars",
         "tui.heartbeat_seconds",
         "archiving.db_file",
-    })
+    }) == HIDDEN_IN_TUI
 
 
 def test_is_territory_a_rejects_hypothetical_wallet_api_key():

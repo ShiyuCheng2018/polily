@@ -1,5 +1,6 @@
 """Unified SQLite database for Polily."""
 
+import contextlib
 import json
 import sqlite3
 from pathlib import Path
@@ -256,13 +257,12 @@ class PolilyDB:
         mode_row = self.conn.execute("PRAGMA journal_mode").fetchone()
         current_mode = mode_row[0] if mode_row else ""
         if str(current_mode).lower() != "wal":
-            try:
+            # Another process may be mid-WAL-init; the loser of the race sees
+            # SQLITE_LOCKED, but its subsequent reads/writes still operate
+            # against the WAL journal set by the winner — so suppress and
+            # continue rather than failing the whole construction.
+            with contextlib.suppress(sqlite3.OperationalError):
                 self.conn.execute("PRAGMA journal_mode=WAL")
-            except sqlite3.OperationalError:
-                # Another process is mid-WAL-init; subsequent reads/writes
-                # via this connection still operate against the WAL journal
-                # set by that other process.
-                pass
         self.conn.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
 

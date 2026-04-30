@@ -25,7 +25,6 @@ from polily.core.config import (
 )
 from polily.core.config_store import _flatten_pydantic
 
-
 # --- _resolve_field_annotation: real PolilyConfig leaves ---
 
 
