@@ -104,6 +104,24 @@ class ConfigEditModal(ModalScreen[bool | None]):
     def _last_segment(self) -> str:
         return self._key_path.rsplit(".", 1)[-1]
 
+    def _cancel_validation_timer(self) -> None:
+        """SF14 / round-2 (Goku #2) — cancel pending live-validation timer.
+
+        Called from every dismiss path (save / reset / cancel / ESC) to
+        prevent a queued validation from firing against a torn-down widget
+        tree after the modal has dismissed. Without this, the timer's
+        callback runs `_show_error` which does `query_one("#modal-error")`
+        — `contextlib.suppress` in `_show_error` swallows the resulting
+        widget-not-found error, so no crash, but it's wasted work against
+        a dead screen.
+
+        Idempotent: safe to call when no timer is pending.
+        """
+        if self._validation_timer is not None:
+            with contextlib.suppress(Exception):
+                self._validation_timer.stop()
+            self._validation_timer = None
+
     def compose(self) -> ComposeResult:
         from polily.core.config_docs import load_all
         docs = load_all()
@@ -138,11 +156,16 @@ class ConfigEditModal(ModalScreen[bool | None]):
                 yield Button("重置为默认", id="reset-btn", variant="warning")
 
     def action_cancel(self) -> None:
+        # Round-2 (Goku #2) — cancel pending validation timer so it can't
+        # fire against a torn-down widget tree post-dismiss.
+        self._cancel_validation_timer()
         self.dismiss(None)
 
     def on_confirm_cancel_bar_cancelled(
         self, event: ConfirmCancelBar.Cancelled,
     ) -> None:
+        # Round-2 (Goku #2) — same as ESC.
+        self._cancel_validation_timer()
         self.dismiss(None)
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -208,10 +231,9 @@ class ConfigEditModal(ModalScreen[bool | None]):
         # for starting_balance which has Field(ge=1.0)) and clicks Save
         # before the 100ms timer fires, the timer would later overwrite
         # our Pydantic error message with an empty string.
-        if self._validation_timer is not None:
-            with contextlib.suppress(Exception):
-                self._validation_timer.stop()
-            self._validation_timer = None
+        # Round-2 (Goku #2) — refactored inline cancel into the
+        # `_cancel_validation_timer` helper used across all dismiss paths.
+        self._cancel_validation_timer()
 
         raw = self.query_one("#modal-input", Input).value
         annotation = _resolve_field_annotation(self._key_path)
@@ -234,6 +256,12 @@ class ConfigEditModal(ModalScreen[bool | None]):
 
     def _do_reset(self) -> None:
         from polily.core.config_store import reset
+        # Round-2 (Goku #2) — cancel any pending live-validation timer
+        # before we mutate the input. Setting `input.value = default`
+        # below fires `on_input_changed` which schedules a fresh timer;
+        # we don't want a stale timer from prior typing to fire against
+        # the now-default value.
+        self._cancel_validation_timer()
         try:
             reset(self._service.db, self._key_path)
         except Exception as e:

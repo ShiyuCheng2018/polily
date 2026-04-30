@@ -393,3 +393,224 @@ async def test_rapid_input_changes_coalesce_to_single_validation(service, monkey
         assert len(validation_calls) <= 2, (
             f"expected coalesced validation (≤2 calls), got {len(validation_calls)}"
         )
+
+
+# ---- Round-2 (Goku #2): cancel pending validation timer on every dismiss ---
+
+
+@pytest.mark.asyncio
+async def test_escape_cancels_pending_validation_timer(service, monkeypatch):
+    """Round-2 (Goku #2) — `_do_save` cancels the validation timer (good).
+    `action_cancel` (ESC) does NOT. If user types invalid → ESC within
+    100ms window, the timer fires after dismiss against a torn-down widget
+    tree. `contextlib.suppress` in `_show_error` swallows the resulting
+    `query_one` failure — no crash, but wasted call against a dead screen.
+
+    Fix: `_cancel_validation_timer` helper called from every dismiss path
+    (save / reset / cancel / ESC).
+    """
+    import asyncio
+
+    from textual.widgets import Input
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.daily_analysis_limit",
+        current_value=10,
+        default_value=10,
+    )
+
+    validation_calls = []
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        original = modal._run_live_validation
+
+        def counting_validation():
+            validation_calls.append(None)
+            return original()
+
+        monkeypatch.setattr(modal, "_run_live_validation", counting_validation)
+
+        # Type invalid value → schedules a 100ms validation timer
+        modal.query_one("#modal-input", Input).value = "abc"
+        # Immediately dismiss via ESC, well within the 100ms window.
+        modal.action_cancel()
+        await pilot.pause()
+
+        # Wait past the original 100ms window. With the cancel-on-dismiss
+        # fix, the timer is stopped — validation should NOT fire.
+        await asyncio.sleep(0.2)
+        await pilot.pause()
+
+    assert validation_calls == [], (
+        f"validation timer fired after ESC dismiss — should be cancelled. "
+        f"Calls: {len(validation_calls)}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cancel_button_cancels_pending_validation_timer(
+    service, monkeypatch,
+):
+    """Round-2 (Goku #2) — same as ESC but via the Cancel button
+    (`on_confirm_cancel_bar_cancelled`).
+    """
+    import asyncio
+
+    from textual.widgets import Input
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.daily_analysis_limit",
+        current_value=10,
+        default_value=10,
+    )
+
+    validation_calls = []
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        original = modal._run_live_validation
+
+        def counting_validation():
+            validation_calls.append(None)
+            return original()
+
+        monkeypatch.setattr(modal, "_run_live_validation", counting_validation)
+
+        modal.query_one("#modal-input", Input).value = "abc"
+        # Click cancel button — also dismisses with None.
+        await pilot.click("#cancel")
+        await pilot.pause()
+
+        await asyncio.sleep(0.2)
+        await pilot.pause()
+
+    assert validation_calls == [], (
+        f"validation timer fired after Cancel button — should be cancelled. "
+        f"Calls: {len(validation_calls)}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_reset_cancels_pending_validation_timer(service, monkeypatch):
+    """Round-2 (Goku #2) — Reset replaces the input with the default value,
+    which itself fires `on_input_changed` and re-schedules the timer. But
+    if a stale timer was already pending from prior typing, both timers
+    would run — the stale one against the now-replaced input value.
+
+    Fix: `_do_reset` cancels the pending timer up front, before the new
+    value triggers a fresh timer.
+    """
+    import asyncio
+
+    from textual.widgets import Input
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.daily_analysis_limit",
+        current_value=10,
+        default_value=10,
+    )
+
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+
+        # Type invalid → schedules a timer
+        modal.query_one("#modal-input", Input).value = "abc"
+        # Click reset before the timer fires. After reset, the only
+        # pending timer should be the one from setting input to "10"
+        # (default), not the stale "abc" one. Either way, no crash and
+        # the modal is in clean state.
+        await pilot.click("#reset-btn")
+        await pilot.pause()
+        # Wait past the window for any pending timers to fire harmlessly
+        await asyncio.sleep(0.2)
+        await pilot.pause()
+
+        # Modal is alive, error is cleared, input shows default.
+        assert modal.query_one("#modal-input", Input).value == "10"
+
+
+@pytest.mark.asyncio
+async def test_cancel_validation_timer_is_idempotent(service):
+    """Round-2 (Goku #2) — Helper must be safe to call when no timer is
+    pending (e.g. dismiss before any keystroke).
+    """
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.daily_analysis_limit",
+        current_value=10,
+        default_value=10,
+    )
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        # No timer scheduled — helper should be a clean no-op.
+        modal._cancel_validation_timer()
+        modal._cancel_validation_timer()  # twice for idempotency
+        assert modal._validation_timer is None
+
+
+@pytest.mark.asyncio
+async def test_action_cancel_clears_validation_timer_attribute(service):
+    """Round-2 (Goku #2) — After action_cancel, _validation_timer must be
+    None. Today (without the fix), action_cancel doesn't touch the timer
+    field, so a pending timer reference lingers on the dismissed modal.
+
+    This is the directly observable contract: helper called → field is None.
+    """
+    from textual.widgets import Input
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.daily_analysis_limit",
+        current_value=10,
+        default_value=10,
+    )
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        # Type invalid → schedule a timer
+        modal.query_one("#modal-input", Input).value = "abc"
+        await pilot.pause()
+        # Timer was scheduled by on_input_changed
+        assert modal._validation_timer is not None, (
+            "precondition: a validation timer should be pending after typing"
+        )
+
+        # ESC dismiss
+        modal.action_cancel()
+
+    # After cancel, the timer field must be None (cancelled + cleared)
+    assert modal._validation_timer is None, (
+        "action_cancel must cancel the pending validation timer"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cancel_bar_cancelled_clears_validation_timer_attribute(service):
+    """Round-2 (Goku #2) — `on_confirm_cancel_bar_cancelled` (Cancel button)
+    must also cancel the timer.
+    """
+    from textual.widgets import Input
+
+    from polily.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.daily_analysis_limit",
+        current_value=10,
+        default_value=10,
+    )
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        modal.query_one("#modal-input", Input).value = "abc"
+        await pilot.pause()
+        assert modal._validation_timer is not None
+
+        # Simulate Cancel button event
+        modal.on_confirm_cancel_bar_cancelled(
+            ConfirmCancelBar.Cancelled(),  # type: ignore[call-arg]
+        )
+
+    assert modal._validation_timer is None, (
+        "on_confirm_cancel_bar_cancelled must cancel the pending timer"
+    )
