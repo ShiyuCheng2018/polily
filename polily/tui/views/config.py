@@ -457,6 +457,14 @@ class ConfigSection(Widget):
         """Count (user_edited, total) leaves under this section's prefix.
 
         EPHEMERAL_FIELDS excluded. user_edited = current_value != Pydantic default.
+
+        Round-2 (Whis #2) — Skip keys present in `current_config` but missing
+        from `default_config`. Twin of SF11's drift-counter fix: if db has a
+        stale row (future schema rename / partial migration / manual sqlite
+        insert), we don't know what its "default" should be, so it's neither
+        a user edit nor a default — exclude it entirely. Without this guard,
+        `view.default_config[k]` raises KeyError and crashes the section
+        header re-render → kills the whole config view mount.
         """
         section_prefixes = {
             "movement": "movement.",
@@ -473,6 +481,9 @@ class ConfigSection(Widget):
             if not k.startswith(prefix):
                 continue
             if k in EPHEMERAL_FIELDS:
+                continue
+            if k not in view.default_config:
+                # Stale row — not a current schema field. Skip cleanly.
                 continue
             total += 1
             if v != view.default_config[k]:

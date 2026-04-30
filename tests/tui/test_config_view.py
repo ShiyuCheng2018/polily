@@ -864,3 +864,42 @@ async def test_heartbeat_skips_refresh_while_modal_is_open(service, monkeypatch)
             f"heartbeat must skip refresh while modal is on top, "
             f"got {len(refresh_calls) - baseline} extra calls"
         )
+
+
+# ---- Round-2: _count_section_changes resilience to stale db keys -----------
+
+
+@pytest.mark.asyncio
+async def test_count_section_changes_skips_keys_missing_from_defaults(service):
+    """Round-2 (Whis #2) — Twin of SF11 fix on the section-level counter.
+
+    `_count_pending_changes` was hardened by SF11 to skip keys not in
+    `loaded_config`. The same crash shape (`view.default_config[k]` raising
+    KeyError) still exists in `_count_section_changes`. If the db happens
+    to have a key not in PolilyConfig defaults (future schema rename leaves
+    a stale db.config row, partial migration leftover), the section header
+    re-render crashes the entire view mount.
+
+    Fix: skip stale keys (treat as not-an-edit) — matches SF11's intent.
+    """
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        sections = {s.section_id: s for s in view.query("ConfigSection")}
+        movement_section = sections["movement"]
+
+        # Simulate a stale db row that defaults doesn't know about.
+        # Pre-fix: _count_section_changes would do view.default_config[k]
+        # → KeyError. Post-fix: skips it cleanly.
+        view.current_config["movement.future_field_not_in_defaults"] = 999
+
+        # Should not crash — and the count of edited leaves should remain 0
+        # (the stale key is skipped, not counted as an edit).
+        changed, total = movement_section._count_section_changes()
+        assert changed == 0, (
+            f"stale key (only in current, not defaults) must not be counted "
+            f"as drift, got changed={changed}"
+        )
+        # And update_count_badge (which calls _count_section_changes) must
+        # also not crash.
+        movement_section.update_count_badge()
