@@ -230,6 +230,40 @@ async def test_cancel_button_dismisses_with_none(service):
 
 
 @pytest.mark.asyncio
+async def test_reset_re_enables_save_after_invalid_input(service):
+    """SF5 — User typed invalid value → live validation disabled Save →
+    user clicks Reset → Save must come back to life so they can save the
+    default. Without explicit re-enable, the disabled flag could stick if
+    `_show_error("")`'s contextlib.suppress swallowed any exception.
+    """
+    from textual.widgets import Button, Input
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.magnitude_threshold",
+        current_value=70,
+        default_value=70,
+    )
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        # Type invalid value → live validation should disable Save
+        modal.query_one("#modal-input", Input).value = "abc"
+        await pilot.pause()
+        assert modal.query_one("#confirm", Button).disabled is True, (
+            "Save should be disabled after invalid input"
+        )
+
+        # Click Reset
+        await pilot.click("#reset-btn")
+        await pilot.pause()
+
+        # Save must be enabled again
+        assert modal.query_one("#confirm", Button).disabled is False, (
+            "Save must be re-enabled after Reset"
+        )
+
+
+@pytest.mark.asyncio
 async def test_escape_key_dismisses_modal(service):
     """ESC binding dismisses the modal screen with None.
 

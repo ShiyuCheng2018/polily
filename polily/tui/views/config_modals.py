@@ -206,4 +206,12 @@ class ConfigEditModal(ModalScreen[bool | None]):
         self.query_one("#modal-input", Input).value = str(self._default_value)
         self._current_value = self._default_value
         self._show_error("")
+        # SF5 — defensive explicit re-enable. User flow that requires this:
+        # type invalid → live validation disables Save → click Reset →
+        # without this line, if `_show_error("")`'s `contextlib.suppress`
+        # swallowed any exception (e.g., during a fast-firing input change
+        # event), the disabled flag would stay True and the user couldn't
+        # save the default. Belt-and-suspenders.
+        with contextlib.suppress(Exception):
+            self.query_one("#confirm", Button).disabled = False
         self.notify(f"已重置 {self._last_segment} 为默认 {self._default_value}")
