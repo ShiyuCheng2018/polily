@@ -46,6 +46,16 @@ _log = logging.getLogger(__name__)
 # announce its own migration result. Thread-safe via lock — load_config
 # is only called from main thread in practice but ensure_seeded/migrate
 # are also exposed.
+#
+# Round-2 follow-up: getter is consume-and-clear (NOT idempotent read).
+# Each `_migrate_yaml_to_db` invocation produces exactly one status;
+# `get_last_migration_status` returns it and resets to None. Without
+# this contract, chaining `load_config_from_db` twice in one process
+# (e.g. a future TUI reload path, or a setup-then-body test) would
+# silently clobber the first call's status with the second's. Today's
+# CLI topology is "load once, emit once", so the contract documents
+# the intent for v0.11.0+ refactors more than it changes runtime
+# behavior.
 MigrationStatus = (
     tuple[str, int]    # ("ok", n_keys_migrated)
     | tuple[str, str]  # ("skipped_invalid", reason)
@@ -56,16 +66,31 @@ _status_lock = threading.Lock()
 
 
 def get_last_migration_status() -> MigrationStatus | None:
-    """Return the most recent _migrate_yaml_to_db result, or None if not yet run.
+    """Consume-and-clear getter: returns the last migration status, then resets.
+
+    Each `_migrate_yaml_to_db` call produces exactly one status; this
+    getter ensures the producer/consumer is 1:1. After reading, the
+    global resets to None — a second read without an intervening
+    migration returns None, not a stale repeat.
 
     Used by polily.cli._emit_migration_status_to_stderr to localize and
-    surface AC2-required upgrade feedback after CLI bootstrap loads config.
+    surface AC2-required upgrade feedback after CLI bootstrap loads
+    config. Callers MUST emit/act on the returned value before invoking
+    another `load_config_from_db`, or that value is lost.
     """
+    global _last_migration_status
     with _status_lock:
-        return _last_migration_status
+        result = _last_migration_status
+        _last_migration_status = None
+        return result
 
 
 def _set_last_migration_status(status: MigrationStatus) -> None:
+    """Store the migration status produced by this `_migrate_yaml_to_db` call.
+
+    Overwrites any unread previous status — see `get_last_migration_status`
+    for the consume-and-clear contract callers must respect.
+    """
     global _last_migration_status
     with _status_lock:
         _last_migration_status = status

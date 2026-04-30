@@ -186,3 +186,84 @@ def test_cli_silent_on_already_migrated(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "stderr", buf)
     _emit_migration_status_to_stderr(("skipped_already_migrated",))
     assert buf.getvalue() == ""
+
+
+# --- get_last_migration_status: consume-and-clear semantics ---------------
+#
+# The status global is overwritten on every _migrate_yaml_to_db call.
+# If a future caller chains two `load_config_from_db` invocations
+# before emitting (or a test does setup-load + body-load without an
+# emit between them), the first call's status would be silently
+# clobbered. Pin the consume-and-clear contract so any double-read is
+# a None instead of a stale repeat, and any back-to-back migration
+# overwrites cleanly without leaking state from the previous pass.
+
+
+def test_get_last_migration_status_consume_and_clear(tmp_path, monkeypatch):
+    """Each migration produces exactly one status; getter clears after read."""
+    monkeypatch.chdir(tmp_path)
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text(
+        "wallet:\n  starting_balance: 250.0\n", encoding="utf-8",
+    )
+    db = PolilyDB(tmp_path / "polily.db")
+    db.conn.execute("DELETE FROM config")
+    db.conn.commit()
+    try:
+        _migrate_yaml_to_db(db)
+    finally:
+        db.close()
+
+    from polily.core.config_store import get_last_migration_status
+
+    first = get_last_migration_status()
+    assert first is not None
+    assert first[0] == "ok"
+
+    # Second read without a new migration: must be None, not a repeat.
+    assert get_last_migration_status() is None
+
+
+def test_get_last_migration_status_resets_between_migrations(
+    tmp_path, monkeypatch,
+):
+    """A second migration replaces the first status (no carry-over)."""
+    # First migration: ok status
+    yaml_path1 = tmp_path / "first" / "config.yaml"
+    yaml_path1.parent.mkdir()
+    yaml_path1.write_text(
+        "wallet:\n  starting_balance: 250.0\n", encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path / "first")
+    db = PolilyDB(tmp_path / "first" / "polily.db")
+    db.conn.execute("DELETE FROM config")
+    db.conn.commit()
+    try:
+        _migrate_yaml_to_db(db)
+    finally:
+        db.close()
+
+    from polily.core.config_store import get_last_migration_status
+
+    # Consume the first status without checking again — simulates a
+    # caller that reads-and-acts. After consume, global is None.
+    assert get_last_migration_status() is not None
+    assert get_last_migration_status() is None
+
+    # Second migration in a fresh dir: must produce its own status,
+    # NOT carry "ok" from the previous run.
+    second_dir = tmp_path / "second"
+    second_dir.mkdir()
+    monkeypatch.chdir(second_dir)
+    db2 = PolilyDB(second_dir / "polily.db")
+    db2.conn.execute("DELETE FROM config")
+    db2.conn.commit()
+    try:
+        _migrate_yaml_to_db(db2)  # no yaml in this dir → skipped_no_yaml
+    finally:
+        db2.close()
+
+    second = get_last_migration_status()
+    assert second == ("skipped_no_yaml",)
+    # And it clears too
+    assert get_last_migration_status() is None
