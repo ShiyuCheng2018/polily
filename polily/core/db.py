@@ -245,7 +245,23 @@ class PolilyDB:
         # later writes) up to 5s of retry headroom under WAL contention.
         # Required for the SF5 concurrency test in tests/test_config_store.py.
         self.conn.execute("PRAGMA busy_timeout=5000")
-        self.conn.execute("PRAGMA journal_mode=WAL")
+        # B1 (v0.10.0): WAL-mode pragma is idempotent across sqlite restarts —
+        # only the very first PolilyDB on a fresh file flips journal_mode.
+        # On that first init, two processes racing the pragma raise
+        # SQLITE_LOCKED (not SQLITE_BUSY), which busy_timeout does NOT
+        # retry. Skip the pragma when the connection already reports WAL,
+        # and tolerate OperationalError when it doesn't — the loser sees
+        # the winner's WAL mode on its next read.
+        mode_row = self.conn.execute("PRAGMA journal_mode").fetchone()
+        current_mode = mode_row[0] if mode_row else ""
+        if str(current_mode).lower() != "wal":
+            try:
+                self.conn.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.OperationalError:
+                # Another process is mid-WAL-init; subsequent reads/writes
+                # via this connection still operate against the WAL journal
+                # set by that other process.
+                pass
         self.conn.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
 
