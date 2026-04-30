@@ -505,6 +505,84 @@ async def test_restart_action_returns_immediately_on_slow_subprocess(
         await pilot.pause()
 
 
+@pytest.mark.asyncio
+async def test_rapid_ctrl_r_only_spawns_one_restart_subprocess(
+    service, monkeypatch,
+):
+    """Round-2 (Whis #3) — Double-tap Ctrl+R must NOT spawn 2 concurrent
+    `polily scheduler restart` subprocesses.
+
+    SF17 moved subprocess to a worker thread with `exclusive=True`. But a
+    thread-mode worker blocking inside subprocess.run cannot be cancelled
+    at the OS level — so if worker A's thread is already inside
+    subprocess.run when worker B fires, the cancel marker on A doesn't
+    unblock the kernel call. Worker B's thread spins up and calls
+    subprocess.run a second time. launchd tolerates this, but the SF17
+    commit message claimed serialization and that claim was half-true.
+
+    Fix: a `_restart_in_flight` boolean guard at action_restart_polily
+    entry short-circuits the second invocation while the first is still
+    running. Cleared in the worker's `finally` (via call_from_thread).
+
+    Test simulates the real race: fire #1 → wait for the worker thread to
+    actually enter subprocess.run → fire #2. Without the guard, #2 spawns
+    a second blocking subprocess. With it, #2 is no-op'd and we observe
+    exactly 1 invocation.
+    """
+    import asyncio
+    import threading
+
+    invoke_count = {"n": 0}
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_run(cmd, *a, **kw):
+        invoke_count["n"] += 1
+        started.set()
+        release.wait(timeout=5)
+        return type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+    monkeypatch.setattr("subprocess.run", slow_run)
+    monkeypatch.setattr(
+        "polily.core.config_yaml.generate_yaml",
+        lambda config, target: None,
+    )
+    monkeypatch.setattr("os._exit", lambda code: None)
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+
+        # Fire restart #1 and wait for the worker thread to actually enter
+        # subprocess.run. This is when the race window opens — A is
+        # blocking inside the kernel call, cannot be cancelled.
+        view.action_restart_polily()
+        for _ in range(50):
+            await asyncio.sleep(0.02)
+            if started.is_set():
+                break
+        assert started.is_set(), "first subprocess never started"
+
+        # Now fire restart #2 — this is the rapid double-tap. Without the
+        # guard, this would spawn a second worker thread that calls
+        # subprocess.run while the first is still blocking.
+        view.action_restart_polily()
+        # Give the second invocation a chance to start a subprocess (if
+        # the guard is missing).
+        for _ in range(20):
+            await asyncio.sleep(0.02)
+
+        # Release the subprocess so worker can finish.
+        release.set()
+        await view.workers.wait_for_complete()
+        await pilot.pause()
+
+    assert invoke_count["n"] == 1, (
+        f"expected exactly 1 subprocess invocation under rapid double-tap, "
+        f"got {invoke_count['n']} — the in-flight guard is missing"
+    )
+
+
 # ---- B3: LeafRow keyboard accessibility ------------------------------------
 
 

@@ -533,6 +533,13 @@ class ConfigView(Widget):
         super().__init__()
         self.service = service
         self._refresh_state()
+        # Round-2 (Whis #3) — Guard against rapid Ctrl+R double-tap spawning
+        # two concurrent `polily scheduler restart` subprocesses. SF17's
+        # `exclusive=True` only cancels the prior worker's coroutine wrapper;
+        # a thread-mode worker already blocking inside subprocess.run cannot
+        # be cancelled at the OS level, so without this guard worker B's
+        # thread launches a second subprocess.
+        self._restart_in_flight = False
 
     def _refresh_state(self) -> None:
         """Snapshot the 3 dicts: defaults, loaded (TUI startup snapshot), current (latest db).
@@ -649,11 +656,26 @@ class ConfigView(Widget):
         to 10s timeout) doesn't freeze the event loop. UI updates from
         the worker go via `app.call_from_thread`. Mirrors the
         WalletResetModal pattern (wallet_modals.py:347-389).
+
+        Round-2 (Whis #3) — `_restart_in_flight` short-circuits a rapid
+        second invocation. SF17's `exclusive=True` cancels the prior
+        worker's wrapper, but a thread already inside subprocess.run
+        cannot be interrupted at the OS level — without this guard,
+        worker B's thread fires a second subprocess.
         """
         import contextlib
         from pathlib import Path
 
         from polily.core.config_yaml import generate_yaml
+
+        if self._restart_in_flight:
+            self.notify(
+                "正在重启 daemon — 请稍候",
+                severity="warning",
+                timeout=3,
+            )
+            return
+        self._restart_in_flight = True
 
         # Step 1: regenerate yaml so disk reflects current db state.
         # best-effort — yaml is a snapshot, not load-bearing. Fast,
@@ -670,55 +692,69 @@ class ConfigView(Widget):
     def _restart_daemon_worker(self) -> None:
         """SF17 — Worker thread body. Runs subprocess, dispatches UI
         updates via app.call_from_thread.
+
+        Round-2 (Whis #3) — `_restart_in_flight` is cleared in `finally`
+        via call_from_thread so the guard always lifts even on subprocess
+        exception / non-zero rc. Note: on the success path we set_timer
+        to os._exit(0) — the flag's lifetime past that point is moot
+        (process is dying), but we still clear it for symmetry / test
+        determinism.
         """
         import os
         import shutil
         import subprocess
         import sys
 
-        polily_cmd = shutil.which("polily") or (
-            sys.argv[0] if sys.argv else "polily"
-        )
         try:
-            result = subprocess.run(
-                [polily_cmd, "scheduler", "restart"],
-                capture_output=True,
-                timeout=10,
-                text=True,
+            polily_cmd = shutil.which("polily") or (
+                sys.argv[0] if sys.argv else "polily"
             )
-        except (
-            subprocess.TimeoutExpired, FileNotFoundError, PermissionError,
-        ) as e:
+            try:
+                result = subprocess.run(
+                    [polily_cmd, "scheduler", "restart"],
+                    capture_output=True,
+                    timeout=10,
+                    text=True,
+                )
+            except (
+                subprocess.TimeoutExpired, FileNotFoundError, PermissionError,
+            ) as e:
+                self.app.call_from_thread(
+                    self.notify,
+                    f"❌ 重启 daemon 失败: {type(e).__name__}: {e}",
+                    severity="error",
+                    timeout=10,
+                )
+                return
+
+            if result.returncode != 0:
+                err = (result.stderr or result.stdout or "").strip()[:500]
+                self.app.call_from_thread(
+                    self.notify,
+                    f"❌ 重启 daemon 失败 (rc={result.returncode}): "
+                    f"{err or '(no output)'}",
+                    severity="error",
+                    timeout=10,
+                )
+                return
+
+            # Success — notify + 2s grace + os._exit(0). Both notify and
+            # set_timer are main-thread-only Textual APIs.
             self.app.call_from_thread(
                 self.notify,
-                f"❌ 重启 daemon 失败: {type(e).__name__}: {e}",
-                severity="error",
-                timeout=10,
+                "✅ Daemon 已重启。polily TUI 将在 2 秒后关闭，请重开。",
+                title="重启 polily",
+                timeout=2,
             )
-            return
-
-        if result.returncode != 0:
-            err = (result.stderr or result.stdout or "").strip()[:500]
             self.app.call_from_thread(
-                self.notify,
-                f"❌ 重启 daemon 失败 (rc={result.returncode}): "
-                f"{err or '(no output)'}",
-                severity="error",
-                timeout=10,
+                self.set_timer, 2.0, lambda: os._exit(0),
             )
-            return
-
-        # Success — notify + 2s grace + os._exit(0). Both notify and
-        # set_timer are main-thread-only Textual APIs.
-        self.app.call_from_thread(
-            self.notify,
-            "✅ Daemon 已重启。polily TUI 将在 2 秒后关闭，请重开。",
-            title="重启 polily",
-            timeout=2,
-        )
-        self.app.call_from_thread(
-            self.set_timer, 2.0, lambda: os._exit(0),
-        )
+        finally:
+            # Lift the in-flight guard so user can retry (or, on success,
+            # for symmetry — the os._exit will fire shortly).
+            self.app.call_from_thread(
+                setattr, self, "_restart_in_flight", False,
+            )
 
     def on_mount(self) -> None:
         from polily.core.events import TOPIC_HEARTBEAT
