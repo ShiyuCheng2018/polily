@@ -1,5 +1,6 @@
 """Unified SQLite database for Polily."""
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -384,6 +385,18 @@ class PolilyDB:
         `wallet` is non-empty. Idempotent — no-op when the row already
         exists; a config change to `starting_balance` does NOT rebase an
         existing wallet (use `polily reset --wallet-only` for that).
+
+        B2 (v0.10.0) — must NOT call `load_config_from_db` here. That
+        path acquires `BEGIN IMMEDIATE`, and from inside `__init__` it
+        re-enters the same connection's transaction state and lets the
+        TUI+daemon first-init race deadlock. It also forced every test
+        constructing a PolilyDB to pay a 46-row config seed.
+
+        Read `wallet.starting_balance` directly from the config table.
+        On the very first init (config table empty), fall back to the
+        Pydantic default of `WalletConfig`. Callers (cli.py / tui app /
+        daemon) are responsible for explicitly invoking
+        `load_config_from_db` AFTER construction to apply user edits.
         """
         row = self.conn.execute("SELECT id FROM wallet WHERE id=1").fetchone()
         if row is not None:
@@ -391,18 +404,30 @@ class PolilyDB:
 
         from datetime import UTC, datetime
 
-        from polily.core.config import load_config_from_db
-        cfg = load_config_from_db(self)
+        # Try to honor a user-edited starting_balance if a prior caller
+        # already seeded the config table. If not (fresh install, no
+        # explicit load_config_from_db yet), fall back to the Pydantic
+        # default — caller is expected to load_config_from_db after
+        # construction and the seeded wallet stays in sync because both
+        # paths converge on the same default.
+        config_row = self.conn.execute(
+            "SELECT value FROM config WHERE key_path = 'wallet.starting_balance'",
+        ).fetchone()
+        if config_row is not None:
+            starting = json.loads(config_row[0])
+        else:
+            from polily.core.config import WalletConfig
+            starting = WalletConfig().starting_balance
 
         now = datetime.now(UTC).isoformat()
-        starting = cfg.wallet.starting_balance
         # INSERT OR IGNORE makes the multi-process first-init race safe:
         # if TUI process A and daemon process B both reach this point
         # concurrently (both saw row==None on their respective SELECT),
         # whichever wins the writer lock seeds the row; the other's
         # INSERT no-ops instead of raising IntegrityError. Both processes
-        # would have computed the same starting_balance from db.config,
-        # so the persisted value is identical regardless of who wins.
+        # would have computed the same starting_balance (config row +
+        # Pydantic default are deterministic), so the persisted value
+        # is identical regardless of who wins.
         self.conn.execute(
             "INSERT OR IGNORE INTO wallet (id,cash_usd,starting_balance,"
             "topup_total,withdraw_total,created_at,updated_at) VALUES (1,?,?,0,0,?,?)",
