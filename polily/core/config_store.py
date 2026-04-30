@@ -27,7 +27,7 @@ import logging
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Tuple, Union
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -46,11 +46,11 @@ _log = logging.getLogger(__name__)
 # announce its own migration result. Thread-safe via lock — load_config
 # is only called from main thread in practice but ensure_seeded/migrate
 # are also exposed.
-MigrationStatus = Union[
-    Tuple[str, int],   # ("ok", n_keys_migrated)
-    Tuple[str, str],   # ("skipped_invalid", reason)
-    Tuple[str],        # ("skipped_no_yaml",) | ("skipped_already_migrated",)
-]
+MigrationStatus = (
+    tuple[str, int]    # ("ok", n_keys_migrated)
+    | tuple[str, str]  # ("skipped_invalid", reason)
+    | tuple[str]       # ("skipped_no_yaml",) | ("skipped_already_migrated",)
+)
 _last_migration_status: MigrationStatus | None = None
 _status_lock = threading.Lock()
 

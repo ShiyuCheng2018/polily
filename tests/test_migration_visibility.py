@@ -13,8 +13,6 @@ The fix introduces:
 """
 from __future__ import annotations
 
-from typer.testing import CliRunner
-
 from polily.core.config_store import _migrate_yaml_to_db
 from polily.core.db import PolilyDB
 
@@ -134,7 +132,8 @@ def test_cli_emits_localized_message_on_ok(tmp_path, monkeypatch):
     # Now: a separate emit call with a fresh db should see "already migrated"
     # because the prior load wrote rows. We test the OK message directly via
     # the helper's status arg path:
-    import io, sys
+    import io
+    import sys
     buf = io.StringIO()
     monkeypatch.setattr(sys, "stderr", buf)
     _emit_migration_status_to_stderr(("ok", 7))
@@ -148,7 +147,9 @@ def test_cli_emits_localized_warning_on_invalid(tmp_path, monkeypatch):
     """When migration aborts due to invalid yaml, CLI prints a warning to stderr
     pointing the user at .bak.
     """
-    import io, sys
+    import io
+    import sys
+
     from polily.cli import _emit_migration_status_to_stderr
 
     buf = io.StringIO()
@@ -163,7 +164,9 @@ def test_cli_emits_localized_warning_on_invalid(tmp_path, monkeypatch):
 
 def test_cli_silent_on_no_yaml(tmp_path, monkeypatch):
     """Fresh install: no config.yaml means we shouldn't spam stderr."""
-    import io, sys
+    import io
+    import sys
+
     from polily.cli import _emit_migration_status_to_stderr
 
     buf = io.StringIO()
@@ -174,7 +177,9 @@ def test_cli_silent_on_no_yaml(tmp_path, monkeypatch):
 
 def test_cli_silent_on_already_migrated(tmp_path, monkeypatch):
     """Idempotent re-run: every polily startup after the first should be silent."""
-    import io, sys
+    import io
+    import sys
+
     from polily.cli import _emit_migration_status_to_stderr
 
     buf = io.StringIO()

@@ -6,6 +6,7 @@ overwritten on every polily startup to mirror db.config + ephemerals
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import threading
 from datetime import UTC, datetime
@@ -71,8 +72,6 @@ def generate_yaml(config: PolilyConfig, target: Path) -> None:
         # Best-effort cleanup. `missing_ok=True` ensures we don't mask
         # the original exception with a FileNotFoundError if .tmp never
         # got written (e.g., disk full on the write_text call).
-        try:
+        with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
         raise

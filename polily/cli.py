@@ -271,7 +271,6 @@ def cmd_config_reset(
         EPHEMERAL_FIELDS,
         ConfigSaveError,
         _flatten_pydantic,
-        ensure_seeded,
     )
     from polily.core.config_store import (
         reset as reset_key,
@@ -286,10 +285,31 @@ def cmd_config_reset(
             ):
                 typer.echo("Cancelled")
                 raise typer.Exit(0)
-            db.conn.execute("DELETE FROM config")
-            db.conn.commit()
-            ensure_seeded(db)
-            typer.echo("✅ 已重置所有配置为默认。")
+            # SF3 (v0.10.0) — wrap DELETE + ensure_seeded in BEGIN IMMEDIATE
+            # so a concurrent daemon poll tick can never observe an empty
+            # config table mid-reset. Same pattern as load_config_from_db.
+            #
+            # Re-import ensure_seeded from the source module rather than
+            # using the local binding so monkeypatch.setattr(config_store,
+            # "ensure_seeded", ...) in tests sees the override.
+            from polily.core import config_store
+            db.conn.execute("BEGIN IMMEDIATE")
+            try:
+                db.conn.execute("DELETE FROM config")
+                config_store.ensure_seeded(db)
+                db.conn.commit()
+            except Exception:
+                db.conn.rollback()
+                raise
+            # SF3 — daemon's in-memory PolilyConfig snapshot still has the
+            # pre-reset values. Tell the user to restart so they aren't
+            # confused about why their reset "didn't take effect" until
+            # next launchd respawn.
+            typer.echo(
+                "✅ 已重置全部 config 为默认值。\n"
+                "若 daemon 正在运行，请执行 'polily scheduler restart' "
+                "让新值生效。"
+            )
             return
 
         if key_path is None:
