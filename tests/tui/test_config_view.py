@@ -616,6 +616,74 @@ async def test_action_refresh_preserves_expanded_state(service):
         assert sections_after["scoring"].expanded is True
 
 
+# ---- SF15: ConfigSection keyboard accessibility ----------------------------
+
+
+@pytest.mark.asyncio
+async def test_config_section_is_focusable(service):
+    """SF15 — ConfigSection has BINDINGS = [Binding('enter', 'toggle')]
+    but the binding never fires for keyboard nav unless the widget itself
+    is focusable. Without can_focus=True, Tab navigation skips the section
+    header and the only way to toggle is mouse click.
+    """
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        sections = list(view.query("ConfigSection"))
+        assert all(s.can_focus is True for s in sections), (
+            "ConfigSection must be focusable for keyboard Enter/Space to work"
+        )
+        # And focus() must succeed
+        sections[0].focus()
+        await pilot.pause()
+        assert sections[0].has_focus
+
+
+@pytest.mark.asyncio
+async def test_pressing_enter_on_focused_section_toggles_expanded(service):
+    """SF15 — Enter on a focused (collapsed) ConfigSection expands it,
+    and Enter again collapses it. Mirrors the action_toggle binding.
+    """
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        sections = {s.section_id: s for s in view.query("ConfigSection")}
+        scoring = sections["scoring"]
+        # scoring starts collapsed
+        assert scoring.expanded is False
+
+        scoring.focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert scoring.expanded is True, (
+            "Enter on focused ConfigSection should expand it"
+        )
+
+        await pilot.press("enter")
+        await pilot.pause()
+        assert scoring.expanded is False
+
+
+@pytest.mark.asyncio
+async def test_pressing_space_on_focused_section_toggles_expanded(service):
+    """SF15 — Space is a common alternate key for toggle in TUI / web a11y
+    conventions. Both Enter and Space should fire action_toggle.
+    """
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        sections = {s.section_id: s for s in view.query("ConfigSection")}
+        mispricing = sections["mispricing"]
+        assert mispricing.expanded is False
+
+        mispricing.focus()
+        await pilot.pause()
+        await pilot.press("space")
+        await pilot.pause()
+        assert mispricing.expanded is True
+
+
 # ---- SF12: heartbeat skips refresh while modal is on top -------------------
 
 

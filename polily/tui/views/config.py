@@ -369,16 +369,32 @@ class WeightsTree(Widget):
 
 
 class ConfigSection(Widget):
-    """One foldable section. Holds a header + list of LeafRow children."""
+    """One foldable section. Holds a header + list of LeafRow children.
+
+    SF15 — focusable so keyboard-only users can Tab to a section header
+    and press Enter/Space to expand/collapse. Without can_focus=True the
+    BINDINGS below never fired for keyboard nav (only mouse click via the
+    parent's on_click).
+    """
+
+    can_focus = True
 
     DEFAULT_CSS = """
     ConfigSection { height: auto; padding: 1 0; }
     ConfigSection .section-header { color: $primary; text-style: bold; padding: 0 1; }
     ConfigSection .section-body { height: auto; }
     ConfigSection.collapsed .section-body { display: none; }
+    ConfigSection:focus {
+        background: $primary 20%;
+    }
     """
 
-    BINDINGS = [Binding("enter", "toggle", show=False)]
+    # SF15 — Space mirrors Enter (a11y convention). show=False keeps the
+    # global help bar uncluttered; focus highlight signals discoverability.
+    BINDINGS = [
+        Binding("enter", "toggle", "展开/折叠", show=False),
+        Binding("space", "toggle", "展开/折叠", show=False),
+    ]
 
     def __init__(
         self,
