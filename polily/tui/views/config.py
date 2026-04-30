@@ -39,10 +39,18 @@ def _count_pending_changes(loaded: dict, current: dict) -> int:
     Per design §5.5.1 — equivalent to comparing db to yaml on disk
     (yaml = mirror of loaded snapshot at startup). In-memory comparison
     is cheaper than re-reading + parsing yaml each refresh.
+
+    SF11 — only count keys present in BOTH snapshots. If the db happens
+    to have a key not in `loaded` (hot-upgrade where daemon's PolilyConfig
+    schema is newer than TUI's, partial-migration leftovers, manual
+    sqlite insert), treat it as "new field, not user edit" rather than
+    counting it as ghost drift.
     """
     return sum(
-        1 for k in current
-        if k not in EPHEMERAL_FIELDS and current.get(k) != loaded.get(k)
+        1 for k in loaded
+        if k not in EPHEMERAL_FIELDS
+        and k in current
+        and current[k] != loaded[k]
     )
 
 
@@ -500,20 +508,25 @@ class ConfigView(Widget):
         self._refresh_state()
 
     def _refresh_state(self) -> None:
-        """Snapshot the 3 dicts: defaults, loaded (TUI startup snapshot), current (latest db)."""
+        """Snapshot the 3 dicts: defaults, loaded (TUI startup snapshot), current (latest db).
+
+        SF11 — `current_config` is the db state directly, not merged with
+        `loaded_config`. ensure_seeded runs at startup so db always has
+        the full territory-A set; merging would only matter if db were
+        somehow incomplete, in which case we'd want to surface that as
+        "missing key" rather than silently fall back to the stale loaded
+        value. The drift-count helper filters keys-only-in-db separately.
+        """
         from polily.core.config import PolilyConfig
         from polily.core.config_store import load_all
         self.default_config = _flatten_pydantic(PolilyConfig())
         self.loaded_config = _flatten_pydantic(self.service.config)
         try:
-            db_flat = load_all(self.service.db)
+            self.current_config = load_all(self.service.db)
         except Exception:
-            db_flat = {}
-        # Merge: db edits win over loaded snapshot. EPHEMERAL_FIELDS
-        # already filtered by load_all.
-        merged = dict(self.loaded_config)
-        merged.update(db_flat)
-        self.current_config = merged
+            # Defensive: if db read fails entirely, fall back to loaded
+            # snapshot so the view still renders rather than crashing.
+            self.current_config = dict(self.loaded_config)
 
     def compose(self) -> ComposeResult:
         yield Static(
@@ -677,10 +690,21 @@ class ConfigView(Widget):
 
     def _on_heartbeat(self, payload: dict) -> None:
         """SF10 — dedicated heartbeat topic, no business-topic hijacking.
-        Re-read db, recompute banner."""
+        Re-read db, recompute banner.
+
+        SF12 — skip refresh while a modal is on top. screen_stack lists
+        screens bottom-to-top; len > 1 means a modal was pushed above the
+        main screen (which is where ConfigView is mounted). No point
+        refreshing a hidden view, and avoids any subtle stale-snapshot
+        race during the modal's save → ConfigView dismiss-callback flow.
+        """
         import contextlib
 
         from polily.tui._dispatch import dispatch_to_ui
+
+        with contextlib.suppress(Exception):
+            if len(self.app.screen_stack) > 1:
+                return
         with contextlib.suppress(Exception):
             dispatch_to_ui(self.app, self._refresh_and_redraw)
 

@@ -133,6 +133,30 @@ def test_count_pending_changes_filters_ephemeral():
     assert _count_pending_changes(loaded, current) == 0
 
 
+def test_count_pending_changes_skips_keys_only_in_current():
+    """SF11 — keys present in current (db) but missing from loaded snapshot
+    are NOT counted as drift. Avoids ghost drift in the hot-upgrade case
+    where db schema is newer than the TUI's loaded PolilyConfig, or when
+    the db has leftover keys from a partial migration / manual insert.
+    """
+    from polily.tui.views.config import _count_pending_changes
+    loaded = {"movement.magnitude_threshold": 70}
+    # db has an extra key (e.g., new field added by daemon's newer schema,
+    # or stale leftover) that loaded snapshot doesn't know about
+    current = {"movement.magnitude_threshold": 70, "movement.future_field": 999}
+    assert _count_pending_changes(loaded, current) == 0
+
+
+def test_count_pending_changes_counts_real_diffs_only():
+    """SF11 regression — actual user edits (key in BOTH dicts, values differ)
+    must still be counted; the new 'k in current' guard mustn't mask real drift.
+    """
+    from polily.tui.views.config import _count_pending_changes
+    loaded = {"movement.magnitude_threshold": 70, "wallet.starting_balance": 100.0}
+    current = {"movement.magnitude_threshold": 50, "wallet.starting_balance": 100.0}
+    assert _count_pending_changes(loaded, current) == 1
+
+
 @pytest.mark.asyncio
 async def test_movement_weights_tree_renders_4_market_types(service):
     """Per design §5.2 — weights subtree under Movement, 4 market types."""
@@ -590,3 +614,52 @@ async def test_action_refresh_preserves_expanded_state(service):
 
         sections_after = {s.section_id: s for s in view.query("ConfigSection")}
         assert sections_after["scoring"].expanded is True
+
+
+# ---- SF12: heartbeat skips refresh while modal is on top -------------------
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_skips_refresh_while_modal_is_open(service, monkeypatch):
+    """SF12 — when ConfigEditModal is pushed on top of the main screen,
+    heartbeat refresh should short-circuit. No point updating a hidden
+    view, and avoids any subtle stale-snapshot race between heartbeat-
+    driven refresh and the modal's save → dismiss-callback flow.
+    """
+    from polily.tui.views.config_modals import ConfigEditModal
+
+    refresh_calls = []
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        # Patch the in-place refresh to count invocations
+        monkeypatch.setattr(
+            view, "_refresh_and_redraw",
+            lambda: refresh_calls.append("called"),
+        )
+
+        # Baseline: heartbeat without modal does refresh
+        view._on_heartbeat({})
+        await pilot.pause()
+        baseline = len(refresh_calls)
+        assert baseline >= 1, "heartbeat should refresh when no modal is open"
+
+        # Push a modal on top
+        view.app.push_screen(
+            ConfigEditModal(
+                service=service,
+                key_path="movement.magnitude_threshold",
+                current_value=70,
+                default_value=70,
+            ),
+        )
+        await pilot.pause()
+
+        # Heartbeat fires while modal is on top — should NOT refresh
+        view._on_heartbeat({})
+        await pilot.pause()
+        assert len(refresh_calls) == baseline, (
+            f"heartbeat must skip refresh while modal is on top, "
+            f"got {len(refresh_calls) - baseline} extra calls"
+        )
