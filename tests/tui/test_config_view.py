@@ -324,3 +324,140 @@ async def test_leaf_row_action_edit_directly_opens_modal(service):
         target.action_edit()
         await pilot.pause()
         assert any(isinstance(s, ConfigEditModal) for s in pilot.app.screen_stack)
+
+
+# ---- B4: ConfigView state preservation across modal close -----------------
+
+
+@pytest.mark.asyncio
+async def test_post_modal_save_preserves_section_expanded_state(service):
+    """B4 — User expands `wallet`, edits a wallet leaf, save dismisses modal:
+    the wallet section must still be expanded (not snap back to default).
+    """
+    from polily.core.config_store import upsert
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        sections = {s.section_id: s for s in view.query("ConfigSection")}
+        wallet_section = sections["wallet"]
+        # Simulate user expanding the wallet section.
+        wallet_section.expanded = True
+        wallet_section.remove_class("collapsed")
+        await pilot.pause()
+        assert wallet_section.expanded is True
+
+        # Simulate a save: db gets updated, then the modal-close callback
+        # re-reads state. After the in-place refresh, wallet must STILL be
+        # expanded (movement is the only one expanded by default).
+        upsert(service.db, "wallet.starting_balance", 200.0)
+        leaf = next(
+            r for r in view.query("LeafRow")
+            if r.key_path == "wallet.starting_balance"
+        )
+        leaf._on_modal_closed(True)
+        await pilot.pause()
+
+        # Re-query (in-place update should preserve identity, but be defensive).
+        sections_after = {s.section_id: s for s in view.query("ConfigSection")}
+        assert sections_after["wallet"].expanded is True, (
+            "wallet section was force-collapsed after modal close — "
+            "recompose=True wiped expand state"
+        )
+
+
+@pytest.mark.asyncio
+async def test_post_modal_save_updates_leaf_value_in_place(service):
+    """B4 — After save, the LeafRow's displayed value must reflect the new
+    db value (not the stale current_value the row was constructed with).
+    """
+    from polily.core.config_store import upsert
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        leaf_before = next(
+            r for r in view.query("LeafRow")
+            if r.key_path == "movement.magnitude_threshold"
+        )
+        original = leaf_before.current_value
+
+        # Simulate user editing via modal: db updated, modal dismissed.
+        upsert(service.db, "movement.magnitude_threshold", 99)
+        leaf_before._on_modal_closed(True)
+        await pilot.pause()
+
+        # The leaf at this key_path must reflect the new value. Use query
+        # rather than the original ref since in-place update may or may
+        # not preserve widget identity.
+        leaf_after = next(
+            r for r in view.query("LeafRow")
+            if r.key_path == "movement.magnitude_threshold"
+        )
+        assert leaf_after.current_value == 99
+        assert leaf_after.current_value != original
+
+
+@pytest.mark.asyncio
+async def test_post_modal_save_updates_drift_banner(service):
+    """B4 — Drift banner reflects new pending count after a save."""
+    from polily.core.config_store import upsert
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        banner = view.query_one("#drift-banner", Static)
+        # Fresh view: 0 pending.
+        assert "无未生效改动" in str(banner.render())
+
+        upsert(service.db, "movement.magnitude_threshold", 50)
+        leaf = next(
+            r for r in view.query("LeafRow")
+            if r.key_path == "movement.magnitude_threshold"
+        )
+        leaf._on_modal_closed(True)
+        await pilot.pause()
+
+        banner_after = view.query_one("#drift-banner", Static)
+        assert "1 项" in str(banner_after.render())
+
+
+@pytest.mark.asyncio
+async def test_post_modal_save_updates_section_count_badge(service):
+    """B4 — Section header [已改 N/M] badge updates after a save."""
+    from polily.core.config_store import upsert
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        header_before = view.query_one("#header-movement", Static)
+        assert "已改 0" in str(header_before.render())
+
+        upsert(service.db, "movement.magnitude_threshold", 50)
+        leaf = next(
+            r for r in view.query("LeafRow")
+            if r.key_path == "movement.magnitude_threshold"
+        )
+        leaf._on_modal_closed(True)
+        await pilot.pause()
+
+        header_after = view.query_one("#header-movement", Static)
+        assert "已改 1" in str(header_after.render())
+
+
+@pytest.mark.asyncio
+async def test_action_refresh_preserves_expanded_state(service):
+    """B4 — `r` keystroke (action_refresh) must NOT collapse expanded sections."""
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        sections = {s.section_id: s for s in view.query("ConfigSection")}
+        sections["scoring"].expanded = True
+        sections["scoring"].remove_class("collapsed")
+        await pilot.pause()
+
+        view.action_refresh()
+        await pilot.pause()
+
+        sections_after = {s.section_id: s for s in view.query("ConfigSection")}
+        assert sections_after["scoring"].expanded is True

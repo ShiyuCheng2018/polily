@@ -113,8 +113,9 @@ class LeafRow(Widget):
         """User edited it AND polily hasn't loaded the new value yet."""
         return self.current_value != self.loaded_value
 
-    def compose(self) -> ComposeResult:
-        # Line 1: leaf name + value (with → if pending) + source + info icon
+    def _line1_text(self) -> str:
+        """Line-1 markup string. Extracted so update_displayed_value() can
+        re-render without re-composing the whole row."""
         if self.is_pending:
             value_str = (
                 f"[dim]{self.loaded_value}[/dim] [yellow]→[/yellow] "
@@ -122,17 +123,41 @@ class LeafRow(Widget):
             )
         else:
             value_str = f"{self.current_value}"
-
-        line1 = (
+        return (
             f"  {self.last_segment_label:<32} "
             f"{value_str:>14}   "
             f"[dim]{self.source_label}[/dim]   ⓘ"
         )
-        yield Static(line1, classes="leaf-line-1")
+
+    def compose(self) -> ComposeResult:
+        # Stable IDs ("line-1") let update_displayed_value() re-render this
+        # one Static in place — no recompose, no widget churn.
+        yield Static(self._line1_text(), classes="leaf-line-1")
         yield Static(
             f"     {self.key_path}",
             classes="leaf-line-2",
         )
+
+    def update_displayed_value(
+        self,
+        new_current_value: Any,
+        new_loaded_value: Any | None = None,
+    ) -> None:
+        """B4 — Refresh value display in place after the user saves a knob.
+
+        Called by ConfigView._refresh_state_in_place. Avoids
+        refresh(recompose=True), which would wipe section expand state,
+        scroll position, and focus.
+        """
+        self.current_value = new_current_value
+        if new_loaded_value is not None:
+            self.loaded_value = new_loaded_value
+        # The first child Static carries class "leaf-line-1" — update
+        # its renderable rather than recomposing the whole widget.
+        import contextlib
+        with contextlib.suppress(Exception):
+            line1 = self.query_one(".leaf-line-1", Static)
+            line1.update(self._line1_text())
 
     def on_click(self) -> None:
         self._open_modal()
@@ -159,11 +184,14 @@ class LeafRow(Widget):
         self.app.push_screen(modal, self._on_modal_closed)
 
     def _on_modal_closed(self, result) -> None:
-        """SF7 — direct view reference, no parent walk."""
+        """SF7 — direct view reference, no parent walk.
+
+        B4: in-place refresh — recompose=True would wipe section expand
+        state / scroll position / focus on every save.
+        """
         if self._view is None:
             return
-        self._view._refresh_state()
-        self._view.refresh(recompose=True)
+        self._view._refresh_state_in_place()
 
 
 def _leaves_under_section(
@@ -236,17 +264,25 @@ class WeightFamilyNode(Widget):
     def family_sum(self) -> float:
         return sum(leaf.current_value for leaf in self._leaves)
 
-    def compose(self) -> ComposeResult:
+    def _sum_text(self) -> str:
         sum_color = "green" if 0.99 <= self.family_sum <= 1.01 else "yellow"
+        return (
+            f"     [dim]sum = [{sum_color}]{self.family_sum:.2f}[/{sum_color}][/dim]"
+        )
+
+    def compose(self) -> ComposeResult:
         yield Static(
             f"   ▼ {self.family}",
             classes="family-header",
         )
-        yield Static(
-            f"     [dim]sum = [{sum_color}]{self.family_sum:.2f}[/{sum_color}][/dim]",
-            classes="family-sum",
-        )
+        yield Static(self._sum_text(), classes="family-sum")
         yield from self._leaves
+
+    def update_family_sum(self) -> None:
+        """B4 — Refresh sum badge in place after a leaf value changes."""
+        import contextlib
+        with contextlib.suppress(Exception):
+            self.query_one(".family-sum", Static).update(self._sum_text())
 
 
 class MarketTypeNode(Widget):
@@ -350,14 +386,17 @@ class ConfigSection(Widget):
         self.expanded = expanded
         self._view = view  # SF7 — injected reference for LeafRow click handling later
 
-    def compose(self) -> ComposeResult:
+    def _header_text(self) -> str:
         marker = "▼" if self.expanded else "▶"
         badge = ""
         if self._view is not None:
             changed, total = self._count_section_changes()
             badge = f"   [dim][已改 {changed} / {total}][/dim]"
+        return f"{marker}  {self.section_title}{badge}"
+
+    def compose(self) -> ComposeResult:
         yield Static(
-            f"{marker}  {self.section_title}{badge}",
+            self._header_text(),
             classes="section-header",
             id=f"header-{self.section_id}",
         )
@@ -416,13 +455,27 @@ class ConfigSection(Widget):
                 changed += 1
         return changed, total
 
+    def update_count_badge(self) -> None:
+        """B4 — Refresh the section header [已改 N/M] badge in place after
+        a save. Updates only the header Static, leaving body / leaves /
+        weights tree intact (so expand state, scroll, focus all survive).
+        """
+        import contextlib
+        with contextlib.suppress(Exception):
+            self.query_one(f"#header-{self.section_id}", Static).update(
+                self._header_text(),
+            )
+
     def action_toggle(self) -> None:
         self.expanded = not self.expanded
         if self.expanded:
             self.remove_class("collapsed")
         else:
             self.add_class("collapsed")
-        self.refresh(recompose=True)
+        # Marker (▶/▼) lives in the header Static — update in place
+        # rather than recomposing the entire section (which would
+        # rebuild every LeafRow + WeightsTree under it).
+        self.update_count_badge()
 
 
 class ConfigView(Widget):
@@ -487,9 +540,51 @@ class ConfigView(Widget):
             f"[dim](按 Ctrl+R 重启 polily 应用)[/dim]"
         )
 
-    def action_refresh(self) -> None:
+    def _refresh_drift_banner(self) -> None:
+        """Re-render the drift banner Static in place."""
+        import contextlib
+        with contextlib.suppress(Exception):
+            self.query_one("#drift-banner", Static).update(self._banner_text())
+
+    def _refresh_state_in_place(self) -> None:
+        """Re-read db.config and push new values into the existing widget tree.
+
+        Replacement for `refresh(recompose=True)` which would wipe section
+        expand/collapse state, scroll position, and focus — the #1 UX
+        defect users hit when the modal closes after a save (B4).
+
+        Order of updates:
+          1. snapshot dicts (defaults / loaded / current)
+          2. each LeafRow gets its current_value + line-1 Static refreshed
+          3. each WeightFamilyNode resyncs its sum badge (depends on leaf
+             values)
+          4. each ConfigSection re-renders its [已改 N/M] header badge
+          5. drift banner re-renders
+        """
         self._refresh_state()
-        self.refresh(recompose=True)
+
+        for leaf_row in self.query(LeafRow):
+            new_current = self.current_config.get(leaf_row.key_path)
+            new_loaded = self.loaded_config.get(leaf_row.key_path)
+            if new_current is None:
+                # Defensive: leaf disappeared from config (shouldn't happen
+                # after T5.x but skip rather than crash).
+                continue
+            leaf_row.update_displayed_value(new_current, new_loaded)
+
+        for family in self.query(WeightFamilyNode):
+            family.update_family_sum()
+
+        for section in self.query(ConfigSection):
+            section.update_count_badge()
+
+        self._refresh_drift_banner()
+
+    def action_refresh(self) -> None:
+        # In-place refresh preserves expand/collapse state, scroll, and
+        # focus — the user pressed `r`, they don't expect their reading
+        # context to disappear.
+        self._refresh_state_in_place()
 
     def action_restart_polily(self) -> None:
         """Restart polily so config changes take effect.
@@ -560,5 +655,7 @@ class ConfigView(Widget):
             dispatch_to_ui(self.app, self._refresh_and_redraw)
 
     def _refresh_and_redraw(self) -> None:
-        self._refresh_state()
-        self.refresh(recompose=True)
+        # B4: heartbeat-driven repaint also goes through the in-place
+        # path — daemon writes to db every 30s, we don't want to nuke
+        # the user's expand/scroll/focus state every tick.
+        self._refresh_state_in_place()
