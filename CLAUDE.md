@@ -52,7 +52,7 @@ Included in Claude subscription, no per-token cost. Response parsed from `result
 - Chinese for all user-facing output (terminal, narratives, prompts)
 - English for code, variable names, comments
 - No unnecessary abstractions — three similar lines beats a premature abstraction
-- Config-driven: thresholds, weights, behavior all in YAML
+- Config-driven: thresholds, weights, behavior live in `polily.db` `config` table (canonical since v0.10.0). TUI ⚙ 配置 edits live values via `save_knob`; `config.yaml` on disk is a read-only auto-generated snapshot regenerated after each save. Do NOT edit `config.yaml` and expect it to load — it's overwritten on every TUI launch / save / `polily config reset`. The CLI escape hatch is `polily config reset --all` or `polily config reset <key>`. Pre-v0.10.0 `config.yaml` files are auto-migrated to db on first boot (invalid yaml is preserved as `config.yaml.bak`).
 - Single AI agent (NarrativeWriter). No silent fallback — CLI failures raise and land as `failed` scan_logs rows.
 - **All AI calls go through `claude -p` CLI**, never the `anthropic` SDK. Reason: uses the user's Claude Code subscription instead of per-token billing. `BaseAgent` at `polily/agents/base.py` is the only place that shells out — don't add a second integration path.
 
