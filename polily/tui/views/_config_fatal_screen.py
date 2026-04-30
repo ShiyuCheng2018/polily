@@ -47,12 +47,20 @@ class FatalConfigScreen(Screen):
         self._error = error_message
 
     def compose(self) -> ComposeResult:
+        # SF18 — Pydantic ValidationError messages contain `[type=...]`
+        # bracket syntax that Rich tries to parse as markup, raising
+        # MarkupError on Static.update / render. The modal already
+        # escapes via rich.markup.escape (config_modals.py:160) — same
+        # fix here so the fatal screen survives any real validation
+        # message it's handed.
+        from rich.markup import escape as _escape_markup
+
         with Vertical(id="fatal-box"):
             with PolilyZone(title=f"{ICON_CONFIG} ⚠ 配置损坏 — polily 无法启动"):
                 yield Static(
                     "数据库 config 表含有非法值，Pydantic 验证失败：",
                 )
-                yield Static(self._error, id="error-text")
+                yield Static(_escape_markup(str(self._error)), id="error-text")
                 yield Static("修复选项：")
                 yield Static(
                     "1. 重置所有配置为默认（不可逆）：",
