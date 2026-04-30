@@ -6,6 +6,8 @@ overwritten on every polily startup to mirror db.config + ephemerals
 """
 from __future__ import annotations
 
+import os
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -35,6 +37,12 @@ def generate_yaml(config: PolilyConfig, target: Path) -> None:
     computed by default_factory) so the yaml snapshot reflects the
     currently-running User-Agent — even though api.user_agent is NOT in
     db.config (EPHEMERAL_FIELDS).
+
+    SF2 (v0.10.0): writes are atomic via tempfile + os.replace. Without
+    this, a crash mid-write or two racing startup paths (TUI + daemon
+    both regen) could leave a half-truncated yaml. `Path.replace` is
+    atomic on POSIX and Windows for Python 3.3+; if the rename fails,
+    the .tmp file is unlinked and the original target is unchanged.
     """
     from polily import __version__
 
@@ -48,4 +56,23 @@ def generate_yaml(config: PolilyConfig, target: Path) -> None:
         generated_at=datetime.now(UTC).isoformat(),
         polily_version=__version__,
     ) + body
-    target.write_text(content, encoding="utf-8")
+
+    # Per-writer unique tmp suffix avoids the case where two concurrent
+    # writers share the same .tmp path: writer A finishes its rename
+    # consuming the .tmp file just as writer B finishes write_text and
+    # tries to rename — B would FileNotFoundError. PID + thread id is
+    # enough; we don't need cryptographic uniqueness here.
+    tmp_suffix = f".{os.getpid()}.{threading.get_ident()}.tmp"
+    tmp = target.with_suffix(target.suffix + tmp_suffix)
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(target)
+    except Exception:
+        # Best-effort cleanup. `missing_ok=True` ensures we don't mask
+        # the original exception with a FileNotFoundError if .tmp never
+        # got written (e.g., disk full on the write_text call).
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
