@@ -5,12 +5,20 @@
 
 调高阈值 → 更保守，AI 介入更少；调低阈值 → 更激进，AI 调用量增加。
 
+> **关于 `movement.weights.*` 子树的术语：** 26 个 weight leaf 的
+> markdown 描述只标信号名（如 `price_z_score`），完整语义见下方
+> `_signals_glossary` 区块——避免在 4 个市场类型 × 多个信号上重复
+> 同样的解释。Loader 会跳过下划线开头的 section（`_signals_glossary`
+> 不会作为可编辑 leaf 出现在 TUI 中），它纯粹是开发者参考。
+
 ---
 
 ## _signals_glossary
 
-定义 weights 子树用到的所有信号语义。每个 weight leaf 通过锚点链接
-回到这里，避免 4 个市场类型重复 4 遍同样的描述。
+定义 weights 子树用到的所有信号语义。每个 weight leaf 的简短描述
+对应这里的术语条目；当你想知道某个信号到底在测什么时翻这里。
+Loader 看到 `_` 前缀的 section 会跳过，所以本节不会注册成 TUI
+config knob——它是文档而非配置。
 
 ### price_z_score
 价格相对最近滑窗的标准差偏离倍数。> 2 标准差视为突变。

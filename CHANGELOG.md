@@ -15,7 +15,8 @@ structured release notes — see `git log` for history.
 - **db.config is now the only config source.** Users edit via `polily → ⚙ 配置`. `config.yaml` is regenerated as a read-only snapshot on every polily startup; manual edits to `config.yaml` are silently overwritten.
 - **`polily scheduler run --config <path>` flag deleted.** The daemon reads from `data/polily.db`'s `config` table at startup. Use the TUI for daily editing or `polily config reset` for emergencies.
 - **`config.example.yaml` and `config.minimal.yaml` deleted.** Per-knob documentation lives in `polily/core/config_docs/*.md`.
-- **First-run upgrade behavior:** existing `config.yaml` files are silently overwritten on first launch of v0.10.0. Users with custom yaml edits should re-apply them via the new TUI Config view (Ctrl+R restart afterward).
+- **First-run upgrade behavior:** existing `config.yaml` is auto-migrated to `db.config` on first v0.10.0 launch — your customizations are preserved. If yaml fails Pydantic validation, it's rescued as `config.yaml.bak` (NOT overwritten), defaults are loaded, and a stderr warning is emitted so you can manually rescue values.
+- **Wallet `starting_balance` migration caveat:** if you previously customized `wallet.starting_balance` in `config.yaml` (e.g., `250.0`), the **knob value** is migrated correctly into `db.config`, BUT your wallet row is seeded with the Pydantic default (`100.0`) before migration runs on first launch. Run `polily reset --wallet-only` after the first v0.10.0 launch to reseed at your customized starting balance. (Users who never edited `wallet.starting_balance` are unaffected — the default matches.)
 - **Pre-v0.9.x plist auto-migration:** users upgrading from old polily versions whose launchd plist contained `--config <path>` will have their plist auto-rewritten on first daemon launch (Whis B2). No manual action needed.
 
 ### Added

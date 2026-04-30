@@ -118,9 +118,11 @@ class PolilyService:
         # must be opened BEFORE config is loaded. Bootstrap chicken-and-egg —
         # `archiving.db_file` lives IN the config, so when no db is injected we
         # use Pydantic defaults to find the db, then read the actual config out
-        # of it. PolilyDB.__init__ seeds db.config on first open via
-        # _ensure_wallet_singleton → load_config_from_db, so the read after open
-        # is guaranteed to find a populated config table.
+        # of it. PolilyDB.__init__ no longer auto-seeds config (decoupled in
+        # v0.10.0 batch fix to break the wallet-singleton ↔ load_config_from_db
+        # recursion); _load_default_config below explicitly drives migration +
+        # seed via load_config_from_db, so the read sees a populated config
+        # table by the time we use `self.config`.
         from polily.core.config import default_db_path
         if db is not None:
             self.db = db
