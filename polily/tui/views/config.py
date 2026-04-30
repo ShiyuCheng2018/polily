@@ -609,6 +609,14 @@ class ConfigView(Widget):
              values)
           4. each ConfigSection re-renders its [已改 N/M] header badge
           5. drift banner re-renders
+
+        Round-2 (Goku #1) — schema-shape changes mid-session are NOT
+        handled. This method only updates EXISTING LeafRow /
+        WeightFamilyNode / ConfigSection widgets. If a future feature
+        (live schema migration, plugin architecture) adds or removes
+        leaves while the view is open, that will require a full
+        recompose path. v0.10.0 freezes the schema at PolilyConfig
+        import time, so this is fine — flagged for v0.11.0+ consideration.
         """
         self._refresh_state()
 
@@ -778,6 +786,12 @@ class ConfigView(Widget):
         main screen (which is where ConfigView is mounted). No point
         refreshing a hidden view, and avoids any subtle stale-snapshot
         race during the modal's save → ConfigView dismiss-callback flow.
+
+        Round-2 (Goku #3) — this skip applies to ANY modal, not just
+        ConfigEditModal. If a future feature adds global toast / dialog
+        screens that don't hide ConfigView's data, revisit this check —
+        today, every modal in polily covers the full screen, so refresh-
+        while-hidden is always wasted work, and the broad guard is correct.
         """
         import contextlib
 
