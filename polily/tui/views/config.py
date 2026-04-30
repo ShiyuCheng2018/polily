@@ -550,15 +550,17 @@ class ConfigView(Widget):
             id="drift-banner",
             classes="banner",
         )
-        yield PolilyCard(
-            title=f"{ICON_CONFIG} 配置",
-            id="config-card",
-        )
-        with VerticalScroll(id="config-scroll"):
-            yield ConfigSection("movement", "异动触发 (Movement)", view=self, expanded=True)
-            yield ConfigSection("scoring", "评分 (Scoring)", view=self)
-            yield ConfigSection("mispricing", "错误定价 (Mispricing)", view=self)
-            yield ConfigSection("wallet", "钱包 (Wallet)", view=self)
+        # SF16 — Previously the PolilyCard was yielded as a sibling of
+        # the VerticalScroll with no children mounted into it, producing
+        # a stray bordered "配置" card with empty body that ate vertical
+        # space. Wrap the scroll inside so the title labels the scroll
+        # region (matches wallet.py:135-137 pattern).
+        with PolilyCard(title=f"{ICON_CONFIG} 配置", id="config-card"):
+            with VerticalScroll(id="config-scroll"):
+                yield ConfigSection("movement", "异动触发 (Movement)", view=self, expanded=True)
+                yield ConfigSection("scoring", "评分 (Scoring)", view=self)
+                yield ConfigSection("mispricing", "错误定价 (Mispricing)", view=self)
+                yield ConfigSection("wallet", "钱包 (Wallet)", view=self)
 
     def _banner_text(self) -> str:
         n = _count_pending_changes(self.loaded_config, self.current_config)

@@ -616,6 +616,56 @@ async def test_action_refresh_preserves_expanded_state(service):
         assert sections_after["scoring"].expanded is True
 
 
+# ---- SF16: empty PolilyCard removed (wrap VerticalScroll inside) ----------
+
+
+@pytest.mark.asyncio
+async def test_config_card_wraps_section_scroll(service):
+    """SF16 — Previously the ConfigView yielded a sibling PolilyCard with
+    no children plus a separate VerticalScroll. Result: a stray bordered
+    "配置" card with empty body taking vertical space between the drift
+    banner and the section list.
+
+    Fix: VerticalScroll lives INSIDE the PolilyCard (option b — title
+    labels the scroll region, matches wallet.py:135-137 pattern). The
+    config-card must contain config-scroll as a descendant.
+    """
+    from textual.containers import VerticalScroll
+
+    from polily.tui.widgets.polily_card import PolilyCard
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        card = view.query_one("#config-card", PolilyCard)
+        # The VerticalScroll must be a descendant of the card, not a sibling
+        scrolls_inside_card = list(card.query(VerticalScroll))
+        assert len(scrolls_inside_card) == 1, (
+            "config-scroll must be nested inside #config-card "
+            "(SF16 — no more empty card)"
+        )
+        assert scrolls_inside_card[0].id == "config-scroll"
+
+
+@pytest.mark.asyncio
+async def test_config_card_is_not_empty(service):
+    """SF16 — PolilyCard must not be a sibling-with-no-children (visual
+    smell test). It should contain the config-scroll which contains all
+    sections, so its descendants include at least the 4 ConfigSections.
+    """
+    from polily.tui.widgets.polily_card import PolilyCard
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        card = view.query_one("#config-card", PolilyCard)
+        sections_inside = list(card.query("ConfigSection"))
+        assert len(sections_inside) == 4, (
+            "config-card must contain the 4 sections "
+            "(SF16 — empty card was removed/refilled)"
+        )
+
+
 # ---- SF15: ConfigSection keyboard accessibility ----------------------------
 
 
