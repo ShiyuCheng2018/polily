@@ -80,29 +80,58 @@ EPHEMERAL_FIELDS: frozenset[str] = frozenset({
 })
 
 
-# Per Q1 + Whis SF4 — territory A whitelist single source of truth.
+# Per Q1 + Whis SF4/SF10 — territory A whitelist single source of truth.
 # Tests (test_config_docs_coverage), production (ConfigView, ConfigEditModal)
 # all import from here so they can't drift independently.
-TERRITORY_A_PREFIXES: tuple[str, ...] = (
-    "movement.",
-    "scoring.thresholds.",
-    "mispricing.",
-    "wallet.",
-)
+#
+# SF10 (v0.10.0): replaced the previous TERRITORY_A_PREFIXES tuple with an
+# explicit HIDDEN_IN_TUI set + computed TERRITORY_A frozenset. Adding any
+# new leaf to PolilyConfig is HIDDEN by default; promotion to territory A
+# requires removing it from HIDDEN_IN_TUI in the same commit, which forces
+# a deliberate choice. The pre-SF10 prefix match would have auto-allowed
+# any future `wallet.*` field (e.g. hypothetical `wallet.api_key`) into the
+# TUI Edit modal — see tests/test_territory_a_allowlist.py for the regression
+# guard.
+HIDDEN_IN_TUI: frozenset[str] = frozenset({
+    # api.* — runtime / HTTP plumbing, not user-meaningful
+    "api.request_timeout_seconds",
+    # ai.narrative_writer.* — agent runtime knobs (model / timeouts /
+    # truncation thresholds). Editable via env or future "Advanced" panel,
+    # not the basic TUI Edit modal.
+    "ai.narrative_writer.model",
+    "ai.narrative_writer.timeout_seconds",
+    "ai.narrative_writer.max_prompt_chars",
+    # tui.* — UI internals; lifted from hardcoded constants but not yet
+    # exposed as an editable knob (Phase 0 staging).
+    "tui.heartbeat_seconds",
+    # archiving.db_file — Pydantic-default-only per default_db_path()
+    # docstring; even if a row exists in db.config, callers bootstrap
+    # the path BEFORE loading db.config.
+    "archiving.db_file",
+})
+
+
+def _compute_territory_a() -> frozenset[str]:
+    """The set of key_paths that are user-editable via TUI ⚙ 配置.
+
+    Computed once from PolilyConfig defaults, minus EPHEMERAL_FIELDS,
+    minus HIDDEN_IN_TUI. New fields are HIDDEN by default — adding to
+    territory A is an explicit code change (delete from HIDDEN_IN_TUI),
+    not an accident. This is the SF10 fix.
+    """
+    all_keys = frozenset(_flatten_pydantic(PolilyConfig()).keys())
+    return all_keys - EPHEMERAL_FIELDS - HIDDEN_IN_TUI
 
 
 def is_territory_a(key_path: str) -> bool:
-    """True if key_path is TUI-editable (not HIDDEN_IN_TUI, not EPHEMERAL).
+    """True if key_path is TUI-editable (in TERRITORY_A allowlist).
 
-    EPHEMERAL_FIELDS check happens BEFORE the prefix match, so even a
-    key like 'movement.user_agent' (hypothetical) would be rejected if
-    it lived in EPHEMERAL_FIELDS. This precedence matters for
-    defense-in-depth: territory-A whitelist alone isn't sufficient if
-    a future EPHEMERAL field happens to share a prefix with a real one.
+    Membership-only check — no prefix match, no implicit grouping. EPHEMERAL
+    and HIDDEN_IN_TUI keys are excluded by construction in
+    ``_compute_territory_a``. A key_path that isn't in PolilyConfig at all
+    returns False (the allowlist is closed). See module docstring SF10 note.
     """
-    if key_path in EPHEMERAL_FIELDS:
-        return False
-    return any(key_path.startswith(p) for p in TERRITORY_A_PREFIXES)
+    return key_path in TERRITORY_A
 
 
 def _flatten_pydantic(model: BaseModel, prefix: str = "") -> dict[str, Any]:
@@ -181,6 +210,12 @@ def _assert_supported_scalar(path: str, value: Any) -> None:
             f"(at '{path}'). Use a non-Optional field with a sensible default, "
             f"or extend this helper."
         )
+
+
+# Bound after `_flatten_pydantic` + `_compute_territory_a` are both defined.
+# Module-level frozenset evaluated at import time — cheap (one PolilyConfig()
+# construction) and never mutated. See SF10 note above.
+TERRITORY_A: frozenset[str] = _compute_territory_a()
 
 
 def _unflatten(flat: dict[str, Any]) -> dict[str, Any]:

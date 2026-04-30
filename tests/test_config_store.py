@@ -11,7 +11,8 @@ import pytest
 from polily.core.config import PolilyConfig
 from polily.core.config_store import (
     EPHEMERAL_FIELDS,
-    TERRITORY_A_PREFIXES,
+    HIDDEN_IN_TUI,
+    TERRITORY_A,
     ConfigSaveError,
     _flatten_pydantic,
     _migrate_yaml_to_db,
@@ -49,14 +50,15 @@ def test_ephemeral_fields_exact_membership():
     assert frozenset({"api.user_agent"}) == EPHEMERAL_FIELDS
 
 
-def test_territory_a_prefixes_covers_4_user_facing_sections():
-    """Per Q1 — only 4 sections are TUI-editable."""
-    assert TERRITORY_A_PREFIXES == (
-        "movement.",
-        "scoring.thresholds.",
-        "mispricing.",
-        "wallet.",
-    )
+def test_territory_a_covers_4_user_facing_sections():
+    """Per Q1 + SF10 — only 4 top-level sections contribute to TERRITORY_A.
+
+    Pre-SF10 used a 4-tuple of prefixes; post-SF10 we derive top-level
+    sections from the explicit allowlist. The contract (which sections
+    are TUI-editable) is unchanged.
+    """
+    top_levels = {key.split(".", 1)[0] for key in TERRITORY_A}
+    assert top_levels == {"movement", "scoring", "mispricing", "wallet"}
 
 
 def test_is_territory_a_recognizes_movement_keys():
@@ -77,27 +79,32 @@ def test_is_territory_a_excludes_ephemeral_fields():
     assert is_territory_a("api.user_agent") is False
 
 
-def test_territory_a_prefixes_top_levels_align_with_pydantic_schema():
+def test_territory_a_top_levels_align_with_pydantic_schema():
     """Schema drift guard — if PolilyConfig adds a top-level section,
-    either add it to TERRITORY_A_PREFIXES (visible) or to
-    _HIDDEN_TOP_LEVELS (intentionally hidden). Forces conscious choice."""
+    its leaves must be partitioned into TERRITORY_A (allowlisted),
+    HIDDEN_IN_TUI (explicitly hidden), or EPHEMERAL_FIELDS. Post-SF10
+    the partition is checked at the leaf level by
+    test_territory_a_partition_covers_all_leaves; this test pins the
+    top-level grouping for documentation legibility."""
     pydantic_top = set(PolilyConfig.model_fields.keys())
-    territory_top = {p.split(".")[0] for p in TERRITORY_A_PREFIXES}
-    hidden_top = {"api", "tui", "ai", "archiving"}
-    assert territory_top | hidden_top == pydantic_top, (
+    territory_top = {p.split(".", 1)[0] for p in TERRITORY_A}
+    hidden_top = {p.split(".", 1)[0] for p in HIDDEN_IN_TUI}
+    ephemeral_top = {p.split(".", 1)[0] for p in EPHEMERAL_FIELDS}
+    assert territory_top | hidden_top | ephemeral_top == pydantic_top, (
         f"PolilyConfig schema drift: section appeared/disappeared.\n"
         f"  pydantic top-level: {sorted(pydantic_top)}\n"
         f"  territory_a:        {sorted(territory_top)}\n"
         f"  hidden:             {sorted(hidden_top)}\n"
-        f"  unaccounted:        {sorted(pydantic_top - territory_top - hidden_top)}"
+        f"  ephemeral:          {sorted(ephemeral_top)}\n"
+        f"  unaccounted:        {sorted(pydantic_top - territory_top - hidden_top - ephemeral_top)}"
     )
 
 
 def test_territory_a_total_leaf_count_is_40():
     """Locks Q1 territory A scope at 40 leaves (movement + scoring.thresholds
     + mispricing + wallet). If this fails, either:
-    - A new section was added (update TERRITORY_A_PREFIXES + design §3.2 §12.A)
-    - A leaf was added/removed within an existing section (adjust whitelist
+    - A new section was added (update HIDDEN_IN_TUI + design §3.2 §12.A)
+    - A leaf was added/removed within an existing section (adjust HIDDEN_IN_TUI
       and document in the design's §12.A appendix)
 
     Catches schema drift where total stays 47 but the per-tier split changes
