@@ -267,3 +267,60 @@ async def test_restart_invokes_scheduler_restart_subprocess(service, monkeypatch
     # Note: exit_called may or may not fire in test depending on timer behavior.
     # If timer doesn't fire in run_test scope, that's acceptable — verify only
     # the subprocess call.
+
+
+# ---- B3: LeafRow keyboard accessibility ------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_leaf_row_is_focusable(service):
+    """B3 — LeafRow must be focusable so keyboard-only users can reach it.
+
+    Without can_focus=True, Tab navigation skips the row and the only way to
+    open the edit modal is mouse click.
+    """
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        rows = list(view.query("LeafRow"))
+        target = next(r for r in rows if r.key_path == "movement.magnitude_threshold")
+        # The row class must declare can_focus
+        assert target.can_focus is True
+        # And focus() must succeed (raises if widget rejects focus)
+        target.focus()
+        await pilot.pause()
+        assert target.has_focus
+
+
+@pytest.mark.asyncio
+async def test_pressing_enter_on_focused_leaf_opens_modal(service):
+    """B3 — Enter on a focused LeafRow opens ConfigEditModal (keyboard parity)."""
+    from polily.tui.views.config_modals import ConfigEditModal
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        rows = list(view.query("LeafRow"))
+        target = next(r for r in rows if r.key_path == "movement.magnitude_threshold")
+        target.focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert any(isinstance(s, ConfigEditModal) for s in pilot.app.screen_stack)
+
+
+@pytest.mark.asyncio
+async def test_leaf_row_action_edit_directly_opens_modal(service):
+    """B3 — action_edit() is the canonical keyboard handler; verify it routes
+    through the same modal-push code path as on_click.
+    """
+    from polily.tui.views.config_modals import ConfigEditModal
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        rows = list(view.query("LeafRow"))
+        target = next(r for r in rows if r.key_path == "movement.magnitude_threshold")
+        target.action_edit()
+        await pilot.pause()
+        assert any(isinstance(s, ConfigEditModal) for s in pilot.app.screen_stack)

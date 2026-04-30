@@ -51,7 +51,20 @@ class LeafRow(Widget):
 
     Line 1:  <last_segment>      <value>   <source-tag>   ⓘ
     Line 2 (dim small):  <full key_path>
+
+    B3: focusable so keyboard-only users can Tab to it and press Enter to
+    open the edit modal. Mouse click still works via on_click.
     """
+
+    # B3 — Tab navigation reaches each leaf; Enter opens the edit modal.
+    can_focus = True
+
+    BINDINGS = [
+        # show=False keeps the global help bar uncluttered. The ConfigView's
+        # parent BINDINGS surface the relevant keys; per-row Enter is
+        # discoverable from the focus highlight.
+        Binding("enter", "edit", "编辑", show=False),
+    ]
 
     DEFAULT_CSS = """
     LeafRow { height: 2; padding: 0 1; }
@@ -59,6 +72,12 @@ class LeafRow(Widget):
     LeafRow .leaf-line-2 { color: $text-muted; padding-left: 2; }
     LeafRow .leaf-changed-marker { color: $warning; }
     LeafRow .leaf-source { color: $text-muted; }
+    LeafRow:focus {
+        background: $primary 30%;
+    }
+    LeafRow:focus-within {
+        background: $primary 30%;
+    }
     """
 
     def __init__(
@@ -116,6 +135,13 @@ class LeafRow(Widget):
         )
 
     def on_click(self) -> None:
+        self._open_modal()
+
+    def action_edit(self) -> None:
+        """B3 — Enter binding handler. Same flow as mouse click."""
+        self._open_modal()
+
+    def _open_modal(self) -> None:
         if self._view is None:
             return
         from polily.tui.views.config_modals import ConfigEditModal
