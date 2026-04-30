@@ -621,10 +621,10 @@ class ConfigView(Widget):
         """Restart polily so config changes take effect.
 
         Per design §5.5.2 + Whis B1:
-          1. Regenerate yaml so disk mirror is current
-          2. Delegate to `polily scheduler restart` (existing CLI command)
-             — handles unload + kill + ensure_daemon_running with the
-             correct sequence that v0.9.0 established. Avoids bare
+          1. Regenerate yaml so disk mirror is current (fast — main thread)
+          2. Delegate to `polily scheduler restart` on a WORKER THREAD
+             (SF17) — handles unload + kill + ensure_daemon_running with
+             the correct sequence that v0.9.0 established. Avoids bare
              kill_daemon(TERM) which would trigger launchd crash loop
              due to KeepAlive=true.
           3. On success: notify user + 2s delay + os._exit(0).
@@ -634,29 +634,37 @@ class ConfigView(Widget):
              reopens 30s later to find no daemon running with no clue
              why.
 
-        We do NOT directly call ensure_daemon_running ourselves — the
-        scheduler restart subcommand is the canonical path and is already
-        tested + maintained.
-
-        SF17 (Batch 6) will move the subprocess to a worker thread so a
-        hung restart doesn't freeze the event loop. The synchronous
-        version here is fine — just fail-loud.
+        SF17 — subprocess runs on a worker thread so a hung restart (up
+        to 10s timeout) doesn't freeze the event loop. UI updates from
+        the worker go via `app.call_from_thread`. Mirrors the
+        WalletResetModal pattern (wallet_modals.py:347-389).
         """
         import contextlib
-        import os
-        import shutil
-        import subprocess
-        import sys
         from pathlib import Path
 
         from polily.core.config_yaml import generate_yaml
 
         # Step 1: regenerate yaml so disk reflects current db state.
-        # best-effort — yaml is a snapshot, not load-bearing.
+        # best-effort — yaml is a snapshot, not load-bearing. Fast,
+        # safe to run on the main thread.
         with contextlib.suppress(Exception):
             generate_yaml(self.service.config, Path("config.yaml"))
 
-        # Step 2: delegate to canonical `polily scheduler restart` command.
+        # Step 2 + 3: subprocess + UI follow-up run on a worker thread so
+        # the event loop stays responsive even if `polily scheduler
+        # restart` hangs.
+        self.notify("正在重启 daemon...", title="重启 polily", timeout=10)
+        self.run_worker(self._restart_daemon_worker, thread=True, exclusive=True)
+
+    def _restart_daemon_worker(self) -> None:
+        """SF17 — Worker thread body. Runs subprocess, dispatches UI
+        updates via app.call_from_thread.
+        """
+        import os
+        import shutil
+        import subprocess
+        import sys
+
         polily_cmd = shutil.which("polily") or (
             sys.argv[0] if sys.argv else "polily"
         )
@@ -667,8 +675,11 @@ class ConfigView(Widget):
                 timeout=10,
                 text=True,
             )
-        except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError) as e:
-            self.notify(
+        except (
+            subprocess.TimeoutExpired, FileNotFoundError, PermissionError,
+        ) as e:
+            self.app.call_from_thread(
+                self.notify,
                 f"❌ 重启 daemon 失败: {type(e).__name__}: {e}",
                 severity="error",
                 timeout=10,
@@ -677,7 +688,8 @@ class ConfigView(Widget):
 
         if result.returncode != 0:
             err = (result.stderr or result.stdout or "").strip()[:500]
-            self.notify(
+            self.app.call_from_thread(
+                self.notify,
                 f"❌ 重启 daemon 失败 (rc={result.returncode}): "
                 f"{err or '(no output)'}",
                 severity="error",
@@ -685,13 +697,17 @@ class ConfigView(Widget):
             )
             return
 
-        # Step 3: success — notify user + small delay + exit TUI
-        self.notify(
+        # Success — notify + 2s grace + os._exit(0). Both notify and
+        # set_timer are main-thread-only Textual APIs.
+        self.app.call_from_thread(
+            self.notify,
             "✅ Daemon 已重启。polily TUI 将在 2 秒后关闭，请重开。",
             title="重启 polily",
             timeout=2,
         )
-        self.set_timer(2.0, lambda: os._exit(0))
+        self.app.call_from_thread(
+            self.set_timer, 2.0, lambda: os._exit(0),
+        )
 
     def on_mount(self) -> None:
         from polily.core.events import TOPIC_HEARTBEAT

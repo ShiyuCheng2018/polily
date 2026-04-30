@@ -279,9 +279,9 @@ async def test_restart_invokes_scheduler_restart_subprocess(service, monkeypatch
     async with _Harness(view).run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         view.action_restart_polily()
+        # SF17 — subprocess now runs on a worker thread; wait for it.
+        await view.workers.wait_for_complete()
         await pilot.pause()
-        # Skip the set_timer wait by calling the lambda directly if needed
-        # — depends on how view implements the 2s exit delay.
 
     # Verify subprocess was called with `polily scheduler restart`
     assert any(
@@ -334,6 +334,8 @@ async def test_restart_does_not_exit_when_subprocess_returns_nonzero(
             lambda msg, **kw: notify_calls.append((msg, kw)),
         )
         view.action_restart_polily()
+        # SF17 — wait for worker to finish then drain UI events.
+        await view.workers.wait_for_complete()
         await pilot.pause()
 
     # No exit timer scheduled
@@ -378,6 +380,8 @@ async def test_restart_does_not_exit_when_subprocess_raises(service, monkeypatch
             lambda msg, **kw: notify_calls.append((msg, kw)),
         )
         view.action_restart_polily()
+        # SF17 — wait for worker to finish then drain UI events.
+        await view.workers.wait_for_complete()
         await pilot.pause()
 
     assert timer_calls == [], (
@@ -413,6 +417,8 @@ async def test_restart_schedules_exit_only_on_subprocess_success(
             lambda delay, fn: timer_calls.append((delay, fn)),
         )
         view.action_restart_polily()
+        # SF17 — wait for worker to finish then drain UI events.
+        await view.workers.wait_for_complete()
         await pilot.pause()
 
     assert len(timer_calls) == 1, (
@@ -420,6 +426,83 @@ async def test_restart_schedules_exit_only_on_subprocess_success(
     )
     # Delay should be the existing 2.0s grace period
     assert timer_calls[0][0] == 2.0
+
+
+# ---- SF17: restart subprocess runs on worker thread (UI stays responsive) --
+
+
+@pytest.mark.asyncio
+async def test_restart_action_returns_immediately_on_slow_subprocess(
+    service, monkeypatch,
+):
+    """SF17 — action_restart_polily must NOT block the event loop. With a
+    slow subprocess (e.g. hung daemon restart), a synchronous subprocess.run
+    would freeze the UI for up to 10s. The fix moves it to a worker thread
+    so action_restart_polily returns immediately and the event loop keeps
+    pumping.
+
+    We measure: (a) the action call itself returns near-instantly, (b) the
+    subprocess actually runs (proves the worker dispatched and didn't get
+    stuck on the main thread).
+    """
+    import asyncio
+    import threading
+    import time
+
+    started = threading.Event()
+    release = threading.Event()
+    captured_thread: dict[str, int] = {}
+
+    def slow_run(cmd, *a, **kw):
+        captured_thread["tid"] = threading.get_ident()
+        started.set()
+        # Block until the test releases us. If this ran on the event loop
+        # thread, the asyncio.sleep below would never get to run.
+        release.wait(timeout=5)
+        return type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+    monkeypatch.setattr("subprocess.run", slow_run)
+    monkeypatch.setattr(
+        "polily.core.config_yaml.generate_yaml",
+        lambda config, target: None,
+    )
+    monkeypatch.setattr("os._exit", lambda code: None)
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        main_tid = threading.get_ident()
+        # Fire the action: with a worker, this returns immediately;
+        # without one, it would block on slow_run for 5s.
+        t0 = time.perf_counter()
+        view.action_restart_polily()
+        elapsed = time.perf_counter() - t0
+        assert elapsed < 0.5, (
+            f"action_restart_polily blocked for {elapsed:.2f}s — "
+            f"subprocess is not running on a worker thread"
+        )
+
+        # Yield to event loop a few times so the worker thread can spin up.
+        # asyncio.sleep(0) repeatedly gives Textual's worker dispatch a
+        # chance to start the thread.
+        for _ in range(20):
+            await asyncio.sleep(0.02)
+            if started.is_set():
+                break
+
+        assert started.is_set(), (
+            "subprocess never started — worker dispatch broken"
+        )
+        # Subprocess must have run on a different thread than the event loop.
+        assert captured_thread["tid"] != main_tid, (
+            "subprocess ran on the main/event-loop thread — worker not threaded"
+        )
+
+        # Release the subprocess so the worker can finish and the test
+        # can clean up cleanly.
+        release.set()
+        await view.workers.wait_for_complete()
+        await pilot.pause()
 
 
 # ---- B3: LeafRow keyboard accessibility ------------------------------------
