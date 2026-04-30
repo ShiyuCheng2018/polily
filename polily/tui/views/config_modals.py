@@ -92,6 +92,13 @@ class ConfigEditModal(ModalScreen[bool | None]):
         self._key_path = key_path
         self._current_value = current_value
         self._default_value = default_value
+        # SF14 — debounce live validation. CJK IME composition fires one
+        # Input.Changed event per pre-edit char (typing "5" via pinyin can
+        # emit 5+ events). Without coalescing, each event runs the full
+        # _resolve_field_annotation + _coerce_value + Static.update chain,
+        # producing visible lag and flicker. The timer holds the latest
+        # pending validation; on each new event we cancel + reschedule.
+        self._validation_timer = None
 
     @property
     def _last_segment(self) -> str:
@@ -141,13 +148,33 @@ class ConfigEditModal(ModalScreen[bool | None]):
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id != "modal-input":
             return
+        # SF14 — coalesce keystroke storms (CJK IME composition fires one
+        # event per pre-edit char). 100ms idle window matches human typing
+        # perception threshold; users won't notice the deferral, but rapid
+        # IME bursts collapse into a single validation run.
+        if self._validation_timer is not None:
+            with contextlib.suppress(Exception):
+                self._validation_timer.stop()
+        self._validation_timer = self.set_timer(0.1, self._run_live_validation)
+
+    def _run_live_validation(self) -> None:
+        """SF14 — debounced field-level validation.
+
+        Reads the current input value (not the captured event.value) so the
+        latest text is what actually validates, regardless of how many
+        events fired during the debounce window.
+        """
         from polily.core.config import _coerce_value, _resolve_field_annotation
+        try:
+            raw = self.query_one("#modal-input", Input).value
+        except Exception:
+            return
         annotation = _resolve_field_annotation(self._key_path)
         if annotation is None:
             self._show_error(f"无法定位 {self._key_path} 的类型")
             return
         try:
-            _coerce_value(event.value, annotation)
+            _coerce_value(raw, annotation)
         except ValueError as e:
             self._show_error(str(e))
             return
@@ -176,6 +203,16 @@ class ConfigEditModal(ModalScreen[bool | None]):
             _resolve_field_annotation,
             save_knob,
         )
+        # SF14 — cancel any pending debounced live-validation. Otherwise
+        # if the user types a live-valid but save-invalid value (e.g. 0.5
+        # for starting_balance which has Field(ge=1.0)) and clicks Save
+        # before the 100ms timer fires, the timer would later overwrite
+        # our Pydantic error message with an empty string.
+        if self._validation_timer is not None:
+            with contextlib.suppress(Exception):
+                self._validation_timer.stop()
+            self._validation_timer = None
+
         raw = self.query_one("#modal-input", Input).value
         annotation = _resolve_field_annotation(self._key_path)
         try:

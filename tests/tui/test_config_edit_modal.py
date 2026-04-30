@@ -90,7 +90,12 @@ async def test_modal_rejects_construction_for_ephemeral_field(service):
 
 @pytest.mark.asyncio
 async def test_live_validation_shows_error_for_invalid_int(service):
-    """Typing 'abc' for an int leaf shows red border + error text."""
+    """Typing 'abc' for an int leaf shows red border + error text.
+
+    SF14 — wait past the 100ms debounce window before asserting.
+    """
+    import asyncio
+
     from textual.widgets import Input
 
     modal = ConfigEditModal(
@@ -103,6 +108,7 @@ async def test_live_validation_shows_error_for_invalid_int(service):
         await pilot.pause()
         input_widget = modal.query_one("#modal-input", Input)
         input_widget.value = "abc"
+        await asyncio.sleep(0.2)
         await pilot.pause()
         error = modal.query_one("#modal-error", Static)
         rendered = str(error.render())
@@ -111,6 +117,9 @@ async def test_live_validation_shows_error_for_invalid_int(service):
 
 @pytest.mark.asyncio
 async def test_live_validation_passes_for_valid_value(service):
+    """SF14 — wait past the 100ms debounce window before asserting."""
+    import asyncio
+
     from textual.widgets import Input
 
     modal = ConfigEditModal(
@@ -123,6 +132,7 @@ async def test_live_validation_passes_for_valid_value(service):
         await pilot.pause()
         input_widget = modal.query_one("#modal-input", Input)
         input_widget.value = "20"
+        await asyncio.sleep(0.2)
         await pilot.pause()
         error = modal.query_one("#modal-error", Static)
         assert str(error.render()).strip() == ""
@@ -246,8 +256,11 @@ async def test_reset_re_enables_save_after_invalid_input(service):
     )
     async with _Harness(modal).run_test(size=(120, 40)) as pilot:
         await pilot.pause()
-        # Type invalid value → live validation should disable Save
+        # Type invalid value → live validation (debounced) should disable Save
         modal.query_one("#modal-input", Input).value = "abc"
+        # SF14 — wait past the 100ms debounce window so validation fires.
+        import asyncio
+        await asyncio.sleep(0.2)
         await pilot.pause()
         assert modal.query_one("#confirm", Button).disabled is True, (
             "Save should be disabled after invalid input"
@@ -297,3 +310,86 @@ async def test_escape_key_dismisses_modal(service):
         await pilot.pause()
 
     assert captured.get("result") is None  # ESC → dismiss(None)
+
+
+# ---- SF14: debounced live validation (CJK IME composition) ----------------
+
+
+@pytest.mark.asyncio
+async def test_live_validation_runs_after_debounce_window(service):
+    """SF14 — typing fires Input.Changed but validation result lands only
+    after the debounce window elapses. Without debounce, every keystroke
+    runs `_resolve_field_annotation` + `_coerce_value` + Static.update, which
+    lags during CJK IME composition (one event per pre-edit char).
+    """
+    import asyncio
+
+    from textual.widgets import Input
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.daily_analysis_limit",
+        current_value=10,
+        default_value=10,
+    )
+    async with _Harness(modal).run_test() as pilot:
+        await pilot.pause()
+        input_widget = modal.query_one("#modal-input", Input)
+        input_widget.value = "abc"
+        # Short pause: timer hasn't fired yet (window is 100ms). Error
+        # area should be empty (validation deferred).
+        await pilot.pause()
+
+        # Wait long enough for the debounce timer to fire.
+        await asyncio.sleep(0.2)
+        await pilot.pause()
+
+        error = modal.query_one("#modal-error", Static)
+        rendered = str(error.render())
+        assert "无法解析" in rendered or "invalid" in rendered.lower(), (
+            f"validation should have fired after debounce window, got: {rendered!r}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_rapid_input_changes_coalesce_to_single_validation(service, monkeypatch):
+    """SF14 — N rapid Input.Changed events within the debounce window
+    must collapse into ONE _run_live_validation call. Simulates CJK IME
+    composition where typing "5" via pinyin fires 5+ Input.Changed events
+    for pre-edit chars.
+    """
+    import asyncio
+
+    from textual.widgets import Input
+
+    modal = ConfigEditModal(
+        service=service,
+        key_path="movement.daily_analysis_limit",
+        current_value=10,
+        default_value=10,
+    )
+    async with _Harness(modal).run_test() as pilot:
+        await pilot.pause()
+        validation_calls = []
+        original = modal._run_live_validation
+
+        def counting_validation():
+            validation_calls.append(None)
+            return original()
+
+        monkeypatch.setattr(modal, "_run_live_validation", counting_validation)
+
+        # Fire 6 rapid input changes within the debounce window (100ms).
+        input_widget = modal.query_one("#modal-input", Input)
+        for ch in "abcdef":
+            input_widget.value = ch
+            # No pause between writes — they should all queue into one timer.
+
+        # Wait past the window.
+        await asyncio.sleep(0.2)
+        await pilot.pause()
+
+        # Coalesced: at most 1-2 calls (the final one). Definitely not 6.
+        assert len(validation_calls) <= 2, (
+            f"expected coalesced validation (≤2 calls), got {len(validation_calls)}"
+        )
