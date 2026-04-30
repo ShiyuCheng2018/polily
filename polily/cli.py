@@ -3,6 +3,7 @@
 v0.5.0: minimal CLI — TUI launch + scheduler subcommand group.
 """
 
+import sys
 from pathlib import Path
 
 import typer
@@ -27,6 +28,51 @@ def _regenerate_yaml_snapshot(config) -> None:
         )
 
 
+def _emit_migration_status_to_stderr(status=None) -> None:
+    """Surface yaml→db migration status to the user (SF1 / AC2).
+
+    Called by CLI bootstrap paths after `load_config_from_db`. Without
+    this, the v0.9.x → v0.10.0 upgrade had a silent failure mode where
+    a user with an out-of-range value in `config.yaml` would have it
+    quietly clobbered by the next yaml regen — they lost customizations
+    with zero feedback.
+
+    `status` defaults to `get_last_migration_status()` (whatever the
+    most recent migration in this process produced). Tests pass an
+    explicit status to exercise each branch.
+
+    Status cases:
+      - ("ok", N)                       — visible: "已迁移 N 项..."
+      - ("skipped_invalid", reason)     — visible: warn + .bak hint
+      - ("skipped_no_yaml",)            — silent (fresh install / new user)
+      - ("skipped_already_migrated",)   — silent (every startup after first)
+      - None                            — silent (no migration happened)
+    """
+    if status is None:
+        from polily.core.config_store import get_last_migration_status
+        status = get_last_migration_status()
+    if status is None:
+        return
+
+    kind = status[0]
+    if kind == "ok":
+        n = status[1]
+        sys.stderr.write(
+            f"✅ 已迁移 {n} 项旧版配置 (config.yaml → polily.db)。"
+            "可在 ⚙ 配置 中调整。\n"
+        )
+    elif kind == "skipped_invalid":
+        reason = status[1] if len(status) > 1 else ""
+        # Truncate long Pydantic ValidationError dumps so the warning stays
+        # legible; full reason is in the log.
+        short_reason = reason.split("\n", 1)[0][:120] if reason else ""
+        sys.stderr.write(
+            f"⚠ 旧版 config.yaml 校验失败 ({short_reason})；已使用默认值。"
+            "原文件已保留为 config.yaml.bak — 可手动迁移或删除。\n"
+        )
+    # "skipped_no_yaml" and "skipped_already_migrated" → silent
+
+
 @app.callback()
 def main(ctx: typer.Context):
     """Polily — A Polymarket Monitoring Agent That Actually Works. Launches TUI when no subcommand given."""
@@ -34,6 +80,10 @@ def main(ctx: typer.Context):
         from polily.tui.app import run_tui
         from polily.tui.service import PolilyService
         service = PolilyService()
+        # SF1 / AC2 — surface yaml→db migration status BEFORE entering the
+        # Textual TUI (which takes over the terminal). Critical for the
+        # invalid-yaml case where the user's customizations are .bak'd.
+        _emit_migration_status_to_stderr()
         _regenerate_yaml_snapshot(service.config)
         run_tui(service=service)
 
@@ -101,6 +151,10 @@ def run_scheduler_daemon():
             # User repairs via TUI fatal screen or `polily config reset`.
             typer.echo(f"FATAL: db.config has invalid values: {e}", err=True)
             raise typer.Exit(1) from e
+        # SF1 / AC2 — daemon's stderr goes to its launchd log; the user
+        # won't see it unless they tail the log, but it's still better
+        # than silent. TUI bootstrap is the primary visibility path.
+        _emit_migration_status_to_stderr()
         # Regenerate yaml snapshot so disk reflects daemon's runtime state.
         # Per design §4.4 — both TUI and daemon are yaml regen hooks.
         _regenerate_yaml_snapshot(config)
@@ -282,9 +336,13 @@ def _load_user_config():
 
     db = PolilyDB(default_db_path())
     try:
-        return load_config_from_db(db)
+        config = load_config_from_db(db)
     finally:
         db.close()
+    # SF1 / AC2 — emit migration status to stderr after load, so the user
+    # sees the upgrade banner even on `polily reset` paths.
+    _emit_migration_status_to_stderr()
+    return config
 
 
 def _stop_daemon_if_running() -> None:

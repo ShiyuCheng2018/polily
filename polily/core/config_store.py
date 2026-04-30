@@ -24,9 +24,10 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Tuple, Union
 
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -34,6 +35,40 @@ from pydantic import BaseModel, ValidationError
 from polily.core.config import PolilyConfig
 
 _log = logging.getLogger(__name__)
+
+
+# SF1 (v0.10.0) — last migration status from this process. Read by
+# `polily.cli._emit_migration_status_to_stderr` so CLI bootstrap can
+# surface yaml→db migration outcomes (or .bak rescue) to the user.
+# Process-local memory; cross-process is fine because every polily
+# process either runs migration once on first config load or sees the
+# 'skipped_already_migrated' sentinel and we want each process to
+# announce its own migration result. Thread-safe via lock — load_config
+# is only called from main thread in practice but ensure_seeded/migrate
+# are also exposed.
+MigrationStatus = Union[
+    Tuple[str, int],   # ("ok", n_keys_migrated)
+    Tuple[str, str],   # ("skipped_invalid", reason)
+    Tuple[str],        # ("skipped_no_yaml",) | ("skipped_already_migrated",)
+]
+_last_migration_status: MigrationStatus | None = None
+_status_lock = threading.Lock()
+
+
+def get_last_migration_status() -> MigrationStatus | None:
+    """Return the most recent _migrate_yaml_to_db result, or None if not yet run.
+
+    Used by polily.cli._emit_migration_status_to_stderr to localize and
+    surface AC2-required upgrade feedback after CLI bootstrap loads config.
+    """
+    with _status_lock:
+        return _last_migration_status
+
+
+def _set_last_migration_status(status: MigrationStatus) -> None:
+    global _last_migration_status
+    with _status_lock:
+        _last_migration_status = status
 
 
 # Per design §3.2 — fields whose value is computed at runtime via Pydantic
@@ -239,7 +274,31 @@ def reset(db, key_path: str) -> None:
     upsert(db, key_path, defaults[key_path])
 
 
-def _migrate_yaml_to_db(db) -> None:
+def _rescue_invalid_yaml(yaml_path: Path, reason: str) -> Path | None:
+    """Rename a failed-validation config.yaml to config.yaml.bak.
+
+    SF1 (v0.10.0) — without this rescue, the next polily startup would
+    yaml-regen over the user's customizations, and they'd never see the
+    values they spent time tweaking. Renaming preserves them on disk.
+
+    Returns the .bak path on success, None if rename failed (best-effort).
+    Existing .bak file is overwritten — most recent failure wins.
+    """
+    bak_path = yaml_path.with_suffix(yaml_path.suffix + ".bak")
+    try:
+        # os.replace semantics — overwrite if present, atomic on POSIX+Win
+        yaml_path.replace(bak_path)
+        _log.warning(
+            "Renamed invalid config.yaml → %s (reason: %s)",
+            bak_path.name, reason,
+        )
+        return bak_path
+    except OSError as e:
+        _log.warning("Could not rescue config.yaml to .bak: %s", e)
+        return None
+
+
+def _migrate_yaml_to_db(db) -> MigrationStatus:
     """One-shot v0.9.x → v0.10.0 migration (Whis B3).
 
     **Call-order invariant**: this function MUST be called in the same
@@ -257,31 +316,50 @@ def _migrate_yaml_to_db(db) -> None:
     starts the migration becomes a no-op and yaml is overwritten by the
     Phase 3 generator).
 
+    Returns a structured status (SF1 — was previously bare logging that
+    went nowhere because no logging.basicConfig was wired):
+      - ("ok", N)                          — N leaves migrated successfully
+      - ("skipped_no_yaml",)               — fresh install, normal case
+      - ("skipped_already_migrated",)      — db.config has rows, idempotent re-run
+      - ("skipped_invalid", reason)        — yaml present but failed validation;
+                                             original file is renamed to
+                                             config.yaml.bak so the user can
+                                             manually rescue values
+
     Skips:
       - EPHEMERAL_FIELDS (always recomputed at runtime)
-      - Keys that fail Pydantic validation when applied to a candidate
-        PolilyConfig (we silently drop them rather than fail startup —
-        the per-key default will be seeded by ensure_seeded immediately
-        after this migration runs)
 
-    Garbled / unreadable yaml: log a warning and skip (don't crash polily).
+    Garbled / unreadable yaml: returns ("skipped_invalid", reason) and
+    rescues the file as .bak.
     """
     cur = db.conn.execute("SELECT COUNT(*) FROM config")
     if cur.fetchone()[0] > 0:
-        return  # db already populated, nothing to migrate
+        status: MigrationStatus = ("skipped_already_migrated",)
+        _set_last_migration_status(status)
+        return status
 
     yaml_path = Path("config.yaml")
     if not yaml_path.exists():
-        return  # fresh install, no legacy yaml
+        status = ("skipped_no_yaml",)
+        _set_last_migration_status(status)
+        return status
 
     try:
         raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
     except (yaml.YAMLError, OSError, UnicodeDecodeError) as e:
-        _log.warning("Legacy yaml migration skipped (parse error): %s", e)
-        return
+        reason = f"parse error: {e}"
+        _log.warning("Legacy yaml migration skipped (%s)", reason)
+        _rescue_invalid_yaml(yaml_path, reason)
+        status = ("skipped_invalid", reason)
+        _set_last_migration_status(status)
+        return status
 
     if not isinstance(raw, dict) or not raw:
-        return  # empty or non-dict yaml
+        # Empty / non-dict yaml is "no useful content" — treat as no-yaml.
+        # Don't .bak it (nothing to rescue) and don't show a warning.
+        status = ("skipped_no_yaml",)
+        _set_last_migration_status(status)
+        return status
 
     # Validate by attempting to construct a candidate PolilyConfig.
     # If yaml has dropped fields from older polily versions (e.g.,
@@ -290,10 +368,14 @@ def _migrate_yaml_to_db(db) -> None:
     try:
         candidate = PolilyConfig.model_validate(raw)
     except ValidationError as e:
+        reason = str(e)
         _log.warning(
-            "Legacy yaml migration skipped (invalid values): %s", e,
+            "Legacy yaml migration skipped (invalid values): %s", reason,
         )
-        return
+        _rescue_invalid_yaml(yaml_path, reason)
+        status = ("skipped_invalid", reason)
+        _set_last_migration_status(status)
+        return status
 
     flat = _flatten_pydantic(candidate)
     now = datetime.now(UTC).isoformat()
@@ -311,3 +393,6 @@ def _migrate_yaml_to_db(db) -> None:
         "Migrated %d leaves from legacy config.yaml into db.config",
         len(rows),
     )
+    status = ("ok", len(rows))
+    _set_last_migration_status(status)
+    return status
