@@ -602,9 +602,20 @@ class PolilyService:
     # ------------------------------------------------------------------
 
     def get_monitor_count(self) -> int:
-        """Count events with auto_monitor enabled."""
+        """Count active (not-closed) events with auto_monitor enabled.
+
+        Closed events are surfaced via `get_archived_events()` (sidebar
+        `归档 (M)`); the active monitor count `(N)` must not double-count
+        them. Pre-fix (v0.10.0), the SQL counted all auto_monitor=1 rows
+        without joining events to filter closed=0.
+
+        The two queries (this one and get_archived_events) form a clean
+        partition: monitored-and-not-closed vs monitored-and-closed.
+        """
         row = self.db.conn.execute(
-            "SELECT COUNT(*) FROM event_monitors WHERE auto_monitor = 1",
+            """SELECT COUNT(*) FROM event_monitors em
+               JOIN events e ON em.event_id = e.event_id
+               WHERE em.auto_monitor = 1 AND e.closed = 0""",
         ).fetchone()
         return row[0] if row else 0
 
