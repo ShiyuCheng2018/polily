@@ -177,6 +177,13 @@ class LeafRow(Widget):
     def _open_modal(self) -> None:
         if self._view is None:
             return
+        # R4 — Inside the weights subtree, single-leaf editing silently breaks
+        # the algorithmic invariant `sum(weights.<type>.<family>.*) == 1.0`.
+        # Route to the family-level editor so the user sees siblings + a
+        # live sum check. Outside weights, the single-leaf flow is preserved.
+        if self.key_path.startswith("movement.weights."):
+            self._open_family_modal()
+            return
         from polily.tui.views.config_modals import ConfigEditModal
         try:
             modal = ConfigEditModal(
@@ -190,6 +197,17 @@ class LeafRow(Widget):
             # rendered this row in the first place, but defensive no-op.
             return
         self.app.push_screen(modal, self._on_modal_closed)
+
+    def _open_family_modal(self) -> None:
+        """R4 — open WeightFamilyEditModal for the family that owns this leaf.
+
+        `movement.weights.crypto.magnitude.price_z_score` →
+        `movement.weights.crypto.magnitude` family.
+        """
+        if self._view is None:
+            return
+        family_prefix = self.key_path.rsplit(".", 1)[0]
+        _open_family_modal_for(self._view, family_prefix, self._on_modal_closed)
 
     def _on_modal_closed(self, result) -> None:
         """SF7 — direct view reference, no parent walk.
@@ -248,13 +266,78 @@ def _leaves_under_section(
     return rows
 
 
+def _open_family_modal_for(
+    view: ConfigView,
+    family_prefix: str,
+    on_dismiss,
+) -> None:
+    """R4 helper — gather current/default values for a weights family
+    and push WeightFamilyEditModal onto the screen stack.
+
+    Centralized so both LeafRow (when key_path is in weights subtree) and
+    WeightFamilyNode call the same construction path. If the prefix is
+    malformed or no leaves exist for it, no modal is pushed.
+    """
+    from polily.tui.views.config_weight_modal import WeightFamilyEditModal
+
+    leaf_prefix = family_prefix + "."
+    current_values: dict[str, float] = {}
+    default_values: dict[str, float] = {}
+    # Iterate `default_config` to preserve declaration order — same lesson
+    # as T5.6 in `_leaves_under_section`.
+    for key in view.default_config:
+        if not key.startswith(leaf_prefix):
+            continue
+        leaf_name = key[len(leaf_prefix):]
+        # Skip nested children (we want only direct leaves under the family).
+        if "." in leaf_name:
+            continue
+        current_values[leaf_name] = view.current_config.get(
+            key, view.default_config[key],
+        )
+        default_values[leaf_name] = view.default_config[key]
+
+    if not current_values:
+        # Nothing to edit — defensive no-op.
+        return
+
+    try:
+        modal = WeightFamilyEditModal(
+            service=view.service,
+            key_path_prefix=family_prefix,
+            current_values=current_values,
+            default_values=default_values,
+        )
+    except ValueError:
+        # Construction rejected (non-territory-A leaves / malformed prefix).
+        # UI level already prevents this; defensive no-op.
+        return
+    view.app.push_screen(modal, on_dismiss)
+
+
 class WeightFamilyNode(Widget):
-    """Container for one family (magnitude or quality) of a market type."""
+    """Container for one family (magnitude or quality) of a market type.
+
+    R4 — Focusable so keyboard users can Tab to a family header and press
+    Enter to open the WeightFamilyEditModal. Mouse click works via on_click.
+    """
+
+    can_focus = True
+
+    BINDINGS = [
+        Binding("enter", "edit", "编辑", show=False),
+    ]
 
     DEFAULT_CSS = """
     WeightFamilyNode { height: auto; padding: 0 0 0 4; }
     WeightFamilyNode .family-header { color: $primary; }
     WeightFamilyNode .family-sum { color: $text-muted; padding-left: 2; }
+    WeightFamilyNode:focus {
+        background: $primary 30%;
+    }
+    WeightFamilyNode:focus-within {
+        background: $primary 30%;
+    }
     """
 
     def __init__(
@@ -262,15 +345,22 @@ class WeightFamilyNode(Widget):
         market_type: str,
         family: str,
         leaves: list[LeafRow],
+        view: ConfigView | None = None,
     ) -> None:
         super().__init__(id=f"weights-{market_type}-{family}")
         self.market_type = market_type
         self.family = family
         self._leaves = leaves
+        self._view = view
 
     @property
     def family_sum(self) -> float:
         return sum(leaf.current_value for leaf in self._leaves)
+
+    @property
+    def key_path_prefix(self) -> str:
+        """`movement.weights.<market_type>.<family>` — used by family modal."""
+        return f"movement.weights.{self.market_type}.{self.family}"
 
     def _sum_text(self) -> str:
         sum_color = "green" if 0.99 <= self.family_sum <= 1.01 else "yellow"
@@ -291,6 +381,26 @@ class WeightFamilyNode(Widget):
         import contextlib
         with contextlib.suppress(Exception):
             self.query_one(".family-sum", Static).update(self._sum_text())
+
+    # R4 — click / Enter open the family modal pre-loaded with this family.
+    def on_click(self) -> None:
+        self._open_family_modal()
+
+    def action_edit(self) -> None:
+        self._open_family_modal()
+
+    def _open_family_modal(self) -> None:
+        if self._view is None:
+            return
+        _open_family_modal_for(
+            self._view, self.key_path_prefix, self._on_modal_closed,
+        )
+
+    def _on_modal_closed(self, result) -> None:
+        # Mirror LeafRow's pattern: in-place refresh after modal save.
+        if self._view is None:
+            return
+        self._view._refresh_state_in_place()
 
 
 class MarketTypeNode(Widget):
@@ -335,7 +445,9 @@ class MarketTypeNode(Widget):
                         view=self._view,
                     ))
             if family_leaves:
-                yield WeightFamilyNode(self.market_type, family, family_leaves)
+                yield WeightFamilyNode(
+                    self.market_type, family, family_leaves, view=self._view,
+                )
 
 
 class WeightsTree(Widget):

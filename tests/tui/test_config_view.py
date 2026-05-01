@@ -252,6 +252,138 @@ async def test_clicking_leaf_row_pushes_edit_modal(service):
         assert any(isinstance(s, ConfigEditModal) for s in pilot.app.screen_stack)
 
 
+# ---- R4: weights subtree routing — family modal replaces single-leaf -------
+
+
+@pytest.mark.asyncio
+async def test_clicking_weights_leaf_row_opens_family_modal_not_single_leaf(
+    service,
+):
+    """R4 — A LeafRow inside the weights subtree (e.g. crypto.magnitude.X)
+    must open WeightFamilyEditModal, NOT ConfigEditModal. The single-leaf
+    flow inside weights is gone (would silently break sum=1).
+    """
+    from polily.tui.views.config_modals import ConfigEditModal
+    from polily.tui.views.config_weight_modal import WeightFamilyEditModal
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        rows = list(view.query("LeafRow"))
+        target = next(
+            r for r in rows
+            if r.key_path
+            == "movement.weights.crypto.magnitude.price_z_score"
+        )
+        target.action_edit()
+        await pilot.pause()
+
+        stack = pilot.app.screen_stack
+        assert any(isinstance(s, WeightFamilyEditModal) for s in stack), (
+            "weights leaf must open family modal"
+        )
+        assert not any(isinstance(s, ConfigEditModal) for s in stack), (
+            "weights leaf must NOT open single-leaf modal"
+        )
+
+
+@pytest.mark.asyncio
+async def test_clicking_weight_family_node_opens_family_modal(service):
+    """R4 — Clicking a WeightFamilyNode (the magnitude/quality container)
+    opens the family modal pre-filled with that family's leaves.
+    """
+    from polily.tui.views.config_weight_modal import WeightFamilyEditModal
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        node = view.query_one("#weights-crypto-magnitude")
+        node.action_edit()
+        await pilot.pause()
+
+        modal = next(
+            s for s in pilot.app.screen_stack
+            if isinstance(s, WeightFamilyEditModal)
+        )
+        assert modal._key_path_prefix == "movement.weights.crypto.magnitude"
+        # Pre-filled with all 5 crypto.magnitude leaves
+        assert set(modal._current_values.keys()) == {
+            "price_z_score", "book_imbalance", "fair_value_divergence",
+            "underlying_z_score", "cross_divergence",
+        }
+
+
+@pytest.mark.asyncio
+async def test_clicking_non_weights_leaf_still_opens_single_leaf_modal(service):
+    """R4 regression — clicking a LeafRow OUTSIDE the weights subtree
+    (e.g. movement.magnitude_threshold) must still open ConfigEditModal.
+    Family modal only applies inside `movement.weights.*`.
+    """
+    from polily.tui.views.config_modals import ConfigEditModal
+    from polily.tui.views.config_weight_modal import WeightFamilyEditModal
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        rows = list(view.query("LeafRow"))
+        target = next(
+            r for r in rows if r.key_path == "movement.magnitude_threshold"
+        )
+        target.action_edit()
+        await pilot.pause()
+
+        stack = pilot.app.screen_stack
+        assert any(isinstance(s, ConfigEditModal) for s in stack), (
+            "non-weights leaf must still open single-leaf modal"
+        )
+        assert not any(
+            isinstance(s, WeightFamilyEditModal) for s in stack
+        ), "non-weights leaf must NOT open family modal"
+
+
+@pytest.mark.asyncio
+async def test_family_modal_save_refreshes_view_in_place(service):
+    """R4 — After family modal saves and dismisses, ConfigView's in-place
+    refresh updates leaf values + family sum + section badge.
+    """
+    from polily.core.config import save_knob_batch
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        # Simulate save: backend writes new values, then dismiss callback
+        # fires the in-place refresh (same path as single-leaf modal).
+        save_knob_batch(service.db, {
+            "movement.weights.crypto.magnitude.price_z_score": 0.20,
+            "movement.weights.crypto.magnitude.book_imbalance": 0.20,
+            "movement.weights.crypto.magnitude.fair_value_divergence": 0.20,
+            "movement.weights.crypto.magnitude.underlying_z_score": 0.20,
+            "movement.weights.crypto.magnitude.cross_divergence": 0.20,
+        })
+
+        # Trigger the in-place refresh as the modal dismiss callback would.
+        view._refresh_state_in_place()
+        await pilot.pause()
+
+        # Each weights leaf reflects the new value.
+        for leaf in (
+            "price_z_score", "book_imbalance", "fair_value_divergence",
+            "underlying_z_score", "cross_divergence",
+        ):
+            row = next(
+                r for r in view.query("LeafRow")
+                if r.key_path == f"movement.weights.crypto.magnitude.{leaf}"
+            )
+            assert row.current_value == 0.20, leaf
+
+        # Family sum widget is back to 1.00 (5 × 0.20).
+        node = view.query_one("#weights-crypto-magnitude")
+        sum_text = "\n".join(
+            str(s.render()) for s in node.query("Static")
+        )
+        assert "sum = 1.00" in sum_text or "sum=1.00" in sum_text
+
+
 @pytest.mark.asyncio
 async def test_restart_invokes_scheduler_restart_subprocess(service, monkeypatch):
     """Whis B1 — restart action delegates to `polily scheduler restart`,
