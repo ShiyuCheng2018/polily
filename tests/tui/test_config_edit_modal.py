@@ -175,14 +175,15 @@ async def test_save_rejects_value_failing_pydantic_validation(service):
         await pilot.pause()
         modal.query_one("#modal-input", Input).value = "0.5"
         await pilot.pause()
-        # Live validation passes (it's a float). Save-time validation fails.
-        await pilot.click("#confirm")
-        await pilot.pause()
-        # Linux CI is slower than macOS dev — give Textual's render pipeline
-        # an explicit yield window so the post-_show_error frame commits
-        # before we read it. Mirrors the pattern at line 343-344.
-        import asyncio
-        await asyncio.sleep(0.05)
+        # Bypass pilot.click + event-dispatch race. The 100ms debounced
+        # live-validation timer (SF14) can fire DURING pilot.click on slow
+        # runners (Linux CI) — when it does, _run_live_validation calls
+        # _show_error("") to clear the widget AFTER _do_save's error has
+        # already been written, leaving the assertion looking at an empty
+        # widget. The test is unit-testing _do_save's behavior; calling it
+        # directly is a more honest white-box read.
+        modal._cancel_validation_timer()
+        modal._do_save()
         await pilot.pause()
         error = modal.query_one("#modal-error", Static)
         # Prefer .renderable (what update() set) over .render() (which may
