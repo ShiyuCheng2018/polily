@@ -29,6 +29,7 @@ structured release notes — see `git log` for history.
 - `polily/core/config_docs/*.md` per-knob documentation, parsed by `_loader.load_all()`
 - New SQLite `config` table — flat dot-notation key_path → JSON value
 - One-shot legacy yaml → db migration on first run (Whis B3): pre-v0.10.0 user customization auto-imported
+- New family-level weight edit modal in TUI Config view: editing any `movement.weights.*` leaf now opens a family editor showing all 3-5 signal weights together with a live sum check (must equal 1.0 to save), an "auto-normalize" button to rescale, and a collapsible signal glossary. Single-leaf editing (which silently broke the algorithmic sum=1 invariant) is removed inside the weights subtree.
 
 ### Fixed
 
@@ -38,6 +39,9 @@ structured release notes — see `git log` for history.
 ### Internal
 
 - New `polily/core/config_store.py` module with `EPHEMERAL_FIELDS`, `TERRITORY_A_PREFIXES`, `ensure_seeded`, `load_all`, `upsert`, `reset`, `_migrate_yaml_to_db`
+- New `save_knob_batch(db, updates)` public API in `polily/core/config.py` for atomic multi-key config writes (used by family weight modal); single Pydantic validate over merged config, BEGIN IMMEDIATE rollback on failure
+- New `WeightFamilyEditModal` in `polily/tui/views/config_weight_modal.py`; `LeafRow` and `WeightFamilyNode` route clicks under `movement.weights.*` to it (single-leaf `ConfigEditModal` preserved elsewhere)
+- `_signals_glossary` cross-reference section in `movement.md` is now consumed by the family modal (was orphan flagged by Whis R3); new `load_signals_glossary()` helper in `polily/core/config_docs/_loader.py`
 - New `polily/core/config_yaml.py` for read-only yaml snapshot generation
 - New `polily/core/config.py::load_config_from_db` (zero-arg, replaces 4 legacy yaml callers)
 - New `polily/tui/views/config.py` with `ConfigView`, `ConfigSection`, `LeafRow`, `WeightsTree`, `MarketTypeNode`, `WeightFamilyNode`
