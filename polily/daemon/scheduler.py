@@ -446,6 +446,27 @@ def _build_shutdown_handler(scheduler):
     return handle_shutdown
 
 
+def _count_monitored_active_markets(db) -> int:
+    """v0.10.1 — count of markets the daemon's poll cycle will actually
+    fetch every 30s. Same JOIN+WHERE as `_get_monitored_markets` in
+    poll_job.py:889. Used by the daemon startup banner so the printed
+    `X markets, poll every 30s` line matches what subsequent poll
+    cycles report.
+
+    Pre-fix the banner used `SELECT COUNT(*) FROM markets WHERE
+    active=1 AND closed=0` without the event_monitors JOIN, so phantom
+    markets from previously-scanned-but-no-longer-monitored events
+    inflated the count, drifting from the real `clob N markets` poll
+    line over time. Extracted into a helper (rather than inlined SQL)
+    so tests can import and exercise the production path directly.
+    """
+    return db.conn.execute(
+        """SELECT COUNT(*) FROM markets m
+           JOIN event_monitors em ON m.event_id = em.event_id
+           WHERE m.active = 1 AND m.closed = 0 AND em.auto_monitor = 1""",
+    ).fetchone()[0]
+
+
 def run_daemon(db, config=None) -> None:
     """Daemon entry point: start scheduler, block until SIGTERM.
 
@@ -491,9 +512,7 @@ def run_daemon(db, config=None) -> None:
     )
 
     # Count active markets for startup message
-    active = db.conn.execute(
-        "SELECT COUNT(*) FROM markets WHERE active = 1 AND closed = 0",
-    ).fetchone()[0]
+    active = _count_monitored_active_markets(db)
 
     scheduler.start()
 
