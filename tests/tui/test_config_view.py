@@ -388,16 +388,20 @@ async def test_family_modal_save_refreshes_view_in_place(service):
 async def test_restart_invokes_scheduler_restart_subprocess(service, monkeypatch):
     """Whis B1 — restart action delegates to `polily scheduler restart`,
     NOT bare kill_daemon (which would crash-loop with KeepAlive=true).
+
+    R5-A — TUI must NOT exit on Ctrl+R. Only the daemon restarts; the
+    TUI keeps running so the user doesn't get dumped back to the shell.
     """
     invoked = []
-    exit_called = {}
+    exit_calls = []
 
     def fake_run(cmd, *a, **kw):
         invoked.append(cmd)
         return type("R", (), {"returncode": 0})()
 
     monkeypatch.setattr("subprocess.run", fake_run)
-    monkeypatch.setattr("os._exit", lambda code: exit_called.setdefault("code", code))
+    # If anything still calls os._exit on the success path, this records it.
+    monkeypatch.setattr("os._exit", lambda code: exit_calls.append(code))
     monkeypatch.setattr(
         "polily.core.config_yaml.generate_yaml",
         lambda config, target: None,  # no-op
@@ -420,9 +424,11 @@ async def test_restart_invokes_scheduler_restart_subprocess(service, monkeypatch
         isinstance(c, list) and "scheduler" in c and "restart" in c
         for c in invoked
     ), f"expected `scheduler restart` invocation, got: {invoked}"
-    # Note: exit_called may or may not fire in test depending on timer behavior.
-    # If timer doesn't fire in run_test scope, that's acceptable — verify only
-    # the subprocess call.
+    # R5-A — os._exit must NOT be called on the success path.
+    assert exit_calls == [], (
+        f"R5-A regression: os._exit was called on Ctrl+R success path: "
+        f"{exit_calls}. The TUI must keep running."
+    )
 
 
 # ---- SF4: restart subprocess fail-loud -------------------------------------
@@ -526,16 +532,30 @@ async def test_restart_does_not_exit_when_subprocess_raises(service, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_restart_schedules_exit_only_on_subprocess_success(
+async def test_restart_does_not_exit_tui_on_subprocess_success(
     service, monkeypatch,
 ):
-    """SF4 — happy path: rc=0 → set_timer fires for the os._exit call."""
+    """R5-A — happy path: rc=0 → daemon restarts, TUI stays alive.
+
+    Previously (R4): success scheduled a 2s set_timer that called os._exit
+    to terminate the TUI. That left the user dumped at the shell after
+    every Ctrl+R, with the additional R5-B side-effect of corrupting the
+    terminal because os._exit skipped Textual's driver cleanup.
+
+    R5-A redesigns this: there's no reason to terminate the TUI itself —
+    territory A knobs are all consumed by the daemon, not the TUI. Only
+    `archiving.db_file` would need TUI restart, and it's HIDDEN_IN_TUI
+    (users can't edit it). So Ctrl+R becomes "apply config to daemon" —
+    not "force me back to the shell".
+    """
     timer_calls = []
+    exit_calls = []
 
     def fake_run(cmd, *a, **kw):
         return type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})()
 
     monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("os._exit", lambda code: exit_calls.append(code))
     monkeypatch.setattr(
         "polily.core.config_yaml.generate_yaml",
         lambda config, target: None,
@@ -553,11 +573,114 @@ async def test_restart_schedules_exit_only_on_subprocess_success(
         await view.workers.wait_for_complete()
         await pilot.pause()
 
-    assert len(timer_calls) == 1, (
-        f"expected 1 set_timer call on success, got: {timer_calls}"
+    assert exit_calls == [], (
+        f"R5-A: TUI must NOT exit on Ctrl+R success path; os._exit got "
+        f"called with: {exit_calls}"
     )
-    # Delay should be the existing 2.0s grace period
-    assert timer_calls[0][0] == 2.0
+    assert timer_calls == [], (
+        f"R5-A: no exit timer should be scheduled on Ctrl+R success; "
+        f"got: {timer_calls}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_restart_reloads_service_config_after_success(
+    service, monkeypatch,
+):
+    """R5-A — after `polily scheduler restart` succeeds, the TUI must
+    re-read its in-memory config snapshot from db so the drift banner's
+    "loaded vs current" comparison resets to 0. Without this, the banner
+    would still show "N 项改动未生效" forever even though the daemon
+    has already picked up the changes.
+    """
+    from polily.core.config_store import upsert
+
+    def fake_run(cmd, *a, **kw):
+        return type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("os._exit", lambda code: None)
+    monkeypatch.setattr(
+        "polily.core.config_yaml.generate_yaml",
+        lambda config, target: None,
+    )
+
+    # Edit a knob in db (mimics the user saving via ConfigEditModal).
+    upsert(service.db, "movement.magnitude_threshold", 88.0)
+    # Note: service.config is intentionally NOT reloaded here — that's
+    # what creates the "loaded vs current" drift the banner reports.
+    assert service.config.movement.magnitude_threshold != 88.0
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        # Drift banner should currently show 1 pending change.
+        from polily.tui.views.config import _count_pending_changes
+        assert _count_pending_changes(
+            view.loaded_config, view.current_config,
+        ) >= 1
+
+        view.action_restart_polily()
+        await view.workers.wait_for_complete()
+        await pilot.pause()
+
+        # After restart, service.config has the new value.
+        assert service.config.movement.magnitude_threshold == 88.0, (
+            "R5-A: service.config not reloaded after restart — drift "
+            "banner would lie forever"
+        )
+        # And view.loaded_config now reflects the new baseline, so drift = 0.
+        assert _count_pending_changes(
+            view.loaded_config, view.current_config,
+        ) == 0, "R5-A: drift banner should be 0 after restart re-reads config"
+
+
+@pytest.mark.asyncio
+async def test_restart_notifies_user_of_daemon_restart_success(
+    service, monkeypatch,
+):
+    """R5-A — on success, notify the user that the daemon was restarted
+    (without claiming the TUI is about to close, which was the old copy)."""
+    notify_calls = []
+
+    def fake_run(cmd, *a, **kw):
+        return type("R", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("os._exit", lambda code: None)
+    monkeypatch.setattr(
+        "polily.core.config_yaml.generate_yaml",
+        lambda config, target: None,
+    )
+
+    view = ConfigView(service)
+    async with _Harness(view).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(
+            view, "notify",
+            lambda msg, **kw: notify_calls.append((msg, kw)),
+        )
+        view.action_restart_polily()
+        await view.workers.wait_for_complete()
+        await pilot.pause()
+
+    success_messages = [
+        msg for msg, kw in notify_calls
+        if kw.get("severity") not in ("error",)
+        and ("daemon" in msg.lower() or "重启" in msg or "已" in msg)
+    ]
+    assert success_messages, (
+        f"expected a non-error notify confirming daemon restart, got: "
+        f"{notify_calls}"
+    )
+    # Must NOT promise that the TUI is about to close.
+    assert not any(
+        "关闭" in msg or "请重开" in msg
+        for msg, _ in notify_calls
+    ), (
+        f"R5-A: success notify must not say the TUI is about to close — "
+        f"that's the old behavior. Got: {notify_calls}"
+    )
 
 
 # ---- SF17: restart subprocess runs on worker thread (UI stays responsive) --

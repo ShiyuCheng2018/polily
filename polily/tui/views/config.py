@@ -756,21 +756,27 @@ class ConfigView(Widget):
         self._refresh_state_in_place()
 
     def action_restart_polily(self) -> None:
-        """Restart polily so config changes take effect.
+        """Restart the daemon so config changes take effect — keep TUI alive.
 
-        Per design §5.5.2 + Whis B1:
+        Per design §5.5.2 + Whis B1, refined by R5-A:
           1. Regenerate yaml so disk mirror is current (fast — main thread)
           2. Delegate to `polily scheduler restart` on a WORKER THREAD
              (SF17) — handles unload + kill + ensure_daemon_running with
              the correct sequence that v0.9.0 established. Avoids bare
              kill_daemon(TERM) which would trigger launchd crash loop
              due to KeepAlive=true.
-          3. On success: notify user + 2s delay + os._exit(0).
+          3. On success: notify user + reload service.config from db so
+             the drift banner resets to 0. **Do NOT terminate the TUI.**
              On failure (rc != 0 or subprocess raises): surface error
-             via notify and DO NOT exit (SF4) — otherwise the TUI
-             silently dies while the daemon stays dead, and the user
-             reopens 30s later to find no daemon running with no clue
-             why.
+             via notify and do NOT terminate either (SF4).
+
+        R5-A — pre-R5 the success path called `os._exit(0)` after a 2s
+        delay, dumping the user back to the shell. There's no reason to
+        do this: every territory A knob is consumed by the **daemon**,
+        not the TUI itself. The only knob that would require TUI restart
+        (`archiving.db_file`) is HIDDEN_IN_TUI — users can't edit it
+        from this view at all. So Ctrl+R becomes "apply config to
+        daemon" — period — instead of "force me back to the shell".
 
         SF17 — subprocess runs on a worker thread so a hung restart (up
         to 10s timeout) doesn't freeze the event loop. UI updates from
@@ -814,13 +820,14 @@ class ConfigView(Widget):
         updates via app.call_from_thread.
 
         Round-2 (Whis #3) — `_restart_in_flight` is cleared in `finally`
-        via call_from_thread so the guard always lifts even on subprocess
-        exception / non-zero rc. Note: on the success path we set_timer
-        to os._exit(0) — the flag's lifetime past that point is moot
-        (process is dying), but we still clear it for symmetry / test
-        determinism.
+        via call_from_thread so the guard always lifts on every path
+        (subprocess exception / non-zero rc / success).
+
+        R5-A — on success we no longer call `os._exit(0)`; the TUI keeps
+        running. Service.config is reloaded from db so the drift banner
+        resets to 0, and the view is repainted in place to reflect the
+        new baseline.
         """
-        import os
         import shutil
         import subprocess
         import sys
@@ -858,23 +865,45 @@ class ConfigView(Widget):
                 )
                 return
 
-            # Success — notify + 2s grace + os._exit(0). Both notify and
-            # set_timer are main-thread-only Textual APIs.
+            # Success — notify + reload TUI's in-memory config snapshot so
+            # the drift banner resets. Both notify and the reload helper
+            # touch Textual widgets, so they must run on the main thread.
             self.app.call_from_thread(
                 self.notify,
-                "✅ Daemon 已重启。polily TUI 将在 2 秒后关闭，请重开。",
+                "✅ Daemon 已重启 — 你的配置已生效",
                 title="重启 polily",
-                timeout=2,
+                timeout=4,
             )
-            self.app.call_from_thread(
-                self.set_timer, 2.0, lambda: os._exit(0),
-            )
+            self.app.call_from_thread(self._reload_after_daemon_restart)
         finally:
-            # Lift the in-flight guard so user can retry (or, on success,
-            # for symmetry — the os._exit will fire shortly).
+            # Lift the in-flight guard so user can retry. Always clears
+            # regardless of which return path was taken above.
             self.app.call_from_thread(
                 setattr, self, "_restart_in_flight", False,
             )
+
+    def _reload_after_daemon_restart(self) -> None:
+        """R5-A — re-read db.config into service.config, refresh view.
+
+        After `polily scheduler restart` succeeds, the daemon has read
+        the latest db.config; the TUI's in-memory `service.config` is
+        now the stale "loaded at startup" snapshot. If we don't refresh
+        it, `_count_pending_changes(loaded, current)` keeps comparing
+        against the pre-edit baseline and the drift banner shows
+        `N 项改动未生效` forever even though the daemon already picked
+        up the changes.
+
+        Wrapped in suppress(Exception) — a failure here would be cosmetic
+        (banner stale) but not a crash. The daemon already restarted
+        successfully on the path that called us.
+        """
+        import contextlib
+
+        from polily.core.config import load_config_from_db
+
+        with contextlib.suppress(Exception):
+            self.service.config = load_config_from_db(self.service.db)
+            self._refresh_state_in_place()
 
     def on_mount(self) -> None:
         from polily.core.events import TOPIC_HEARTBEAT
