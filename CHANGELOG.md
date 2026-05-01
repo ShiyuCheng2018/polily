@@ -10,6 +10,8 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-05-01
+
 ### BREAKING
 
 - **db.config is now the only config source.** Users edit via `polily → ⚙ 配置`. `config.yaml` is regenerated as a read-only snapshot on every polily startup; manual edits to `config.yaml` are silently overwritten.
@@ -539,7 +541,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.9.5...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.10.0...dev
+[0.10.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.10.0
 [0.9.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.5
 [0.9.4]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.4
 [0.9.3]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.3
