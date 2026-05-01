@@ -284,6 +284,7 @@ class PolilyService:
                 position_summary=position_summary,
                 on_heartbeat=on_heartbeat,
                 event_title=event.title,
+                trigger_source=trigger_source,
             )
         except Exception as e:
             agent_error = e

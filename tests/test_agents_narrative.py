@@ -55,7 +55,7 @@ class TestNarrativeWriterAgent:
             proc.returncode = 0
             mock_exec.return_value = proc
 
-            result = await agent.generate(event_id="ev_test")
+            result = await agent.generate(event_id="ev_test", trigger_source="manual")
             assert isinstance(result, NarrativeWriterOutput)
             assert result.event_id == "ev_test"
             assert len(result.operations) == 1
@@ -78,7 +78,7 @@ class TestNarrativeWriterAgent:
             mock_exec.return_value = proc
 
             with pytest.raises(Exception):  # noqa: B017 — base agent raises arbitrary Exception on retry-exhaust
-                await agent.generate(event_id="ev_test")
+                await agent.generate(event_id="ev_test", trigger_source="manual")
 
     @pytest.mark.asyncio
     async def test_schema_validation_failure_raises_not_fallback(self):
@@ -99,7 +99,7 @@ class TestNarrativeWriterAgent:
             mock_exec.return_value = proc
 
             with pytest.raises(Exception):  # noqa: B017 — narrator raises RuntimeError via schema-fail wrapper
-                await agent.generate(event_id="ev_test")
+                await agent.generate(event_id="ev_test", trigger_source="manual")
 
 
 class TestDevFeedbackLogFormat:
@@ -122,7 +122,7 @@ class TestDevFeedbackLogFormat:
             operations=[Operation(action="HOLD", reasoning="r")],
             dev_feedback="[9/10] 全对",
         )
-        _write_dev_feedback("357807", "Iran Hormuz closure 2025", output)
+        _write_dev_feedback("357807", "Iran Hormuz closure 2025", output, trigger_source="manual")
 
         log = (tmp_path / "data" / "logs" / "agent_feedback.log").read_text()
         assert f"polily=v{polily.__version__}" in log
@@ -141,7 +141,7 @@ class TestDevFeedbackLogFormat:
             summary="s",
             dev_feedback="note",
         )
-        _write_dev_feedback("x", None, output)
+        _write_dev_feedback("x", None, output, trigger_source="manual")
 
         log = (tmp_path / "data" / "logs" / "agent_feedback.log").read_text()
         assert 'title="?"' in log
@@ -157,7 +157,7 @@ class TestDevFeedbackLogFormat:
             summary="s",
             dev_feedback="note",
         )
-        _write_dev_feedback("y", 'Iran\n"hormuz"\rclosure', output)
+        _write_dev_feedback("y", 'Iran\n"hormuz"\rclosure', output, trigger_source="manual")
 
         log = (tmp_path / "data" / "logs" / "agent_feedback.log").read_text()
         # Header must stay on one line and double-quotes swapped to single
