@@ -239,8 +239,8 @@ def supersede_pending_for_event(event_id: str, db) -> int:
     return cur.rowcount
 
 
-def fetch_overdue_pending(db) -> list[dict]:
-    """Return AT MOST ONE overdue pending row per event — the earliest.
+def fetch_overdue_pending(db, stale_threshold_minutes: int = 30) -> list[dict]:
+    """Return AT MOST ONE fresh-overdue pending row per event — the earliest.
 
     Why one-per-event: Q1 requires we don't dispatch while a row is running;
     with multiple stale overdue rows for the same event (e.g. after Mac
@@ -251,6 +251,19 @@ def fetch_overdue_pending(db) -> list[dict]:
 
     The per-iteration claim_pending_scan atomic check is still required as
     a second line of defense against cross-tick races.
+
+    Fresh = scheduled_at within [now - stale_threshold_minutes, now].
+    Stale rows (overdue beyond threshold) stay 'pending' — user manually
+    triggers if they want to catch up. Reason: Mac sleep/wake or a long
+    laptop close can stack many overdue rows; auto-dispatching all of them
+    would burn the user's Claude Code subscription quota in one wave.
+
+    SQL note: both sides of the time compare are wrapped in `datetime()` so
+    SQLite parses the TZ before comparing. Without that, ISO 8601 strings
+    are byte-compared and `+08:00` > `+00:00` lexicographically — which is
+    exactly the original Issue A regression that made Beijing rows
+    permanently invisible. A.4.3 also normalizes new writes at the boundary,
+    but datetime() here is defense-in-depth for any pre-migration rows.
     """
     now = datetime.now(UTC).isoformat()
     rows = db.conn.execute(
@@ -258,7 +271,9 @@ def fetch_overdue_pending(db) -> list[dict]:
         WITH earliest_per_event AS (
             SELECT event_id, MIN(scheduled_at) AS min_sched
             FROM scan_logs
-            WHERE status = 'pending' AND scheduled_at <= ?
+            WHERE status = 'pending'
+              AND datetime(scheduled_at) <= datetime(?)
+              AND datetime(scheduled_at) >= datetime(?, ? || ' minutes')
             GROUP BY event_id
         )
         SELECT s.scan_id, s.event_id, s.market_title, s.scheduled_at,
@@ -273,7 +288,7 @@ def fetch_overdue_pending(db) -> list[dict]:
           )
         ORDER BY s.scheduled_at ASC
         """,
-        (now,),
+        (now, now, f"-{stale_threshold_minutes}"),
     ).fetchall()
     return [dict(r) for r in rows]
 
