@@ -10,6 +10,59 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### BREAKING
+
+- **db.config is now the only config source.** Users edit via `polily → ⚙ 配置`. `config.yaml` is regenerated as a read-only snapshot on every polily startup; manual edits to `config.yaml` are silently overwritten.
+- **`polily scheduler run --config <path>` flag deleted.** The daemon reads from `data/polily.db`'s `config` table at startup. Use the TUI for daily editing or `polily config reset` for emergencies.
+- **`config.example.yaml` and `config.minimal.yaml` deleted.** Per-knob documentation lives in `polily/core/config_docs/*.md`.
+- **First-run upgrade behavior:** existing `config.yaml` is auto-migrated to `db.config` on first v0.10.0 launch — your customizations are preserved. If yaml fails Pydantic validation, it's rescued as `config.yaml.bak` (NOT overwritten), defaults are loaded, and a stderr warning is emitted so you can manually rescue values.
+- **Wallet `starting_balance` migration caveat:** if you previously customized `wallet.starting_balance` in `config.yaml` (e.g., `250.0`), the **knob value** is migrated correctly into `db.config`, BUT your wallet row is seeded with the Pydantic default (`100.0`) before migration runs on first launch. Run `polily reset --wallet-only` after the first v0.10.0 launch to reseed at your customized starting balance. (Users who never edited `wallet.starting_balance` are unaffected — the default matches.)
+- **Pre-v0.9.x plist auto-migration:** users upgrading from old polily versions whose launchd plist contained `--config <path>` will have their plist auto-rewritten on first daemon launch (Whis B2). No manual action needed.
+
+### Added
+
+- New TUI Config view at sidebar position 6 (`⚙ 配置`) — see `docs/internal/plans/2026-04-26-tui-config-design.md`
+- 4 sections (Movement / Scoring / Mispricing / Wallet) covering 40 user-editable knobs (territory A)
+- Drift banner shows count of pending changes; Ctrl+R triggers polily restart sequence
+- 3-tier validation: live (per keystroke) / save-time (full PolilyConfig) / startup (fatal screen)
+- `polily config reset --all` / `polily config reset <key_path>` CLI escape hatches
+- `polily/core/config_docs/*.md` per-knob documentation, parsed by `_loader.load_all()`
+- New SQLite `config` table — flat dot-notation key_path → JSON value
+- One-shot legacy yaml → db migration on first run (Whis B3): pre-v0.10.0 user customization auto-imported
+- New family-level weight edit modal in TUI Config view: editing any `movement.weights.*` leaf now opens a family editor showing all 3-5 signal weights together with a live sum check (must equal 1.0 to save), an "auto-normalize" button to rescale, and a collapsible signal glossary. Single-leaf editing (which silently broke the algorithmic sum=1 invariant) is removed inside the weights subtree.
+
+### Fixed
+
+- **Scheduled analyses now fire on time regardless of user's local timezone.** `scan_logs.scheduled_at` was previously written with whatever TZ offset the agent emitted (e.g. `+08:00` for Beijing locale), and the dispatcher's overdue compare did a TEXT-byte sort — so `+08:00` strings sorted as "future" and overdue scheduled scans were never picked up. v0.10.0 normalizes `scheduled_at` to canonical UTC ISO at the write boundary, parses TZ in the dispatcher SQL, and runs a one-shot migration over existing rows. Existing users whose pending scheduled scans appeared "stuck" will see them dispatch on the next daemon tick after upgrading.
+- **Dispatch now skips scans overdue by more than 30 minutes by default.** Mac sleep/wake or a long laptop close used to stack 8+ overdue rows; the daemon would fire them all in one tick and burn the user's Claude Code subscription quota. Stale rows now stay `pending` — user manually triggers if they want to catch up. Threshold is `stale_threshold_minutes=30` in `fetch_overdue_pending`; not user-configurable yet.
+- **Restart-polily flow no longer corrupts the user's terminal.** Textual driver cleanup now runs before `os._exit(0)`, preventing leftover xterm mouse-tracking escapes (`\x1b[<...M` sequences) from spewing into the parent shell after exit. The TUI must use `os._exit` because `claude -p` spawns Node subprocesses that survive normal Python shutdown, but `os._exit` bypassed Textual's atexit handlers — leaving mouse modes (`?1000`/`?1002`/`?1003`/`?1006`/`?1015`) and alt-screen (`?1049`) active in the parent terminal. New `polily.tui.terminal_cleanup.cleanup_terminal` helper invokes the canonical driver path where reachable, falls back to writing DECRST sequences to stdout when no app/driver is in scope (R5-B).
+- **Restart-polily no longer terminates the TUI itself.** Ctrl+R from `⚙ 配置` previously dumped the user back at the shell after a 2s grace period, forcing them to relaunch `polily` to keep working. Now only the daemon restarts; the TUI reloads its in-memory config snapshot from db in place so the drift banner resets to 0, and the user keeps their TUI session. Every territory A knob is consumed by the daemon (not the TUI process), so terminating the TUI was unnecessary friction (R5-A).
+
+### Internal
+
+- New `polily/core/config_store.py` module with `EPHEMERAL_FIELDS`, `TERRITORY_A_PREFIXES`, `ensure_seeded`, `load_all`, `upsert`, `reset`, `_migrate_yaml_to_db`
+- New `save_knob_batch(db, updates)` public API in `polily/core/config.py` for atomic multi-key config writes (used by family weight modal); single Pydantic validate over merged config, BEGIN IMMEDIATE rollback on failure
+- New `WeightFamilyEditModal` in `polily/tui/views/config_weight_modal.py`; `LeafRow` and `WeightFamilyNode` route clicks under `movement.weights.*` to it (single-leaf `ConfigEditModal` preserved elsewhere)
+- `_signals_glossary` cross-reference section in `movement.md` is now consumed by the family modal (was orphan flagged by Whis R3); new `load_signals_glossary()` helper in `polily/core/config_docs/_loader.py`
+- New `polily/core/config_yaml.py` for read-only yaml snapshot generation
+- New `polily/core/config.py::load_config_from_db` (zero-arg, replaces 4 legacy yaml callers)
+- New `polily/tui/views/config.py` with `ConfigView`, `ConfigSection`, `LeafRow`, `WeightsTree`, `MarketTypeNode`, `WeightFamilyNode`
+- New `polily/tui/views/config_modals.py` with `ConfigEditModal`
+- New `polily/tui/views/_config_fatal_screen.py` for startup config-error UX
+- New CI gate `tests/test_config_docs_coverage.py` requires markdown docs for all 40 territory A keys
+- `PRAGMA busy_timeout=5000` set explicitly on PolilyDB connection (was implicitly via Python sqlite3 default)
+- New `TOPIC_HEARTBEAT` event topic (Whis SF10) for views that need timer-based refresh
+- Daemon shutdown now logged distinctly from crashes — `handle_shutdown` writes `── shutting down (SIGTERM) ──` (or SIGINT) to the poll log before tearing down the scheduler, so post-mortem of `data/logs/poll-*.log` can tell kill-by-signal apart from a Python crash mid-poll. Daemon stderr still goes to /dev/null via the launchd plist (intentional), so this poll-log marker is the only visible record.
+- NarrativeWriter agent prompt now passes both UTC and user-local time with explicit role labels: `next_check_at` MUST be UTC ISO (DB clock); narrative text uses local time with dual-TZ phrasing for readability.
+
+### Removed
+
+- `polily/core/config.py::load_config(path)` (yaml-based)
+- `polily/core/config.py::deep_merge`
+- `polily.cli.py::run_scheduler_daemon --config` argument
+- `polily.cli.py::restart --config` and `status --config` arguments (unused)
+- `config.example.yaml` and `config.minimal.yaml`
+
 ## [0.9.5] — 2026-04-26
 
 ### Removed

@@ -170,14 +170,31 @@ def insert_pending_scan(
     """Insert a pending scan row. Returns the new scan_id.
 
     Use trigger_source in ('scheduled','movement','manual') — validated by CHECK.
+
+    `scheduled_at` is normalized to canonical UTC ISO form (`+00:00` suffix)
+    here as defense-in-depth. The main agent-output path goes through
+    `PolilyService._validate_next_check_at` which already normalizes (A.4.1);
+    this re-normalize covers any future caller that bypasses validation —
+    e.g. tests, daemon-internal callers, schema-migration seed paths. Without
+    canonical TZ form, the dispatcher's overdue compare in
+    `fetch_overdue_pending` falls back to lexicographic order and Beijing
+    rows (`+08:00`) sort as "future" forever (Issue A regression).
+
+    Naive datetimes are assumed UTC. Malformed values raise ValueError —
+    callers that have already validated via `_validate_next_check_at` will
+    never hit this branch.
     """
     now = datetime.now(UTC).isoformat()
+    parsed = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    scheduled_at_utc = parsed.astimezone(UTC).isoformat()
     scan_id = _make_scan_id(prefix="p")
     db.conn.execute(
         "INSERT INTO scan_logs(scan_id, type, event_id, market_title, started_at, "
         "status, trigger_source, scheduled_at, scheduled_reason) "
         "VALUES (?, 'analyze', ?, ?, ?, 'pending', ?, ?, ?)",
-        (scan_id, event_id, event_title, now, trigger_source, scheduled_at, scheduled_reason),
+        (scan_id, event_id, event_title, now, trigger_source, scheduled_at_utc, scheduled_reason),
     )
     db.conn.commit()
     return scan_id
@@ -239,8 +256,8 @@ def supersede_pending_for_event(event_id: str, db) -> int:
     return cur.rowcount
 
 
-def fetch_overdue_pending(db) -> list[dict]:
-    """Return AT MOST ONE overdue pending row per event — the earliest.
+def fetch_overdue_pending(db, stale_threshold_minutes: int = 30) -> list[dict]:
+    """Return AT MOST ONE fresh-overdue pending row per event — the earliest.
 
     Why one-per-event: Q1 requires we don't dispatch while a row is running;
     with multiple stale overdue rows for the same event (e.g. after Mac
@@ -251,29 +268,50 @@ def fetch_overdue_pending(db) -> list[dict]:
 
     The per-iteration claim_pending_scan atomic check is still required as
     a second line of defense against cross-tick races.
+
+    Fresh = scheduled_at within [now - stale_threshold_minutes, now].
+    Stale rows (overdue beyond threshold) stay 'pending' — user manually
+    triggers if they want to catch up. Reason: Mac sleep/wake or a long
+    laptop close can stack many overdue rows; auto-dispatching all of them
+    would burn the user's Claude Code subscription quota in one wave.
+
+    SQL note: every comparison or aggregation involving `scheduled_at` is
+    wrapped in `datetime()` so SQLite parses the TZ before comparing.
+    Without that, ISO 8601 strings are byte-compared and `+08:00` > `+00:00`
+    lexicographically — which is exactly the original Issue A regression
+    that made Beijing rows permanently invisible. The same wrap is applied
+    to MIN() and the join's equality test so a defense-in-depth path —
+    where a row escaped both the write-boundary normalize (A.4.3) and the
+    one-shot UTC migration (A.4.5) — still picks the time-earliest row,
+    not the lex-smallest. Without the wrap on MIN/JOIN, a `+08:00` row at
+    UTC=10:00 and a `+00:00` row at UTC=11:00 would JOIN against the
+    `+00:00` one (lex-smaller) instead of the `+08:00` one (time-earlier).
     """
     now = datetime.now(UTC).isoformat()
     rows = db.conn.execute(
         """
         WITH earliest_per_event AS (
-            SELECT event_id, MIN(scheduled_at) AS min_sched
+            SELECT event_id, MIN(datetime(scheduled_at)) AS min_sched_dt
             FROM scan_logs
-            WHERE status = 'pending' AND scheduled_at <= ?
+            WHERE status = 'pending'
+              AND datetime(scheduled_at) <= datetime(?)
+              AND datetime(scheduled_at) >= datetime(?, ? || ' minutes')
             GROUP BY event_id
         )
         SELECT s.scan_id, s.event_id, s.market_title, s.scheduled_at,
                s.scheduled_reason, s.trigger_source
         FROM scan_logs s
         JOIN earliest_per_event e
-          ON e.event_id = s.event_id AND e.min_sched = s.scheduled_at
+          ON e.event_id = s.event_id
+          AND datetime(s.scheduled_at) = e.min_sched_dt
         WHERE s.status = 'pending'
           AND NOT EXISTS (
               SELECT 1 FROM scan_logs s2
               WHERE s2.event_id = s.event_id AND s2.status = 'running'
           )
-        ORDER BY s.scheduled_at ASC
+        ORDER BY datetime(s.scheduled_at) ASC
         """,
-        (now,),
+        (now, now, f"-{stale_threshold_minutes}"),
     ).fetchall()
     return [dict(r) for r in rows]
 

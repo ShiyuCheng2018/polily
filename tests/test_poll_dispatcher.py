@@ -145,24 +145,30 @@ def test_dispatch_continues_past_add_job_failure(db):
 
 
 def test_dispatch_dispatches_earliest_pending_per_event_only(db):
-    """B4 regression: multiple stale pending rows for the same event
-    (e.g. after long laptop sleep) must NOT dispatch multiple agents."""
+    """B4 regression: multiple fresh-overdue pending rows for the same event
+    must NOT dispatch multiple agents — earliest wins.
+
+    Note: timestamps are within the 30-min fresh window. Rows older than
+    that intentionally do NOT auto-dispatch (Issue A: laptop sleep can
+    stack 8+ overdue rows; firing them all at once would burn the user's
+    Claude Code subscription quota).
+    """
     from polily.daemon.poll_job import dispatch_pending_analyses
 
     now = datetime.now(UTC)
     insert_pending_scan(
         event_id="ev1", event_title="Test",
-        scheduled_at=(now - timedelta(hours=3)).isoformat(),
+        scheduled_at=(now - timedelta(minutes=20)).isoformat(),
         trigger_source="scheduled", scheduled_reason="oldest", db=db,
     )
     insert_pending_scan(
         event_id="ev1", event_title="Test",
-        scheduled_at=(now - timedelta(hours=2)).isoformat(),
+        scheduled_at=(now - timedelta(minutes=10)).isoformat(),
         trigger_source="scheduled", scheduled_reason="middle", db=db,
     )
     insert_pending_scan(
         event_id="ev1", event_title="Test",
-        scheduled_at=(now - timedelta(hours=1)).isoformat(),
+        scheduled_at=(now - timedelta(minutes=5)).isoformat(),
         trigger_source="scheduled", scheduled_reason="newest", db=db,
     )
     submitted = []

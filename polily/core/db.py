@@ -1,7 +1,12 @@
 """Unified SQLite database for Polily."""
 
+import contextlib
+import json
+import logging
 import sqlite3
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _SCHEMA = """
 -- 1. Events
@@ -203,6 +208,15 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
     notes               TEXT
 );
 
+-- 11. Config (db-canonical config storage)
+-- Flat key_path → JSON-encoded value mapping. PK on key_path lets reset
+-- operate at single-leaf granularity and concurrent writes don't collide.
+CREATE TABLE IF NOT EXISTS config (
+    key_path   TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_markets_event ON markets(event_id);
 CREATE INDEX IF NOT EXISTS idx_markets_condition ON markets(condition_id);
@@ -229,7 +243,29 @@ class PolilyDB:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
+        # busy_timeout MUST be set before journal_mode=WAL — on Linux CI,
+        # 4-thread SF5 race against `PRAGMA journal_mode=WAL` raised
+        # 'database is locked' instantly because no retry budget existed.
+        # Setting busy_timeout first gives subsequent pragmas (and all
+        # later writes) up to 5s of retry headroom under WAL contention.
+        # Required for the SF5 concurrency test in tests/test_config_store.py.
+        self.conn.execute("PRAGMA busy_timeout=5000")
+        # B1 (v0.10.0): WAL-mode pragma is idempotent across sqlite restarts —
+        # only the very first PolilyDB on a fresh file flips journal_mode.
+        # On that first init, two processes racing the pragma raise
+        # SQLITE_LOCKED (not SQLITE_BUSY), which busy_timeout does NOT
+        # retry. Skip the pragma when the connection already reports WAL,
+        # and tolerate OperationalError when it doesn't — the loser sees
+        # the winner's WAL mode on its next read.
+        mode_row = self.conn.execute("PRAGMA journal_mode").fetchone()
+        current_mode = mode_row[0] if mode_row else ""
+        if str(current_mode).lower() != "wal":
+            # Another process may be mid-WAL-init; the loser of the race sees
+            # SQLITE_LOCKED, but its subsequent reads/writes still operate
+            # against the WAL journal set by the winner — so suppress and
+            # continue rather than failing the whole construction.
+            with contextlib.suppress(sqlite3.OperationalError):
+                self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
 
@@ -253,6 +289,12 @@ class PolilyDB:
         # Drop the legacy notifications table on databases that were
         # upgraded from <= v0.6.1. Idempotent — no-op on fresh DBs.
         self.conn.execute("DROP TABLE IF EXISTS notifications")
+        # v0.10.0 (Issue A): normalize any historical scan_logs.scheduled_at
+        # rows that were written with a non-UTC TZ suffix (e.g. +08:00 from
+        # a Beijing-locale agent run). Idempotent — no-op when all rows are
+        # already +00:00. Must run AFTER the schema script so the table
+        # exists and AFTER the v0.7.0 migration so column shape is final.
+        self._migrate_scheduled_at_to_utc()
         self.conn.commit()
         self._ensure_wallet_singleton()
 
@@ -347,42 +389,102 @@ class PolilyDB:
         if "next_check_reason" in mon_cols:
             self.conn.execute("ALTER TABLE event_monitors DROP COLUMN next_check_reason")
 
+    def _migrate_scheduled_at_to_utc(self) -> None:
+        """v0.10.0 — normalize scan_logs.scheduled_at to canonical UTC ISO.
+
+        Background: scan_logs.scheduled_at historically received whatever TZ
+        offset the NarrativeWriter agent emitted (e.g. `+08:00` for a
+        Beijing-locale user). The dispatcher's `fetch_overdue_pending` did
+        `WHERE scheduled_at <= ?` as TEXT, so `+08:00` sorted greater than
+        `+00:00` lexicographically and overdue Beijing rows were never
+        dispatched (Issue A regression).
+
+        v0.10.0 normalizes new writes via `_validate_next_check_at` (A.4.1)
+        and `insert_pending_scan` (A.4.3). This migration sweeps existing
+        rows so they too compare correctly. Idempotent — detection scans
+        for any row whose `scheduled_at` does NOT end with `+00:00`; on a
+        clean DB there's nothing to do and this is a single SELECT.
+
+        Unparseable timestamps are skipped with a warning rather than
+        crashing the whole migration — they will keep failing the
+        dispatcher's date compare anyway, and we don't want to brick startup.
+        """
+        rows = self.conn.execute(
+            "SELECT scan_id, scheduled_at FROM scan_logs "
+            "WHERE scheduled_at IS NOT NULL AND scheduled_at NOT LIKE '%+00:00'"
+        ).fetchall()
+        if not rows:
+            return
+        from datetime import UTC, datetime
+        for r in rows:
+            scan_id = r["scan_id"]
+            sched = r["scheduled_at"]
+            try:
+                parsed = datetime.fromisoformat(sched.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=UTC)
+                canonical = parsed.astimezone(UTC).isoformat()
+                self.conn.execute(
+                    "UPDATE scan_logs SET scheduled_at = ? WHERE scan_id = ?",
+                    (canonical, scan_id),
+                )
+            except (ValueError, TypeError):
+                logger.warning(
+                    "scheduled_at migration: skipping unparseable value %r on scan_id=%s",
+                    sched, scan_id,
+                )
+
     def _ensure_wallet_singleton(self) -> None:
         """Seed the wallet row on fresh DBs so downstream code can assume
         `wallet` is non-empty. Idempotent — no-op when the row already
         exists; a config change to `starting_balance` does NOT rebase an
         existing wallet (use `polily reset --wallet-only` for that).
+
+        B2 (v0.10.0) — must NOT call `load_config_from_db` here. That
+        path acquires `BEGIN IMMEDIATE`, and from inside `__init__` it
+        re-enters the same connection's transaction state and lets the
+        TUI+daemon first-init race deadlock. It also forced every test
+        constructing a PolilyDB to pay a 46-row config seed.
+
+        Read `wallet.starting_balance` directly from the config table.
+        On the very first init (config table empty), fall back to the
+        Pydantic default of `WalletConfig`. Callers (cli.py / tui app /
+        daemon) are responsible for explicitly invoking
+        `load_config_from_db` AFTER construction to apply user edits.
         """
         row = self.conn.execute("SELECT id FROM wallet WHERE id=1").fetchone()
         if row is not None:
             return
 
-        import warnings
         from datetime import UTC, datetime
 
-        from polily.core.config import PolilyConfig
-        try:
-            from polily.core.config import load_config
-            minimal = Path("config.minimal.yaml")
-            example = Path("config.example.yaml")
-            if minimal.exists() and example.exists():
-                cfg = load_config(minimal, defaults_path=example)
-            elif example.exists():
-                cfg = load_config(example)
-            else:
-                cfg = PolilyConfig()
-        except Exception as e:
-            warnings.warn(
-                f"config load failed during wallet seed, using defaults: {e!r}",
-                stacklevel=2,
-            )
-            cfg = PolilyConfig()
+        # Try to honor a user-edited starting_balance if a prior caller
+        # already seeded the config table. If not (fresh install, no
+        # explicit load_config_from_db yet), fall back to the Pydantic
+        # default — caller is expected to load_config_from_db after
+        # construction and the seeded wallet stays in sync because both
+        # paths converge on the same default.
+        config_row = self.conn.execute(
+            "SELECT value FROM config WHERE key_path = 'wallet.starting_balance'",
+        ).fetchone()
+        if config_row is not None:
+            starting = json.loads(config_row[0])
+        else:
+            from polily.core.config import WalletConfig
+            starting = WalletConfig().starting_balance
 
         now = datetime.now(UTC).isoformat()
-        starting = cfg.wallet.starting_balance
+        # INSERT OR IGNORE makes the multi-process first-init race safe:
+        # if TUI process A and daemon process B both reach this point
+        # concurrently (both saw row==None on their respective SELECT),
+        # whichever wins the writer lock seeds the row; the other's
+        # INSERT no-ops instead of raising IntegrityError. Both processes
+        # would have computed the same starting_balance (config row +
+        # Pydantic default are deterministic), so the persisted value
+        # is identical regardless of who wins.
         self.conn.execute(
-            "INSERT INTO wallet (id,cash_usd,starting_balance,topup_total,"
-            "withdraw_total,created_at,updated_at) VALUES (1,?,?,0,0,?,?)",
+            "INSERT OR IGNORE INTO wallet (id,cash_usd,starting_balance,"
+            "topup_total,withdraw_total,created_at,updated_at) VALUES (1,?,?,0,0,?,?)",
             (starting, starting, now, now),
         )
         self.conn.commit()

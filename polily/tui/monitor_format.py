@@ -75,14 +75,20 @@ def format_next_check(iso_time: str | None) -> str:
     return f"{date_str} ({rel})"
 
 
-def format_settlement_range(earliest: str | None, latest: str | None) -> str:
+def format_settlement_range(
+    earliest: str | None,
+    latest: str | None,
+    *,
+    now: datetime | None = None,
+) -> str:
     """Render the event's settlement window, e.g. '2天6小时 ~ 40天16小时'.
 
     Single value (no tilde) when both sides render to the same string or when
     only one side is provided. Returns `—` when both sides are missing.
 
     Uses `polily.tui.utils._relative` so the phrasing matches the detail
-    page's countdown style.
+    page's countdown style. `now` is threaded through for deterministic
+    output during tests.
     """
     if not earliest and not latest:
         return _DASH
@@ -94,8 +100,8 @@ def format_settlement_range(earliest: str | None, latest: str | None) -> str:
 
     from polily.tui.utils import _relative
 
-    rel_early = _relative(earliest)
-    rel_late = _relative(latest)
+    rel_early = _relative(earliest, now=now)
+    rel_late = _relative(latest, now=now)
 
     if rel_early == rel_late:
         return rel_early
@@ -139,7 +145,7 @@ def format_event_settlement(event, market_summaries: list, *, now=None) -> str:
     ]
     if not ends:
         return _DASH
-    return format_settlement_range(min(ends), max(ends))
+    return format_settlement_range(min(ends), max(ends), now=now)
 
 
 def format_movement(label: str | None, magnitude: float, quality: float) -> str:

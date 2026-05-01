@@ -1,7 +1,0 @@
-# config.minimal.yaml — Quick start. Only fill what matters to you.
-# All other settings use sensible defaults from config.example.yaml.
-
-wallet:
-  starting_balance: 100.0     # Initial cash when wallet is first created or reset
-
-# Everything else uses defaults. See config.example.yaml for full reference.

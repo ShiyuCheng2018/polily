@@ -21,7 +21,7 @@ except (_metadata.PackageNotFoundError, FileNotFoundError, OSError):
     # invariant enforced by tests/test_version.py.
     __version__ = "".join(["0", ".0.0+unknown"])
 
-from polily.core.config import PolilyConfig, load_config
+from polily.core.config import PolilyConfig, load_config_from_db
 from polily.core.db import PolilyDB
 from polily.core.event_store import EventRow, MarketRow
 from polily.core.models import BookLevel, Market
@@ -32,7 +32,7 @@ from polily.scan.scoring import ScoreBreakdown, compute_structure_score
 
 __all__ = [
     # Core types
-    "Market", "BookLevel", "PolilyConfig", "load_config", "PolilyDB",
+    "Market", "BookLevel", "PolilyConfig", "load_config_from_db", "PolilyDB",
     # Event-first schema
     "EventRow", "MarketRow",
     # Pipeline
