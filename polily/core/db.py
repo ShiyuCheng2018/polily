@@ -2,8 +2,11 @@
 
 import contextlib
 import json
+import logging
 import sqlite3
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _SCHEMA = """
 -- 1. Events
@@ -286,6 +289,12 @@ class PolilyDB:
         # Drop the legacy notifications table on databases that were
         # upgraded from <= v0.6.1. Idempotent — no-op on fresh DBs.
         self.conn.execute("DROP TABLE IF EXISTS notifications")
+        # v0.10.0 (Issue A): normalize any historical scan_logs.scheduled_at
+        # rows that were written with a non-UTC TZ suffix (e.g. +08:00 from
+        # a Beijing-locale agent run). Idempotent — no-op when all rows are
+        # already +00:00. Must run AFTER the schema script so the table
+        # exists and AFTER the v0.7.0 migration so column shape is final.
+        self._migrate_scheduled_at_to_utc()
         self.conn.commit()
         self._ensure_wallet_singleton()
 
@@ -379,6 +388,51 @@ class PolilyDB:
             self.conn.execute("ALTER TABLE event_monitors DROP COLUMN next_check_at")
         if "next_check_reason" in mon_cols:
             self.conn.execute("ALTER TABLE event_monitors DROP COLUMN next_check_reason")
+
+    def _migrate_scheduled_at_to_utc(self) -> None:
+        """v0.10.0 — normalize scan_logs.scheduled_at to canonical UTC ISO.
+
+        Background: scan_logs.scheduled_at historically received whatever TZ
+        offset the NarrativeWriter agent emitted (e.g. `+08:00` for a
+        Beijing-locale user). The dispatcher's `fetch_overdue_pending` did
+        `WHERE scheduled_at <= ?` as TEXT, so `+08:00` sorted greater than
+        `+00:00` lexicographically and overdue Beijing rows were never
+        dispatched (Issue A regression).
+
+        v0.10.0 normalizes new writes via `_validate_next_check_at` (A.4.1)
+        and `insert_pending_scan` (A.4.3). This migration sweeps existing
+        rows so they too compare correctly. Idempotent — detection scans
+        for any row whose `scheduled_at` does NOT end with `+00:00`; on a
+        clean DB there's nothing to do and this is a single SELECT.
+
+        Unparseable timestamps are skipped with a warning rather than
+        crashing the whole migration — they will keep failing the
+        dispatcher's date compare anyway, and we don't want to brick startup.
+        """
+        rows = self.conn.execute(
+            "SELECT scan_id, scheduled_at FROM scan_logs "
+            "WHERE scheduled_at IS NOT NULL AND scheduled_at NOT LIKE '%+00:00'"
+        ).fetchall()
+        if not rows:
+            return
+        from datetime import UTC, datetime
+        for r in rows:
+            scan_id = r["scan_id"]
+            sched = r["scheduled_at"]
+            try:
+                parsed = datetime.fromisoformat(sched.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=UTC)
+                canonical = parsed.astimezone(UTC).isoformat()
+                self.conn.execute(
+                    "UPDATE scan_logs SET scheduled_at = ? WHERE scan_id = ?",
+                    (canonical, scan_id),
+                )
+            except (ValueError, TypeError):
+                logger.warning(
+                    "scheduled_at migration: skipping unparseable value %r on scan_id=%s",
+                    sched, scan_id,
+                )
 
     def _ensure_wallet_singleton(self) -> None:
         """Seed the wallet row on fresh DBs so downstream code can assume
