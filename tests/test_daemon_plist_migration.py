@@ -30,6 +30,10 @@ def test_legacy_plist_with_config_flag_gets_rewritten(tmp_path, monkeypatch):
     plist_path.write_text(legacy_xml, encoding="utf-8")
 
     monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    # SF7 platform guard: pretend Darwin + launchctl present so the
+    # migration body actually runs on Linux CI (otherwise short-circuits).
+    monkeypatch.setattr("sys.platform", "darwin")
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/launchctl")
     # Avoid actually invoking launchctl
     invoked = []
     monkeypatch.setattr(
@@ -68,6 +72,9 @@ def test_modern_plist_without_config_is_not_touched(tmp_path, monkeypatch):
     plist_path.write_text(modern_xml, encoding="utf-8")
 
     monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    # SF7 platform guard: pretend Darwin + launchctl present.
+    monkeypatch.setattr("sys.platform", "darwin")
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/launchctl")
     monkeypatch.setattr(
         "subprocess.run",
         lambda cmd, *a, **kw: type("R", (), {"returncode": 0})(),
@@ -105,6 +112,9 @@ def test_migration_load_failure_propagates(tmp_path, monkeypatch):
     )
 
     monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    # SF7 platform guard: pretend Darwin + launchctl present.
+    monkeypatch.setattr("sys.platform", "darwin")
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/launchctl")
 
     def fake_run(cmd, *a, **kw):
         # unload succeeds (rc=0); load fails. check=True on the load call
@@ -200,6 +210,9 @@ def test_migration_called_twice_second_call_is_noop(tmp_path, monkeypatch):
     )
 
     monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    # SF7 platform guard: pretend Darwin + launchctl present.
+    monkeypatch.setattr("sys.platform", "darwin")
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/launchctl")
     invocations = []
     monkeypatch.setattr(
         "subprocess.run",
