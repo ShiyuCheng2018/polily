@@ -6,12 +6,11 @@ import json
 import logging
 import time
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from polily.agents.narrative_writer import NarrativeWriterAgent
 from polily.analysis_store import AnalysisVersion, append_analysis, get_event_analyses
-from polily.core.config import PolilyConfig, load_config
+from polily.core.config import PolilyConfig
 from polily.core.db import PolilyDB
 from polily.core.event_store import (
     EventRow,
@@ -49,9 +48,15 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_next_check_at(value: str | None) -> str | None:
-    """Return value if it parses as ISO 8601 and is strictly in the future.
+    """Return canonical UTC ISO form if value parses + is strictly future.
 
     Rejects: None, empty string, malformed date, past timestamps.
+    Normalizes any TZ offset (e.g. `+08:00` from a Beijing-locale agent run,
+    `Z` suffix, naive datetime) into the canonical `+00:00` UTC ISO form so
+    downstream lexicographic compares against UTC `now()` are correct. This
+    is the primary defense for Issue A — `insert_pending_scan` also re-
+    normalizes at the DB boundary as a second line.
+
     Logs a warning on reject so bad agent output is observable.
     """
     if not value:
@@ -63,7 +68,8 @@ def _validate_next_check_at(value: str | None) -> str | None:
         if parsed <= datetime.now(UTC):
             logger.warning("Agent emitted non-future next_check_at: %s", value)
             return None
-        return value
+        # Normalize to canonical UTC ISO so downstream string compares == time compares.
+        return parsed.astimezone(UTC).isoformat()
     except (ValueError, TypeError):
         logger.warning("Agent emitted malformed next_check_at: %r", value)
         return None
@@ -115,8 +121,23 @@ class PolilyService:
         db: PolilyDB | None = None,
         event_bus: EventBus | None = None,
     ) -> None:
+        # Phase 2 Task 2.3: db.config is the canonical config source, so the db
+        # must be opened BEFORE config is loaded. Bootstrap chicken-and-egg —
+        # `archiving.db_file` lives IN the config, so when no db is injected we
+        # use Pydantic defaults to find the db, then read the actual config out
+        # of it. PolilyDB.__init__ no longer auto-seeds config (decoupled in
+        # v0.10.0 batch fix to break the wallet-singleton ↔ load_config_from_db
+        # recursion); _load_default_config below explicitly drives migration +
+        # seed via load_config_from_db, so the read sees a populated config
+        # table by the time we use `self.config`.
+        from polily.core.config import default_db_path
+        if db is not None:
+            self.db = db
+        elif config is not None:
+            self.db = PolilyDB(config.archiving.db_file)
+        else:
+            self.db = PolilyDB(default_db_path())
         self.config = config or self._load_default_config()
-        self.db = db or PolilyDB(self.config.archiving.db_file)
 
         # v0.6.0 wallet system: single dependency point for TUI views
         # (wallet.py / trade_dialog.py / paper_status.py)
@@ -135,15 +156,16 @@ class PolilyService:
         # v0.8.0 event bus: publish mutations to subscribed TUI views
         self.event_bus = event_bus or get_event_bus()
 
-    @staticmethod
-    def _load_default_config() -> PolilyConfig:
-        minimal = Path("config.minimal.yaml")
-        example = Path("config.example.yaml")
-        if minimal.exists() and example.exists():
-            return load_config(minimal, defaults_path=example)
-        if example.exists():
-            return load_config(example)
-        return PolilyConfig()
+    def _load_default_config(self) -> PolilyConfig:
+        """Load config from db.config (per design §4.2).
+
+        Phase 2 Task 2.3: replaces the legacy minimal.yaml / example.yaml /
+        Pydantic-defaults fallback chain. `__init__` opens self.db before
+        calling this, so self.db is guaranteed to be set. yaml files are no
+        longer read by this code path (Phase 7 deletes them).
+        """
+        from polily.core.config import load_config_from_db
+        return load_config_from_db(self.db)
 
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------

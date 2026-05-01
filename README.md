@@ -80,7 +80,8 @@ column layout may wrap. 120×30 or larger recommended.
 | `3` | Wallet (balance + ledger + topup/withdraw) |
 | `4` | History |
 | `5` | Archive |
-| `6` | Changelog |
+| `6` | ⚙ Config (movement / scoring / mispricing / wallet knobs) |
+| `7` | Changelog |
 | `r` | Refresh current page |
 | `o` | Open Polymarket link (detail pages) |
 | `↑ / ↓` | Navigate menu |
@@ -102,6 +103,33 @@ polily scheduler restart    # restart
 polily scheduler stop       # stop
 polily reset                # wipe DB / logs for a clean restart
 polily reset --wallet-only  # reset wallet only, keep events/markets/analyses
+```
+
+## Configuration
+
+All polily configuration (movement thresholds, scoring weights, mispricing
+deviation gates, wallet starting balance) is managed inside the TUI:
+
+```
+polily       # launches the TUI
+# press 6 or click the sidebar's ⚙ 配置
+```
+
+- The Config view is grouped into 4 sections — 异动触发 / 评分 / 错误定价 / 钱包
+- Click any row to open an Edit modal with a Chinese description, default value, and tuning guidance
+- After saving, a banner shows `N 项改动未生效`; press `Ctrl+R` to restart polily so the daemon picks them up
+
+How it's stored:
+
+- The canonical source is the `config` table inside SQLite (`data/polily.db`)
+- `config.yaml` is a read-only snapshot that polily regenerates from the database on every startup — manual edits are silently overwritten
+- Per-knob documentation lives in `polily/core/config_docs/*.md`
+
+Emergency recovery (only useful if the TUI hits the "config invalid" fatal screen):
+
+```bash
+polily config reset --all                          # reset every knob to defaults
+polily config reset movement.magnitude_threshold   # reset a single knob
 ```
 
 ## Current Limitations

@@ -1,9 +1,14 @@
-"""Config loading with deep merge for minimal + full config overlay."""
+"""Pydantic config models + db-canonical config loader.
 
-import copy
+Yaml is no longer a config input as of v0.10.0 — `db.config` is the
+canonical source. The yaml file (``config.yaml``) is regenerated
+read-only by every polily startup (see ``polily/core/config_yaml.py``)
+and exists purely as a human-readable export.
+"""
+
 from pathlib import Path
+from typing import Any
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -14,23 +19,6 @@ def _default_user_agent() -> str:
     # version bumped out from under it).
     from polily import __version__
     return f"polily/{__version__}"
-
-
-def deep_merge(base: dict, override: dict) -> dict:
-    """Recursively merge override into base. Does not mutate inputs."""
-    result = {}
-    for key in base:
-        if key in override:
-            if isinstance(base[key], dict) and isinstance(override[key], dict):
-                result[key] = deep_merge(base[key], override[key])
-            else:
-                result[key] = copy.deepcopy(override[key])
-        else:
-            result[key] = copy.deepcopy(base[key])
-    for key in override:
-        if key not in base:
-            result[key] = copy.deepcopy(override[key])
-    return result
 
 
 # --- Pydantic config models ---
@@ -203,18 +191,319 @@ class PolilyConfig(BaseModel):
     movement: MovementConfig = MovementConfig()
 
 
-def load_config(
-    path: Path,
-    defaults_path: Path | None = None,
-) -> PolilyConfig:
-    """Load config from YAML, optionally merging with defaults."""
-    if defaults_path is not None:
-        with open(defaults_path) as f:
-            base_raw = yaml.safe_load(f) or {}
-        with open(path) as f:
-            override_raw = yaml.safe_load(f) or {}
-        merged = deep_merge(base_raw, override_raw)
-    else:
-        with open(path) as f:
-            merged = yaml.safe_load(f) or {}
-    return PolilyConfig.model_validate(merged)
+class ConfigValidationError(Exception):
+    """Raised when db.config contains values that fail Pydantic validation.
+
+    Per design §7.3 — surfaced as a fatal screen by TUI / exit(1) by daemon.
+    Not auto-recoverable; user must run `polily config reset --all` (or single
+    key) to escape.
+    """
+
+
+def load_config_from_db(db) -> PolilyConfig:
+    """Load config from db.config (the canonical source).
+
+    Per design §4.2 + Phase 2 AC1 + AC3:
+
+    1. Migrate legacy yaml → db (Whis B3) BEFORE seeding defaults — runs once
+       (db.config empty), no-op afterward
+    2. INSERT OR IGNORE Pydantic defaults to fill any leaves not in db
+    3. Steps 1+2 wrapped in BEGIN IMMEDIATE so the cross-process race window
+       (process A migrates while process B seeds → user yaml loss) is closed
+       (AC1)
+    4. Read all rows + filter EPHEMERAL_FIELDS defensively
+    5. Pydantic validate; ConfigValidationError on failure — no fallback (AC3)
+
+    Caller responsibilities:
+      - TUI (polily.tui.app): catch ConfigValidationError → push FatalConfigScreen (Phase 7)
+      - daemon (polily.cli.run_scheduler_daemon): catch ConfigValidationError → exit(1)
+    """
+    from polily.core.config_store import (
+        EPHEMERAL_FIELDS,
+        _migrate_yaml_to_db,
+        _unflatten,
+        ensure_seeded,
+        load_all,
+    )
+
+    # AC1: write-locked transaction prevents cross-process interleaving
+    # of migrate count-check vs seed insert. Without BEGIN IMMEDIATE, two
+    # processes both see count=0 → process B's seed writes defaults →
+    # process A's migrate INSERT OR IGNORE no-ops user yaml values silently.
+    #
+    # SF6 (v0.10.0): explicit BEGIN IMMEDIATE / commit / rollback rather
+    # than `with db.conn:` wrapping. Python's default isolation_level
+    # opens an implicit transaction inside `with db.conn:`, then issuing
+    # `BEGIN IMMEDIATE` inside is either a no-op or — on stricter sqlite
+    # builds — `OperationalError: cannot start a transaction within a
+    # transaction`. Explicit control sidesteps both ambiguity and the
+    # nested-with confusion (ensure_seeded itself uses `with db.conn:`).
+    db.conn.execute("BEGIN IMMEDIATE")
+    try:
+        _migrate_yaml_to_db(db)
+        ensure_seeded(db)
+        db.conn.commit()
+    except Exception:
+        db.conn.rollback()
+        raise
+
+    flat = load_all(db)
+    # Defensive — even if user manually inserted EPHEMERAL_FIELDS rows via
+    # raw SQL, ignore them at validate time so default_factory wins.
+    flat = {k: v for k, v in flat.items() if k not in EPHEMERAL_FIELDS}
+    nested = _unflatten(flat)
+
+    try:
+        return PolilyConfig.model_validate(nested)
+    except Exception as e:
+        # AC3: fail-loud. Wrap Pydantic ValidationError so callers don't
+        # leak Pydantic internals.
+        raise ConfigValidationError(str(e)) from e
+
+
+def default_db_path() -> Path:
+    """Return the default polily db file path.
+
+    Per Whis SF11 — `archiving.db_file` is HIDDEN_IN_TUI and
+    "Pydantic-default-only": even if a row exists in db.config for it,
+    we'd need to know the db path BEFORE loading db.config to read
+    that row. So all callers (TUI service, CLI reset, daemon startup)
+    bootstrap the path from the Pydantic-default value.
+
+    Practically this means archiving.db_file is an install-time config
+    (set via env var or post-Phase-7 migration), not a runtime knob —
+    its db.config row is informational, not load-bearing.
+
+    Returns:
+        Path object for the default db file (typically './data/polily.db').
+    """
+    return Path(PolilyConfig().archiving.db_file)
+
+
+def _unwrap_annotation(ann):
+    """Strip Optional[X] → X and Annotated[X, ...] → X.
+
+    Repeated until neither wrapping applies. Generic Union[X, Y] (multiple
+    non-None args) is returned as-is; ``_coerce_value`` will raise the
+    ``不支持的类型`` error which is the right behavior — config knobs
+    aren't supposed to be sum types.
+
+    SF8 (v0.10.0): added so live validation in the TUI Edit modal still
+    works after a future schema-evolution slap of ``Optional[int]`` or
+    ``Annotated[float, Field(ge=1.0)]`` on a leaf. Without this, those
+    wrappings would fall through to ``_coerce_value`` and hit the
+    ``不支持的类型`` branch even when the underlying scalar is coercible.
+    """
+    import typing as _t
+
+    while True:
+        # Annotated[X, metadata...] (PEP 593)
+        if hasattr(ann, "__metadata__"):
+            ann = _t.get_args(ann)[0]
+            continue
+        # Optional[X] = Union[X, None] — unwrap only when exactly one
+        # non-None arg remains (i.e. genuine Optional, not generic Union).
+        origin = _t.get_origin(ann)
+        if origin is _t.Union:
+            args = [a for a in _t.get_args(ann) if a is not type(None)]
+            if len(args) == 1:
+                ann = args[0]
+                continue
+        return ann
+
+
+def _resolve_field_annotation(key_path: str):
+    """Walk PolilyConfig schema to find the type annotation for a key_path.
+
+    For nested dict[str, BaseModel] (e.g. movement.weights.crypto.magnitude.X)
+    descends into the dict's value type. For dict[str, scalar] returns the
+    scalar value type. Returns None if the key doesn't resolve.
+
+    Optional[X] / Annotated[X, ...] wrappings are stripped via
+    ``_unwrap_annotation`` at every annotation read (SF8).
+
+    Used by Edit modal live validation — coerce raw input to the right type
+    before attempting full PolilyConfig.model_validate().
+    """
+    import typing as _t
+
+    parts = key_path.split(".")
+    cursor: Any = PolilyConfig
+
+    for i, part in enumerate(parts):
+        is_last = i == len(parts) - 1
+
+        # Resolve cursor → field type
+        if isinstance(cursor, type) and issubclass(cursor, BaseModel):
+            field = cursor.model_fields.get(part)
+            if field is None:
+                return None
+            cursor = _unwrap_annotation(field.annotation)
+            if is_last:
+                return cursor
+            continue
+
+        # cursor is dict[str, X] or dict[str, dict[str, X]] — unwrap one level.
+        origin = _t.get_origin(cursor)
+        if origin is dict:
+            args = _t.get_args(cursor)
+            if len(args) >= 2:
+                cursor = _unwrap_annotation(args[1])
+                if isinstance(cursor, type) and issubclass(cursor, BaseModel):
+                    continue
+                inner_origin = _t.get_origin(cursor)
+                if inner_origin is dict:
+                    inner_args = _t.get_args(cursor)
+                    if len(inner_args) >= 2:
+                        cursor = _unwrap_annotation(inner_args[1])
+                if is_last:
+                    return cursor
+                continue
+        return None
+
+    return cursor
+
+
+def _coerce_value(raw: str, annotation):
+    """Try to parse `raw` as `annotation`. Raises ValueError on failure."""
+    if annotation is bool:
+        if raw.lower() in ("true", "1", "yes", "on"):
+            return True
+        if raw.lower() in ("false", "0", "no", "off"):
+            return False
+        raise ValueError(f"无法解析 {raw!r} 为 bool")
+    if annotation is int:
+        try:
+            return int(raw)
+        except ValueError as e:
+            raise ValueError(f"无法解析 {raw!r} 为 int") from e
+    if annotation is float:
+        try:
+            return float(raw)
+        except ValueError as e:
+            raise ValueError(f"无法解析 {raw!r} 为 float") from e
+    if annotation is str:
+        return raw
+    raise ValueError(f"不支持的类型 {annotation!r}")
+
+
+def save_knob(db, key_path: str, new_value: Any) -> None:
+    """Validate and persist a single config knob change.
+
+    Per design §4.2 + §7.2 + Whis SF8:
+      1. Read current db.config rows directly (no double round-trip
+         through load_config_from_db → _flatten_pydantic)
+      2. Apply new_value to the flat dict
+      3. Filter EPHEMERAL_FIELDS (defensive — they're not in db anyway)
+      4. Pydantic validate — raises ConfigValidationError on failure
+      5. Only after validation passes, upsert into db
+
+    Used by TUI Edit modal save handler. EPHEMERAL_FIELDS rejection happens
+    inside config_store.upsert (defense-in-depth).
+    """
+    from polily.core.config_store import (
+        EPHEMERAL_FIELDS,
+        _unflatten,
+        load_all,
+        upsert,
+    )
+
+    flat = load_all(db)  # already filters EPHEMERAL_FIELDS, returns dict
+    flat[key_path] = new_value
+    # Defensive — even if a future caller pre-populates flat differently
+    flat = {k: v for k, v in flat.items() if k not in EPHEMERAL_FIELDS}
+    try:
+        PolilyConfig.model_validate(_unflatten(flat))
+    except Exception as e:
+        raise ConfigValidationError(str(e)) from e
+    upsert(db, key_path, new_value)
+
+
+def save_knob_batch(db, updates: dict[str, Any]) -> None:
+    """Validate and persist multiple config knob changes atomically.
+
+    Used by `WeightFamilyEditModal` (Round 4) where editing one weight
+    leaf in isolation would silently break the algorithmic `sum == 1.0`
+    invariant — the whole family must be committed together.
+
+    Contract:
+      - All upserts succeed together OR rollback together. If Pydantic
+        rejects the merged config, NO row is changed (atomicity).
+      - Single `PolilyConfig.model_validate` over the merged config
+        (not N validations).
+      - Each key MUST be in TERRITORY_A. EPHEMERAL_FIELDS rejected by
+        upsert (`ConfigSaveError`); HIDDEN_IN_TUI rejected here
+        (`ValueError`). Both gate before the transaction opens so a
+        bad input never even starts a write.
+      - Empty dict is a no-op (no transaction churn).
+
+    Note: the `sum == 1` invariant on `movement.weights.<type>.<family>.*`
+    is enforced at the modal save-time, NOT inside Pydantic — so a
+    partial-family write that drifts the sum is allowed at the API
+    level. The modal won't issue one; a future caller might.
+    """
+    from polily.core.config_store import (
+        EPHEMERAL_FIELDS,
+        _unflatten,
+        is_territory_a,
+        load_all,
+    )
+
+    if not updates:
+        return  # no-op — avoid empty BEGIN/COMMIT and a redundant validate.
+
+    # Defense-in-depth: every key in `updates` must be TUI-editable.
+    # `upsert` re-checks EPHEMERAL_FIELDS internally, but a HIDDEN_IN_TUI
+    # key would slip through that check (it's persisted in db, just not
+    # exposed in the TUI). Block here before opening the transaction.
+    for key_path in updates:
+        if not is_territory_a(key_path):
+            raise ValueError(
+                f"{key_path} is not editable (HIDDEN_IN_TUI or EPHEMERAL)",
+            )
+
+    flat = load_all(db)  # already filters EPHEMERAL_FIELDS
+    flat.update(updates)
+    # Defensive — even if a future caller mutates flat differently.
+    flat = {k: v for k, v in flat.items() if k not in EPHEMERAL_FIELDS}
+
+    # Single merged validation — exactly one model_validate call regardless
+    # of how many leaves changed.
+    try:
+        PolilyConfig.model_validate(_unflatten(flat))
+    except Exception as e:
+        raise ConfigValidationError(str(e)) from e
+
+    # All-or-nothing write. `upsert` itself uses `with db.conn:` (an
+    # implicit transaction commit per call); wrapping multiple upserts in
+    # an outer BEGIN IMMEDIATE / COMMIT does NOT nest cleanly with
+    # sqlite3's default isolation_level — the inner `with db.conn:` would
+    # try to commit mid-batch. So we drive the cursor directly here, in a
+    # single explicit transaction (mirrors the SF6 pattern in
+    # `load_config_from_db`).
+    import json
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+    db.conn.execute("BEGIN IMMEDIATE")
+    try:
+        for key_path, value in updates.items():
+            db.conn.execute(
+                """
+                INSERT INTO config (key_path, value, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key_path) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (key_path, json.dumps(value), now),
+            )
+        db.conn.commit()
+    except Exception:
+        db.conn.rollback()
+        raise
+
+    # `upsert` is intentionally NOT used inside the transaction (its
+    # `with db.conn:` context manager would conflict). The
+    # ConfigSaveError gate it carries for EPHEMERAL_FIELDS is replicated
+    # by `is_territory_a` above — territory A excludes EPHEMERAL_FIELDS
+    # by construction. Defense-in-depth without the nested-with hazard.

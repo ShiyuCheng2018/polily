@@ -103,6 +103,99 @@ def is_daemon_running() -> bool:
     return '"PID"' in result.stdout
 
 
+def _migrate_legacy_plist() -> bool:
+    """Whis B2 — one-shot v0.9.x → v0.10.0 plist migration.
+
+    Detects ``--config`` in the on-disk plist's ProgramArguments and
+    rewrites without it, then reloads launchctl so the new args take
+    effect on the next daemon spawn.
+
+    Returns True if a migration was performed, False otherwise (no plist
+    on disk / already modern / non-Darwin / launchctl missing).
+    Idempotent — safe to call on every startup; modern plists are read
+    once and left untouched.
+
+    Why this exists: pre-v0.10.0 plists embedded ``--config <path>`` in
+    ProgramArguments. After T2.5 deleted that flag from the ``scheduler
+    run`` subcommand, launchd respawns the daemon → typer rejects the
+    unknown arg → non-zero exit → KeepAlive=true → infinite crash loop.
+    This helper silently heals the plist on the next TUI launch.
+
+    Note: only writes the new plist + issues unload/load. The full
+    auto-heal flow in ``ensure_daemon_running`` re-runs immediately
+    after, but it'll see the freshly-written modern plist as matching
+    the desired bytes and short-circuit (no double reload).
+
+    SF7 (v0.10.0): platform-guarded so non-Darwin dev boxes / Linux CI
+    don't crash on ``FileNotFoundError`` when ``launchctl`` isn't on
+    PATH. Also skips when launchctl can't be resolved on Darwin (rare,
+    but possible in stripped sandbox environments).
+    """
+    import subprocess
+
+    # Platform guard — launchctl is macOS-only. On Linux/Windows, the
+    # whole concept of a launchd plist doesn't apply.
+    if sys.platform != "darwin":
+        return False
+
+    # Defense-in-depth: even on Darwin, skip if launchctl can't be found.
+    # subprocess.run with FileNotFoundError would propagate out of the
+    # daemon-startup auto-heal path and crash the TUI on launch.
+    if shutil.which("launchctl") is None:
+        return False
+
+    if not PLIST_PATH.exists():
+        return False
+
+    content = PLIST_PATH.read_text(encoding="utf-8")
+    if "--config" not in content:
+        return False  # already modern — idempotent no-op
+
+    # Regenerate via the canonical generator — it produces the v0.10.0
+    # ProgramArguments shape (no --config, no other dropped flags).
+    working_dir = str(Path.cwd())
+    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
+    plist_bytes = generate_launchd_plist(working_dir=working_dir)
+    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PLIST_PATH.write_bytes(plist_bytes)
+
+    # Reload so launchd picks up the new args. unload is best-effort —
+    # service may not be currently loaded (e.g. first boot, or user ran
+    # `launchctl unload` manually). Non-zero rc here is expected and not
+    # fatal, but log it for diagnostics.
+    unload_result = subprocess.run(
+        ["launchctl", "unload", str(PLIST_PATH)],
+        capture_output=True,
+        text=True,
+    )
+    if unload_result.returncode != 0:
+        logger.warning(
+            "launchctl unload during plist migration returned %d: %s",
+            unload_result.returncode,
+            unload_result.stderr.strip() or "(no stderr)",
+        )
+
+    # load is critical — if it fails, launchd keeps the legacy spec
+    # in memory until reboot, defeating B2's whole purpose (the daemon
+    # crash-loops because the in-memory plist still carries --config).
+    # Propagate so ensure_daemon_running's caller can react.
+    try:
+        subprocess.run(
+            ["launchctl", "load", str(PLIST_PATH)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(
+            "launchctl load during plist migration failed (rc=%d): %s",
+            e.returncode,
+            (e.stderr or "").strip() or "(no stderr)",
+        )
+        raise
+    return True
+
+
 def ensure_daemon_running() -> bool:
     """Start the daemon via launchd if not already running, auto-healing
     stale plists (e.g. across package renames).
@@ -111,6 +204,12 @@ def ensure_daemon_running() -> bool:
     False if the existing running daemon was kept as-is.
     """
     import subprocess
+
+    # B2: one-shot heal of legacy plists carrying `--config` from v0.9.x.
+    # If the migration runs, it already wrote new bytes + reloaded — fall
+    # through anyway so the rest of the auto-heal logic stays the source
+    # of truth for "is daemon running" reporting.
+    _migrate_legacy_plist()
 
     working_dir = str(Path.cwd())
     Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
@@ -313,6 +412,40 @@ def _only_claude_cli_diff(old_bytes: bytes, new_bytes: bytes) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _build_shutdown_handler(scheduler):
+    """Build the SIGTERM/SIGINT handler for `run_daemon`.
+
+    Factored out for unit-testability — the closure form was inlined inside
+    `run_daemon` and couldn't be exercised without bringing up a real daemon.
+
+    Behavior:
+    - Writes a `── shutting down (SIGTERM) ──` marker to the poll log so
+      post-mortem can distinguish kill-by-signal from "Python crashed
+      mid-poll" (the daemon's stderr goes to /dev/null via the launchd
+      plist, so logger.info is invisible — the poll log is the only
+      visible record).
+    - Writes the marker BEFORE `scheduler.shutdown` because APScheduler may
+      tear down logger handlers as part of its shutdown sequence.
+    - Both writes are wrapped in `contextlib.suppress(Exception)` —
+      raising inside a signal handler causes an uglier death than just
+      losing the marker. Logging is best-effort.
+    """
+    def handle_shutdown(signum, frame):
+        logger.info("Received signal %d, shutting down", signum)
+        with contextlib.suppress(Exception):
+            from polily.daemon.poll_job import _get_poll_log
+            sig_name = {
+                signal.SIGTERM: "SIGTERM",
+                signal.SIGINT: "SIGINT",
+            }.get(signum, f"signal {signum}")
+            _get_poll_log().info(f"── shutting down ({sig_name}) ──")
+        with contextlib.suppress(Exception):
+            scheduler.shutdown(wait=False)
+        sys.exit(0)
+
+    return handle_shutdown
+
+
 def run_daemon(db, config=None) -> None:
     """Daemon entry point: start scheduler, block until SIGTERM.
 
@@ -387,12 +520,7 @@ def run_daemon(db, config=None) -> None:
     # from a pre-v0.9.0 install so it doesn't confuse `ls data/`.
     _sweep_legacy_pid_file()
 
-    def handle_shutdown(signum, frame):
-        logger.info("Received signal %d, shutting down", signum)
-        with contextlib.suppress(Exception):
-            scheduler.shutdown(wait=False)
-        sys.exit(0)
-
+    handle_shutdown = _build_shutdown_handler(scheduler)
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
 

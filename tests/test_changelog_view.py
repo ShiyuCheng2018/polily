@@ -146,9 +146,13 @@ async def test_action_refresh_rereads_content(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_main_screen_digit_6_opens_changelog(tmp_path):
-    """`6` is bound to show_changelog and the action mounts ChangelogView.
+    """`7` is bound to show_changelog and the action mounts ChangelogView.
 
-    Can't rely on `pilot.press('6')` because the default tasks view has
+    v0.10.0: digit 6 was reassigned to show_config when ConfigView was
+    added between archive and changelog; changelog moved from 6 → 7.
+    Test name retained for git-blame continuity.
+
+    Can't rely on `pilot.press('7')` because the default tasks view has
     a URL Input that swallows digit keys — matches the same workaround
     used in `test_tui.py::test_press_5_switches_to_archive`.
     """
@@ -163,10 +167,10 @@ async def test_main_screen_digit_6_opens_changelog(tmp_path):
         await pilot.pause()
         screen = next(s for s in app.screen_stack if isinstance(s, MainScreen))
 
-        # (a) Binding table routes "6" to show_changelog.
+        # (a) Binding table routes "7" to show_changelog (was "6" pre-v0.10.0).
         bindings = {b.key: b.action for b in screen.BINDINGS}
-        assert bindings.get("6") == "show_changelog", (
-            f"digit 6 should trigger show_changelog; bindings: {bindings}"
+        assert bindings.get("7") == "show_changelog", (
+            f"digit 7 should trigger show_changelog; bindings: {bindings}"
         )
 
         # (b) Action mounts ChangelogView and flips current menu.

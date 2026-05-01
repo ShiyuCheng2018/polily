@@ -60,9 +60,43 @@ class PolilyApp(App):
         self.notify("帮助面板 v0.8.0 后续版本提供", severity="information")
 
 
-def run_tui():
-    """Entry point for TUI mode."""
-    app = PolilyApp()
+def run_tui(service: PolilyService | None = None) -> None:
+    """Entry point for TUI mode.
+
+    If `service` is provided, the TUI uses it directly (avoids double-loading
+    config from db when the CLI already built one for the yaml regen hook).
+    Otherwise the TUI builds its own PolilyService.
+
+    If service construction fails with ConfigValidationError (db.config has
+    invalid values that Pydantic refuses), show FatalConfigScreen instead of
+    the normal app — user must run a CLI escape hatch
+    (`polily config reset --all` / `polily config reset <key>`) and relaunch.
+    Per design §7.3 / Q4.
+    """
+    if service is None:
+        from polily.core.config import ConfigValidationError
+        try:
+            service = PolilyService()
+        except ConfigValidationError as e:
+            from polily.tui.views._config_fatal_screen import FatalConfigScreen
+
+            error_message = str(e)
+
+            class _FatalApp(App):
+                def on_mount(self) -> None:
+                    self.push_screen(FatalConfigScreen(error_message=error_message))
+
+            _FatalApp().run()
+            import os
+
+            from polily.tui.terminal_cleanup import cleanup_terminal
+            # _FatalApp's driver is already torn down by app.run() returning,
+            # so the canonical path is unreachable; cleanup_terminal falls
+            # back to writing DECRST sequences directly. See R5-B.
+            cleanup_terminal(app=None)
+            os._exit(1)
+
+    app = PolilyApp(service=service)
     try:
         app.run()
     finally:
@@ -71,5 +105,12 @@ def run_tui():
         # survive normal Python shutdown (sys.exit, atexit). os._exit bypasses
         # all cleanup but is the only reliable way to terminate. SQLite writes
         # are committed before reaching this point. See README Limitations.
+        # R5-B: cleanup_terminal restores mouse-tracking + alt-screen modes
+        # before os._exit so the user's terminal isn't left spewing raw SGR
+        # escape sequences. By the time `app.run()` returns, Textual has
+        # already torn the driver down, so the fallback path applies.
         import os
+
+        from polily.tui.terminal_cleanup import cleanup_terminal
+        cleanup_terminal(app)
         os._exit(0)

@@ -44,6 +44,14 @@ TOPIC_POSITION_UPDATED = "position.updated"
 # Payload: {"event_id": str, "market_id": str, "mid": float, "spread": float}
 TOPIC_PRICE_UPDATED = "price.updated"
 
+# v0.10.0: dedicated heartbeat topic (Whis SF10).
+# Publishers: main.py _bus_heartbeat (every tui.heartbeat_seconds)
+# Subscribers: views that need timer-based refresh without an explicit
+# business event (e.g., ConfigView's drift banner — db state may have
+# been edited by the user on a different device that synced via SQL,
+# even though that's rare in v1).
+TOPIC_HEARTBEAT = "tui.heartbeat"
+
 
 class EventBus:
     """Thread-safe topic pub/sub. Handlers run synchronously on publish."""
