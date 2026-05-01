@@ -87,3 +87,16 @@ class PositionPanel(Widget):
                 f"合计 ${total_value:.2f}  [{pnl_color}]{pnl_sign}${total_pnl:.2f}[/{pnl_color}]",
                 classes="pos-summary",
             )
+
+    def update_data(
+        self, trades: list, markets: list, movements: list | None = None,
+    ) -> None:
+        """v0.10.1 in-place refresh — recompose self. Trade count can change
+        (open/close positions), pos-cards have no IDs to update individually,
+        and the panel has no inner scroll. Recomposing self is the cleanest
+        path; the outer VerticalScroll is unaffected.
+        """
+        self._trades = trades
+        self._markets = markets
+        self._movements = movements or []
+        self.refresh(recompose=True)

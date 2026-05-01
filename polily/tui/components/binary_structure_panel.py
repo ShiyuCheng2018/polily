@@ -75,6 +75,12 @@ class BinaryMarketStructurePanel(Widget):
             if overall:
                 yield Static(f"[b]总评:[/b] {overall}", classes="overall-row")
 
+    def update_data(self, market, event=None) -> None:
+        """v0.10.1 in-place refresh — see EventHeader.update_data."""
+        self._market = market
+        self._event = event
+        self.refresh(recompose=True)
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------

@@ -155,3 +155,21 @@ class EventHeader(Widget):
             f"{mtype} | 结算: {settlement_str} | {monitor_str} | {mov_str}",
             classes="hdr-sub",
         )
+
+    def update_data(
+        self,
+        event,
+        monitor: dict | None = None,
+        movements: list | None = None,
+        markets: list | None = None,
+    ) -> None:
+        """v0.10.1 in-place refresh — replaces constructor-equivalent state
+        attrs and recomposes self. Outer VerticalScroll is unaffected because
+        Textual's recompose is scoped to this widget + descendants.
+        """
+        self._event = event
+        self._monitor = monitor
+        self._movements = movements or []
+        if markets is not None:
+            self._markets = markets
+        self.refresh(recompose=True)

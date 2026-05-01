@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
+from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static
@@ -237,25 +238,68 @@ class EventDetailView(Widget):
 
     @once_per_tick
     def refresh_data(self) -> None:
-        """Re-fetch data from DB and recompose the view.
+        """v0.10.1 — re-fetch data from DB and dispatch in-place updates to
+        each child widget. The outer VerticalScroll on EventDetailView is
+        NEVER recomposed, so the user's scroll position is preserved across
+        every 5s heartbeat refresh.
 
-        `@once_per_tick`: multiple synchronous calls on the same view
-        within a tick coalesce to one execution (React 18 batching
-        pattern). Each `_bus_heartbeat` fans out PRICE + POSITION which
-        both subscribe here — without coalescing, `recompose()` would
-        run twice per heartbeat.
+        `@once_per_tick`: multiple synchronous calls within a tick coalesce
+        (PRICE + POSITION bus topics both subscribe here).
         """
         new_detail = self.service.get_event_detail(self.event_id)
         if new_detail is None:
             return
         self._detail = new_detail
-        # Preserve analysis version selection
-        analyses = self._detail.get("analyses", [])
+
+        # Preserve analysis version selection (existing logic).
+        analyses = new_detail.get("analyses", [])
         if analyses and 0 <= self._version_idx < len(analyses):
             pass  # keep current
         elif analyses:
             self._version_idx = len(analyses) - 1
-        self.refresh(recompose=True)
+
+        event = new_detail.get("event")
+        monitor = new_detail.get("monitor")
+        movements = new_detail.get("movements", [])
+        trades = new_detail.get("trades", [])
+        markets = new_detail.get("markets", [])
+
+        # Per-child update. Each suppress block guards against the widget
+        # not being mounted (e.g. AnalysisPanel only mounts when analyses
+        # exist or _analyzing is True; PositionPanel mounts always).
+        with contextlib.suppress(NoMatches):
+            self.query_one(EventHeader).update_data(
+                event, monitor, movements, markets=markets,
+            )
+        with contextlib.suppress(NoMatches):
+            self.query_one(EventKpiRow).update_data(event, markets)
+        with contextlib.suppress(NoMatches):
+            if len(markets) == 1:
+                self.query_one(BinaryMarketStructurePanel).update_data(markets[0], event)
+            else:
+                self.query_one(SubMarketTable).update_data(markets, event)
+        with contextlib.suppress(NoMatches):
+            self.query_one(PositionPanel).update_data(trades, markets, movements)
+        with contextlib.suppress(NoMatches):
+            # AnalysisPanel might not be mounted yet (no analyses, not analyzing).
+            # If user just triggered analysis or first AI completion comes in,
+            # the original compose() needs to mount it — this requires a one-time
+            # parent recompose. We handle that below.
+            self.query_one(AnalysisPanel).update_data(
+                analyses, self._version_idx, self._analyzing,
+            )
+
+        # One-time structural transition: when analyses appear for the first
+        # time (or _analyzing flips to True without any analyses yet), the
+        # AnalysisPanel widget needs to MOUNT — query_one above would have
+        # silently no-op'd. The Static placeholder ("[dim]按 a 启动 AI 分析[/dim]")
+        # at compose() line 201 also needs to disappear. Recomposing the
+        # parent IS unavoidable here, but this happens at most once per
+        # event-detail session (subsequent updates take the fast path above).
+        has_analysis_panel = bool(self.query(AnalysisPanel))
+        needs_panel = bool(analyses) or self._analyzing
+        if needs_panel and not has_analysis_panel:
+            self.refresh(recompose=True)
 
     # ------------------------------------------------------------------
     # Actions

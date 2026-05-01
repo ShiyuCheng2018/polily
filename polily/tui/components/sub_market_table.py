@@ -133,6 +133,27 @@ class SubMarketTable(Widget):
 
         # Total score row removed — already shown in the 评分 column
 
+    def update_data(self, markets: list, event=None) -> None:
+        """v0.10.1 in-place refresh — preserve DataTable cursor_row across
+        rebuild. Reuses the existing _rebuild helper which clears and
+        repopulates rows from self._markets.
+        """
+        self._markets = markets
+        self._event = event
+        if len(self._markets) <= 1:
+            # compose() returns early when len <= 1; nothing to update.
+            return
+        try:
+            table = self.query_one("#sub-market-table", DataTable)
+        except Exception:
+            return
+        saved_cursor = table.cursor_row
+        self._rebuild()
+        if saved_cursor is not None and table.row_count > 0:
+            clamped = min(saved_cursor, table.row_count - 1)
+            with contextlib.suppress(Exception):
+                table.move_cursor(row=clamped)
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.data_table.id != "sub-market-table":
             return
