@@ -197,7 +197,13 @@ sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'
 - 围绕该事件选最佳检查时间
 - 找不到事件就按距结算时间设间隔
 
-规则：ISO 8601 精确到分钟，不能晚于过期时间。
+规则：
+- 必须 ISO 8601 UTC 格式，例 "2026-04-29T08:00:00+00:00" 或 "2026-04-29T08:00:00Z"
+- 精确到分钟
+- 不能晚于过期时间
+- 不能是过去时间
+
+在 next_check_reason 和 analysis 文字里讨论这个时间时，用用户本地时间表达（系统会传给你当前的本地时区），让用户读起来自然。
 
 ## 输出 JSON Schema
 

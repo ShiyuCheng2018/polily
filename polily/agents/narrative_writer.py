@@ -111,16 +111,27 @@ class NarrativeWriterAgent:
         """Build minimal prompt — agent reads DB and searches web on its own."""
         mode = "position_management" if has_position else "discovery"
 
-        from datetime import datetime
-        local_tz = datetime.now().astimezone().tzname()
-        local_now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        from datetime import UTC, datetime
+        now_utc = datetime.now(UTC)
+        local_now = now_utc.astimezone()
+        local_tz_name = local_now.tzname() or "local"
+        utc_iso = now_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        local_str = local_now.strftime("%Y-%m-%d %H:%M %Z")
 
         prompt = f"""分析事件 {event_id}。
 
 模式: {mode}
 数据库: data/polily.db
 Prompt 指令: polily/agents/prompts/narrative_writer.md
-当前时间: {local_now}（用户时区 {local_tz}，分析文字里用本地时间）"""
+
+当前时间:
+  - UTC: {utc_iso} ← 数据库记录的时间一律是这个时区
+  - 用户本地: {local_str}（{local_tz_name}）
+
+时间使用规则：
+- next_check_at 字段：必须用 UTC ISO 8601，格式如 "2026-04-29T08:00:00+00:00"（与 DB 对齐）
+- 分析文字（analysis / summary / next_check_reason）：用用户本地时间表达，让用户读得自然
+- 比如 "FOMC 4月29日 ET 14:00（北京时间约凌晨 02:00）" 这种双时区表述就是好的"""
 
         if has_position and position_summary:
             prompt += f"\n\n用户当前持仓:\n{position_summary}"
