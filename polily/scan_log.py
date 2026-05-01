@@ -275,18 +275,23 @@ def fetch_overdue_pending(db, stale_threshold_minutes: int = 30) -> list[dict]:
     laptop close can stack many overdue rows; auto-dispatching all of them
     would burn the user's Claude Code subscription quota in one wave.
 
-    SQL note: both sides of the time compare are wrapped in `datetime()` so
-    SQLite parses the TZ before comparing. Without that, ISO 8601 strings
-    are byte-compared and `+08:00` > `+00:00` lexicographically — which is
-    exactly the original Issue A regression that made Beijing rows
-    permanently invisible. A.4.3 also normalizes new writes at the boundary,
-    but datetime() here is defense-in-depth for any pre-migration rows.
+    SQL note: every comparison or aggregation involving `scheduled_at` is
+    wrapped in `datetime()` so SQLite parses the TZ before comparing.
+    Without that, ISO 8601 strings are byte-compared and `+08:00` > `+00:00`
+    lexicographically — which is exactly the original Issue A regression
+    that made Beijing rows permanently invisible. The same wrap is applied
+    to MIN() and the join's equality test so a defense-in-depth path —
+    where a row escaped both the write-boundary normalize (A.4.3) and the
+    one-shot UTC migration (A.4.5) — still picks the time-earliest row,
+    not the lex-smallest. Without the wrap on MIN/JOIN, a `+08:00` row at
+    UTC=10:00 and a `+00:00` row at UTC=11:00 would JOIN against the
+    `+00:00` one (lex-smaller) instead of the `+08:00` one (time-earlier).
     """
     now = datetime.now(UTC).isoformat()
     rows = db.conn.execute(
         """
         WITH earliest_per_event AS (
-            SELECT event_id, MIN(scheduled_at) AS min_sched
+            SELECT event_id, MIN(datetime(scheduled_at)) AS min_sched_dt
             FROM scan_logs
             WHERE status = 'pending'
               AND datetime(scheduled_at) <= datetime(?)
@@ -297,13 +302,14 @@ def fetch_overdue_pending(db, stale_threshold_minutes: int = 30) -> list[dict]:
                s.scheduled_reason, s.trigger_source
         FROM scan_logs s
         JOIN earliest_per_event e
-          ON e.event_id = s.event_id AND e.min_sched = s.scheduled_at
+          ON e.event_id = s.event_id
+          AND datetime(s.scheduled_at) = e.min_sched_dt
         WHERE s.status = 'pending'
           AND NOT EXISTS (
               SELECT 1 FROM scan_logs s2
               WHERE s2.event_id = s.event_id AND s2.status = 'running'
           )
-        ORDER BY s.scheduled_at ASC
+        ORDER BY datetime(s.scheduled_at) ASC
         """,
         (now, now, f"-{stale_threshold_minutes}"),
     ).fetchall()
