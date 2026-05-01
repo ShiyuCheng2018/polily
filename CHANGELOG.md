@@ -30,6 +30,11 @@ structured release notes — see `git log` for history.
 - New SQLite `config` table — flat dot-notation key_path → JSON value
 - One-shot legacy yaml → db migration on first run (Whis B3): pre-v0.10.0 user customization auto-imported
 
+### Fixed
+
+- **Scheduled analyses now fire on time regardless of user's local timezone.** `scan_logs.scheduled_at` was previously written with whatever TZ offset the agent emitted (e.g. `+08:00` for Beijing locale), and the dispatcher's overdue compare did a TEXT-byte sort — so `+08:00` strings sorted as "future" and overdue scheduled scans were never picked up. v0.10.0 normalizes `scheduled_at` to canonical UTC ISO at the write boundary, parses TZ in the dispatcher SQL, and runs a one-shot migration over existing rows. Existing users whose pending scheduled scans appeared "stuck" will see them dispatch on the next daemon tick after upgrading.
+- **Dispatch now skips scans overdue by more than 30 minutes by default.** Mac sleep/wake or a long laptop close used to stack 8+ overdue rows; the daemon would fire them all in one tick and burn the user's Claude Code subscription quota. Stale rows now stay `pending` — user manually triggers if they want to catch up. Threshold is `stale_threshold_minutes=30` in `fetch_overdue_pending`; not user-configurable yet.
+
 ### Internal
 
 - New `polily/core/config_store.py` module with `EPHEMERAL_FIELDS`, `TERRITORY_A_PREFIXES`, `ensure_seeded`, `load_all`, `upsert`, `reset`, `_migrate_yaml_to_db`
@@ -41,6 +46,8 @@ structured release notes — see `git log` for history.
 - New CI gate `tests/test_config_docs_coverage.py` requires markdown docs for all 40 territory A keys
 - `PRAGMA busy_timeout=5000` set explicitly on PolilyDB connection (was implicitly via Python sqlite3 default)
 - New `TOPIC_HEARTBEAT` event topic (Whis SF10) for views that need timer-based refresh
+- Daemon shutdown now logged distinctly from crashes — `handle_shutdown` writes `── shutting down (SIGTERM) ──` (or SIGINT) to the poll log before tearing down the scheduler, so post-mortem of `data/logs/poll-*.log` can tell kill-by-signal apart from a Python crash mid-poll. Daemon stderr still goes to /dev/null via the launchd plist (intentional), so this poll-log marker is the only visible record.
+- NarrativeWriter agent prompt now passes both UTC and user-local time with explicit role labels: `next_check_at` MUST be UTC ISO (DB clock); narrative text uses local time with dual-TZ phrasing for readability.
 
 ### Removed
 
