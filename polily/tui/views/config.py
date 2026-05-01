@@ -637,7 +637,7 @@ class ConfigView(Widget):
 
     BINDINGS = [
         Binding("r", "refresh", "刷新", show=True),
-        Binding("ctrl+r", "restart_polily", "重启 polily", show=True),
+        Binding("ctrl+r", "restart_polily", "应用配置", show=True),
         *NAV_BINDINGS,
     ]
 
