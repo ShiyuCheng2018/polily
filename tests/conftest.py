@@ -58,8 +58,19 @@ def _isolate_poll_log(monkeypatch):
 
 
 @pytest.fixture
-def polily_db(tmp_path):
-    """Provide a PolilyDB in a temp directory that auto-cleans up."""
+def polily_db(tmp_path, monkeypatch):
+    """Provide a PolilyDB in a temp directory that auto-cleans up.
+
+    chdir to tmp_path BEFORE constructing PolilyDB so the v0.10.0
+    yaml→db migration (which reads `os.getcwd()/config.yaml` to import
+    pre-v0.10.0 user customizations) doesn't pull in the dev box's
+    production config snapshot. Without this, any developer who has
+    edited config via the TUI sees their custom values bleed into
+    every test that uses this fixture, surfacing as confusing
+    AssertionErrors like "magnitude_threshold == 70" failing because
+    the dev's prod yaml has 55.
+    """
+    monkeypatch.chdir(tmp_path)
     db = PolilyDB(tmp_path / "polily.db")
     yield db
     db.close()
