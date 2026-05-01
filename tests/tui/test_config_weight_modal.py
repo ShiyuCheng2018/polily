@@ -11,8 +11,6 @@ with a family-level editor. The modal must:
 """
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Input, Static
@@ -165,9 +163,10 @@ async def test_auto_normalize_scales_to_sum_one(service):
         current_values=dict.fromkeys(_CRYPTO_MAG_DEFAULTS, 0.40),
         default_values=_CRYPTO_MAG_DEFAULTS,
     )
-    async with _Harness(modal).run_test() as pilot:
+    async with _Harness(modal).run_test(size=(120, 60)) as pilot:
         await pilot.pause()
-        await pilot.click("#auto-normalize")
+        # Programmatic press to avoid scroll/offscreen flake in run_test
+        modal.query_one("#auto-normalize", Button).press()
         await pilot.pause()
         for leaf in _CRYPTO_MAG_DEFAULTS:
             value = modal.query_one(f"#input-{leaf}", Input).value
@@ -184,13 +183,13 @@ async def test_auto_normalize_on_all_zero_inputs_is_noop(service):
         current_values=dict.fromkeys(_CRYPTO_MAG_DEFAULTS, 0.0),
         default_values=_CRYPTO_MAG_DEFAULTS,
     )
-    async with _Harness(modal).run_test() as pilot:
+    async with _Harness(modal).run_test(size=(120, 60)) as pilot:
         await pilot.pause()
         notifies = []
         original_notify = modal.notify
         modal.notify = lambda *a, **kw: notifies.append((a, kw))  # type: ignore[method-assign]
 
-        await pilot.click("#auto-normalize")
+        modal.query_one("#auto-normalize", Button).press()
         await pilot.pause()
 
         # All inputs still zero
@@ -225,9 +224,9 @@ async def test_reset_writes_defaults_to_all_inputs(service):
         current_values=custom,
         default_values=_CRYPTO_MAG_DEFAULTS,
     )
-    async with _Harness(modal).run_test() as pilot:
+    async with _Harness(modal).run_test(size=(120, 60)) as pilot:
         await pilot.pause()
-        await pilot.click("#reset-btn")
+        modal.query_one("#reset-btn", Button).press()
         await pilot.pause()
         for leaf, expected in _CRYPTO_MAG_DEFAULTS.items():
             value = modal.query_one(f"#input-{leaf}", Input).value
@@ -245,13 +244,13 @@ async def test_save_with_valid_sum_persists_all_keys_via_batch(service):
     from polily.core.config_store import load_all
 
     modal = _make_modal(service)
-    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+    async with _Harness(modal).run_test(size=(120, 60)) as pilot:
         await pilot.pause()
         # New balanced split: 0.20 / 0.20 / 0.20 / 0.20 / 0.20
         for leaf in _CRYPTO_MAG_DEFAULTS:
             modal.query_one(f"#input-{leaf}", Input).value = "0.20"
         await pilot.pause()
-        await pilot.click("#confirm")
+        modal.query_one("#confirm", Button).press()
         await pilot.pause()
 
     flat = load_all(service.db)
@@ -278,7 +277,7 @@ async def test_save_with_pydantic_invalid_value_shows_error_and_db_unchanged(
     from polily.core.config_store import load_all
 
     modal = _make_modal(service)
-    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+    async with _Harness(modal).run_test(size=(120, 60)) as pilot:
         await pilot.pause()
         # Negative + compensating positive → arithmetic sum still 1.0
         modal.query_one("#input-price_z_score", Input).value = "-0.20"
@@ -286,8 +285,8 @@ async def test_save_with_pydantic_invalid_value_shows_error_and_db_unchanged(
         await pilot.pause()
         # Live validation must reject negatives → Save disabled.
         assert modal.query_one("#confirm", Button).disabled is True
-        # Try clicking anyway — disabled button is a no-op, db unchanged
-        await pilot.click("#confirm")
+        # Try pressing anyway — disabled button is a no-op, db unchanged
+        modal.query_one("#confirm", Button).press()
         await pilot.pause()
 
     flat = load_all(service.db)
@@ -315,9 +314,9 @@ async def test_save_propagates_pydantic_failure_via_error_static(
     monkeypatch.setattr(config_mod, "save_knob_batch", boom)
 
     modal = _make_modal(service)
-    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+    async with _Harness(modal).run_test(size=(120, 60)) as pilot:
         await pilot.pause()
-        await pilot.click("#confirm")
+        modal.query_one("#confirm", Button).press()
         await pilot.pause()
         error = modal.query_one("#modal-error", Static)
         rendered = str(error.render())
@@ -346,7 +345,7 @@ async def test_escape_dismisses_with_none(service):
                 lambda result: captured.setdefault("result", result),
             )
 
-    async with _CallbackHarness().run_test(size=(120, 40)) as pilot:
+    async with _CallbackHarness().run_test(size=(120, 60)) as pilot:
         await pilot.pause()
         await pilot.press("escape")
         await pilot.pause()
@@ -396,7 +395,7 @@ async def test_glossary_collapsible_can_expand(service):
     from textual.widgets import Collapsible
 
     modal = _make_modal(service)
-    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+    async with _Harness(modal).run_test(size=(120, 60)) as pilot:
         await pilot.pause()
         col = modal.query_one(Collapsible)
         # Programmatic toggle to mimic click
