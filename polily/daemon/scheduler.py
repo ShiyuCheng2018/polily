@@ -412,6 +412,40 @@ def _only_claude_cli_diff(old_bytes: bytes, new_bytes: bytes) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _build_shutdown_handler(scheduler):
+    """Build the SIGTERM/SIGINT handler for `run_daemon`.
+
+    Factored out for unit-testability — the closure form was inlined inside
+    `run_daemon` and couldn't be exercised without bringing up a real daemon.
+
+    Behavior:
+    - Writes a `── shutting down (SIGTERM) ──` marker to the poll log so
+      post-mortem can distinguish kill-by-signal from "Python crashed
+      mid-poll" (the daemon's stderr goes to /dev/null via the launchd
+      plist, so logger.info is invisible — the poll log is the only
+      visible record).
+    - Writes the marker BEFORE `scheduler.shutdown` because APScheduler may
+      tear down logger handlers as part of its shutdown sequence.
+    - Both writes are wrapped in `contextlib.suppress(Exception)` —
+      raising inside a signal handler causes an uglier death than just
+      losing the marker. Logging is best-effort.
+    """
+    def handle_shutdown(signum, frame):
+        logger.info("Received signal %d, shutting down", signum)
+        with contextlib.suppress(Exception):
+            from polily.daemon.poll_job import _get_poll_log
+            sig_name = {
+                signal.SIGTERM: "SIGTERM",
+                signal.SIGINT: "SIGINT",
+            }.get(signum, f"signal {signum}")
+            _get_poll_log().info(f"── shutting down ({sig_name}) ──")
+        with contextlib.suppress(Exception):
+            scheduler.shutdown(wait=False)
+        sys.exit(0)
+
+    return handle_shutdown
+
+
 def run_daemon(db, config=None) -> None:
     """Daemon entry point: start scheduler, block until SIGTERM.
 
@@ -486,12 +520,7 @@ def run_daemon(db, config=None) -> None:
     # from a pre-v0.9.0 install so it doesn't confuse `ls data/`.
     _sweep_legacy_pid_file()
 
-    def handle_shutdown(signum, frame):
-        logger.info("Received signal %d, shutting down", signum)
-        with contextlib.suppress(Exception):
-            scheduler.shutdown(wait=False)
-        sys.exit(0)
-
+    handle_shutdown = _build_shutdown_handler(scheduler)
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
 
