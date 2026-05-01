@@ -417,3 +417,93 @@ def save_knob(db, key_path: str, new_value: Any) -> None:
     except Exception as e:
         raise ConfigValidationError(str(e)) from e
     upsert(db, key_path, new_value)
+
+
+def save_knob_batch(db, updates: dict[str, Any]) -> None:
+    """Validate and persist multiple config knob changes atomically.
+
+    Used by `WeightFamilyEditModal` (Round 4) where editing one weight
+    leaf in isolation would silently break the algorithmic `sum == 1.0`
+    invariant — the whole family must be committed together.
+
+    Contract:
+      - All upserts succeed together OR rollback together. If Pydantic
+        rejects the merged config, NO row is changed (atomicity).
+      - Single `PolilyConfig.model_validate` over the merged config
+        (not N validations).
+      - Each key MUST be in TERRITORY_A. EPHEMERAL_FIELDS rejected by
+        upsert (`ConfigSaveError`); HIDDEN_IN_TUI rejected here
+        (`ValueError`). Both gate before the transaction opens so a
+        bad input never even starts a write.
+      - Empty dict is a no-op (no transaction churn).
+
+    Note: the `sum == 1` invariant on `movement.weights.<type>.<family>.*`
+    is enforced at the modal save-time, NOT inside Pydantic — so a
+    partial-family write that drifts the sum is allowed at the API
+    level. The modal won't issue one; a future caller might.
+    """
+    from polily.core.config_store import (
+        EPHEMERAL_FIELDS,
+        _unflatten,
+        is_territory_a,
+        load_all,
+    )
+
+    if not updates:
+        return  # no-op — avoid empty BEGIN/COMMIT and a redundant validate.
+
+    # Defense-in-depth: every key in `updates` must be TUI-editable.
+    # `upsert` re-checks EPHEMERAL_FIELDS internally, but a HIDDEN_IN_TUI
+    # key would slip through that check (it's persisted in db, just not
+    # exposed in the TUI). Block here before opening the transaction.
+    for key_path in updates:
+        if not is_territory_a(key_path):
+            raise ValueError(
+                f"{key_path} is not editable (HIDDEN_IN_TUI or EPHEMERAL)",
+            )
+
+    flat = load_all(db)  # already filters EPHEMERAL_FIELDS
+    flat.update(updates)
+    # Defensive — even if a future caller mutates flat differently.
+    flat = {k: v for k, v in flat.items() if k not in EPHEMERAL_FIELDS}
+
+    # Single merged validation — exactly one model_validate call regardless
+    # of how many leaves changed.
+    try:
+        PolilyConfig.model_validate(_unflatten(flat))
+    except Exception as e:
+        raise ConfigValidationError(str(e)) from e
+
+    # All-or-nothing write. `upsert` itself uses `with db.conn:` (an
+    # implicit transaction commit per call); wrapping multiple upserts in
+    # an outer BEGIN IMMEDIATE / COMMIT does NOT nest cleanly with
+    # sqlite3's default isolation_level — the inner `with db.conn:` would
+    # try to commit mid-batch. So we drive the cursor directly here, in a
+    # single explicit transaction (mirrors the SF6 pattern in
+    # `load_config_from_db`).
+    import json
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+    db.conn.execute("BEGIN IMMEDIATE")
+    try:
+        for key_path, value in updates.items():
+            db.conn.execute(
+                """
+                INSERT INTO config (key_path, value, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key_path) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (key_path, json.dumps(value), now),
+            )
+        db.conn.commit()
+    except Exception:
+        db.conn.rollback()
+        raise
+
+    # `upsert` is intentionally NOT used inside the transaction (its
+    # `with db.conn:` context manager would conflict). The
+    # ConfigSaveError gate it carries for EPHEMERAL_FIELDS is replicated
+    # by `is_territory_a` above — territory A excludes EPHEMERAL_FIELDS
+    # by construction. Defense-in-depth without the nested-with hazard.
