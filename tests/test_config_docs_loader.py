@@ -1,7 +1,11 @@
 """Tests for the markdown loader (design §6.2)."""
 from __future__ import annotations
 
-from polily.core.config_docs._loader import load_all, parse_markdown
+from polily.core.config_docs._loader import (
+    load_all,
+    load_signals_glossary,
+    parse_markdown,
+)
 
 
 def test_parse_markdown_extracts_key_path_sections(tmp_path):
@@ -83,3 +87,89 @@ def test_loader_output_contains_default_value_phrase():
 def test_loader_handles_empty_directory(tmp_path, monkeypatch):
     monkeypatch.setattr("polily.core.config_docs._loader._DOCS_DIR", tmp_path)
     assert load_all() == {}
+
+
+# ---- R4: signals glossary loader (consumer of _signals_glossary section) ----
+
+
+def test_load_signals_glossary_returns_signal_name_to_description():
+    """`_signals_glossary` in `movement.md` defines signal terminology
+    used by the WeightFamilyEditModal. Loader returns {signal_name:
+    markdown_description}.
+
+    Whis flagged this in R3 — the section was orphan (loader skipped
+    `_`-prefix), and R4 is the consumer that finally puts it to work.
+    """
+    glossary = load_signals_glossary()
+    # Production movement.md has 10 signals defined under _signals_glossary
+    expected_signals = {
+        "price_z_score",
+        "book_imbalance",
+        "fair_value_divergence",
+        "underlying_z_score",
+        "cross_divergence",
+        "sustained_drift",
+        "time_decay_adjusted_move",
+        "volume_ratio",
+        "trade_concentration",
+        "volume_price_confirmation",
+    }
+    assert expected_signals.issubset(set(glossary.keys())), (
+        f"missing signals: {expected_signals - set(glossary.keys())}"
+    )
+
+
+def test_load_signals_glossary_descriptions_are_non_empty():
+    """Every entry has a non-empty markdown body (post-strip)."""
+    glossary = load_signals_glossary()
+    for signal_name, description in glossary.items():
+        assert description.strip(), f"{signal_name} has empty body"
+
+
+def test_load_signals_glossary_extracts_subsections_under_glossary_only(
+    tmp_path, monkeypatch,
+):
+    """Only `### name` headings nested under `## _signals_glossary` are
+    returned — `### name` under another `## key` (regular section) is
+    NOT confused into the glossary.
+    """
+    md = """\
+## _signals_glossary
+
+### foo
+foo description
+
+### bar
+bar description
+
+## movement.something
+
+### should_not_appear
+this is a sub-heading inside a regular section, not the glossary
+"""
+    (tmp_path / "movement.md").write_text(md, encoding="utf-8")
+    monkeypatch.setattr(
+        "polily.core.config_docs._loader._DOCS_DIR", tmp_path,
+    )
+
+    glossary = load_signals_glossary()
+    assert set(glossary.keys()) == {"foo", "bar"}
+    assert "foo description" in glossary["foo"]
+    assert "bar description" in glossary["bar"]
+
+
+def test_load_signals_glossary_returns_empty_when_no_glossary_section(
+    tmp_path, monkeypatch,
+):
+    """Defensive: doc without a `_signals_glossary` section → empty dict."""
+    md = """\
+## movement.some_knob
+
+description without any glossary
+"""
+    (tmp_path / "movement.md").write_text(md, encoding="utf-8")
+    monkeypatch.setattr(
+        "polily.core.config_docs._loader._DOCS_DIR", tmp_path,
+    )
+
+    assert load_signals_glossary() == {}
