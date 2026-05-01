@@ -88,6 +88,12 @@ def run_tui(service: PolilyService | None = None) -> None:
 
             _FatalApp().run()
             import os
+
+            from polily.tui.terminal_cleanup import cleanup_terminal
+            # _FatalApp's driver is already torn down by app.run() returning,
+            # so the canonical path is unreachable; cleanup_terminal falls
+            # back to writing DECRST sequences directly. See R5-B.
+            cleanup_terminal(app=None)
             os._exit(1)
 
     app = PolilyApp(service=service)
@@ -99,5 +105,12 @@ def run_tui(service: PolilyService | None = None) -> None:
         # survive normal Python shutdown (sys.exit, atexit). os._exit bypasses
         # all cleanup but is the only reliable way to terminate. SQLite writes
         # are committed before reaching this point. See README Limitations.
+        # R5-B: cleanup_terminal restores mouse-tracking + alt-screen modes
+        # before os._exit so the user's terminal isn't left spewing raw SGR
+        # escape sequences. By the time `app.run()` returns, Textual has
+        # already torn the driver down, so the fallback path applies.
         import os
+
+        from polily.tui.terminal_cleanup import cleanup_terminal
+        cleanup_terminal(app)
         os._exit(0)

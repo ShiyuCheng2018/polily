@@ -79,4 +79,11 @@ class FatalConfigScreen(Screen):
 
     def action_quit_app(self) -> None:
         import os
+
+        from polily.tui.terminal_cleanup import cleanup_terminal
+        # R5-B: clean mouse-tracking + alt-screen before bypassing
+        # Textual's atexit handlers via os._exit. self.app._driver is
+        # the canonical path; cleanup_terminal handles missing-driver
+        # gracefully via fallback DECRST writes.
+        cleanup_terminal(self.app)
         os._exit(1)
