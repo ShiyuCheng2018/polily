@@ -178,10 +178,21 @@ async def test_save_rejects_value_failing_pydantic_validation(service):
         # Live validation passes (it's a float). Save-time validation fails.
         await pilot.click("#confirm")
         await pilot.pause()
+        # Linux CI is slower than macOS dev — give Textual's render pipeline
+        # an explicit yield window so the post-_show_error frame commits
+        # before we read it. Mirrors the pattern at line 343-344.
+        import asyncio
+        await asyncio.sleep(0.05)
+        await pilot.pause()
         error = modal.query_one("#modal-error", Static)
-        rendered = str(error.render())
+        # Prefer .renderable (what update() set) over .render() (which may
+        # return a Blank placeholder if the widget hasn't repainted yet).
+        rendered = str(getattr(error, "renderable", "") or error.render())
         # Pydantic ValidationError mentions the constraint
-        assert ("ge" in rendered.lower()) or ("greater" in rendered.lower()) or ("1" in rendered)
+        assert ("ge" in rendered.lower()) or ("greater" in rendered.lower()) or ("1" in rendered), (
+            f"Expected save-time Pydantic error to mention ge/greater/1; "
+            f"got renderable={rendered!r}"
+        )
 
     # db should NOT have the invalid value
     from polily.core.config_store import load_all
