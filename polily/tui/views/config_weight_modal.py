@@ -30,7 +30,7 @@ from typing import Any
 from rich.markup import escape as _escape_markup
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll  # noqa: F401
 from textual.screen import ModalScreen
 from textual.widgets import Button, Collapsible, Input, Markdown, Static
 
@@ -39,8 +39,13 @@ from polily.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 from polily.tui.widgets.field_row import FieldRow
 from polily.tui.widgets.polily_card import PolilyCard
 
-_MODAL_WIDTH = 80
+_MODAL_WIDTH = 92
 _WEIGHTS_PREFIX = "movement.weights."
+# Widest signal name in `_signals_glossary` is `volume_price_confirmation`
+# (25 chars). FieldRow's default label width is 10, which causes char-level
+# wrap on long signal names like `fair_value_divergence`. Override locally
+# so each row stays 1 line tall.
+_LABEL_WIDTH = 28
 
 # Sum tolerance window — matches WeightFamilyNode._sum_text (config.py:276).
 _SUM_MIN = 0.99
@@ -60,7 +65,7 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
     WeightFamilyEditModal #dialog-box {{
         width: {_MODAL_WIDTH};
         height: auto;
-        max-height: 36;
+        max-height: 90%;
     }}
     WeightFamilyEditModal #dialog-box > PolilyCard {{
         height: auto;
@@ -68,26 +73,43 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
     }}
     WeightFamilyEditModal #modal-keypath {{
         color: $text-muted;
-        padding: 0 0 1 0;
     }}
     WeightFamilyEditModal #family-sum {{
-        padding: 0 0 1 0;
+        padding: 1 0 0 0;
     }}
     WeightFamilyEditModal #modal-error {{
         color: $error;
-        padding: 0 0 1 0;
+        height: auto;
     }}
     WeightFamilyEditModal #modal-warn {{
-        padding: 0 0 1 0;
+        height: 1;
+    }}
+    /* Compact FieldRow vertical spacing — default has padding-bottom 1 which
+       adds 5 blank lines for 5 inputs on a 40-line terminal. We rely on
+       Input's own border to provide visual separation between rows. */
+    WeightFamilyEditModal FieldRow {{
+        padding: 0;
     }}
     WeightFamilyEditModal #glossary-block {{
         height: auto;
-        max-height: 14;
+        max-height: 12;
+    }}
+    WeightFamilyEditModal #glossary-block Markdown {{
+        max-height: 10;
+        overflow-y: auto;
     }}
     WeightFamilyEditModal #glossary-block Markdown {{
         height: auto;
     }}
     WeightFamilyEditModal Input {{ width: 12; }}
+    /* FieldRow's default label width is 10, which char-wraps long signal
+       names like `volume_price_confirmation` (25 chars). Override locally
+       so each row stays 1 line tall. text-align:left because right-aligned
+       long labels look ragged when widths vary. */
+    WeightFamilyEditModal FieldRow .field-row-label {{
+        width: {_LABEL_WIDTH};
+        text-align: left;
+    }}
     WeightFamilyEditModal #button-row {{
         height: auto;
         align: center middle;
@@ -155,7 +177,11 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
         )
         n_leaves = len(self._current_values)
 
-        with Vertical(id="dialog-box"):
+        # VerticalScroll lets the dialog grow to its natural height but
+        # gracefully scroll when the glossary is expanded (or terminals are
+        # short) so the bottom buttons + sum line remain reachable. Without
+        # this the dialog clips at max-height with no scrollbar.
+        with VerticalScroll(id="dialog-box"):
             with PolilyCard(title=title):
                 yield Static(
                     f"key_path: [bold]{self._key_path_prefix}[/bold]   "
@@ -196,8 +222,10 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
                 )
 
                 # Helper buttons live above the confirm/cancel bar so the
-                # primary action is the lowest, easiest target.
-                with Vertical(id="button-row"):
+                # primary action is the lowest, easiest target. Horizontal
+                # layout (instead of stacked Vertical) saves 3 lines so the
+                # whole modal fits a 40-line terminal without scrolling.
+                with Horizontal(id="button-row"):
                     yield Button(
                         "⚖ 自动归一化",
                         id="auto-normalize",

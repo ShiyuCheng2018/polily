@@ -99,6 +99,43 @@ def test_modal_rejects_construction_when_leaves_not_in_territory_a(service):
         )
 
 
+# ---- Layout: long signal names must not wrap -------------------------------
+
+
+@pytest.mark.asyncio
+async def test_field_row_label_width_fits_longest_signal_name(service):
+    """Regression for "label char-wraps `fair_value_divergence` into 3 lines"
+    UX bug. FieldRow's default `field-row-label` width is 10, but every
+    weight signal name is 12-25 chars — the modal must locally widen the
+    label column so each row stays 1 line tall, otherwise the dialog
+    overflows the 36-line max-height and Save / Cancel disappear off-screen.
+
+    The widest signal in `_signals_glossary` is `volume_price_confirmation`
+    (25 chars); the label column must be wide enough to render it on a
+    single line.
+    """
+    from textual.widgets import Label
+    modal = _make_modal(service)
+    async with _Harness(modal).run_test(size=(120, 60)) as pilot:
+        await pilot.pause()
+        labels = list(modal.query(".field-row-label"))
+        assert len(labels) == len(_CRYPTO_MAG_DEFAULTS)
+        for lbl in labels:
+            # styles.width is a Scalar; .value is the cell count for absolute
+            # widths. Must be at least 25 to fit `volume_price_confirmation`.
+            assert isinstance(lbl, Label)
+            width = lbl.styles.width
+            assert width is not None, (
+                "FieldRow label has no explicit width — would inherit "
+                "FieldRow's default 10, char-wrapping long signal names."
+            )
+            assert width.value >= 25, (
+                f"FieldRow label width = {width.value}, must be ≥ 25 to fit "
+                f"`volume_price_confirmation` without char-wrap. "
+                f"Current modal CSS uses {width.value!r}."
+            )
+
+
 # ---- Live sum display + Save enabled-state ---------------------------------
 
 
