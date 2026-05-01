@@ -62,7 +62,7 @@ def test_a_insert_normalizes_beijing_tz_to_utc(db):
     assert row["scheduled_at"] == "2026-05-01T10:00:00+00:00"
 
 
-def test_b_insert_normalizes_Z_suffix_to_plus0000(db):
+def test_b_insert_normalizes_z_suffix_to_plus0000(db):
     sid = insert_pending_scan(
         event_id="ev1", event_title="t",
         scheduled_at="2026-05-01T10:00:00Z",

@@ -170,14 +170,31 @@ def insert_pending_scan(
     """Insert a pending scan row. Returns the new scan_id.
 
     Use trigger_source in ('scheduled','movement','manual') — validated by CHECK.
+
+    `scheduled_at` is normalized to canonical UTC ISO form (`+00:00` suffix)
+    here as defense-in-depth. The main agent-output path goes through
+    `PolilyService._validate_next_check_at` which already normalizes (A.4.1);
+    this re-normalize covers any future caller that bypasses validation —
+    e.g. tests, daemon-internal callers, schema-migration seed paths. Without
+    canonical TZ form, the dispatcher's overdue compare in
+    `fetch_overdue_pending` falls back to lexicographic order and Beijing
+    rows (`+08:00`) sort as "future" forever (Issue A regression).
+
+    Naive datetimes are assumed UTC. Malformed values raise ValueError —
+    callers that have already validated via `_validate_next_check_at` will
+    never hit this branch.
     """
     now = datetime.now(UTC).isoformat()
+    parsed = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    scheduled_at_utc = parsed.astimezone(UTC).isoformat()
     scan_id = _make_scan_id(prefix="p")
     db.conn.execute(
         "INSERT INTO scan_logs(scan_id, type, event_id, market_title, started_at, "
         "status, trigger_source, scheduled_at, scheduled_reason) "
         "VALUES (?, 'analyze', ?, ?, ?, 'pending', ?, ?, ?)",
-        (scan_id, event_id, event_title, now, trigger_source, scheduled_at, scheduled_reason),
+        (scan_id, event_id, event_title, now, trigger_source, scheduled_at_utc, scheduled_reason),
     )
     db.conn.commit()
     return scan_id

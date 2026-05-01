@@ -48,9 +48,15 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_next_check_at(value: str | None) -> str | None:
-    """Return value if it parses as ISO 8601 and is strictly in the future.
+    """Return canonical UTC ISO form if value parses + is strictly future.
 
     Rejects: None, empty string, malformed date, past timestamps.
+    Normalizes any TZ offset (e.g. `+08:00` from a Beijing-locale agent run,
+    `Z` suffix, naive datetime) into the canonical `+00:00` UTC ISO form so
+    downstream lexicographic compares against UTC `now()` are correct. This
+    is the primary defense for Issue A — `insert_pending_scan` also re-
+    normalizes at the DB boundary as a second line.
+
     Logs a warning on reject so bad agent output is observable.
     """
     if not value:
@@ -62,7 +68,8 @@ def _validate_next_check_at(value: str | None) -> str | None:
         if parsed <= datetime.now(UTC):
             logger.warning("Agent emitted non-future next_check_at: %s", value)
             return None
-        return value
+        # Normalize to canonical UTC ISO so downstream string compares == time compares.
+        return parsed.astimezone(UTC).isoformat()
     except (ValueError, TypeError):
         logger.warning("Agent emitted malformed next_check_at: %r", value)
         return None
