@@ -439,3 +439,38 @@ async def test_glossary_collapsible_can_expand(service):
         col.collapsed = False
         await pilot.pause()
         assert col.collapsed is False
+
+
+@pytest.mark.asyncio
+async def test_empty_glossary_collapsible_is_not_rendered(service):
+    """v0.10.1: when _build_glossary_markdown returns empty, no
+    Collapsible is mounted. Pre-fix the modal rendered a placeholder
+    '*(no glossary entries)*' inside an empty Collapsible.
+    """
+    from textual.widgets import Collapsible
+    modal = _make_modal(service)
+    # Force build_glossary_markdown to return empty
+    object.__setattr__(modal, "_build_glossary_markdown", lambda: "")
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        collapsibles = list(modal.query(Collapsible))
+        assert len(collapsibles) == 0, (
+            "empty glossary should not render a placeholder Collapsible; "
+            f"found {len(collapsibles)}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_non_empty_glossary_renders_collapsible(service):
+    """v0.10.1: when glossary has entries, Collapsible IS mounted (no
+    regression of the happy path)."""
+    from textual.widgets import Collapsible
+    modal = _make_modal(service)
+    # Don't override — let the real glossary builder run (crypto/magnitude
+    # has signals in the glossary)
+    async with _Harness(modal).run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        collapsibles = list(modal.query(Collapsible))
+        assert len(collapsibles) == 1, (
+            f"expected 1 Collapsible for non-empty glossary, got {len(collapsibles)}"
+        )
