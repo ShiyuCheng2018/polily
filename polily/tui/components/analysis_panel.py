@@ -190,3 +190,24 @@ class AnalysisPanel(Widget):
         }
         trigger_label = trigger_map.get(v.trigger_source, v.trigger_source)
         yield Static(f"[dim]v{v.version} ({ts}) [{trigger_label}] ({idx}/{total}) 按v切换[/dim]", classes="row")
+
+    def update_data(
+        self,
+        analyses: list,
+        version_idx: int = -1,
+        analyzing: bool = False,
+    ) -> None:
+        """v0.10.1 in-place refresh — recompose self.
+
+        8+ Markdown widgets without stable IDs make per-widget update
+        impractical. Recomposing AnalysisPanel itself is safe: the outer
+        VerticalScroll is on EventDetailView (event_detail.py:175), and
+        Textual's recompose is scoped to widget+descendants. The user's
+        scroll position lives in the outer VerticalScroll and is preserved.
+        """
+        self._analyses = analyses
+        self._version_idx = version_idx
+        self._analyzing = analyzing
+        if analyses and version_idx < 0:
+            self._version_idx = len(analyses) - 1
+        self.refresh(recompose=True)
