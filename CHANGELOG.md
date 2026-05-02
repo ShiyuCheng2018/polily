@@ -10,6 +10,8 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-05-02
+
 ### Fixed
 
 - **Event detail page no longer jumps to top on 5-second heartbeat refresh.** Each child widget (header / KPI row / market table / movement chart / position panel / analysis panel) now has an in-place `update_data` method; `refresh_data` orchestrates per-child updates so `EventDetailView` itself is never recomposed. The outer `VerticalScroll`'s scroll position is preserved while you read long narratives. Mirrors the v0.10.0 R5 ConfigView in-place fix at commit `ad27e0f`.
@@ -553,7 +555,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.10.0...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.10.1...dev
+[0.10.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.10.1
 [0.10.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.10.0
 [0.9.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.5
 [0.9.4]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.4
