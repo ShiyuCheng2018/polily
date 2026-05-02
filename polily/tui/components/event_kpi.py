@@ -5,6 +5,7 @@ import re
 
 from textual.app import ComposeResult
 from textual.containers import HorizontalGroup
+from textual.css.query import NoMatches
 from textual.widget import Widget
 
 from polily.tui.widgets.cards import MetricCard
@@ -87,6 +88,27 @@ class EventKpiRow(Widget):
                 yield self._make_card("kpi-score", "评分")
 
     def on_mount(self) -> None:
+        self._fill_kpi()
+
+    def update_data(self, event, markets: list) -> None:
+        """v0.10.1 in-place refresh — re-runs _fill_kpi which uses
+        card.update(content) to refresh each MetricCard's text without
+        rebuilding the card tree.
+        """
+        self._event = event
+        self._markets = markets
+        # If layout shape changes (binary↔multi market count), the existing
+        # cards no longer match — recompose self in that case.
+        is_multi_now = len(markets) > 1
+        try:
+            # query_one("#kpi-leader") only exists in multi mode
+            self.query_one("#kpi-leader")
+            was_multi = True
+        except NoMatches:
+            was_multi = False
+        if was_multi != is_multi_now:
+            self.refresh(recompose=True)
+            return
         self._fill_kpi()
 
     def _fill_kpi(self) -> None:

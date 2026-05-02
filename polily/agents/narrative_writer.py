@@ -59,6 +59,7 @@ class NarrativeWriterAgent:
         on_heartbeat=None,
         *,
         event_title: str | None = None,
+        trigger_source: str,
     ) -> NarrativeWriterOutput:
         """Generate analysis with semantic validation + retry."""
         prompt = self._build_prompt(event_id, has_position, position_summary)
@@ -94,12 +95,12 @@ class NarrativeWriterAgent:
 
             errors = output.semantic_errors()
             if not errors:
-                _write_dev_feedback(event_id, event_title, output)
+                _write_dev_feedback(event_id, event_title, output, trigger_source)
                 return output
             last_output = output
 
         # Retries exhausted — return last output (partial is better than fallback)
-        _write_dev_feedback(event_id, event_title, last_output)
+        _write_dev_feedback(event_id, event_title, last_output, trigger_source)
         return last_output
 
     def _build_prompt(
@@ -145,8 +146,16 @@ def _write_dev_feedback(
     event_id: str,
     event_title: str | None,
     output: NarrativeWriterOutput,
+    trigger_source: str,
 ) -> None:
-    """Append agent feedback to data/logs/agent_feedback.log."""
+    """Append agent feedback to data/logs/agent_feedback.log.
+
+    v0.10.1: header now includes trigger_source ('manual' / 'scan' /
+    'scheduled' / 'movement') and dual UTC + local timestamps for
+    cross-timezone post-mortem debugging. Trigger label and 'local'
+    label both stay English by user decision (matches the rest of
+    the log, which is English-only for grep-friendliness).
+    """
     feedback = output.dev_feedback
     if not feedback:
         return
@@ -158,7 +167,10 @@ def _write_dev_feedback(
 
         log_dir = os.path.join(os.getcwd(), "data", "logs")
         os.makedirs(log_dir, exist_ok=True)
-        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        now_utc = datetime.now(UTC)
+        now_local = now_utc.astimezone()
+        utc_str = now_utc.strftime("%Y-%m-%d %H:%M:%S")
+        local_str = now_local.strftime("%Y-%m-%d %H:%M:%S %Z")
         title = (
             (event_title or "?")
             .replace("\n", " ")
@@ -168,7 +180,9 @@ def _write_dev_feedback(
         with open(os.path.join(log_dir, "agent_feedback.log"), "a") as f:
             ops_summary = ",".join(op.action for op in output.operations) or "none"
             f.write(
-                f'\n=== [{ts}] polily=v{polily.__version__} '
+                f'\n=== [UTC: {utc_str} | local: {local_str}] '
+                f'trigger={trigger_source} '
+                f'polily=v{polily.__version__} '
                 f'event={event_id} title="{title}" ops={ops_summary} ===\n'
             )
             f.write(f"{feedback}\n")

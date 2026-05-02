@@ -490,8 +490,14 @@ async def test_cancel_button_cancels_pending_validation_timer(
         monkeypatch.setattr(modal, "_run_live_validation", counting_validation)
 
         modal.query_one("#modal-input", Input).value = "abc"
-        # Click cancel button — also dismisses with None.
-        await pilot.click("#cancel")
+        # Bypass pilot.click — Linux CI is slow enough that pilot.click's
+        # internal event-loop pumps elapse the 100ms wall-clock debounce
+        # window BEFORE the click dispatches, defeating the race we want
+        # to verify. Same fix shape as the save-rejection test (#90).
+        # Direct call to the cancel-bar handler exercises the same code
+        # path that the button click would trigger via Pressed → Cancelled.
+        from polily.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
+        modal.on_confirm_cancel_bar_cancelled(ConfirmCancelBar.Cancelled())
         await pilot.pause()
 
         await asyncio.sleep(0.2)

@@ -190,14 +190,15 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
                 )
 
                 # Glossary collapsible — only signals present in this family.
+                # v0.10.1 (Goku R4): skip the Collapsible entirely when there are no
+                # glossary entries. Rendering an empty placeholder wastes a row and
+                # confuses readers ("why is this here?").
                 glossary = self._build_glossary_markdown()
-                with Collapsible(
-                    title="信号术语速查", collapsed=True, id="glossary-block",
-                ):
-                    yield Markdown(
-                        glossary or "*(no glossary entries)*",
-                        id="glossary-md",
-                    )
+                if glossary:
+                    with Collapsible(
+                        title="信号术语速查", collapsed=True, id="glossary-block",
+                    ):
+                        yield Markdown(glossary, id="glossary-md")
 
                 # One FieldRow per leaf — preserves dict insertion order
                 # which is Pydantic field order (T5.6 lesson).

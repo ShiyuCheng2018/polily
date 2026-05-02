@@ -10,6 +10,20 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-05-02
+
+### Fixed
+
+- **Event detail page no longer jumps to top on 5-second heartbeat refresh.** Each child widget (header / KPI row / market table / movement chart / position panel / analysis panel) now has an in-place `update_data` method; `refresh_data` orchestrates per-child updates so `EventDetailView` itself is never recomposed. The outer `VerticalScroll`'s scroll position is preserved while you read long narratives. Mirrors the v0.10.0 R5 ConfigView in-place fix at commit `ad27e0f`.
+- **Sidebar `监控列表 (N)` count no longer double-counts closed events.** `get_monitor_count()` now joins the events table and filters `closed=0`, mirroring the symmetric filter already in `get_archived_events()`. Pre-fix users with closed-but-still-monitored events saw `(N)` inflated by the archive count.
+- **Daemon startup banner `X markets, poll every 30s` now matches what the daemon actually polls.** SQL now joins `event_monitors` with `auto_monitor=1`, mirroring `_get_monitored_markets` in `poll_job.py`. Pre-fix the banner counted phantom markets from previously-scanned-but-no-longer-monitored events; the number drifted higher than the real `clob N markets` poll line over time.
+- **Hidden empty glossary collapsible in family weight modal.** When no signals in the current family match `_signals_glossary` entries, the entire `信号术语速查` Collapsible is now skipped instead of showing a placeholder line.
+
+### Internal
+
+- **`agent_feedback.log` header now includes `trigger={manual,scan,scheduled,movement}` + dual UTC/local timestamps.** Cross-timezone post-mortem debugging is much easier — local timestamp answers "when did the user actually see this?", trigger source answers "did the user request this or did the daemon dispatch it?". Trigger labels and `local:` label both stay English for grep-friendliness.
+- **Direct unit tests for `_resolve_field_annotation` and `_coerce_value`.** 19 cases (35 invocations after parametrization) covering type resolution, scientific-notation int rejection, full bool truthy/falsy/garbage matrix, unknown-annotation rejection. Closes Vegeta R3 review test-coverage gap.
+
 ## [0.10.0] — 2026-05-01
 
 ### BREAKING
@@ -541,7 +555,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.10.0...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.10.1...dev
+[0.10.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.10.1
 [0.10.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.10.0
 [0.9.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.5
 [0.9.4]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.4
