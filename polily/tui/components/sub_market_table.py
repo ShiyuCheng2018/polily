@@ -5,6 +5,7 @@ import json as _json
 from datetime import datetime
 
 from textual.app import ComposeResult
+from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
 
@@ -145,7 +146,7 @@ class SubMarketTable(Widget):
             return
         try:
             table = self.query_one("#sub-market-table", DataTable)
-        except Exception:
+        except NoMatches:
             return
         saved_cursor = table.cursor_row
         self._rebuild()

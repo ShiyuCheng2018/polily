@@ -20,7 +20,7 @@ structured release notes — see `git log` for history.
 ### Internal
 
 - **`agent_feedback.log` header now includes `trigger={manual,scan,scheduled,movement}` + dual UTC/local timestamps.** Cross-timezone post-mortem debugging is much easier — local timestamp answers "when did the user actually see this?", trigger source answers "did the user request this or did the daemon dispatch it?". Trigger labels and `local:` label both stay English for grep-friendliness.
-- **Direct unit tests for `_resolve_field_annotation` and `_coerce_value`.** 20 cases covering type resolution, scientific-notation int rejection, full bool truthy/falsy/garbage matrix, unknown-annotation rejection. Closes Vegeta R3 review test-coverage gap.
+- **Direct unit tests for `_resolve_field_annotation` and `_coerce_value`.** 19 cases (35 invocations after parametrization) covering type resolution, scientific-notation int rejection, full bool truthy/falsy/garbage matrix, unknown-annotation rejection. Closes Vegeta R3 review test-coverage gap.
 
 ## [0.10.0] — 2026-05-01
 

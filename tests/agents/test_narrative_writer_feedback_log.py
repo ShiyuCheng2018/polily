@@ -76,14 +76,40 @@ def test_header_handles_empty_operations(log_dir):
     assert "ops=none" in log
 
 
-def test_header_works_in_non_utc_tz(log_dir):
-    """Header must produce valid local TZ string regardless of runtime TZ."""
+def test_header_local_timestamp_differs_from_utc_in_non_utc_tz(log_dir, monkeypatch):
+    """Force a non-UTC runtime TZ (Asia/Shanghai = +08) and pin that the
+    local timestamp actually differs from UTC by ~8h plus carries a real
+    TZ marker. v0.10.1 review nit — the prior version of this test only
+    regex-matched format and asserted both stamps `startswith("2")`,
+    which passes vacuously on UTC-configured CI boxes.
+
+    `time.tzset()` is POSIX-only; polily targets macOS/Linux per
+    CLAUDE.md so this is fine. Skip cleanly on Windows just in case.
+    """
+    import os
     import re
+    import time
+
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset() unavailable (Windows) — TZ test cannot force a runtime zone")
+
+    monkeypatch.setenv("TZ", "Asia/Shanghai")
+    time.tzset()
+    assert os.environ.get("TZ") == "Asia/Shanghai", "TZ env var did not stick"
+
     output = _Output(dev_feedback="x", operations=[_Op("HOLD")])
     _write_dev_feedback("ev1", "t", output, trigger_source="manual")
     log = (log_dir / "agent_feedback.log").read_text()
     m = re.search(r"=== \[UTC: ([^|]+) \| local: ([^\]]+)\]", log)
     assert m is not None, f"timestamp block not found: {log!r}"
     utc_ts, local_ts = m.group(1).strip(), m.group(2).strip()
-    assert utc_ts.startswith("2"), f"UTC ts: {utc_ts!r}"
-    assert local_ts.startswith("2"), f"local ts: {local_ts!r}"
+    assert utc_ts != local_ts, (
+        f"under TZ=Asia/Shanghai, local should differ from UTC; "
+        f"got utc={utc_ts!r} local={local_ts!r}"
+    )
+    # local stamp must end with a TZ name produced by strftime("%Z").
+    # Linux/macOS report 'CST' for Asia/Shanghai; we just verify the
+    # stamp has a trailing alphabetic TZ marker (3+ letters or +HHMM).
+    assert re.search(r"\b[A-Z]{2,5}$|\+\d{4}$", local_ts), (
+        f"local stamp missing TZ marker: {local_ts!r}"
+    )

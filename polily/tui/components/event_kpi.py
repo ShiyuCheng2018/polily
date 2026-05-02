@@ -5,6 +5,7 @@ import re
 
 from textual.app import ComposeResult
 from textual.containers import HorizontalGroup
+from textual.css.query import NoMatches
 from textual.widget import Widget
 
 from polily.tui.widgets.cards import MetricCard
@@ -103,7 +104,7 @@ class EventKpiRow(Widget):
             # query_one("#kpi-leader") only exists in multi mode
             self.query_one("#kpi-leader")
             was_multi = True
-        except Exception:
+        except NoMatches:
             was_multi = False
         if was_multi != is_multi_now:
             self.refresh(recompose=True)
