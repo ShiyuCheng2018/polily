@@ -5,6 +5,7 @@ v0.5.0: minimal CLI — TUI launch + scheduler subcommand group.
 
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -74,8 +75,30 @@ def _emit_migration_status_to_stderr(status=None) -> None:
 
 
 @app.callback()
-def main(ctx: typer.Context):
+def main(
+    ctx: typer.Context,
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            help="Override polily data directory (default: ~/Library/Application Support/polily on macOS, $XDG_DATA_HOME/polily on Linux). Useful for ad-hoc testing or per-environment isolation.",
+        ),
+    ] = None,
+    log_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--log-dir",
+            help="Override polily log directory (default: <data-dir>/logs).",
+        ),
+    ] = None,
+):
     """Polily — A Polymarket Monitoring Agent That Actually Works. Launches TUI when no subcommand given."""
+    from polily.core import paths
+    if data_dir is not None:
+        paths.set_data_dir_override(data_dir)
+    if log_dir is not None:
+        paths.set_log_dir_override(log_dir)
+
     if ctx.invoked_subcommand is None:
         from polily.tui.app import run_tui
         from polily.tui.service import PolilyService
