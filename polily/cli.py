@@ -199,13 +199,14 @@ def stop():
     """
     import subprocess
 
-    from polily.daemon.scheduler import PLIST_PATH
+    from polily.daemon.scheduler import _plist_path
 
+    plist_path = _plist_path()
     pid = _read_pid()
     if pid is None:
         typer.echo("Scheduler is not running (launchctl: not loaded).")
         # Still attempt unload so any registered launchctl entry gets cleared.
-        subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
+        subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
         raise typer.Exit(1)
 
     if not _pid_alive(pid):
@@ -213,14 +214,14 @@ def stop():
             f"Scheduler PID {pid} is not running. "
             "Stale launchctl entry — will be replaced on next start."
         )
-        subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
+        subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
         raise typer.Exit(1)
 
     from polily.daemon.launchctl_query import kill_daemon
     kill_daemon("TERM")
     typer.echo(f"Sent SIGTERM to scheduler (PID {pid}).")
     # Unload the launchctl registration so KeepAlive can't respawn it.
-    subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
+    subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
     typer.echo("Unloaded launchctl registration.")
 
 

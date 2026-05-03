@@ -1,16 +1,50 @@
-"""Whis B2 — legacy plist with --config arg gets migrated on startup."""
+"""Whis B2 — legacy plist with --config arg gets migrated on startup.
+
+v0.11.0 migration (Whis NI1): production code reads `_plist_path()` live
+(not the snapshot constant), so `monkeypatch.setattr(..., 'PLIST_PATH',
+fake)` silently no-ops and the test reaches the user's real plist.
+
+Each test below uses `_redirect_plist_path(monkeypatch, fake_path)` to
+redirect via Path.home() + POLILY_LAUNCHD_LABEL — the only safe way to
+isolate `_plist_path()` resolution to a tmp_path.
+"""
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
+
+
+def _redirect_plist_path(monkeypatch, fake_plist: Path) -> None:
+    """Make `polily.daemon.scheduler._plist_path()` resolve to fake_plist.
+
+    Strategy: env-override the launchd Label, redirect Path.home() to a
+    parent of fake_plist that gives the right relative shape
+    (Library/LaunchAgents/<label>.plist).
+
+    `fake_plist` is the absolute target path the test wants the
+    production code to read/write. Caller is responsible for putting
+    fake_plist's parent dir on disk if the test needs file IO.
+    """
+    label = fake_plist.stem  # e.g. "com.polily.scheduler"
+    monkeypatch.setenv("POLILY_LAUNCHD_LABEL", label)
+    # paths.launchd_plist_path() returns Path.home() / "Library" /
+    # "LaunchAgents" / "<label>.plist". To make that equal fake_plist,
+    # set Path.home() to fake_plist.parent.parent.parent.
+    fake_home = fake_plist.parent.parent.parent
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    # Also ensure the Library/LaunchAgents dir exists where production
+    # code expects it (avoids parent.mkdir failing in some branches).
+    fake_plist.parent.mkdir(parents=True, exist_ok=True)
 
 
 def test_legacy_plist_with_config_flag_gets_rewritten(tmp_path, monkeypatch):
     """User upgrading from v0.9.x has a plist containing --config xxx;
     on next ensure_daemon_running call, plist gets rewritten without
     --config so daemon can launch successfully under v0.10.0."""
-    plist_path = tmp_path / "com.polily.scheduler.plist"
+    plist_path = tmp_path / "Library" / "LaunchAgents" / "com.polily.scheduler.plist"
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
     legacy_xml = """<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
@@ -29,7 +63,7 @@ def test_legacy_plist_with_config_flag_gets_rewritten(tmp_path, monkeypatch):
 """
     plist_path.write_text(legacy_xml, encoding="utf-8")
 
-    monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    _redirect_plist_path(monkeypatch, plist_path)
     # SF7 platform guard: pretend Darwin + launchctl present so the
     # migration body actually runs on Linux CI (otherwise short-circuits).
     monkeypatch.setattr("sys.platform", "darwin")
@@ -55,7 +89,8 @@ def test_legacy_plist_with_config_flag_gets_rewritten(tmp_path, monkeypatch):
 
 def test_modern_plist_without_config_is_not_touched(tmp_path, monkeypatch):
     """Idempotent — a v0.10.0+ plist (no --config) is left alone."""
-    plist_path = tmp_path / "com.polily.scheduler.plist"
+    plist_path = tmp_path / "Library" / "LaunchAgents" / "com.polily.scheduler.plist"
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
     modern_xml = """<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
@@ -71,7 +106,7 @@ def test_modern_plist_without_config_is_not_touched(tmp_path, monkeypatch):
 """
     plist_path.write_text(modern_xml, encoding="utf-8")
 
-    monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    _redirect_plist_path(monkeypatch, plist_path)
     # SF7 platform guard: pretend Darwin + launchctl present.
     monkeypatch.setattr("sys.platform", "darwin")
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/launchctl")
@@ -89,8 +124,11 @@ def test_modern_plist_without_config_is_not_touched(tmp_path, monkeypatch):
 
 def test_missing_plist_skips_migration(tmp_path, monkeypatch):
     """Fresh install — no plist yet, migration is a no-op."""
-    plist_path = tmp_path / "com.polily.scheduler.plist"  # doesn't exist
-    monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    # Plist file deliberately not created — the parent dir exists from
+    # _redirect_plist_path's mkdir, but the file itself is absent so
+    # `_migrate_legacy_plist` hits the early-return branch.
+    plist_path = tmp_path / "Library" / "LaunchAgents" / "com.polily.scheduler.plist"
+    _redirect_plist_path(monkeypatch, plist_path)
 
     from polily.daemon.scheduler import _migrate_legacy_plist
     assert _migrate_legacy_plist() is False
@@ -101,7 +139,8 @@ def test_migration_load_failure_propagates(tmp_path, monkeypatch):
     daemon-startup caller (ensure_daemon_running) can react. Silent failure
     here would defeat B2's purpose — daemon would keep crash-looping with
     legacy plist until reboot."""
-    plist_path = tmp_path / "com.polily.scheduler.plist"
+    plist_path = tmp_path / "Library" / "LaunchAgents" / "com.polily.scheduler.plist"
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
     plist_path.write_text(
         '<?xml version="1.0"?><plist><dict>'
         "<key>ProgramArguments</key><array>"
@@ -111,7 +150,7 @@ def test_migration_load_failure_propagates(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    _redirect_plist_path(monkeypatch, plist_path)
     # SF7 platform guard: pretend Darwin + launchctl present.
     monkeypatch.setattr("sys.platform", "darwin")
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/launchctl")
@@ -139,7 +178,8 @@ def test_migration_no_op_on_non_darwin(tmp_path, monkeypatch):
     `subprocess.run(['launchctl', ...])` raised FileNotFoundError when
     launchctl wasn't on PATH, propagating out of every daemon-startup code
     path that called the helper."""
-    plist_path = tmp_path / "com.polily.scheduler.plist"
+    plist_path = tmp_path / "Library" / "LaunchAgents" / "com.polily.scheduler.plist"
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
     # Even with a legacy plist on disk, non-Darwin must skip cleanly.
     plist_path.write_text(
         '<?xml version="1.0"?><plist><dict>'
@@ -149,7 +189,7 @@ def test_migration_no_op_on_non_darwin(tmp_path, monkeypatch):
         "</array></dict></plist>",
         encoding="utf-8",
     )
-    monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    _redirect_plist_path(monkeypatch, plist_path)
     monkeypatch.setattr("sys.platform", "linux")
 
     # subprocess.run must NEVER be called — if it is, the test is asserting
@@ -173,7 +213,8 @@ def test_migration_no_op_when_launchctl_not_on_path(tmp_path, monkeypatch):
     (extreme fringe case: `/bin` stripped from PATH, or sandboxed env),
     the helper must still skip gracefully rather than blowing up with
     FileNotFoundError when subprocess.run tries to exec launchctl."""
-    plist_path = tmp_path / "com.polily.scheduler.plist"
+    plist_path = tmp_path / "Library" / "LaunchAgents" / "com.polily.scheduler.plist"
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
     plist_path.write_text(
         '<?xml version="1.0"?><plist><dict>'
         "<key>ProgramArguments</key><array>"
@@ -182,7 +223,7 @@ def test_migration_no_op_when_launchctl_not_on_path(tmp_path, monkeypatch):
         "</array></dict></plist>",
         encoding="utf-8",
     )
-    monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    _redirect_plist_path(monkeypatch, plist_path)
     monkeypatch.setattr("sys.platform", "darwin")
     # Force which() to report launchctl missing
     monkeypatch.setattr("shutil.which", lambda name: None)
@@ -199,7 +240,8 @@ def test_migration_no_op_when_launchctl_not_on_path(tmp_path, monkeypatch):
 def test_migration_called_twice_second_call_is_noop(tmp_path, monkeypatch):
     """First call rewrites legacy plist; second call sees modern plist
     and returns False without invoking launchctl."""
-    plist_path = tmp_path / "com.polily.scheduler.plist"
+    plist_path = tmp_path / "Library" / "LaunchAgents" / "com.polily.scheduler.plist"
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
     plist_path.write_text(
         '<?xml version="1.0"?><plist><dict>'
         "<key>ProgramArguments</key><array>"
@@ -209,7 +251,7 @@ def test_migration_called_twice_second_call_is_noop(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("polily.daemon.scheduler.PLIST_PATH", plist_path)
+    _redirect_plist_path(monkeypatch, plist_path)
     # SF7 platform guard: pretend Darwin + launchctl present.
     monkeypatch.setattr("sys.platform", "darwin")
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/launchctl")

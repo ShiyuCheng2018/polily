@@ -30,11 +30,23 @@ from polily.tui.icons import (
     ICON_WALLET,
 )
 
-# Kept in sync with polily.daemon.scheduler.PLIST_PATH. Duplicated
-# deliberately to keep `polily doctor` import-light (the scheduler
-# module pulls apscheduler + poll_job). A drift test in
-# tests/test_cli_doctor.py asserts equality on every run.
-PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / "com.polily.scheduler.plist"
+# v0.11.0: doctor and scheduler both delegate to paths.launchd_plist_path()
+# so a POLILY_LAUNCHD_LABEL env override flows through to both. The
+# `polily doctor` import-light constraint is preserved because the live
+# helper imports paths lazily (no apscheduler / poll_job pull-in).
+
+
+def _plist_path() -> Path:
+    """Resolve plist path via paths.launchd_plist_path() — same source of
+    truth as `polily.daemon.scheduler._plist_path`. Live helper so an env
+    flip mid-session reflects."""
+    from polily.core import paths
+    return paths.launchd_plist_path()
+
+
+# Snapshot at import for backward compat. Live `_section_claude_cli`
+# uses `_plist_path()` directly.
+PLIST_PATH = _plist_path()
 
 MIN_COLS = 100
 MIN_ROWS = 30
@@ -111,7 +123,7 @@ def _section_claude_cli(console: Console) -> None:
     # with a stripped PATH and relies on POLILY_CLAUDE_CLI from the plist
     # (see v0.9.1). This closes the diagnostic loop — user can one-command
     # verify whether the fix is active on their box.
-    plist_path = PLIST_PATH
+    plist_path = _plist_path()
     if not plist_path.exists():
         console.print(
             "[dim]daemon plist 未生成（启动 TUI 或运行 `polily scheduler restart` 即可创建）[/]"

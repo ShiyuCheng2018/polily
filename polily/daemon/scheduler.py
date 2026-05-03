@@ -64,24 +64,70 @@ class WatchScheduler:
 # Launchd integration
 # ---------------------------------------------------------------------------
 
-PLIST_LABEL = "com.polily.scheduler"
-PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
+def _plist_label() -> str:
+    """Resolve plist Label via paths.launchd_label() (env-overridable).
+
+    Live helper — read on every call so a mid-session
+    POLILY_LAUNCHD_LABEL env flip reflects in subsequent plist
+    generation / launchctl queries. Production daemons use the default
+    "com.polily.scheduler"; dev installs flip the env to
+    "com.polily.scheduler.dev" to coexist alongside prod.
+    """
+    from polily.core import paths
+    return paths.launchd_label()
+
+
+def _plist_path() -> Path:
+    """Resolve plist file path via paths.launchd_plist_path().
+
+    Live helper — derived from `_plist_label()` at call time, so the env
+    override flows through to file IO sites (`PLIST_PATH.read_bytes`,
+    `subprocess.run([..., str(PLIST_PATH)])`, etc.).
+    """
+    from polily.core import paths
+    return paths.launchd_plist_path()
+
+
+def _resolve_plist_working_dir() -> str:
+    """v0.11.0 Whis B1 — anchor the plist's WorkingDirectory to
+    paths.data_dir(), NOT Path.cwd().
+
+    Pre-fix the 3 callers (`_migrate_legacy_plist`, `ensure_daemon_running`,
+    `restart_daemon`) computed `working_dir = str(Path.cwd())` then
+    explicitly `Path(working_dir, 'data').mkdir(...)`. That anchored the
+    daemon's WorkingDirectory to whatever cwd the user was in when they
+    invoked polily — fragile across shells / `cd /tmp && polily`.
+
+    `paths.data_dir()` lazy-mkdirs internally so callers don't need to
+    pre-create. Single source of truth for daemon path resolution.
+    """
+    from polily.core import paths
+    return str(paths.data_dir())
+
+
+# Snapshot constants kept for backward import compat (some callers /
+# tests historically import these directly). The runtime code paths in
+# this module use the live helpers `_plist_label()` / `_plist_path()`
+# above so a POLILY_LAUNCHD_LABEL env flip mid-session reflects.
+PLIST_LABEL = _plist_label()
+PLIST_PATH = _plist_path()
 
 
 def _sweep_legacy_pid_file() -> None:
-    """Delete any lingering `data/scheduler.pid` from a pre-v0.9.0 install.
+    """Delete any lingering `scheduler.pid` from a pre-v0.9.0 install.
 
     v0.9.0 moved to launchctl as the authoritative source of truth; the
     PID file is no longer written. Users upgrading from v0.8.5 will have
-    one left on disk — remove it on first daemon startup so `ls data/`
-    isn't cluttered with orphan state. Safe no-op if file is absent.
+    one left on disk — remove it on first daemon startup so the data
+    directory isn't cluttered with orphan state. Safe no-op if file is
+    absent.
 
-    Uses a cwd-relative path because the daemon is launched by launchd
-    with `WorkingDirectory` set to the project root (see
-    `generate_launchd_plist`). Callers from other contexts must chdir
-    first.
+    v0.11.0: target `<paths.data_dir>/scheduler.pid` (the actual location
+    on pre-v0.9.0 installs that ran with that dir as cwd) instead of
+    cwd-relative `data/scheduler.pid`.
     """
-    Path("data/scheduler.pid").unlink(missing_ok=True)
+    from polily.core import paths
+    (paths.data_dir() / "scheduler.pid").unlink(missing_ok=True)
 
 
 def is_daemon_running() -> bool:
@@ -93,7 +139,7 @@ def is_daemon_running() -> bool:
     import subprocess
 
     result = subprocess.run(
-        ["launchctl", "list", PLIST_LABEL],
+        ["launchctl", "list", _plist_label()],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -144,27 +190,27 @@ def _migrate_legacy_plist() -> bool:
     if shutil.which("launchctl") is None:
         return False
 
-    if not PLIST_PATH.exists():
+    plist_path = _plist_path()
+    if not plist_path.exists():
         return False
 
-    content = PLIST_PATH.read_text(encoding="utf-8")
+    content = plist_path.read_text(encoding="utf-8")
     if "--config" not in content:
         return False  # already modern — idempotent no-op
 
     # Regenerate via the canonical generator — it produces the v0.10.0
     # ProgramArguments shape (no --config, no other dropped flags).
-    working_dir = str(Path.cwd())
-    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
+    working_dir = _resolve_plist_working_dir()
     plist_bytes = generate_launchd_plist(working_dir=working_dir)
-    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PLIST_PATH.write_bytes(plist_bytes)
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_bytes(plist_bytes)
 
     # Reload so launchd picks up the new args. unload is best-effort —
     # service may not be currently loaded (e.g. first boot, or user ran
     # `launchctl unload` manually). Non-zero rc here is expected and not
     # fatal, but log it for diagnostics.
     unload_result = subprocess.run(
-        ["launchctl", "unload", str(PLIST_PATH)],
+        ["launchctl", "unload", str(plist_path)],
         capture_output=True,
         text=True,
     )
@@ -181,7 +227,7 @@ def _migrate_legacy_plist() -> bool:
     # Propagate so ensure_daemon_running's caller can react.
     try:
         subprocess.run(
-            ["launchctl", "load", str(PLIST_PATH)],
+            ["launchctl", "load", str(plist_path)],
             capture_output=True,
             text=True,
             check=True,
@@ -211,10 +257,10 @@ def ensure_daemon_running() -> bool:
     # of truth for "is daemon running" reporting.
     _migrate_legacy_plist()
 
-    working_dir = str(Path.cwd())
-    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
+    plist_path = _plist_path()
+    working_dir = _resolve_plist_working_dir()
     desired_plist = generate_launchd_plist(working_dir=working_dir)
-    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Content-match check — if the on-disk plist points at a module that
     # no longer exists (classic symptom after a package rename upgrade),
@@ -228,9 +274,9 @@ def ensure_daemon_running() -> bool:
     # so the next deliberate restart picks up the new path; BaseAgent's
     # dangling-path self-check handles the "current daemon's env var
     # is stale" case at job-invocation time.
-    current_plist = PLIST_PATH.read_bytes() if PLIST_PATH.exists() else b""
+    current_plist = plist_path.read_bytes() if plist_path.exists() else b""
     if current_plist != desired_plist:
-        PLIST_PATH.write_bytes(desired_plist)
+        plist_path.write_bytes(desired_plist)
         if _only_claude_cli_diff(current_plist, desired_plist):
             logger.info(
                 "Plist drift limited to POLILY_CLAUDE_CLI — skipping "
@@ -239,10 +285,10 @@ def ensure_daemon_running() -> bool:
             )
             return False
         subprocess.run(
-            ["launchctl", "unload", str(PLIST_PATH)],
+            ["launchctl", "unload", str(plist_path)],
             capture_output=True,
         )
-        subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+        subprocess.run(["launchctl", "load", str(plist_path)], check=True)
         logger.info(
             "Regenerated stale plist (content mismatch) and reloaded daemon",
         )
@@ -253,10 +299,10 @@ def ensure_daemon_running() -> bool:
 
     # Plist matches but daemon not running — just load.
     subprocess.run(
-        ["launchctl", "unload", str(PLIST_PATH)],
+        ["launchctl", "unload", str(plist_path)],
         capture_output=True,
     )
-    subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+    subprocess.run(["launchctl", "load", str(plist_path)], check=True)
     logger.info("Auto-started scheduler daemon via launchd")
     return True
 
@@ -284,19 +330,20 @@ def restart_daemon() -> bool:
         kill_daemon("TERM")
         time.sleep(1.0)
 
+    plist_path = _plist_path()
+
     # Hard unload any registered service state so the next load is fresh.
     subprocess.run(
-        ["launchctl", "unload", str(PLIST_PATH)],
+        ["launchctl", "unload", str(plist_path)],
         capture_output=True,
     )
 
     # Now boot the new process.
-    working_dir = str(Path.cwd())
-    Path(working_dir, "data").mkdir(parents=True, exist_ok=True)
+    working_dir = _resolve_plist_working_dir()
     plist_bytes = generate_launchd_plist(working_dir=working_dir)
-    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PLIST_PATH.write_bytes(plist_bytes)
-    subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_bytes(plist_bytes)
+    subprocess.run(["launchctl", "load", str(plist_path)], check=True)
     logger.info("Restarted scheduler daemon via launchd")
     return True
 
@@ -326,8 +373,20 @@ def generate_launchd_plist(
         back to bare `"claude"` and fails with a clean stderr on the
         first narrator job, which surfaces in scan_logs instead of
         crashing the daemon.
+
+    v0.11.0 additions:
+    - EnvironmentVariables propagates POLILY_DATA_DIR (always — daemon
+      and TUI MUST agree on db location since they share the SQLite
+      file) and POLILY_LOG_DIR (only if explicitly set; default
+      data_dir/logs is computed identically by either side, no need
+      to enshrine).
+    - Label resolves via paths.launchd_label() so a dev daemon can run
+      under com.polily.scheduler.dev alongside prod com.polily.scheduler.
     """
+    import os as _os
     import plistlib
+
+    from polily.core import paths as _paths
 
     if python_path is None:
         python_path = sys.executable
@@ -346,8 +405,19 @@ def generate_launchd_plist(
             "claude and run `polily scheduler restart`."
         )
 
+    # v0.11.0: propagate POLILY_DATA_DIR. Always set, since the daemon
+    # MUST agree with the parent on path resolution (they share the
+    # SQLite database file).
+    env["POLILY_DATA_DIR"] = str(_paths.data_dir())
+
+    # v0.11.0: propagate POLILY_LOG_DIR only if explicitly set. Default
+    # (data_dir/logs) is computed by the daemon's own paths module, no
+    # need to enshrine it in the plist.
+    if "POLILY_LOG_DIR" in _os.environ:
+        env["POLILY_LOG_DIR"] = _os.environ["POLILY_LOG_DIR"]
+
     plist = {
-        "Label": PLIST_LABEL,
+        "Label": _plist_label(),
         "ProgramArguments": [python_path, "-m", "polily.cli", "scheduler", "run"],
         "WorkingDirectory": working_dir,
         "KeepAlive": {"SuccessfulExit": False},

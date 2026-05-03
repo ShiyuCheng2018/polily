@@ -33,6 +33,38 @@ def _suppress_agent_debug_log(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _block_real_launchd_writes(tmp_path_factory, monkeypatch):
+    """v0.11.0 defense-in-depth (Whis-review v2 NI1 follow-up).
+
+    Redirect ``Path.home()`` to a per-test tmp dir so any code that
+    resolves ``~/Library/LaunchAgents/...`` (via ``paths.launchd_plist_path()``
+    or otherwise) writes into a sandbox instead of the user's real
+    LaunchAgents directory.
+
+    Background: Task 6 surfaced a pre-existing latent bug where
+    ``tests/test_wallet_view.py::test_reset_modal_sigterms_daemon_before_reset``
+    didn't mock ``restart_daemon`` and so its production code path called
+    real ``subprocess.run(["launchctl", "load", ...])`` AND rewrote the
+    real plist via ``Path.write_bytes(...)``. The NI1 audit (which only
+    grepped for ``monkeypatch.setattr(...PLIST_PATH, ...)``) missed this
+    indirect-write vector.
+
+    This fixture is belt-and-suspenders: it cannot prevent real
+    ``subprocess.run(["launchctl", ...])`` calls (those operate on a
+    label, not a path), but it CAN prevent the plist file rewrite so
+    even an unmocked ``restart_daemon`` write becomes a no-op against
+    a sandbox path.
+
+    Tests that need to inspect the resolved sandbox plist path can read
+    ``Path.home() / "Library" / "LaunchAgents" / ...`` after this fixture
+    has redirected. Tests that genuinely need the real ``Path.home``
+    (rare) can opt out via ``monkeypatch.setattr("pathlib.Path.home", ...)``.
+    """
+    safe_home = tmp_path_factory.mktemp("safe_home")
+    monkeypatch.setattr("pathlib.Path.home", lambda: safe_home)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_poll_log(monkeypatch):
     """Prevent tests from polluting prod data/poll.log + leaking tick state.
 

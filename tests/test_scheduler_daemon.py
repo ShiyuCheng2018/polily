@@ -69,12 +69,20 @@ def test_plist_uses_current_python():
 def test_sweep_legacy_pid_file_removes_stale_file(tmp_path, monkeypatch):
     """v0.9.0: launchctl replaced the PID file. _sweep_legacy_pid_file()
     must delete any lingering file from a pre-v0.9.0 install on daemon
-    startup — this is the sole migration mechanism for existing users."""
+    startup — this is the sole migration mechanism for existing users.
+
+    v0.11.0: target file moved from `./data/scheduler.pid` (cwd-relative)
+    to `<paths.data_dir>/scheduler.pid`. The sweep resolves via
+    `paths.data_dir()` so POLILY_DATA_DIR redirection isolates the test
+    from real install state.
+    """
+    from polily.core import paths
     from polily.daemon.scheduler import _sweep_legacy_pid_file
 
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "data").mkdir()
-    stale = tmp_path / "data" / "scheduler.pid"
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path / "polily"))
+    paths.set_data_dir_override(None)
+    stale = tmp_path / "polily" / "scheduler.pid"
+    stale.parent.mkdir(parents=True, exist_ok=True)
     stale.write_text("12345")
     assert stale.exists()  # setup sanity
 
@@ -84,9 +92,15 @@ def test_sweep_legacy_pid_file_removes_stale_file(tmp_path, monkeypatch):
 
 
 def test_sweep_legacy_pid_file_noop_when_absent(tmp_path, monkeypatch):
-    """Safe no-op when the file doesn't exist (fresh v0.9.0 install)."""
+    """Safe no-op when the file doesn't exist (fresh v0.9.0 install).
+
+    v0.11.0: redirect via POLILY_DATA_DIR so paths.data_dir() resolves
+    under tmp_path, not the real install.
+    """
+    from polily.core import paths
     from polily.daemon.scheduler import _sweep_legacy_pid_file
 
-    monkeypatch.chdir(tmp_path)
-    # No `data/` dir exists — sweep should not crash.
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path / "polily"))
+    paths.set_data_dir_override(None)
+    # No scheduler.pid file exists — sweep should not crash.
     _sweep_legacy_pid_file()  # should not raise
