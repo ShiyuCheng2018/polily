@@ -21,13 +21,17 @@ Polymarket is unfriendly to small accounts:
 
 ## Quick Start
 
+> **Heads up:** PyPI publish is on the v0.11.1 roadmap. Until then, install from source:
+
 ```bash
 git clone https://github.com/ShiyuCheng2018/polily.git && cd polily
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e .
 
 polily   # launches the TUI; everything happens inside it
 ```
+
+(Once published: `pipx install polily` will be the recommended path.)
 
 In the TUI, paste a Polymarket event URL (looks like `https://polymarket.com/event/...`) into the **Tasks** pane. Polily fetches and scores it; from there you can add it to monitoring or open a paper trade.
 
@@ -165,31 +169,11 @@ polily config reset movement.magnitude_threshold   # reset a single knob
 - AI analysis requires Claude CLI — when the CLI call fails (not installed / network issue / schema mismatch), the analysis is marked `failed` in scan history with no silent fallback
 - Data comes from Polymarket public APIs — real-time freshness is bounded by them
 
-## Development
+## Contributing
 
-```bash
-pytest tests/ -q              # ~1700 tests
-ruff check polily/ tests/    # lint
-pyright polily/              # type check
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, branch strategy, and dev workflow (including the `.envrc` + direnv pattern that keeps your dev data isolated from your real polily data).
 
-### Why direnv?
-
-After v0.11.0, polily defaults data to `~/Library/Application Support/polily/` (production-like). As a developer you typically want repo-local data so:
-
-- Tests + dev sessions don't pollute your real polily data
-- Different branches can isolate state per worktree
-- Dev launchd daemon (`com.polily.scheduler.dev`) coexists with your real prod daemon
-
-```bash
-brew install direnv  # if not already installed; hook into your shell per direnv docs
-cp .envrc.example .envrc
-direnv allow
-```
-
-`cd` into the repo → env auto-loads (`POLILY_DATA_DIR=$REPO/data`, `POLILY_LAUNCHD_LABEL=com.polily.scheduler.dev`). `cd` away → unloads. Without direnv, the alias fallback in `.envrc.example`'s footer also works.
-
-See [docs/architecture.md](docs/architecture.md) for design details and [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+Architecture details: [docs/architecture.md](docs/architecture.md).
 
 ## License
 
