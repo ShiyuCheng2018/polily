@@ -23,10 +23,22 @@ class _Harness(App):
 
 @pytest.fixture
 def service(tmp_path, monkeypatch):
+    """v0.11.0 isolation: chdir + setenv POLILY_DATA_DIR.
+
+    Without setenv, PolilyService() → default_db_path() → paths.db_path()
+    resolves to user's real ~/Library/Application Support/polily/polily.db
+    and tests pollute production data. Sibling test file
+    test_event_detail_in_place.py had this exact bug; ev1 test event
+    leaked into prod (verified 2026-05-03).
+    """
+    from polily.core import paths
+    paths.set_data_dir_override(None)
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     svc = PolilyService()
     yield svc
     svc.db.close()
+    paths.set_data_dir_override(None)
 
 
 @pytest.mark.asyncio
