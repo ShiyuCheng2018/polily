@@ -10,6 +10,8 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-05-04
+
 ### BREAKING
 
 - **Default data location moved to OS-standard path.** Pre-v0.11.0, polily wrote `data/polily.db` (and logs, yaml snapshot) relative to the directory polily was launched from — convenient for dev, but broken for any non-developer install (`pipx`, Homebrew, binary). v0.11.0 resolves all paths via the new `polily.core.paths` module:
@@ -605,7 +607,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.10.1...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.0...dev
+[0.11.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.0
 [0.10.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.10.1
 [0.10.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.10.0
 [0.9.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.5
