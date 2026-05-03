@@ -10,18 +10,24 @@ import inspect
 
 def test_load_user_config_reads_db(tmp_path, monkeypatch):
     from polily.cli import _load_user_config
+    from polily.core import paths
     from polily.core.config_store import upsert
     from polily.core.db import PolilyDB
 
-    monkeypatch.chdir(tmp_path)
-    db_path = tmp_path / "data" / "polily.db"
-    db_path.parent.mkdir(exist_ok=True)
+    # v0.11.0: default_db_path() now resolves via paths.db_path() (env-driven),
+    # not cwd-relative. Pattern A: env-only migration.
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
+    db_path = tmp_path / "polily.db"
     db = PolilyDB(db_path)
     upsert(db, "wallet.starting_balance", 250.0)
     db.close()
 
-    cfg = _load_user_config()
-    assert cfg.wallet.starting_balance == 250.0
+    try:
+        cfg = _load_user_config()
+        assert cfg.wallet.starting_balance == 250.0
+    finally:
+        paths.set_data_dir_override(None)
 
 
 def test_run_scheduler_does_not_accept_config_flag():
@@ -36,14 +42,22 @@ def test_run_scheduler_does_not_accept_config_flag():
 
 def test_run_scheduler_loads_config_from_db(tmp_path, monkeypatch):
     """Daemon reads db.config at startup, not yaml."""
+    from polily.core import paths
     from polily.core.config_store import upsert
     from polily.core.db import PolilyDB
 
+    # v0.11.0 Pattern B (additive) — chdir kept because run_scheduler_daemon
+    # calls _regenerate_yaml_snapshot which writes pre-Task-7 cwd-relative
+    # Path("config.yaml"). Without chdir, the yaml lands in the repo root
+    # and pollutes other tests via the yaml→db migration step. Env added
+    # for db path resolution via paths.db_path(). Task 7 will move yaml
+    # regen to paths.data_dir() and chdir can be dropped.
+    paths.set_data_dir_override(None)
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
 
     # Pre-seed db with non-default
-    db_path = tmp_path / "data" / "polily.db"
-    db_path.parent.mkdir(exist_ok=True)
+    db_path = tmp_path / "polily.db"
     db = PolilyDB(db_path)
     upsert(db, "movement.magnitude_threshold", 65)
     db.close()
@@ -55,8 +69,11 @@ def test_run_scheduler_loads_config_from_db(tmp_path, monkeypatch):
 
     monkeypatch.setattr("polily.daemon.scheduler.run_daemon", fake_run_daemon)
 
-    from polily.cli import run_scheduler_daemon
-    run_scheduler_daemon()
+    try:
+        from polily.cli import run_scheduler_daemon
+        run_scheduler_daemon()
+    finally:
+        paths.set_data_dir_override(None)
 
     assert captured["mag_threshold"] == 65
 
@@ -82,12 +99,19 @@ def test_main_callback_regenerates_yaml_on_tui_launch(tmp_path, monkeypatch):
 
     Per design §4.4 — TUI startup is one of the two yaml regen hooks
     (the other is daemon startup, T3.3)."""
+    from polily.core import paths
+
+    # v0.11.0: Pattern B (additive) — chdir kept for pre-Task-7 yaml regen
+    # which still uses cwd-relative Path("config.yaml"); env added for db.
+    # Task 7 will move yaml regen to paths.data_dir() and this test will
+    # need its yaml assertion target switched to paths.data_dir() / "config.yaml".
+    paths.set_data_dir_override(None)
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
 
     from polily.core.config_store import upsert
     from polily.core.db import PolilyDB
-    db_path = tmp_path / "data" / "polily.db"
-    db_path.parent.mkdir(exist_ok=True)
+    db_path = tmp_path / "polily.db"
     db = PolilyDB(db_path)
     upsert(db, "movement.magnitude_threshold", 42)
     db.close()
@@ -100,12 +124,15 @@ def test_main_callback_regenerates_yaml_on_tui_launch(tmp_path, monkeypatch):
 
     from polily.cli import app
     runner = CliRunner()
-    result = runner.invoke(app, [])
-    assert result.exit_code == 0
+    try:
+        result = runner.invoke(app, [])
+        assert result.exit_code == 0
 
-    yaml_content = (tmp_path / "config.yaml").read_text(encoding="utf-8")
-    assert "magnitude_threshold: 42" in yaml_content
-    assert "READ ONLY" in yaml_content
+        yaml_content = (tmp_path / "config.yaml").read_text(encoding="utf-8")
+        assert "magnitude_threshold: 42" in yaml_content
+        assert "READ ONLY" in yaml_content
+    finally:
+        paths.set_data_dir_override(None)
 
 
 def test_run_scheduler_regenerates_yaml(tmp_path, monkeypatch):
@@ -115,11 +142,17 @@ def test_run_scheduler_regenerates_yaml(tmp_path, monkeypatch):
     leaves its snapshot on disk. Both reflect the same db.config so
     content is identical (only the timestamp in the header differs).
     """
+    from polily.core import paths
+
+    # v0.11.0: Pattern B (additive) — chdir kept for pre-Task-7 yaml regen
+    # (cwd-relative Path("config.yaml")); env added for db path resolution.
+    paths.set_data_dir_override(None)
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
+
     from polily.core.config_store import upsert
     from polily.core.db import PolilyDB
-    db_path = tmp_path / "data" / "polily.db"
-    db_path.parent.mkdir(exist_ok=True)
+    db_path = tmp_path / "polily.db"
     db = PolilyDB(db_path)
     upsert(db, "movement.quality_threshold", 75)
     db.close()
@@ -128,12 +161,15 @@ def test_run_scheduler_regenerates_yaml(tmp_path, monkeypatch):
         "polily.daemon.scheduler.run_daemon", lambda db, config: None
     )
 
-    from polily.cli import run_scheduler_daemon
-    run_scheduler_daemon()
+    try:
+        from polily.cli import run_scheduler_daemon
+        run_scheduler_daemon()
 
-    yaml_content = (tmp_path / "config.yaml").read_text(encoding="utf-8")
-    assert "quality_threshold: 75" in yaml_content
-    assert "READ ONLY" in yaml_content
+        yaml_content = (tmp_path / "config.yaml").read_text(encoding="utf-8")
+        assert "quality_threshold: 75" in yaml_content
+        assert "READ ONLY" in yaml_content
+    finally:
+        paths.set_data_dir_override(None)
 
 
 # --- S6: launchctl-flavored scheduler subcommand messages -----------------

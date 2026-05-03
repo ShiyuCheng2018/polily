@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import threading
-from pathlib import Path
 
 import pytest
 
@@ -15,30 +14,13 @@ from polily.core.config import (
 from polily.core.config_store import ensure_seeded, upsert
 from polily.core.db import PolilyDB
 
-
-def test_default_db_path_returns_pydantic_default():
-    """default_db_path() returns the Pydantic default for archiving.db_file."""
-    from polily.core.config import default_db_path
-    expected = Path("./data/polily.db")
-    assert default_db_path() == expected
-
-
-def test_default_db_path_ignores_db_config_override(tmp_path, monkeypatch):
-    """Whis SF11 — even if archiving.db_file is set in db.config, the helper
-    still returns the Pydantic default. Documents the chicken-and-egg rule."""
-    from polily.core.config import default_db_path
-
-    # Pre-create a db with a non-default archiving.db_file value
-    monkeypatch.chdir(tmp_path)
-    db_path = tmp_path / "data" / "polily.db"
-    db_path.parent.mkdir(exist_ok=True)
-    db = PolilyDB(db_path)
-    upsert(db, "archiving.db_file", "/some/custom/path/polily.db")
-    db.close()
-
-    # default_db_path should STILL return the Pydantic default,
-    # NOT the value we put in db.config
-    assert default_db_path() == Path("./data/polily.db")
+# v0.11.0: removed 2 pre-v0.11.0 pin-tests that asserted
+# default_db_path() == Path("./data/polily.db") and that it ignored
+# db.config overrides (Whis SF11 chicken-and-egg invariant). Both
+# behaviors are intentionally BROKEN in v0.11.0 — default_db_path now
+# delegates to paths.db_path() which respects POLILY_DATA_DIR env / CLI
+# flag. The post-v0.11.0 invariants are pinned in
+# tests/test_default_db_path_uses_paths.py instead.
 
 
 def test_load_config_from_db_returns_polily_config_with_defaults(polily_db):

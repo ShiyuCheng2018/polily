@@ -430,7 +430,8 @@ def reset(
             return
 
         _stop_daemon_if_running()
-        db = PolilyDB(cfg.archiving.db_file)
+        from polily.core.config import default_db_path
+        db = PolilyDB(default_db_path())
         try:
             reset_wallet(db, starting_balance=target_balance)
         finally:

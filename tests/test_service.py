@@ -264,25 +264,30 @@ class TestLoadConfigFromDb:
         """_load_default_config returns PolilyConfig built from db.config.
 
         Setup: PolilyService() with no args bootstraps a PolilyDB at the
-        Pydantic-default `archiving.db_file` path (./data/polily.db), which
-        after `monkeypatch.chdir(tmp_path)` resolves to tmp_path/data/polily.db.
-        Pre-seeding the same path with a non-default value proves the service
-        reads it back through db.config rather than falling through to yaml /
-        Pydantic defaults.
+        path returned by `default_db_path()`, which v0.11.0 resolves via
+        `paths.db_path()` — i.e. ``$POLILY_DATA_DIR/polily.db``.
+        Pre-seeding the same path with a non-default value proves the
+        service reads it back through db.config rather than falling
+        through to yaml / Pydantic defaults.
         """
+        from polily.core import paths
         from polily.core.config_store import upsert
         from polily.tui.service import PolilyService
 
-        monkeypatch.chdir(tmp_path)
+        # v0.11.0: Pattern A — env-only migration (no cwd dependency).
+        paths.set_data_dir_override(None)
+        monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
 
-        db_path = tmp_path / "data" / "polily.db"
-        db_path.parent.mkdir(exist_ok=True)
+        db_path = tmp_path / "polily.db"
         seed_db = PolilyDB(db_path)
         upsert(seed_db, "movement.magnitude_threshold", 55)
         seed_db.close()
 
-        svc = PolilyService()
         try:
-            assert svc.config.movement.magnitude_threshold == 55
+            svc = PolilyService()
+            try:
+                assert svc.config.movement.magnitude_threshold == 55
+            finally:
+                svc.db.close()
         finally:
-            svc.db.close()
+            paths.set_data_dir_override(None)
