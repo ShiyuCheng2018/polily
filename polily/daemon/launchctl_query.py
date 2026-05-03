@@ -22,7 +22,23 @@ import os
 import re
 import subprocess
 
-LABEL = "com.polily.scheduler"
+
+def _label() -> str:
+    """Resolve launchd Label via paths.launchd_label() (env-overridable).
+
+    Live helper — read on every call so a mid-session
+    POLILY_LAUNCHD_LABEL env flip reflects in subsequent launchctl
+    queries. Production daemons use the default "com.polily.scheduler";
+    dev installs flip the env to "com.polily.scheduler.dev" to coexist
+    alongside prod.
+    """
+    from polily.core import paths
+    return paths.launchd_label()
+
+
+# Snapshot at import for backward compat. Live code paths in this module
+# use `_label()` so env overrides reflect.
+LABEL = _label()
 
 # launchctl list prints values like `"PID" = 43384;`. The regex tolerates
 # arbitrary whitespace around the `=`.
@@ -32,7 +48,7 @@ _PID_RE = re.compile(r'"PID"\s*=\s*(\d+)\s*;')
 def _service_target() -> str:
     """`gui/<uid>/<label>` — the launchctl service-target string for
     this user's LaunchAgent (installed under ~/Library/LaunchAgents/)."""
-    return f"gui/{os.geteuid()}/{LABEL}"
+    return f"gui/{os.geteuid()}/{_label()}"
 
 
 def get_daemon_pid() -> int | None:
@@ -49,7 +65,7 @@ def get_daemon_pid() -> int | None:
     """
     try:
         result = subprocess.run(
-            ["launchctl", "list", LABEL],
+            ["launchctl", "list", _label()],
             capture_output=True,
             text=True,
             timeout=2,

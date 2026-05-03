@@ -19,6 +19,11 @@ from polily.core.db import PolilyDB
 
 def test_migrate_returns_ok_with_count_when_yaml_present(tmp_path, monkeypatch):
     """Happy path: legacy yaml present, all values valid → status 'ok'."""
+    # v0.11.0 (Task 7): _migrate_yaml_to_db reads from paths.data_dir() /
+    # config.yaml. Pin POLILY_DATA_DIR so it points to tmp_path.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(
@@ -41,6 +46,12 @@ def test_migrate_returns_ok_with_count_when_yaml_present(tmp_path, monkeypatch):
 
 def test_migrate_returns_skipped_no_yaml_when_fresh_install(tmp_path, monkeypatch):
     """Fresh install: no config.yaml → status 'skipped_no_yaml' (silent case)."""
+    # v0.11.0 (Task 7): pin POLILY_DATA_DIR to a YAML-FREE tmp_path so the
+    # fresh-install precondition holds (default platformdirs path may have
+    # a stale yaml from a real polily run on this dev box).
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     db = PolilyDB(tmp_path / "polily.db")
     db.conn.execute("DELETE FROM config")
@@ -58,6 +69,12 @@ def test_migrate_returns_skipped_invalid_and_renames_bak(tmp_path, monkeypatch):
     This is the AC2-critical case — without the .bak rescue, the next
     polily startup would yaml-regen over the user's customizations.
     """
+    # v0.11.0 (Task 7): _migrate_yaml_to_db reads + .bak-renames from
+    # paths.data_dir(). Pin POLILY_DATA_DIR so it equals tmp_path and the
+    # .bak assertion below sees the renamed file.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     # wallet.starting_balance has Field(ge=1.0); 0.0 fails validation.
@@ -89,6 +106,13 @@ def test_migrate_skips_when_db_already_seeded(tmp_path, monkeypatch):
 
     This is the idempotent re-run case (every polily startup after the first).
     """
+    # v0.11.0 (Task 7): pin POLILY_DATA_DIR so yaml read path resolves to
+    # tmp_path. (Note: this test still passes if the env isn't set because
+    # the early-exit on populated db short-circuits before the yaml read,
+    # but isolating defensively is cheap and avoids cross-test contamination.)
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(
@@ -114,6 +138,11 @@ def test_cli_emits_localized_message_on_ok(tmp_path, monkeypatch):
     path that triggers config loading; the migration banner should appear
     on stderr if a migration just happened.
     """
+    # v0.11.0 (Task 7): pin POLILY_DATA_DIR so the load_config_from_db ->
+    # _migrate_yaml_to_db path reads from tmp_path/config.yaml.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(
@@ -201,6 +230,10 @@ def test_cli_silent_on_already_migrated(tmp_path, monkeypatch):
 
 def test_get_last_migration_status_consume_and_clear(tmp_path, monkeypatch):
     """Each migration produces exactly one status; getter clears after read."""
+    # v0.11.0 (Task 7): pin POLILY_DATA_DIR so yaml at tmp_path is read.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(
@@ -228,14 +261,21 @@ def test_get_last_migration_status_resets_between_migrations(
     tmp_path, monkeypatch,
 ):
     """A second migration replaces the first status (no carry-over)."""
-    # First migration: ok status
-    yaml_path1 = tmp_path / "first" / "config.yaml"
-    yaml_path1.parent.mkdir()
-    yaml_path1.write_text(
+    # v0.11.0 (Task 7): _migrate_yaml_to_db reads via paths.data_dir(). To
+    # simulate "two different polily installs" we flip POLILY_DATA_DIR
+    # between calls (paths.data_dir() reads env on every call).
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+
+    # First migration: ok status — yaml present at first dir.
+    first_dir = tmp_path / "first"
+    first_dir.mkdir()
+    (first_dir / "config.yaml").write_text(
         "wallet:\n  starting_balance: 250.0\n", encoding="utf-8",
     )
-    monkeypatch.chdir(tmp_path / "first")
-    db = PolilyDB(tmp_path / "first" / "polily.db")
+    monkeypatch.setenv("POLILY_DATA_DIR", str(first_dir))
+    monkeypatch.chdir(first_dir)
+    db = PolilyDB(first_dir / "polily.db")
     db.conn.execute("DELETE FROM config")
     db.conn.commit()
     try:
@@ -254,6 +294,7 @@ def test_get_last_migration_status_resets_between_migrations(
     # NOT carry "ok" from the previous run.
     second_dir = tmp_path / "second"
     second_dir.mkdir()
+    monkeypatch.setenv("POLILY_DATA_DIR", str(second_dir))
     monkeypatch.chdir(second_dir)
     db2 = PolilyDB(second_dir / "polily.db")
     db2.conn.execute("DELETE FROM config")

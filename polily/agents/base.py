@@ -14,16 +14,23 @@ logger = logging.getLogger(__name__)
 # Global registry of active subprocess PIDs for cleanup on exit
 _active_pids: set[int] = set()
 
-# Debug log directory — resolve relative to project root via config, fallback to CWD/data
-_DEBUG_DIR = os.path.join(os.getcwd(), "data", "logs")
-
 
 def _dump_debug(tag: str, content: str):
-    """Write debug info to data/agent_debug.log (append). Always writes, no log level."""
+    """Write debug info to <log_dir>/agent_debug.log (append). Always writes, no log level.
+
+    v0.11.0: log path resolves via polily.core.paths.agent_debug_log()
+    instead of import-time os.getcwd() + 'data/logs'. The old behavior
+    pinned the path to whatever cwd the polily process was launched
+    from, which broke when the user installed via pipx and ran from
+    arbitrary cwd.
+    """
     try:
         from datetime import UTC, datetime
+
+        from polily.core import paths
+
         ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
-        path = os.path.join(_DEBUG_DIR, "agent_debug.log")
+        path = paths.agent_debug_log()
         with open(path, "a") as f:
             f.write(f"\n=== {tag} [{ts}] ===\n{content}\n")
     except Exception:
@@ -233,10 +240,25 @@ class BaseAgent:
                 "--model", self.model,
             ]
 
+        # v0.11.0: inject POLILY_DB into the subprocess env so the agent
+        # prompt's `sqlite3 "$POLILY_DB" ...` resolves to the path layer's
+        # absolute db_path() — independent of cwd, daemon WorkingDirectory,
+        # or install method (pipx / venv / dev checkout).
+        #
+        # MUST be os.environ.copy() (not a fresh dict) so the subprocess
+        # inherits HOME (claude config lookup), PATH (binary resolution),
+        # and POLILY_CLAUDE_CLI (when set by the launchd plist for daemon
+        # mode). Without inheritance, claude fails with "not logged in"
+        # or fails to locate sub-binaries.
+        from polily.core import paths as _paths
+        subproc_env = os.environ.copy()
+        subproc_env["POLILY_DB"] = str(_paths.db_path())
+
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=subproc_env,
         )
         self._current_proc = proc
         _active_pids.add(proc.pid)

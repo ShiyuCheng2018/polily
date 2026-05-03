@@ -203,19 +203,29 @@ async def backfill_stuck_resolutions(
 def _build_poll_log_path(project_root: "Path | None" = None) -> "Path":  # noqa: F821
     """Build the poll log path for this daemon instance.
 
-    Pattern: `data/logs/poll-v<version>-<YYYYMMDD-HHMMSS>.log`. Each daemon
-    restart gets a fresh file — callers keep the history. Directory is
-    created if missing.
+    Pattern: ``<paths.log_dir()>/poll-v<version>-<YYYYMMDD-HHMMSS>.log``.
+    Each daemon restart gets a fresh file — callers keep the history.
+    Directory is created lazily inside ``paths.log_dir()``.
+
+    v0.11.0 (Whis-review S3): the log dir resolves via the paths module.
+    Pre-fix: ``Path(__file__).resolve().parent.parent.parent / "data" / "logs"``.
+    Under pipx install, ``Path(__file__)`` lives in ``site-packages`` which
+    is read-only on most systems — daemon would crash on first poll cycle.
+
+    The ``project_root`` parameter is preserved for legacy callers/tests
+    that want to inject a sandbox; if non-None it overrides the paths
+    module just like before.
     """
     from datetime import datetime
-    from pathlib import Path
 
     from polily import __version__
+    from polily.core import paths
 
-    if project_root is None:
-        project_root = Path(__file__).resolve().parent.parent.parent
-    log_dir = project_root / "data" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    if project_root is not None:
+        log_dir = project_root / "data" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        log_dir = paths.log_dir()  # paths.log_dir() lazy-mkdirs internally
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     return log_dir / f"poll-v{__version__}-{ts}.log"
 

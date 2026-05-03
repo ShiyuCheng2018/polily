@@ -262,22 +262,24 @@ def load_config_from_db(db) -> PolilyConfig:
 
 
 def default_db_path() -> Path:
-    """Return the default polily db file path.
+    """Return the polily db file path, resolved via the paths module.
 
-    Per Whis SF11 — `archiving.db_file` is HIDDEN_IN_TUI and
-    "Pydantic-default-only": even if a row exists in db.config for it,
-    we'd need to know the db path BEFORE loading db.config to read
-    that row. So all callers (TUI service, CLI reset, daemon startup)
-    bootstrap the path from the Pydantic-default value.
+    v0.11.0 BREAKING: this used to read the Pydantic default
+    `archiving.db_file = "./data/polily.db"`, which was cwd-relative
+    and broke any non-developer install method (pipx, brew, binary).
 
-    Practically this means archiving.db_file is an install-time config
-    (set via env var or post-Phase-7 migration), not a runtime knob —
-    its db.config row is informational, not load-bearing.
+    Now delegates to ``polily.core.paths.db_path()`` which respects the
+    3-layer resolver (CLI flag > POLILY_DATA_DIR env > platformdirs
+    default). The Pydantic `archiving.db_file` knob remains in
+    PolilyConfig for forward-compat (HIDDEN_IN_TUI) but is now
+    informational only; no production code path reads it.
 
     Returns:
-        Path object for the default db file (typically './data/polily.db').
+        Absolute Path to the db file. Parent directory is auto-created
+        on first access via paths.data_dir()'s lazy mkdir.
     """
-    return Path(PolilyConfig().archiving.db_file)
+    from polily.core import paths
+    return paths.db_path()
 
 
 def _unwrap_annotation(ann):

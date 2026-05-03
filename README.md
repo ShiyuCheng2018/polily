@@ -21,15 +21,46 @@ Polymarket is unfriendly to small accounts:
 
 ## Quick Start
 
+> **Heads up:** PyPI publish is on the v0.11.1 roadmap. Until then, install from source:
+
 ```bash
 git clone https://github.com/ShiyuCheng2018/polily.git && cd polily
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e .
 
 polily   # launches the TUI; everything happens inside it
 ```
 
+(Once published: `pipx install polily` will be the recommended path.)
+
 In the TUI, paste a Polymarket event URL (looks like `https://polymarket.com/event/...`) into the **Tasks** pane. Polily fetches and scores it; from there you can add it to monitoring or open a paper trade.
+
+### Where polily stores data
+
+Starting v0.11.0, polily uses OS-standard locations:
+
+- **macOS:** `~/Library/Application Support/polily/`
+- **Linux:** `$XDG_DATA_HOME/polily` or `~/.local/share/polily/`
+
+Override with the `POLILY_DATA_DIR` env var or `polily --data-dir=PATH` CLI flag (highest priority). Logs go to `<data-dir>/logs/` by default; override with `POLILY_LOG_DIR`.
+
+### Upgrading from v0.10.x
+
+⚠ **Stop the v0.10.x daemon BEFORE upgrading.** The legacy daemon polls `./data/polily.db` (cwd-relative) every 30s; if it's still alive while v0.11.0 migrates the file, you risk a torn WAL copy or post-migration state divergence.
+
+```bash
+polily scheduler stop      # stops the running daemon
+pip install -e .            # (or pipx upgrade polily once published)
+polily                      # first launch detects legacy ./data and prompts:
+#   [polily v0.11.0] 检测到旧版数据库:
+#     /your/repo/data/polily.db
+#   polily 现在将数据保存到:
+#     /Users/you/Library/Application Support/polily/polily.db
+#   是否复制旧数据到新位置? [Y/n]: Y
+polily scheduler restart    # re-register daemon at the new path
+```
+
+A `.migrated_to_v0.11.0` marker is written so the prompt does not re-fire on subsequent launches. If you decline (N), polily starts with an empty new db; manually migrate later with `cp /repo/data/polily.db* ~/Library/Application\ Support/polily/`.
 
 ## Requirements
 
@@ -138,15 +169,11 @@ polily config reset movement.magnitude_threshold   # reset a single knob
 - AI analysis requires Claude CLI — when the CLI call fails (not installed / network issue / schema mismatch), the analysis is marked `failed` in scan history with no silent fallback
 - Data comes from Polymarket public APIs — real-time freshness is bounded by them
 
-## Development
+## Contributing
 
-```bash
-pytest tests/ -q              # ~1300 tests
-ruff check polily/ tests/    # lint
-pyright polily/              # type check
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, branch strategy, and dev workflow (including the `.envrc` + direnv pattern that keeps your dev data isolated from your real polily data).
 
-See [docs/architecture.md](docs/architecture.md) for design details and [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+Architecture details: [docs/architecture.md](docs/architecture.md).
 
 ## License
 

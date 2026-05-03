@@ -33,6 +33,38 @@ def _suppress_agent_debug_log(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _block_real_launchd_writes(tmp_path_factory, monkeypatch):
+    """v0.11.0 defense-in-depth (Whis-review v2 NI1 follow-up).
+
+    Redirect ``Path.home()`` to a per-test tmp dir so any code that
+    resolves ``~/Library/LaunchAgents/...`` (via ``paths.launchd_plist_path()``
+    or otherwise) writes into a sandbox instead of the user's real
+    LaunchAgents directory.
+
+    Background: Task 6 surfaced a pre-existing latent bug where
+    ``tests/test_wallet_view.py::test_reset_modal_sigterms_daemon_before_reset``
+    didn't mock ``restart_daemon`` and so its production code path called
+    real ``subprocess.run(["launchctl", "load", ...])`` AND rewrote the
+    real plist via ``Path.write_bytes(...)``. The NI1 audit (which only
+    grepped for ``monkeypatch.setattr(...PLIST_PATH, ...)``) missed this
+    indirect-write vector.
+
+    This fixture is belt-and-suspenders: it cannot prevent real
+    ``subprocess.run(["launchctl", ...])`` calls (those operate on a
+    label, not a path), but it CAN prevent the plist file rewrite so
+    even an unmocked ``restart_daemon`` write becomes a no-op against
+    a sandbox path.
+
+    Tests that need to inspect the resolved sandbox plist path can read
+    ``Path.home() / "Library" / "LaunchAgents" / ...`` after this fixture
+    has redirected. Tests that genuinely need the real ``Path.home``
+    (rare) can opt out via ``monkeypatch.setattr("pathlib.Path.home", ...)``.
+    """
+    safe_home = tmp_path_factory.mktemp("safe_home")
+    monkeypatch.setattr("pathlib.Path.home", lambda: safe_home)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_poll_log(monkeypatch):
     """Prevent tests from polluting prod data/poll.log + leaking tick state.
 
@@ -61,19 +93,27 @@ def _isolate_poll_log(monkeypatch):
 def polily_db(tmp_path, monkeypatch):
     """Provide a PolilyDB in a temp directory that auto-cleans up.
 
-    chdir to tmp_path BEFORE constructing PolilyDB so the v0.10.0
-    yaml→db migration (which reads `os.getcwd()/config.yaml` to import
-    pre-v0.10.0 user customizations) doesn't pull in the dev box's
-    production config snapshot. Without this, any developer who has
-    edited config via the TUI sees their custom values bleed into
-    every test that uses this fixture, surfacing as confusing
-    AssertionErrors like "magnitude_threshold == 70" failing because
-    the dev's prod yaml has 55.
+    Pre-v0.11.0 the yaml→db migration read ``os.getcwd()/config.yaml``,
+    so chdir alone was sufficient isolation. v0.11.0 (Task 7) moved the
+    read to ``paths.data_dir() / config.yaml`` which resolves via env.
+    To keep the same isolation contract, the fixture now ALSO sets
+    ``POLILY_DATA_DIR=tmp_path`` (additive — chdir kept per Whis-review
+    S8 so any test that still does cwd-rel assertions on yaml continues
+    to pass).
+
+    Without the env line, the migration would pull in the dev box's
+    real platformdirs ``config.yaml`` and bleed custom values (e.g.
+    ``magnitude_threshold == 55`` instead of the Pydantic default 70)
+    into every fixture user.
     """
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     db = PolilyDB(tmp_path / "polily.db")
     yield db
     db.close()
+    paths.set_data_dir_override(None)
 
 
 def make_market(**overrides) -> Market:

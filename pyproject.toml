@@ -9,6 +9,9 @@ description = "A Polymarket monitoring agent that actually works — finds struc
 requires-python = ">=3.11"
 license = "MIT"
 readme = "README.md"
+authors = [
+    { name = "Shiyu Cheng", email = "starkeyshiyu@gmail.com" },
+]
 keywords = ["polymarket", "prediction-market", "decision-support", "tui", "crypto"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -18,12 +21,15 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Office/Business :: Financial",
     "Environment :: Console",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
 ]
 
 dependencies = [
     "httpx>=0.28,<1.0",
     "tenacity>=9.0,<10.0",
     "pydantic>=2.12,<3.0",
+    "platformdirs>=4.0,<5.0",
     "typer>=0.24,<1.0",
     "rich>=14.0,<15.0",
     "pyyaml>=6.0,<7.0",

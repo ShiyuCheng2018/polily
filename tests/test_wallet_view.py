@@ -363,6 +363,15 @@ async def test_reset_modal_sigterms_daemon_before_reset(tmp_path, monkeypatch):
     )
     # Skip the 1s grace in tests.
     monkeypatch.setattr("polily.tui.views.wallet_modals.time.sleep", lambda _s: None)
+    # v0.11.0 NI1-extension (Whis-review v2 missed this case): also mock
+    # restart_daemon. Without this, _do_reset's post-wipe restart path
+    # falls through to real subprocess.run(["launchctl", "load", ...])
+    # and rewrites the user's REAL ~/Library/LaunchAgents/com.polily.scheduler.plist.
+    # The 3 sibling tests at lines 437+, 474+, 513+ all mock this; this one
+    # was the missed sibling.
+    monkeypatch.setattr(
+        "polily.daemon.scheduler.restart_daemon", lambda: True,
+    )
 
     host = _ModalHost(svc, WalletResetModal)
     async with host.run_test(size=(120, 40)) as pilot:

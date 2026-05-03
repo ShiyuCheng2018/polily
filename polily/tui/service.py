@@ -134,7 +134,7 @@ class PolilyService:
         if db is not None:
             self.db = db
         elif config is not None:
-            self.db = PolilyDB(config.archiving.db_file)
+            self.db = PolilyDB(default_db_path())
         else:
             self.db = PolilyDB(default_db_path())
         self.config = config or self._load_default_config()

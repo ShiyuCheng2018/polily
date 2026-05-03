@@ -20,10 +20,20 @@ class _Output:
 
 @pytest.fixture
 def log_dir(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    d = tmp_path / "data" / "logs"
-    d.mkdir(parents=True, exist_ok=True)
+    """v0.11.0: switched from chdir-based isolation to POLILY_DATA_DIR
+    env var, matching the new paths resolver. The yielded path is
+    paths.log_dir(), which equals tmp_path/'data'/'logs' under the env.
+    """
+    from polily.core import paths
+    monkeypatch.delenv("POLILY_DATA_DIR", raising=False)
+    monkeypatch.delenv("POLILY_LOG_DIR", raising=False)
+    paths.set_data_dir_override(None)
+    paths.set_log_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path / "data"))
+    d = paths.log_dir()  # triggers mkdir
     yield d
+    paths.set_data_dir_override(None)
+    paths.set_log_dir_override(None)
 
 
 @pytest.mark.parametrize("trigger", ["manual", "scan", "scheduled", "movement"])

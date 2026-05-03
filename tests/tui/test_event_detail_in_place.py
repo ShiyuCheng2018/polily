@@ -39,10 +39,25 @@ class _Harness(App):
 
 @pytest.fixture
 def service(tmp_path, monkeypatch):
+    """v0.11.0 isolation: chdir + setenv POLILY_DATA_DIR.
+
+    Pre-v0.11.0: chdir alone was sufficient because PolilyService() →
+    default_db_path() → cwd-relative ./data/polily.db.
+
+    v0.11.0 BREAKING: default_db_path() resolves via paths.db_path() which
+    reads POLILY_DATA_DIR env. Without setenv here, this fixture would
+    write to the user's REAL ~/Library/Application Support/polily/polily.db
+    (verified empirically: ev1 test event leaked into prod data on
+    2026-05-03). Both required.
+    """
+    from polily.core import paths
+    paths.set_data_dir_override(None)
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     svc = PolilyService()
     yield svc
     svc.db.close()
+    paths.set_data_dir_override(None)
 
 
 def _seed_event(service, event_id: str = "ev1") -> None:

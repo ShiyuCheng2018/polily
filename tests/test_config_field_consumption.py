@@ -24,7 +24,16 @@ from polily.core.config import PolilyConfig  # noqa: E402
 
 # Fields that are intentionally not consumed by production code.
 # Each entry needs a comment explaining WHY it's exempt.
-EXEMPTION_LIST: set[str] = set()
+EXEMPTION_LIST: set[str] = {
+    # v0.11.0: archiving.db_file is now informational-only. Path
+    # resolution moved from this Pydantic knob to polily.core.paths
+    # (CLI flag > POLILY_DATA_DIR env > platformdirs default). The knob
+    # remains in PolilyConfig for forward-compat (HIDDEN_IN_TUI per
+    # Whis SF11) and in EPHEMERAL_FIELDS so it never persists to
+    # db.config, but no production code path reads it. See
+    # polily/core/config.py::default_db_path docstring.
+    "archiving.db_file",
+}
 
 # Fields whose audit verdict comes from a LOW-SPECIFICITY grep match
 # (level 3 `last_seg` or level 4 `quoted_key`). A human must verify

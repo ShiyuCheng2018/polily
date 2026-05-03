@@ -516,6 +516,12 @@ def test_reset_rejects_unknown_key(polily_db):
 
 def test_migrate_yaml_imports_existing_user_values(polily_db, tmp_path, monkeypatch):
     """Pre-v0.10.0 users with custom config.yaml — values get imported."""
+    # v0.11.0 (Task 7): yaml is read from paths.data_dir() / config.yaml, not
+    # cwd. Pin POLILY_DATA_DIR=tmp_path so paths.data_dir() resolves there
+    # and the yaml file written below is what the migration sees.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(
@@ -540,6 +546,10 @@ def test_migrate_yaml_imports_existing_user_values(polily_db, tmp_path, monkeypa
 
 def test_migrate_yaml_skips_when_db_already_populated(polily_db, tmp_path, monkeypatch):
     """Idempotent — once db.config has rows, migration is a no-op."""
+    # v0.11.0 (Task 7): paths-rel yaml read; pin env so paths.data_dir() == tmp_path.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     ensure_seeded(polily_db)
     upsert(polily_db, "wallet.starting_balance", 100.0)  # canonical value
@@ -557,6 +567,12 @@ def test_migrate_yaml_skips_when_db_already_populated(polily_db, tmp_path, monke
 
 def test_migrate_yaml_skips_when_no_yaml_file(polily_db, tmp_path, monkeypatch):
     """Fresh install path — no yaml exists, no-op."""
+    # v0.11.0 (Task 7): pin paths.data_dir() to a YAML-FREE tmp_path so the
+    # "no yaml file" precondition holds (default platformdirs path may have
+    # a stale yaml from a prior real run).
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     # See test_load_all_returns_empty_dict_for_unseeded_db — Task 2.2
     # made __init__ auto-seed config; wipe it for the no-yaml fresh-install
@@ -569,6 +585,11 @@ def test_migrate_yaml_skips_when_no_yaml_file(polily_db, tmp_path, monkeypatch):
 
 def test_migrate_yaml_skips_ephemeral_fields(polily_db, tmp_path, monkeypatch):
     """Even if yaml has api.user_agent, EPHEMERAL filter rejects it."""
+    # v0.11.0 (Task 7): pin POLILY_DATA_DIR so yaml at tmp_path is what
+    # the migration reads.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(
@@ -581,6 +602,10 @@ def test_migrate_yaml_skips_ephemeral_fields(polily_db, tmp_path, monkeypatch):
 
 def test_migrate_yaml_handles_malformed_yaml_gracefully(polily_db, tmp_path, monkeypatch):
     """Garbled yaml shouldn't crash polily startup — just log and skip."""
+    # v0.11.0 (Task 7): pin POLILY_DATA_DIR so yaml at tmp_path is read.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(":: this is not yaml ::", encoding="utf-8")
@@ -635,6 +660,10 @@ def test_reset_writes_default_for_unseeded_key(polily_db):
 
 def test_migrate_yaml_handles_empty_file(polily_db, tmp_path, monkeypatch):
     """Zero-byte yaml — safe_load returns None, then non-dict guard returns."""
+    # v0.11.0 (Task 7): pin POLILY_DATA_DIR so yaml at tmp_path is read.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text("", encoding="utf-8")
@@ -647,6 +676,10 @@ def test_migrate_yaml_handles_empty_file(polily_db, tmp_path, monkeypatch):
 
 def test_migrate_yaml_skips_non_dict_top_level(polily_db, tmp_path, monkeypatch):
     """yaml top-level is a list/scalar — non-dict guard returns silently."""
+    # v0.11.0 (Task 7): pin POLILY_DATA_DIR so yaml at tmp_path is read.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text("[1, 2, 3]\n", encoding="utf-8")
@@ -661,6 +694,10 @@ def test_migrate_yaml_drops_pydantic_constraint_violations(polily_db, tmp_path, 
     """yaml has wallet.starting_balance: -50 (Field has ge=1.0) —
     Pydantic ValidationError fires, migration warn+skips, db stays empty.
     User then gets default values via ensure_seeded (run separately)."""
+    # v0.11.0 (Task 7): pin POLILY_DATA_DIR so yaml at tmp_path is read.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(

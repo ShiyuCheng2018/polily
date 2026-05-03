@@ -5,6 +5,7 @@ v0.5.0: minimal CLI — TUI launch + scheduler subcommand group.
 
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -12,13 +13,19 @@ app = typer.Typer(help="Polily — A Polymarket Monitoring Agent That Actually W
 
 
 def _regenerate_yaml_snapshot(config) -> None:
-    """Overwrite config.yaml with a fresh snapshot from the loaded PolilyConfig.
+    """Overwrite ``<data_dir>/config.yaml`` with a fresh snapshot from
+    the loaded PolilyConfig.
 
     Best-effort: log + continue if disk is read-only or parent dir missing.
     yaml is a debug snapshot, not load-bearing — runtime works without it.
+
+    v0.11.0: yaml lives at ``paths.data_dir() / 'config.yaml'``, NOT cwd.
+    Pre-v0.11.0 used ``Path('config.yaml')`` which broke under pipx
+    installs (cwd is wherever the user happened to invoke polily from).
     """
+    from polily.core import paths
     from polily.core.config_yaml import generate_yaml
-    target = Path("config.yaml")
+    target = paths.data_dir() / "config.yaml"
     try:
         generate_yaml(config, target)
     except OSError as e:
@@ -74,9 +81,44 @@ def _emit_migration_status_to_stderr(status=None) -> None:
 
 
 @app.callback()
-def main(ctx: typer.Context):
+def main(
+    ctx: typer.Context,
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            help="Override polily data directory (default: ~/Library/Application Support/polily on macOS, $XDG_DATA_HOME/polily on Linux). Useful for ad-hoc testing or per-environment isolation.",
+        ),
+    ] = None,
+    log_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--log-dir",
+            help="Override polily log directory (default: <data-dir>/logs).",
+        ),
+    ] = None,
+):
     """Polily — A Polymarket Monitoring Agent That Actually Works. Launches TUI when no subcommand given."""
+    from polily.core import paths
+    flag_set_data_dir = data_dir is not None
+    if data_dir is not None:
+        paths.set_data_dir_override(data_dir)
+    if log_dir is not None:
+        paths.set_log_dir_override(log_dir)
+
     if ctx.invoked_subcommand is None:
+        # v0.11.0: first-launch migration. Must run BEFORE PolilyService()
+        # constructs the db (which would create an empty new file at
+        # paths.db_path() and defeat the migration prompt's "new path is
+        # empty" check).
+        #
+        # Whis-review S9: skip migration prompt when --data-dir is set.
+        # The user has explicitly declared intent for a specific location;
+        # asking them about legacy ./data/polily.db would be confusing.
+        if not flag_set_data_dir:
+            from polily.core.migration_v0_11_0 import prompt_and_migrate
+            prompt_and_migrate()
+
         from polily.tui.app import run_tui
         from polily.tui.service import PolilyService
         service = PolilyService()
@@ -176,13 +218,14 @@ def stop():
     """
     import subprocess
 
-    from polily.daemon.scheduler import PLIST_PATH
+    from polily.daemon.scheduler import _plist_path
 
+    plist_path = _plist_path()
     pid = _read_pid()
     if pid is None:
         typer.echo("Scheduler is not running (launchctl: not loaded).")
         # Still attempt unload so any registered launchctl entry gets cleared.
-        subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
+        subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
         raise typer.Exit(1)
 
     if not _pid_alive(pid):
@@ -190,14 +233,14 @@ def stop():
             f"Scheduler PID {pid} is not running. "
             "Stale launchctl entry — will be replaced on next start."
         )
-        subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
+        subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
         raise typer.Exit(1)
 
     from polily.daemon.launchctl_query import kill_daemon
     kill_daemon("TERM")
     typer.echo(f"Sent SIGTERM to scheduler (PID {pid}).")
     # Unload the launchctl registration so KeepAlive can't respawn it.
-    subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True)
+    subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
     typer.echo("Unloaded launchctl registration.")
 
 
@@ -407,7 +450,8 @@ def reset(
             return
 
         _stop_daemon_if_running()
-        db = PolilyDB(cfg.archiving.db_file)
+        from polily.core.config import default_db_path
+        db = PolilyDB(default_db_path())
         try:
             reset_wallet(db, starting_balance=target_balance)
         finally:
@@ -418,27 +462,34 @@ def reset(
         )
         return
 
+    # v0.11.0: paths resolved via paths.db_path() / paths.log_dir() so
+    # this respects --data-dir / --log-dir / POLILY_DATA_DIR / env. Pre-
+    # v0.11.0 used hardcoded "data/..." cwd-relative strings — broke under
+    # pipx installs. Whis-review S5 — agent_debug.log is enumerated under
+    # log_dir explicitly (not cwd).
+    from polily.core import paths
+    db = paths.db_path()
+    log_root = paths.log_dir()
     targets = [
-        ("data/polily.db", "Database"),
-        ("data/polily.db-shm", "WAL shared memory"),
-        ("data/polily.db-wal", "WAL log"),
-        ("data/poll.log", "Poll log (legacy path, pre-0.6.0)"),
-        ("data/agent_debug.log", "Agent debug log"),
+        (db, "Database"),
+        (Path(str(db) + "-shm"), "WAL shared memory"),
+        (Path(str(db) + "-wal"), "WAL log"),
+        (paths.data_dir() / "poll.log", "Poll log (legacy path, pre-0.6.0)"),
+        (log_root / "agent_debug.log", "Agent debug log"),
     ]
-    # Also clear rotated per-restart poll logs under data/logs/.
-    log_dir = Path("data/logs")
+    # Also clear rotated per-restart poll logs under <log_dir>/.
     rotated_poll_logs = (
-        sorted(log_dir.glob("poll-v*.log")) if log_dir.exists() else []
+        sorted(log_root.glob("poll-v*.log")) if log_root.exists() else []
     )
 
     if not confirm:
         console.print("[yellow]Will delete the following data:[/yellow]")
         for path, label in targets:
-            exists = "Y" if Path(path).exists() else "-"
+            exists = "Y" if path.exists() else "-"
             console.print(f"  {exists} {path} ({label})")
         if rotated_poll_logs:
             console.print(
-                f"  Y data/logs/poll-v*.log ({len(rotated_poll_logs)} rotated "
+                f"  Y {log_root}/poll-v*.log ({len(rotated_poll_logs)} rotated "
                 "poll logs)"
             )
         console.print()
@@ -451,9 +502,8 @@ def reset(
 
     deleted = 0
     for path, _label in targets:
-        p = Path(path)
-        if p.exists():
-            p.unlink()
+        if path.exists():
+            path.unlink()
             deleted += 1
     for p in rotated_poll_logs:
         if p.exists():
