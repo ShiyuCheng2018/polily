@@ -102,8 +102,25 @@ class TestNarrativeWriterAgent:
                 await agent.generate(event_id="ev_test", trigger_source="manual")
 
 
+@pytest.fixture
+def feedback_log_path(tmp_path, monkeypatch):
+    """v0.11.0: redirect _write_dev_feedback's output via POLILY_DATA_DIR
+    env, replacing the prior chdir + tmp_path/'data'/'logs' assertion
+    pattern. After Task 4, _write_dev_feedback writes to
+    paths.agent_feedback_log() which resolves via env, not cwd."""
+    from polily.core import paths
+    monkeypatch.delenv("POLILY_DATA_DIR", raising=False)
+    monkeypatch.delenv("POLILY_LOG_DIR", raising=False)
+    paths.set_data_dir_override(None)
+    paths.set_log_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path / "data"))
+    yield paths.agent_feedback_log()
+    paths.set_data_dir_override(None)
+    paths.set_log_dir_override(None)
+
+
 class TestDevFeedbackLogFormat:
-    def test_header_includes_polily_version_and_event_title(self, tmp_path, monkeypatch):
+    def test_header_includes_polily_version_and_event_title(self, feedback_log_path):
         """Header line carries polily version + event title alongside ops summary.
 
         Before: `=== [ts] event=357807 ops=HOLD ===`
@@ -112,8 +129,6 @@ class TestDevFeedbackLogFormat:
         import polily
         from polily.agents.narrative_writer import _write_dev_feedback
         from polily.agents.schemas import Operation
-
-        monkeypatch.chdir(tmp_path)
 
         output = NarrativeWriterOutput(
             event_id="357807",
@@ -124,17 +139,16 @@ class TestDevFeedbackLogFormat:
         )
         _write_dev_feedback("357807", "Iran Hormuz closure 2025", output, trigger_source="manual")
 
-        log = (tmp_path / "data" / "logs" / "agent_feedback.log").read_text()
+        log = feedback_log_path.read_text()
         assert f"polily=v{polily.__version__}" in log
         assert "event=357807" in log
         assert 'title="Iran Hormuz closure 2025"' in log
         assert "ops=HOLD" in log
         assert "[9/10] 全对" in log
 
-    def test_header_title_missing_renders_placeholder(self, tmp_path, monkeypatch):
+    def test_header_title_missing_renders_placeholder(self, feedback_log_path):
         from polily.agents.narrative_writer import _write_dev_feedback
 
-        monkeypatch.chdir(tmp_path)
         output = NarrativeWriterOutput(
             event_id="x",
             mode="discovery",
@@ -143,14 +157,13 @@ class TestDevFeedbackLogFormat:
         )
         _write_dev_feedback("x", None, output, trigger_source="manual")
 
-        log = (tmp_path / "data" / "logs" / "agent_feedback.log").read_text()
+        log = feedback_log_path.read_text()
         assert 'title="?"' in log
 
-    def test_header_title_sanitizes_newlines_and_quotes(self, tmp_path, monkeypatch):
+    def test_header_title_sanitizes_newlines_and_quotes(self, feedback_log_path):
         """Newlines/CRs/quotes in user-controlled title must not split the header."""
         from polily.agents.narrative_writer import _write_dev_feedback
 
-        monkeypatch.chdir(tmp_path)
         output = NarrativeWriterOutput(
             event_id="y",
             mode="discovery",
@@ -159,7 +172,7 @@ class TestDevFeedbackLogFormat:
         )
         _write_dev_feedback("y", 'Iran\n"hormuz"\rclosure', output, trigger_source="manual")
 
-        log = (tmp_path / "data" / "logs" / "agent_feedback.log").read_text()
+        log = feedback_log_path.read_text()
         # Header must stay on one line and double-quotes swapped to single
         header_line = next(line for line in log.splitlines() if line.startswith("==="))
         assert "event=y" in header_line

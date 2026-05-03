@@ -14,16 +14,23 @@ logger = logging.getLogger(__name__)
 # Global registry of active subprocess PIDs for cleanup on exit
 _active_pids: set[int] = set()
 
-# Debug log directory — resolve relative to project root via config, fallback to CWD/data
-_DEBUG_DIR = os.path.join(os.getcwd(), "data", "logs")
-
 
 def _dump_debug(tag: str, content: str):
-    """Write debug info to data/agent_debug.log (append). Always writes, no log level."""
+    """Write debug info to <log_dir>/agent_debug.log (append). Always writes, no log level.
+
+    v0.11.0: log path resolves via polily.core.paths.agent_debug_log()
+    instead of import-time os.getcwd() + 'data/logs'. The old behavior
+    pinned the path to whatever cwd the polily process was launched
+    from, which broke when the user installed via pipx and ran from
+    arbitrary cwd.
+    """
     try:
         from datetime import UTC, datetime
+
+        from polily.core import paths
+
         ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
-        path = os.path.join(_DEBUG_DIR, "agent_debug.log")
+        path = paths.agent_debug_log()
         with open(path, "a") as f:
             f.write(f"\n=== {tag} [{ts}] ===\n{content}\n")
     except Exception:
