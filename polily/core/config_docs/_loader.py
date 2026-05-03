@@ -1,4 +1,18 @@
-"""Parse config_docs/*.md → dict[key_path, html_description]."""
+"""Parse config_docs/*.<lang>.md → dict[key_path, html_description].
+
+v0.10.x — i18n: each docs file has a language suffix (`movement.zh.md` /
+`movement.en.md`). `load_all(lang)` reads the requested language; if a
+particular file lacks a translation for that lang, it falls back to the
+`*.zh.md` canonical so users see content (in zh) instead of a missing
+description. CI gate `tests/test_config_docs_i18n_parity.py` enforces
+that every file has both `.zh.md` and `.en.md` companions in shipped
+code, so the fallback is only meaningful for hypothetical new languages
+that haven't been translated yet.
+
+`polily.core.*` is intentionally framework-free — the language is a
+parameter, not pulled from `polily.tui.i18n`. The TUI modal call sites
+pass `current_language()` in.
+"""
 from __future__ import annotations
 
 import re
@@ -18,6 +32,11 @@ _UNDERSCORE_SECTION_RE = re.compile(r"^##\s+_(?P<name>\w+)\s*$")
 _SUBSECTION_RE = re.compile(r"^###\s+(?P<name>\w+)\s*$")
 
 _DOCS_DIR = Path(__file__).parent
+
+# zh is the canonical fallback per CLAUDE.md ("Chinese for all user-facing
+# output"). New languages opt in by adding `<base>.<lang>.md`; missing
+# translations degrade to zh rather than displaying nothing.
+_FALLBACK_LANG = "zh"
 
 
 def parse_markdown(path: Path) -> dict[str, str]:
@@ -48,18 +67,43 @@ def parse_markdown(path: Path) -> dict[str, str]:
     return sections
 
 
-def load_all() -> dict[str, str]:
-    """Load all section descriptions from polily/core/config_docs/*.md.
-
-    Skips files whose name starts with `_` (currently no such files,
-    but keeps the door open for future _shared.md / _helpers.md without
-    polluting the key_path namespace).
+def _bases() -> list[str]:
+    """Return the set of doc bases (e.g. 'movement', 'scoring') by
+    inspecting `<base>.zh.md` files — zh is mandatory in shipped code,
+    so it's the authoritative source of "what files exist".
     """
+    return sorted(
+        p.name.removesuffix(".zh.md")
+        for p in _DOCS_DIR.glob("*.zh.md")
+        if not p.name.startswith("_")
+    )
+
+
+def _resolve_lang_path(base: str, lang: str) -> Path:
+    """Return the path to load for (base, lang) with fallback.
+
+    Tries `<base>.<lang>.md` first; if missing, returns `<base>.<fallback>.md`
+    so the caller always reads a real file. Caller is responsible for
+    erroring if even the fallback is absent (shouldn't happen in shipped
+    code thanks to the parity CI gate).
+    """
+    primary = _DOCS_DIR / f"{base}.{lang}.md"
+    if primary.exists():
+        return primary
+    return _DOCS_DIR / f"{base}.{_FALLBACK_LANG}.md"
+
+
+def load_all(lang: str = _FALLBACK_LANG) -> dict[str, str]:
+    """Load all section descriptions from polily/core/config_docs/*.<lang>.md.
+
+    Per-base fallback: a missing `<base>.<lang>.md` falls back to
+    `<base>.zh.md` (canonical). Empty `lang` is treated as the fallback.
+    """
+    if not lang:
+        lang = _FALLBACK_LANG
     docs: dict[str, str] = {}
-    for md_path in sorted(_DOCS_DIR.glob("*.md")):
-        if md_path.name.startswith("_"):
-            continue
-        docs.update(parse_markdown(md_path))
+    for base in _bases():
+        docs.update(parse_markdown(_resolve_lang_path(base, lang)))
     return docs
 
 
@@ -127,22 +171,25 @@ def _parse_signals_glossary(path: Path) -> dict[str, str]:
     return glossary
 
 
-def load_signals_glossary() -> dict[str, str]:
-    """Load the `_signals_glossary` section from every config_docs/*.md.
+def load_signals_glossary(lang: str = _FALLBACK_LANG) -> dict[str, str]:
+    """Load the `_signals_glossary` section from every config_docs/*.<lang>.md.
 
     Returns {signal_name: markdown_description}. Used by the
-    `WeightFamilyEditModal` to render a collapsible "信号术语速查"
-    block — only entries whose name matches a leaf in the family being
-    edited are shown, so crypto/magnitude shows `price_z_score` etc.
-    but not `sustained_drift` (which only appears in political).
+    `WeightFamilyEditModal` to render a collapsible "信号术语速查" /
+    "Signal Glossary" block — only entries whose name matches a leaf in
+    the family being edited are shown, so crypto/magnitude shows
+    `price_z_score` etc. but not `sustained_drift` (which only appears
+    in political).
+
+    Per-base fallback to zh, mirroring `load_all`.
 
     Aggregating across all files is forward-compatible: if a future doc
-    file (e.g. `mispricing.md`) adds its own `## _signals_glossary`,
-    those entries fold in. Today only `movement.md` defines one.
+    file (e.g. `mispricing.<lang>.md`) adds its own `## _signals_glossary`,
+    those entries fold in. Today only `movement.<lang>.md` defines one.
     """
+    if not lang:
+        lang = _FALLBACK_LANG
     glossary: dict[str, str] = {}
-    for md_path in sorted(_DOCS_DIR.glob("*.md")):
-        if md_path.name.startswith("_"):
-            continue
-        glossary.update(_parse_signals_glossary(md_path))
+    for base in _bases():
+        glossary.update(_parse_signals_glossary(_resolve_lang_path(base, lang)))
     return glossary

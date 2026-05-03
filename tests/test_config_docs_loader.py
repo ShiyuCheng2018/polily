@@ -53,11 +53,15 @@ shared signal definition
 
 
 def test_load_all_aggregates_all_md_files_in_config_docs(tmp_path, monkeypatch):
-    """load_all walks polily/core/config_docs/*.md (excl. _-prefix files)."""
+    """load_all walks polily/core/config_docs/*.<lang>.md (excl. _-prefix files).
+
+    v0.10.x: file naming is `<base>.<lang>.md`; bases discovered via
+    `*.zh.md` glob (zh is the canonical fallback).
+    """
     # Point loader at tmp_path
-    (tmp_path / "movement.md").write_text("## movement.magnitude_threshold\n\nfoo\n", encoding="utf-8")
-    (tmp_path / "scoring.md").write_text("## scoring.thresholds.tier_a_min_score\n\nbar\n", encoding="utf-8")
-    (tmp_path / "_helpers.md").write_text("## should_be_ignored\n\nbaz\n", encoding="utf-8")
+    (tmp_path / "movement.zh.md").write_text("## movement.magnitude_threshold\n\nfoo\n", encoding="utf-8")
+    (tmp_path / "scoring.zh.md").write_text("## scoring.thresholds.tier_a_min_score\n\nbar\n", encoding="utf-8")
+    (tmp_path / "_helpers.zh.md").write_text("## should_be_ignored\n\nbaz\n", encoding="utf-8")
 
     monkeypatch.setattr(
         "polily.core.config_docs._loader._DOCS_DIR", tmp_path,
@@ -147,7 +151,7 @@ bar description
 ### should_not_appear
 this is a sub-heading inside a regular section, not the glossary
 """
-    (tmp_path / "movement.md").write_text(md, encoding="utf-8")
+    (tmp_path / "movement.zh.md").write_text(md, encoding="utf-8")
     monkeypatch.setattr(
         "polily.core.config_docs._loader._DOCS_DIR", tmp_path,
     )
@@ -167,7 +171,7 @@ def test_load_signals_glossary_returns_empty_when_no_glossary_section(
 
 description without any glossary
 """
-    (tmp_path / "movement.md").write_text(md, encoding="utf-8")
+    (tmp_path / "movement.zh.md").write_text(md, encoding="utf-8")
     monkeypatch.setattr(
         "polily.core.config_docs._loader._DOCS_DIR", tmp_path,
     )

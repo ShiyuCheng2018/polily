@@ -21,7 +21,7 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Markdown, Static
 
-from polily.tui.i18n import t
+from polily.tui.i18n import current_language, t
 from polily.tui.icons import ICON_CONFIG
 from polily.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 from polily.tui.widgets.field_row import FieldRow
@@ -125,7 +125,10 @@ class ConfigEditModal(ModalScreen[bool | None]):
 
     def compose(self) -> ComposeResult:
         from polily.core.config_docs import load_all
-        docs = load_all()
+        # Per-language docs: read the snapshot at compose time. F2 toggles
+        # don't hot-flip an already-open modal — the user must close and
+        # reopen, which is fine since the modal is short-lived.
+        docs = load_all(current_language())
         description_md = docs.get(
             self._key_path,
             t("config_modal.no_description", key_path=self._key_path),

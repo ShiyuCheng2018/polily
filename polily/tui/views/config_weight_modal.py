@@ -34,7 +34,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll  # noqa: F40
 from textual.screen import ModalScreen
 from textual.widgets import Button, Collapsible, Input, Markdown, Static
 
-from polily.tui.i18n import t
+from polily.tui.i18n import current_language, t
 from polily.tui.icons import ICON_CONFIG
 from polily.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 from polily.tui.widgets.field_row import FieldRow
@@ -266,7 +266,9 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
         political-only). Reuses the orphan glossary section flagged by Whis.
         """
         from polily.core.config_docs._loader import load_signals_glossary
-        glossary = load_signals_glossary()
+        # Per-language glossary; same compose-time snapshot pattern as
+        # ConfigEditModal — F2 mid-modal won't hot-flip, reopen picks it up.
+        glossary = load_signals_glossary(current_language())
 
         blocks: list[str] = []
         for leaf in self._current_values:
