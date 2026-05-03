@@ -1,0 +1,24 @@
+# .envrc.example — Copy to .envrc and run `direnv allow` to activate.
+# Provides per-developer overrides so polily uses repo-local data dir
+# ($REPO_ROOT/data) instead of the v0.11.0 default
+# ~/Library/Application Support/polily.
+
+# Setup:
+#   1. Install direnv: `brew install direnv` (or your distro's package manager)
+#   2. Hook into your shell: https://direnv.net/docs/hook.html
+#   3. Copy this file: `cp .envrc.example .envrc`
+#   4. Activate: `direnv allow`
+#
+# Now `cd $REPO_ROOT` auto-loads these env vars; `cd` away auto-unloads.
+
+export POLILY_DATA_DIR="$(git rev-parse --show-toplevel)/data"
+export POLILY_LOG_DIR="$POLILY_DATA_DIR/logs"
+
+# Use a distinct launchd label so dev daemon and prod daemon coexist.
+# Without this, `polily scheduler restart` would clobber the user's
+# real ~/Library/LaunchAgents/com.polily.scheduler.plist with one
+# pointing at the dev clone's data dir.
+export POLILY_LAUNCHD_LABEL="com.polily.scheduler.dev"
+
+# Optional shell alias fallback if you don't want direnv at all:
+#   alias polily-dev='POLILY_DATA_DIR=$(pwd)/data POLILY_LAUNCHD_LABEL=com.polily.scheduler.dev .venv/bin/polily'

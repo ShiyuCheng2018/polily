@@ -31,6 +31,33 @@ polily   # launches the TUI; everything happens inside it
 
 In the TUI, paste a Polymarket event URL (looks like `https://polymarket.com/event/...`) into the **Tasks** pane. Polily fetches and scores it; from there you can add it to monitoring or open a paper trade.
 
+### Where polily stores data
+
+Starting v0.11.0, polily uses OS-standard locations:
+
+- **macOS:** `~/Library/Application Support/polily/`
+- **Linux:** `$XDG_DATA_HOME/polily` or `~/.local/share/polily/`
+
+Override with the `POLILY_DATA_DIR` env var or `polily --data-dir=PATH` CLI flag (highest priority). Logs go to `<data-dir>/logs/` by default; override with `POLILY_LOG_DIR`.
+
+### Upgrading from v0.10.x
+
+⚠ **Stop the v0.10.x daemon BEFORE upgrading.** The legacy daemon polls `./data/polily.db` (cwd-relative) every 30s; if it's still alive while v0.11.0 migrates the file, you risk a torn WAL copy or post-migration state divergence.
+
+```bash
+polily scheduler stop      # stops the running daemon
+pip install -e .            # (or pipx upgrade polily once published)
+polily                      # first launch detects legacy ./data and prompts:
+#   [polily v0.11.0] 检测到旧版数据库:
+#     /your/repo/data/polily.db
+#   polily 现在将数据保存到:
+#     /Users/you/Library/Application Support/polily/polily.db
+#   是否复制旧数据到新位置? [Y/n]: Y
+polily scheduler restart    # re-register daemon at the new path
+```
+
+A `.migrated_to_v0.11.0` marker is written so the prompt does not re-fire on subsequent launches. If you decline (N), polily starts with an empty new db; manually migrate later with `cp /repo/data/polily.db* ~/Library/Application\ Support/polily/`.
+
 ## Requirements
 
 Polily v0.8.0+ requires a [Nerd Font](https://www.nerdfonts.com/) installed
@@ -141,10 +168,26 @@ polily config reset movement.magnitude_threshold   # reset a single knob
 ## Development
 
 ```bash
-pytest tests/ -q              # ~1300 tests
+pytest tests/ -q              # ~1700 tests
 ruff check polily/ tests/    # lint
 pyright polily/              # type check
 ```
+
+### Why direnv?
+
+After v0.11.0, polily defaults data to `~/Library/Application Support/polily/` (production-like). As a developer you typically want repo-local data so:
+
+- Tests + dev sessions don't pollute your real polily data
+- Different branches can isolate state per worktree
+- Dev launchd daemon (`com.polily.scheduler.dev`) coexists with your real prod daemon
+
+```bash
+brew install direnv  # if not already installed; hook into your shell per direnv docs
+cp .envrc.example .envrc
+direnv allow
+```
+
+`cd` into the repo → env auto-loads (`POLILY_DATA_DIR=$REPO/data`, `POLILY_LAUNCHD_LABEL=com.polily.scheduler.dev`). `cd` away → unloads. Without direnv, the alias fallback in `.envrc.example`'s footer also works.
 
 See [docs/architecture.md](docs/architecture.md) for design details and [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
