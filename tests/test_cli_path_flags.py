@@ -11,12 +11,26 @@ preserved across the 4 tests.
 """
 from __future__ import annotations
 
+import re
 from unittest.mock import patch
 
 from typer.testing import CliRunner
 
 from polily.cli import app, main
 from polily.core import paths
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def _strip_ansi(s: str) -> str:
+    """Strip ANSI escape sequences so substring assertions work regardless
+    of typer/rich's color/box rendering. v0.11.0 CI fix: macOS local runs
+    typer with one terminal width, Linux CI with another — the rich-rendered
+    --help wraps option names with ANSI codes that break naive substring
+    checks (e.g. ``\\x1b[1m--\\x1b[0m\\x1b[36mdata-dir\\x1b[0m`` is NOT
+    matched by ``"--data-dir" in output``).
+    """
+    return _ANSI_RE.sub("", s)
 
 
 def _reset_paths():
@@ -47,7 +61,9 @@ def test_data_dir_flag_registered(tmp_path):
     # exit_code 0 = help shown cleanly; 2 = parse error (would be
     # "no such option: --data-dir" if the flag wasn't registered)
     assert result.exit_code == 0
-    assert "--data-dir" in result.output
+    # Strip ANSI codes — typer/rich wraps option names with color codes
+    # that break naive substring matching, especially on Linux CI.
+    assert "--data-dir" in _strip_ansi(result.output)
     _reset_paths()
 
 
