@@ -100,12 +100,25 @@ def main(
 ):
     """Polily — A Polymarket Monitoring Agent That Actually Works. Launches TUI when no subcommand given."""
     from polily.core import paths
+    flag_set_data_dir = data_dir is not None
     if data_dir is not None:
         paths.set_data_dir_override(data_dir)
     if log_dir is not None:
         paths.set_log_dir_override(log_dir)
 
     if ctx.invoked_subcommand is None:
+        # v0.11.0: first-launch migration. Must run BEFORE PolilyService()
+        # constructs the db (which would create an empty new file at
+        # paths.db_path() and defeat the migration prompt's "new path is
+        # empty" check).
+        #
+        # Whis-review S9: skip migration prompt when --data-dir is set.
+        # The user has explicitly declared intent for a specific location;
+        # asking them about legacy ./data/polily.db would be confusing.
+        if not flag_set_data_dir:
+            from polily.core.migration_v0_11_0 import prompt_and_migrate
+            prompt_and_migrate()
+
         from polily.tui.app import run_tui
         from polily.tui.service import PolilyService
         service = PolilyService()
