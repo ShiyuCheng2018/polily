@@ -73,41 +73,41 @@ DB 里的 price_params.underlying_price 是扫描时快照，可能已过时。c
 
 ## 数据位置
 
-数据库: `data/polily.db`（SQLite）
+数据库: `$POLILY_DB`（SQLite — 由调用方注入；macOS 默认 `~/Library/Application Support/polily/polily.db`）
 
 ```bash
 # 事件信息（market_type 决定分析策略）
-sqlite3 data/polily.db "SELECT * FROM events WHERE event_id='{event_id}'"
+sqlite3 "$POLILY_DB" "SELECT * FROM events WHERE event_id='{event_id}'"
 
 # 所有子市场 — 原始数据（价格、盘口、成交量）
-sqlite3 data/polily.db "SELECT market_id, question, group_item_title, yes_price, no_price, best_bid, best_ask, spread, bid_depth, ask_depth, volume, structure_score, score_breakdown FROM markets WHERE event_id='{event_id}'"
+sqlite3 "$POLILY_DB" "SELECT market_id, question, group_item_title, yes_price, no_price, best_bid, best_ask, spread, bid_depth, ask_depth, volume, structure_score, score_breakdown FROM markets WHERE event_id='{event_id}'"
 
 # 钱包全貌（现金、初始余额、累计充值/提现）
-sqlite3 data/polily.db "SELECT cash_usd, starting_balance, topup_total, withdraw_total FROM wallet WHERE id=1"
+sqlite3 "$POLILY_DB" "SELECT cash_usd, starting_balance, topup_total, withdraw_total FROM wallet WHERE id=1"
 
 # 当前事件的持仓（判断 discovery 还是 position 模式）
-sqlite3 data/polily.db "SELECT p.market_id, p.side, p.shares, p.avg_cost, p.cost_basis, p.realized_pnl, m.group_item_title, m.yes_price, m.no_price FROM positions p JOIN markets m ON p.market_id=m.market_id WHERE p.event_id='{event_id}'"
+sqlite3 "$POLILY_DB" "SELECT p.market_id, p.side, p.shares, p.avg_cost, p.cost_basis, p.realized_pnl, m.group_item_title, m.yes_price, m.no_price FROM positions p JOIN markets m ON p.market_id=m.market_id WHERE p.event_id='{event_id}'"
 
 # 所有持仓（跨 event，用于仓位集中度和相关性判断）
-sqlite3 data/polily.db "SELECT p.market_id, p.event_id, p.side, p.shares, p.avg_cost, p.cost_basis, e.title AS event_title, m.yes_price, m.no_price FROM positions p JOIN events e ON p.event_id=e.event_id JOIN markets m ON p.market_id=m.market_id"
+sqlite3 "$POLILY_DB" "SELECT p.market_id, p.event_id, p.side, p.shares, p.avg_cost, p.cost_basis, e.title AS event_title, m.yes_price, m.no_price FROM positions p JOIN events e ON p.event_id=e.event_id JOIN markets m ON p.market_id=m.market_id"
 
 # 最近 20 笔交易（排除 FEE/MIGRATION 噪声行）
-sqlite3 data/polily.db "SELECT created_at, type, market_id, side, shares, price, amount_usd, realized_pnl, balance_after FROM wallet_transactions WHERE type NOT IN ('FEE','MIGRATION') ORDER BY created_at DESC LIMIT 20"
+sqlite3 "$POLILY_DB" "SELECT created_at, type, market_id, side, shares, price, amount_usd, realized_pnl, balance_after FROM wallet_transactions WHERE type NOT IN ('FEE','MIGRATION') ORDER BY created_at DESC LIMIT 20"
 
 # 已实现 P&L 统计（SELL + RESOLVE 分别累计）
-sqlite3 data/polily.db "SELECT type, COUNT(*) AS n, SUM(realized_pnl) AS total_pnl FROM wallet_transactions WHERE type IN ('SELL','RESOLVE') GROUP BY type"
+sqlite3 "$POLILY_DB" "SELECT type, COUNT(*) AS n, SUM(realized_pnl) AS total_pnl FROM wallet_transactions WHERE type IN ('SELL','RESOLVE') GROUP BY type"
 
 # 你的历史分析
-sqlite3 data/polily.db "SELECT version, created_at, trigger_source, structure_score FROM analyses WHERE event_id='{event_id}' ORDER BY version"
+sqlite3 "$POLILY_DB" "SELECT version, created_at, trigger_source, structure_score FROM analyses WHERE event_id='{event_id}' ORDER BY version"
 
 # 异动记录
-sqlite3 data/polily.db "SELECT * FROM movement_log WHERE event_id='{event_id}' ORDER BY id DESC LIMIT 20"
+sqlite3 "$POLILY_DB" "SELECT * FROM movement_log WHERE event_id='{event_id}' ORDER BY id DESC LIMIT 20"
 
 # 所有活跃事件（发现跨域关联，比如地缘事件影响crypto价格）
-sqlite3 data/polily.db "SELECT event_id, title, market_type, volume, end_date FROM events WHERE closed = 0 ORDER BY volume DESC"
+sqlite3 "$POLILY_DB" "SELECT event_id, title, market_type, volume, end_date FROM events WHERE closed = 0 ORDER BY volume DESC"
 
 # 监控状态
-sqlite3 data/polily.db "SELECT * FROM event_monitors WHERE event_id='{event_id}'"
+sqlite3 "$POLILY_DB" "SELECT * FROM event_monitors WHERE event_id='{event_id}'"
 ```
 
 将 `{event_id}` 替换为实际值。

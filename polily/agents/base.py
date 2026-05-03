@@ -240,10 +240,25 @@ class BaseAgent:
                 "--model", self.model,
             ]
 
+        # v0.11.0: inject POLILY_DB into the subprocess env so the agent
+        # prompt's `sqlite3 "$POLILY_DB" ...` resolves to the path layer's
+        # absolute db_path() — independent of cwd, daemon WorkingDirectory,
+        # or install method (pipx / venv / dev checkout).
+        #
+        # MUST be os.environ.copy() (not a fresh dict) so the subprocess
+        # inherits HOME (claude config lookup), PATH (binary resolution),
+        # and POLILY_CLAUDE_CLI (when set by the launchd plist for daemon
+        # mode). Without inheritance, claude fails with "not logged in"
+        # or fails to locate sub-binaries.
+        from polily.core import paths as _paths
+        subproc_env = os.environ.copy()
+        subproc_env["POLILY_DB"] = str(_paths.db_path())
+
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=subproc_env,
         )
         self._current_proc = proc
         _active_pids.add(proc.pid)
