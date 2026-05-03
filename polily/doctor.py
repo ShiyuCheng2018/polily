@@ -96,11 +96,15 @@ def _section_terminal_size(console: Console) -> None:
 
 def _section_db(console: Console) -> None:
     console.rule("[bold]3. 数据库[/]")
-    db_path = Path("data/polily.db")
+    # v0.11.0: db lives at paths.db_path() — respects --data-dir /
+    # POLILY_DATA_DIR / platformdirs default. Pre-v0.11.0 this hard-coded
+    # "data/polily.db" cwd-rel path which broke under pipx install.
+    from polily.core import paths
+    db_path = paths.db_path()
     if not db_path.exists():
-        console.print("[yellow]data/polily.db 不存在[/] — 首次启动会自动创建")
+        console.print(f"[yellow]{db_path} 不存在[/] — 首次启动会自动创建")
     else:
-        console.print(f"[green]data/polily.db OK[/]  ({db_path.stat().st_size / 1024:.1f} KB)")
+        console.print(f"[green]{db_path} OK[/]  ({db_path.stat().st_size / 1024:.1f} KB)")
     console.print()
 
 

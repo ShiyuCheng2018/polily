@@ -67,6 +67,14 @@ def test_load_config_from_db_raises_on_validation_failure(polily_db):
 
 def test_load_config_from_db_runs_yaml_migration_first(tmp_path, monkeypatch):
     """Whis B3 — legacy yaml values win over Pydantic defaults on first run."""
+    # v0.11.0 (Task 7): _migrate_yaml_to_db reads from paths.data_dir() /
+    # config.yaml, not cwd. Pin POLILY_DATA_DIR so the yaml below is what
+    # the migration sees (without this it reads the dev box's real
+    # platformdirs config.yaml and the test fails with the user's prod
+    # value, e.g. 100.0).
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(
@@ -80,7 +88,9 @@ def test_load_config_from_db_runs_yaml_migration_first(tmp_path, monkeypatch):
         db.close()
 
 
-def test_load_config_from_db_atomic_migrate_then_seed_under_concurrency(tmp_path):
+def test_load_config_from_db_atomic_migrate_then_seed_under_concurrency(
+    tmp_path, monkeypatch,
+):
     """AC1 — cross-process race: process B's ensure_seeded must NOT
     interleave between process A's migrate count-check and migrate insert.
     BEGIN IMMEDIATE serializes them so user yaml customization wins.
@@ -97,6 +107,14 @@ def test_load_config_from_db_atomic_migrate_then_seed_under_concurrency(tmp_path
     upgrade scenario where the db file already exists from v0.9.x and
     only the new `config` table needs to be populated.
     """
+    # v0.11.0 (Task 7): pin POLILY_DATA_DIR so the migration reads the
+    # tmp_path/config.yaml below instead of the dev box's real platformdirs
+    # config.yaml. Without this, all 4 threads observe the dev's prod
+    # starting_balance (typically 100.0) and the AC1 race assertion masks.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
+
     db_path = tmp_path / "polily.db"
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(

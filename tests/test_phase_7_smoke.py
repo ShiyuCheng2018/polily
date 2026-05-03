@@ -21,10 +21,11 @@ from typer.testing import CliRunner
 
 
 def test_phase_7_full_happy_path(tmp_path, monkeypatch):
-    # v0.11.0 Pattern B (additive): chdir kept for pre-Task-7 yaml regen
-    # (cwd-relative Path("config.yaml")); env added for db path resolution
-    # via paths.db_path(). Task 7 will move yaml regen to paths.data_dir()
-    # and this test will need its yaml assertion target re-pointed.
+    # v0.11.0 (Task 7 done): yaml regen + db path both resolve via paths
+    # module. Since POLILY_DATA_DIR == tmp_path, the existing yaml_path
+    # = Path("config.yaml") assertion below still works because cwd ==
+    # tmp_path == data_dir. chdir kept additively per Whis-review S8 to
+    # avoid churn until Task 8.
     from polily.core import paths
     paths.set_data_dir_override(None)
     monkeypatch.chdir(tmp_path)

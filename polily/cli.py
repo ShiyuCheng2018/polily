@@ -13,13 +13,19 @@ app = typer.Typer(help="Polily — A Polymarket Monitoring Agent That Actually W
 
 
 def _regenerate_yaml_snapshot(config) -> None:
-    """Overwrite config.yaml with a fresh snapshot from the loaded PolilyConfig.
+    """Overwrite ``<data_dir>/config.yaml`` with a fresh snapshot from
+    the loaded PolilyConfig.
 
     Best-effort: log + continue if disk is read-only or parent dir missing.
     yaml is a debug snapshot, not load-bearing — runtime works without it.
+
+    v0.11.0: yaml lives at ``paths.data_dir() / 'config.yaml'``, NOT cwd.
+    Pre-v0.11.0 used ``Path('config.yaml')`` which broke under pipx
+    installs (cwd is wherever the user happened to invoke polily from).
     """
+    from polily.core import paths
     from polily.core.config_yaml import generate_yaml
-    target = Path("config.yaml")
+    target = paths.data_dir() / "config.yaml"
     try:
         generate_yaml(config, target)
     except OSError as e:
@@ -443,27 +449,34 @@ def reset(
         )
         return
 
+    # v0.11.0: paths resolved via paths.db_path() / paths.log_dir() so
+    # this respects --data-dir / --log-dir / POLILY_DATA_DIR / env. Pre-
+    # v0.11.0 used hardcoded "data/..." cwd-relative strings — broke under
+    # pipx installs. Whis-review S5 — agent_debug.log is enumerated under
+    # log_dir explicitly (not cwd).
+    from polily.core import paths
+    db = paths.db_path()
+    log_root = paths.log_dir()
     targets = [
-        ("data/polily.db", "Database"),
-        ("data/polily.db-shm", "WAL shared memory"),
-        ("data/polily.db-wal", "WAL log"),
-        ("data/poll.log", "Poll log (legacy path, pre-0.6.0)"),
-        ("data/agent_debug.log", "Agent debug log"),
+        (db, "Database"),
+        (Path(str(db) + "-shm"), "WAL shared memory"),
+        (Path(str(db) + "-wal"), "WAL log"),
+        (paths.data_dir() / "poll.log", "Poll log (legacy path, pre-0.6.0)"),
+        (log_root / "agent_debug.log", "Agent debug log"),
     ]
-    # Also clear rotated per-restart poll logs under data/logs/.
-    log_dir = Path("data/logs")
+    # Also clear rotated per-restart poll logs under <log_dir>/.
     rotated_poll_logs = (
-        sorted(log_dir.glob("poll-v*.log")) if log_dir.exists() else []
+        sorted(log_root.glob("poll-v*.log")) if log_root.exists() else []
     )
 
     if not confirm:
         console.print("[yellow]Will delete the following data:[/yellow]")
         for path, label in targets:
-            exists = "Y" if Path(path).exists() else "-"
+            exists = "Y" if path.exists() else "-"
             console.print(f"  {exists} {path} ({label})")
         if rotated_poll_logs:
             console.print(
-                f"  Y data/logs/poll-v*.log ({len(rotated_poll_logs)} rotated "
+                f"  Y {log_root}/poll-v*.log ({len(rotated_poll_logs)} rotated "
                 "poll logs)"
             )
         console.print()
@@ -476,9 +489,8 @@ def reset(
 
     deleted = 0
     for path, _label in targets:
-        p = Path(path)
-        if p.exists():
-            p.unlink()
+        if path.exists():
+            path.unlink()
             deleted += 1
     for p in rotated_poll_logs:
         if p.exists():

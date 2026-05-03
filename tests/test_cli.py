@@ -101,10 +101,12 @@ def test_main_callback_regenerates_yaml_on_tui_launch(tmp_path, monkeypatch):
     (the other is daemon startup, T3.3)."""
     from polily.core import paths
 
-    # v0.11.0: Pattern B (additive) — chdir kept for pre-Task-7 yaml regen
-    # which still uses cwd-relative Path("config.yaml"); env added for db.
-    # Task 7 will move yaml regen to paths.data_dir() and this test will
-    # need its yaml assertion target switched to paths.data_dir() / "config.yaml".
+    # v0.11.0 (Task 7 done): yaml regen now writes to paths.data_dir() /
+    # config.yaml. Since POLILY_DATA_DIR == tmp_path, the assertion at
+    # `tmp_path / "config.yaml"` continues to hold. chdir is kept as
+    # belt-and-suspenders — production code is now env-driven, but
+    # leaving chdir matches Whis-review S8's "additive over replace"
+    # discipline (don't churn tests until Task 8 audits them holistically).
     paths.set_data_dir_override(None)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
@@ -144,8 +146,10 @@ def test_run_scheduler_regenerates_yaml(tmp_path, monkeypatch):
     """
     from polily.core import paths
 
-    # v0.11.0: Pattern B (additive) — chdir kept for pre-Task-7 yaml regen
-    # (cwd-relative Path("config.yaml")); env added for db path resolution.
+    # v0.11.0 (Task 7 done): daemon yaml regen now goes to paths.data_dir()
+    # / config.yaml. Since POLILY_DATA_DIR == tmp_path, assertion below at
+    # `tmp_path / "config.yaml"` remains correct. chdir kept additively
+    # per Whis-review S8.
     paths.set_data_dir_override(None)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))

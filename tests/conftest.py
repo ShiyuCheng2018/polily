@@ -93,19 +93,27 @@ def _isolate_poll_log(monkeypatch):
 def polily_db(tmp_path, monkeypatch):
     """Provide a PolilyDB in a temp directory that auto-cleans up.
 
-    chdir to tmp_path BEFORE constructing PolilyDB so the v0.10.0
-    yaml→db migration (which reads `os.getcwd()/config.yaml` to import
-    pre-v0.10.0 user customizations) doesn't pull in the dev box's
-    production config snapshot. Without this, any developer who has
-    edited config via the TUI sees their custom values bleed into
-    every test that uses this fixture, surfacing as confusing
-    AssertionErrors like "magnitude_threshold == 70" failing because
-    the dev's prod yaml has 55.
+    Pre-v0.11.0 the yaml→db migration read ``os.getcwd()/config.yaml``,
+    so chdir alone was sufficient isolation. v0.11.0 (Task 7) moved the
+    read to ``paths.data_dir() / config.yaml`` which resolves via env.
+    To keep the same isolation contract, the fixture now ALSO sets
+    ``POLILY_DATA_DIR=tmp_path`` (additive — chdir kept per Whis-review
+    S8 so any test that still does cwd-rel assertions on yaml continues
+    to pass).
+
+    Without the env line, the migration would pull in the dev box's
+    real platformdirs ``config.yaml`` and bleed custom values (e.g.
+    ``magnitude_threshold == 55`` instead of the Pydantic default 70)
+    into every fixture user.
     """
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     db = PolilyDB(tmp_path / "polily.db")
     yield db
     db.close()
+    paths.set_data_dir_override(None)
 
 
 def make_market(**overrides) -> Market:
