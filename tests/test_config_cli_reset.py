@@ -25,7 +25,22 @@ Fix:
 """
 from __future__ import annotations
 
+import pytest
 from typer.testing import CliRunner
+
+
+@pytest.fixture(autouse=True)
+def _isolate_data_dir(tmp_path, monkeypatch):
+    """v0.11.0 SAFETY — env-isolate paths so reset CLI doesn't touch the
+    real ``~/Library/Application Support/polily/polily.db``. Without this
+    fixture, ``polily config reset --all --yes`` resolves
+    ``default_db_path()`` → real platformdirs path and DELETEs the user's
+    config table mid-test. Pattern A migration."""
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
+    yield
+    paths.set_data_dir_override(None)
 
 
 def test_reset_all_is_atomic_on_seed_failure(tmp_path, monkeypatch):
@@ -33,11 +48,9 @@ def test_reset_all_is_atomic_on_seed_failure(tmp_path, monkeypatch):
     rolled back so config is not left empty — otherwise a daemon poll
     tick concurrent with the failed reset operates on no config rows.
     """
-    monkeypatch.chdir(tmp_path)
     from polily.core.config_store import load_all, upsert
     from polily.core.db import PolilyDB
-    db_path = tmp_path / "data" / "polily.db"
-    db_path.parent.mkdir(exist_ok=True)
+    db_path = tmp_path / "polily.db"
     db = PolilyDB(db_path)
     upsert(db, "movement.magnitude_threshold", 50)
     upsert(db, "wallet.starting_balance", 200.0)
@@ -70,15 +83,13 @@ def test_reset_all_is_atomic_on_seed_failure(tmp_path, monkeypatch):
     )
 
 
-def test_reset_all_prints_restart_hint(tmp_path, monkeypatch):
+def test_reset_all_prints_restart_hint(tmp_path):
     """After successful --all reset, output must remind user to restart
     the daemon so its in-memory config snapshot picks up the new values.
     """
-    monkeypatch.chdir(tmp_path)
     from polily.core.config_store import upsert
     from polily.core.db import PolilyDB
-    db_path = tmp_path / "data" / "polily.db"
-    db_path.parent.mkdir(exist_ok=True)
+    db_path = tmp_path / "polily.db"
     db = PolilyDB(db_path)
     upsert(db, "movement.magnitude_threshold", 50)
     db.close()

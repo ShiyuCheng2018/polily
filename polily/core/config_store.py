@@ -429,7 +429,12 @@ def _migrate_yaml_to_db(db) -> MigrationStatus:
         _set_last_migration_status(status)
         return status
 
-    yaml_path = Path("config.yaml")
+    # v0.11.0: yaml lives next to the db at paths.data_dir() / config.yaml.
+    # Pre-v0.11.0 used cwd-rel Path("config.yaml") — fragile under pipx
+    # where the user's cwd at invocation has nothing to do with their
+    # polily data. Lazy import to avoid circular (paths is leaf).
+    from polily.core import paths
+    yaml_path = paths.data_dir() / "config.yaml"
     if not yaml_path.exists():
         status = ("skipped_no_yaml",)
         _set_last_migration_status(status)

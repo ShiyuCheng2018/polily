@@ -12,10 +12,17 @@ from polily.tui.service import PolilyService
 
 @pytest.fixture
 def service(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    svc = PolilyService()
-    yield svc
-    svc.db.close()
+    # v0.11.0 Pattern A: env-only migration; default_db_path() now uses
+    # paths.db_path() driven by POLILY_DATA_DIR.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
+    try:
+        svc = PolilyService()
+        yield svc
+        svc.db.close()
+    finally:
+        paths.set_data_dir_override(None)
 
 
 def _add_event(service, event_id: str, *, closed: bool, auto_monitor: bool) -> None:

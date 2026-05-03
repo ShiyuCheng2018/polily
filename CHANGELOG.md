@@ -10,6 +10,58 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-05-04
+
+### BREAKING
+
+- **Default data location moved to OS-standard path.** Pre-v0.11.0, polily wrote `data/polily.db` (and logs, yaml snapshot) relative to the directory polily was launched from — convenient for dev, but broken for any non-developer install (`pipx`, Homebrew, binary). v0.11.0 resolves all paths via the new `polily.core.paths` module:
+    - **macOS:** `~/Library/Application Support/polily/`
+    - **Linux:** `$XDG_DATA_HOME/polily` or `~/.local/share/polily/`
+    - Override with `POLILY_DATA_DIR=...` env var or `polily --data-dir=...` CLI flag (highest priority).
+- **Logs colocated with data by default.** `paths.log_dir()` is `data_dir()/logs` unless `POLILY_LOG_DIR` is set. Single env var (`POLILY_DATA_DIR`) controls everything.
+- **Launchd plist Label is now env-overridable.** `POLILY_LAUNCHD_LABEL` defaults to `com.polily.scheduler` (matches v0.10.x); set to `com.polily.scheduler.dev` for dev daemons that must coexist with prod.
+- **`archiving.db_file` Pydantic config knob is now informational-only.** Pre-v0.11.0 the `default_db_path()` function read this knob's Pydantic default. Now it delegates to `paths.db_path()`. The knob remains in the schema for forward compat (HIDDEN_IN_TUI per Whis SF11) but no production code path reads it.
+- **`agent_feedback.log` + `agent_debug.log` paths use paths module.** Pre-v0.11.0 these wrote to `os.getcwd()+"data/logs"` (import-time captured `_DEBUG_DIR`). Now `paths.log_dir()`. Old logs at the cwd-relative path are not migrated; users keep them where they are.
+- **Agent prompt uses `$POLILY_DB` env var.** `polily/agents/prompts/narrative_writer.md`'s 11 `sqlite3 data/polily.db` invocations now read `sqlite3 "$POLILY_DB"`. The claude CLI subprocess inherits `POLILY_DB=str(paths.db_path())` from the parent.
+- **Daemon poll log file at `paths.log_dir()/poll-v<version>-<TS>.log`.** Pre-v0.11.0 `polily/daemon/poll_job.py` computed `Path(__file__).resolve().parent.parent.parent / "data" / "logs"` which would crash on pipx-installed daemons (site-packages is read-only).
+
+### Migration guide
+
+⚠ **Pre-flight: stop the v0.10.x daemon before upgrading.** The daemon polls `./data/polily.db` every 30s; if it's still alive while v0.11.0 migrates the file, you risk a torn WAL copy or post-migration state divergence. Run `polily scheduler stop` BEFORE `pip install`.
+
+On first launch, v0.11.0 detects `./data/polily.db` (your legacy install) and prompts:
+
+```
+[polily v0.11.0] 检测到旧版数据库:
+  /your/repo/data/polily.db
+polily 现在将数据保存到:
+  /Users/you/Library/Application Support/polily/polily.db
+是否复制旧数据到新位置? [Y/n]:
+```
+
+Press Enter (default Y) to copy your wallet, monitored events, and analysis history. The legacy file is left untouched; a `.migrated_to_v0.11.0` marker prevents re-prompts on subsequent launches.
+
+If the migration partially fails (e.g., disk full mid-WAL-copy), polily cleans up the partial copy at the new path so you can retry on next launch — the marker is NOT written until copy succeeds.
+
+If you decline (N), polily starts with an empty new db. Manual migration later: `cp /your/repo/data/polily.db* ~/Library/Application\ Support/polily/`.
+
+After migration: `polily scheduler restart` to re-register the daemon at the new path.
+
+### Added
+
+- **`polily.core.paths` module — single source of truth for all on-disk paths.** Three-layer resolver (CLI flag > env var > platformdirs default), lazy mkdir, env-overridable launchd label. Public API: `data_dir()`, `log_dir()`, `db_path()`, `agent_feedback_log()`, `agent_debug_log()`, `launchd_label()`, `launchd_plist_path()`, `legacy_data_dir()`, `legacy_db_path()`, `set_data_dir_override(p)`, `set_log_dir_override(p)`.
+- **CLI flags `--data-dir` and `--log-dir`** at the top level (`polily`, `polily scheduler run`, `polily reset`). Flags override the env-var tier. Useful for ad-hoc tests like `polily --data-dir=/tmp/test ...`. When `--data-dir` is set, the v0.11.0 first-launch migration prompt is automatically skipped (user has declared intent).
+- **`.envrc.example` for direnv users.** Activate repo-local data dir + dev launchd label with `cp .envrc.example .envrc && direnv allow`. README "Development" section documents the workflow.
+- **First-launch v0.10.x → v0.11.0 migration prompt.** New `polily.core.migration_v0_11_0` module + TUI bootstrap integration. Daemon launchd context never auto-migrates (interactive contexts only). Marker file suppresses re-prompts. Partial-copy failures auto-cleanup so retry works.
+- **`platformdirs>=4.0,<5.0` dependency.** Standard library substitute for OS-specific path conventions.
+
+### Internal
+
+- **Test fixture `polily_db` is now additive (chdir + setenv).** Per Whis-review S8, keeps backward compat with cwd-asserting tests AND drives the new env-based resolver. No tests broke during migration.
+- **Launchd plist `EnvironmentVariables` propagates `POLILY_DATA_DIR` (always) and `POLILY_LOG_DIR` (when explicitly set)** so the daemon's path resolution agrees with the parent process that registered the plist.
+- **Defense-in-depth `_block_real_launchd_writes` autouse fixture in `tests/conftest.py`** redirects `Path.home()` to a per-test sandbox. Prevents tests from writing the user's real `~/Library/LaunchAgents/com.polily.scheduler.plist` even if a test path bypasses explicit mocks. Caught a pre-existing latent bug in `test_reset_modal_sigterms_daemon_before_reset` that did not mock `restart_daemon`.
+- **Cross-platform: Linux XDG paths verified via platformdirs mock test** (`tests/test_paths_linux_xdg.py`). Real-Linux CI runner is a follow-up (separate PR / v0.11.x).
+
 ## [0.10.1] — 2026-05-02
 
 ### Fixed
@@ -555,7 +607,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.10.1...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.0...dev
+[0.11.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.0
 [0.10.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.10.1
 [0.10.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.10.0
 [0.9.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.9.5

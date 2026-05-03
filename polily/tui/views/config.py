@@ -790,7 +790,6 @@ class ConfigView(Widget):
         worker B's thread fires a second subprocess.
         """
         import contextlib
-        from pathlib import Path
 
         from polily.core.config_yaml import generate_yaml
 
@@ -806,8 +805,12 @@ class ConfigView(Widget):
         # Step 1: regenerate yaml so disk reflects current db state.
         # best-effort — yaml is a snapshot, not load-bearing. Fast,
         # safe to run on the main thread.
+        # v0.11.0 (Whis-review S4): yaml lives at paths.data_dir() /
+        # config.yaml, NOT cwd. Same target as cli.py's
+        # _regenerate_yaml_snapshot so all yaml regen paths agree.
+        from polily.core import paths
         with contextlib.suppress(Exception):
-            generate_yaml(self.service.config, Path("config.yaml"))
+            generate_yaml(self.service.config, paths.data_dir() / "config.yaml")
 
         # Step 2 + 3: subprocess + UI follow-up run on a worker thread so
         # the event loop stays responsive even if `polily scheduler

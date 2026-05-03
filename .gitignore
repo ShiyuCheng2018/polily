@@ -25,6 +25,9 @@ data/
 
 # Environment
 .env*
+# v0.11.0 — .envrc.example is a dev-workflow template that must be in git;
+# .envrc itself stays ignored via .env* above
+!.envrc.example
 
 # Internal docs (not for public repo)
 companion-note.md

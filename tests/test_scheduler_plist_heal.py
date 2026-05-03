@@ -30,11 +30,25 @@ def _neutralize_which(monkeypatch):
 
 @pytest.fixture
 def tmp_plist_path(tmp_path, monkeypatch):
-    path = tmp_path / "com.polily.scheduler.plist"
-    monkeypatch.setattr(sched, "PLIST_PATH", path)
-    # Align Path.cwd() with tmp_path so generate_launchd_plist produces
-    # deterministic WorkingDirectory content across the fixture + test.
-    monkeypatch.chdir(tmp_path)
+    """v0.11.0: redirect plist resolution to tmp_path via Path.home() +
+    POLILY_LAUNCHD_LABEL override. Pre-fix this used
+    `monkeypatch.setattr(sched, "PLIST_PATH", ...)` which now silently
+    no-ops because production uses `_plist_path()` live — without this
+    fixture migration, the tests would mutate the user's real
+    ~/Library/LaunchAgents/com.polily.scheduler.plist.
+    """
+    from pathlib import Path
+    monkeypatch.setenv("POLILY_LAUNCHD_LABEL", "com.polily.scheduler.test")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    plist_dir = tmp_path / "Library" / "LaunchAgents"
+    plist_dir.mkdir(parents=True, exist_ok=True)
+    path = plist_dir / "com.polily.scheduler.test.plist"
+    # Align POLILY_DATA_DIR with tmp_path so generate_launchd_plist
+    # produces deterministic WorkingDirectory content (paths.data_dir()
+    # resolves there) across the fixture + test.
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path / "data"))
+    from polily.core import paths
+    paths.set_data_dir_override(None)
     return path
 
 
@@ -63,7 +77,11 @@ def test_matching_plist_skips_regen(tmp_plist_path):
     """If the on-disk plist already matches what the current code would
     generate AND daemon is running, ensure_daemon_running bails out
     without touching launchctl (normal happy path)."""
-    fresh_plist = sched.generate_launchd_plist(working_dir=str(tmp_plist_path.parent))
+    # v0.11.0: pre-write the plist using the same working_dir resolution
+    # that `ensure_daemon_running` uses (paths.data_dir(), NOT cwd).
+    fresh_plist = sched.generate_launchd_plist(
+        working_dir=sched._resolve_plist_working_dir(),
+    )
     tmp_plist_path.write_bytes(fresh_plist)
 
     with patch.object(sched, "is_daemon_running", return_value=True), \
@@ -77,7 +95,11 @@ def test_matching_plist_skips_regen(tmp_plist_path):
 def test_plist_embeds_injected_claude_cli(tmp_path):
     """When caller passes claude_cli, plist EnvironmentVariables must include
     POLILY_CLAUDE_CLI=<that path>. This is the core contract that lets the
-    launchd-spawned daemon find claude CLI no matter where nvm/brew put it."""
+    launchd-spawned daemon find claude CLI no matter where nvm/brew put it.
+
+    v0.11.0: plist also carries POLILY_DATA_DIR (always) — added to the
+    expected key set.
+    """
     fake_claude = "/opt/homebrew/bin/claude"
     plist_bytes = sched.generate_launchd_plist(
         working_dir=str(tmp_path),
@@ -89,7 +111,7 @@ def test_plist_embeds_injected_claude_cli(tmp_path):
     env = parsed["EnvironmentVariables"]
     # Exact key set — future code adding an env key should force a
     # deliberate test update, not silently change the contract.
-    assert set(env.keys()) == {"PATH", "POLILY_CLAUDE_CLI"}
+    assert set(env.keys()) == {"PATH", "POLILY_CLAUDE_CLI", "POLILY_DATA_DIR"}
     assert env["POLILY_CLAUDE_CLI"] == fake_claude
     assert env["PATH"] == "/usr/local/bin:/usr/bin:/bin"
 
@@ -99,19 +121,25 @@ def test_plist_omits_claude_cli_when_unresolved(tmp_path):
     fixture mocks this), plist must still generate successfully but without
     POLILY_CLAUDE_CLI. BaseAgent falls back to bare 'claude' at runtime;
     the narrator job fails with a sensible error in scan_logs. This keeps
-    first-run onboarding from crashing the daemon before user installs claude."""
+    first-run onboarding from crashing the daemon before user installs claude.
+
+    v0.11.0: POLILY_DATA_DIR is always present.
+    """
     plist_bytes = sched.generate_launchd_plist(working_dir=str(tmp_path))
     import plistlib
     parsed = plistlib.loads(plist_bytes)
     env = parsed["EnvironmentVariables"]
-    assert set(env.keys()) == {"PATH"}  # no POLILY_CLAUDE_CLI, no extras
+    assert set(env.keys()) == {"PATH", "POLILY_DATA_DIR"}  # no POLILY_CLAUDE_CLI, no extras
 
 
 def test_plist_auto_resolves_when_caller_omits_claude_cli(tmp_path, monkeypatch):
     """Default behavior: shutil.which runs in caller's env. Override the
     module's autouse None-mock locally to return a concrete path so we
     exercise the real code path that `ensure_daemon_running` hits —
-    no injection, shutil.which finds it, plist gets the env var."""
+    no injection, shutil.which finds it, plist gets the env var.
+
+    v0.11.0: POLILY_DATA_DIR is always present.
+    """
     monkeypatch.setattr(
         "shutil.which",
         lambda name, *a, **kw: "/Users/x/.nvm/bin/claude" if name == "claude" else None,
@@ -120,7 +148,7 @@ def test_plist_auto_resolves_when_caller_omits_claude_cli(tmp_path, monkeypatch)
     import plistlib
     parsed = plistlib.loads(plist_bytes)
     env = parsed["EnvironmentVariables"]
-    assert set(env.keys()) == {"PATH", "POLILY_CLAUDE_CLI"}
+    assert set(env.keys()) == {"PATH", "POLILY_CLAUDE_CLI", "POLILY_DATA_DIR"}
     assert env["POLILY_CLAUDE_CLI"] == "/Users/x/.nvm/bin/claude"
 
 
@@ -133,9 +161,11 @@ def test_claude_cli_only_drift_does_not_reload_daemon(tmp_plist_path):
     Meanwhile BaseAgent's dangling-path check handles the stale-env
     case at narrator-invocation time.
     """
-    # Seed disk with a "v1" plist containing path A
+    # Seed disk with a "v1" plist containing path A. Use the same
+    # working_dir resolution ensure_daemon_running uses, so the only
+    # diff between v1 and v2 is the claude_cli value.
     v1 = sched.generate_launchd_plist(
-        working_dir=str(tmp_plist_path.parent),
+        working_dir=sched._resolve_plist_working_dir(),
         claude_cli="/old/nvm/bin/claude",
     )
     tmp_plist_path.write_bytes(v1)
@@ -255,7 +285,7 @@ def test_v090_plist_migration_triggers_reload(tmp_plist_path):
     import plistlib
     # v0.9.0-era plist: has PATH but no POLILY_CLAUDE_CLI
     v090_plist = plistlib.dumps({
-        "Label": sched.PLIST_LABEL,
+        "Label": sched._plist_label(),
         "ProgramArguments": [sys.executable, "-m", "polily.cli", "scheduler", "run"],
         "WorkingDirectory": str(tmp_plist_path.parent),
         "KeepAlive": {"SuccessfulExit": False},

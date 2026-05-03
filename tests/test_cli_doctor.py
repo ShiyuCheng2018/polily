@@ -35,12 +35,25 @@ def test_doctor_reports_daemon_claude_path_from_plist(
 ):
     """`polily doctor` must show what claude path the daemon will see,
     parsed from the installed plist. Lets the user one-command verify
-    the v0.9.1 fix landed on their box."""
+    the v0.9.1 fix landed on their box.
+
+    v0.11.0 migration (Whis NI1): redirect `Path.home()` to tmp_path
+    plus override the launchd label so doctor's `_plist_path()` resolves
+    under tmp_path/Library/LaunchAgents/<test-label>.plist. Pre-fix
+    `monkeypatch.setattr(doctor_mod, "PLIST_PATH", ...)` silently no-op'd
+    because doctor now reads `_plist_path()` live — so the test passed
+    against the user's REAL plist, leaking implementation details.
+    """
     import plistlib
+    from pathlib import Path
 
     from polily import doctor as doctor_mod
 
-    fake_plist = tmp_path / "com.polily.scheduler.plist"
+    monkeypatch.setenv("POLILY_LAUNCHD_LABEL", "com.polily.scheduler.test")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    plist_dir = tmp_path / "Library" / "LaunchAgents"
+    plist_dir.mkdir(parents=True, exist_ok=True)
+    fake_plist = plist_dir / "com.polily.scheduler.test.plist"
     fake_plist.write_bytes(plistlib.dumps({
         "Label": "com.polily.scheduler",
         "EnvironmentVariables": {
@@ -48,7 +61,6 @@ def test_doctor_reports_daemon_claude_path_from_plist(
             "POLILY_CLAUDE_CLI": "/Users/x/.nvm/versions/node/v20.19.6/bin/claude",
         },
     }))
-    monkeypatch.setattr(doctor_mod, "PLIST_PATH", fake_plist)
 
     from rich.console import Console
     console = Console(force_terminal=False, width=120)
@@ -64,17 +76,24 @@ def test_doctor_warns_when_plist_missing_claude_cli_var(
 ):
     """If the on-disk plist lacks POLILY_CLAUDE_CLI (stale plist from
     pre-v0.9.1), doctor should say so — tells the user to re-run
-    `polily scheduler restart` to pick up the v0.9.1 fix."""
+    `polily scheduler restart` to pick up the v0.9.1 fix.
+
+    v0.11.0 migration (Whis NI1): see sibling test for rationale.
+    """
     import plistlib
+    from pathlib import Path
 
     from polily import doctor as doctor_mod
 
-    fake_plist = tmp_path / "com.polily.scheduler.plist"
+    monkeypatch.setenv("POLILY_LAUNCHD_LABEL", "com.polily.scheduler.test")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    plist_dir = tmp_path / "Library" / "LaunchAgents"
+    plist_dir.mkdir(parents=True, exist_ok=True)
+    fake_plist = plist_dir / "com.polily.scheduler.test.plist"
     fake_plist.write_bytes(plistlib.dumps({
         "Label": "com.polily.scheduler",
         "EnvironmentVariables": {"PATH": "/usr/local/bin:/usr/bin:/bin"},
     }))
-    monkeypatch.setattr(doctor_mod, "PLIST_PATH", fake_plist)
 
     from rich.console import Console
     console = Console(force_terminal=False, width=120)
@@ -85,9 +104,11 @@ def test_doctor_warns_when_plist_missing_claude_cli_var(
 
 
 def test_doctor_plist_path_matches_scheduler_plist_path():
-    """polily/doctor.py duplicates PLIST_PATH to keep its import graph
-    light. Guarantee the two definitions stay in sync — if this test
-    fails, update both or centralize the constant in a light module."""
+    """v0.11.0: both modules' `_plist_path()` helpers delegate to
+    `paths.launchd_plist_path()`, so they're guaranteed equal at any
+    given moment. Keep this assertion as a smoke test that the
+    delegation didn't accidentally diverge (e.g. one side hardcoding
+    a label)."""
     from polily import doctor as doctor_mod
     from polily.daemon import scheduler as sched_mod
-    assert doctor_mod.PLIST_PATH == sched_mod.PLIST_PATH
+    assert doctor_mod._plist_path() == sched_mod._plist_path()

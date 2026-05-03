@@ -112,11 +112,18 @@ def test_cli_reset_wallet_only_end_to_end(tmp_path, monkeypatch):
     from typer.testing import CliRunner
 
     from polily import cli
+    from polily.core import paths
 
-    # Seed a DB at a known path + inject some state to be wiped. We seed a
-    # position directly (not via paper_trades migration) so that the second
-    # PolilyDB() opened inside the CLI doesn't re-run aggregation and conflict
-    # with the existing position row.
+    # v0.11.0: CLI reset path now uses default_db_path() → paths.db_path()
+    # instead of cfg.archiving.db_file. Set POLILY_DATA_DIR so the path
+    # resolves to our tmp dir.
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
+
+    # Seed a DB at the env-resolved path + inject some state to be wiped.
+    # We seed a position directly (not via paper_trades migration) so that
+    # the second PolilyDB() opened inside the CLI doesn't re-run
+    # aggregation and conflict with the existing position row.
     db_path = tmp_path / "polily.db"
     db = PolilyDB(db_path)
     _seed_event_and_market(db)
@@ -128,25 +135,29 @@ def test_cli_reset_wallet_only_end_to_end(tmp_path, monkeypatch):
     db.conn.commit()
     db.close()
 
-    # Stub config loader so the CLI targets our tmp DB + a known balance.
+    # Stub config loader so the CLI targets a known starting_balance. Note:
+    # archiving.db_file on fake_cfg is now informational; the actual path
+    # resolution goes through default_db_path() → POLILY_DATA_DIR env above.
     fake_cfg = MagicMock()
     fake_cfg.wallet.starting_balance = 123.0
-    fake_cfg.archiving.db_file = str(db_path)
     monkeypatch.setattr(cli, "_load_user_config", lambda: fake_cfg)
     # No daemon in tests.
     monkeypatch.setattr(cli, "_stop_daemon_if_running", lambda: None)
 
-    runner = CliRunner()
-    result = runner.invoke(cli.app, ["reset", "--wallet-only", "-y"])
-    assert result.exit_code == 0, result.output
-    assert "Wallet reset to $123.0" in result.output
+    try:
+        runner = CliRunner()
+        result = runner.invoke(cli.app, ["reset", "--wallet-only", "-y"])
+        assert result.exit_code == 0, result.output
+        assert "Wallet reset to $123.0" in result.output
 
-    # Verify the wipe + re-seed actually happened in the DB.
-    db2 = PolilyDB(db_path)
-    assert db2.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 0
-    assert db2.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
-    row = db2.conn.execute("SELECT cash_usd FROM wallet WHERE id=1").fetchone()
-    assert row["cash_usd"] == 123.0
+        # Verify the wipe + re-seed actually happened in the DB.
+        db2 = PolilyDB(db_path)
+        assert db2.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 0
+        assert db2.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
+        row = db2.conn.execute("SELECT cash_usd FROM wallet WHERE id=1").fetchone()
+        assert row["cash_usd"] == 123.0
+    finally:
+        paths.set_data_dir_override(None)
 
 
 def test_cli_reset_wallet_only_stops_daemon(tmp_path, monkeypatch):
@@ -157,22 +168,37 @@ def test_cli_reset_wallet_only_stops_daemon(tmp_path, monkeypatch):
     from typer.testing import CliRunner
 
     from polily import cli
+    from polily.core import paths
+
+    # v0.11.0 SAFETY — env-isolate paths so reset CLI doesn't touch the
+    # real ``~/Library/Application Support/polily/polily.db``. Without this,
+    # ``polily reset --wallet-only -y`` resolves default_db_path() → real
+    # platformdirs path and DELETEs from the user's positions /
+    # wallet_transactions tables mid-test.
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
 
     db_path = tmp_path / "polily.db"
     PolilyDB(db_path).close()  # init schema + wallet singleton
 
+    # Stub config loader so the CLI sees a known starting_balance. Note:
+    # archiving.db_file on fake_cfg is no longer read by the CLI (v0.11.0);
+    # path resolution goes through default_db_path() → POLILY_DATA_DIR
+    # env above.
     fake_cfg = MagicMock()
     fake_cfg.wallet.starting_balance = 100.0
-    fake_cfg.archiving.db_file = str(db_path)
     monkeypatch.setattr(cli, "_load_user_config", lambda: fake_cfg)
 
     stop_spy = MagicMock()
     monkeypatch.setattr(cli, "_stop_daemon_if_running", stop_spy)
 
-    runner = CliRunner()
-    result = runner.invoke(cli.app, ["reset", "--wallet-only", "-y"])
-    assert result.exit_code == 0, result.output
-    stop_spy.assert_called_once()
+    try:
+        runner = CliRunner()
+        result = runner.invoke(cli.app, ["reset", "--wallet-only", "-y"])
+        assert result.exit_code == 0, result.output
+        stop_spy.assert_called_once()
+    finally:
+        paths.set_data_dir_override(None)
 
 
 def test_cli_reset_wallet_only_cancelled_does_nothing(tmp_path, monkeypatch):
@@ -182,6 +208,13 @@ def test_cli_reset_wallet_only_cancelled_does_nothing(tmp_path, monkeypatch):
     from typer.testing import CliRunner
 
     from polily import cli
+    from polily.core import paths
+
+    # v0.11.0 SAFETY (defensive) — cancel path is functionally safe (user 'n'
+    # = no DB op), but env-isolating defends against future code changes that
+    # could move work above the confirm prompt.
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
 
     db_path = tmp_path / "polily.db"
     db = PolilyDB(db_path)
@@ -194,20 +227,24 @@ def test_cli_reset_wallet_only_cancelled_does_nothing(tmp_path, monkeypatch):
     db.conn.commit()
     db.close()
 
+    # Stub config loader — archiving.db_file on fake_cfg is no longer read
+    # by the CLI (v0.11.0); path resolution goes through env above.
     fake_cfg = MagicMock()
     fake_cfg.wallet.starting_balance = 100.0
-    fake_cfg.archiving.db_file = str(db_path)
     monkeypatch.setattr(cli, "_load_user_config", lambda: fake_cfg)
     stop_spy = MagicMock()
     monkeypatch.setattr(cli, "_stop_daemon_if_running", stop_spy)
 
-    runner = CliRunner()
-    # Answer 'n' to the confirm prompt (no -y flag given).
-    result = runner.invoke(cli.app, ["reset", "--wallet-only"], input="n\n")
-    assert result.exit_code == 0
-    assert "Cancelled" in result.output
-    # Daemon must NOT be stopped if user cancelled.
-    stop_spy.assert_not_called()
-    # Positions still there.
-    db2 = PolilyDB(db_path)
-    assert db2.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 1
+    try:
+        runner = CliRunner()
+        # Answer 'n' to the confirm prompt (no -y flag given).
+        result = runner.invoke(cli.app, ["reset", "--wallet-only"], input="n\n")
+        assert result.exit_code == 0
+        assert "Cancelled" in result.output
+        # Daemon must NOT be stopped if user cancelled.
+        stop_spy.assert_not_called()
+        # Positions still there.
+        db2 = PolilyDB(db_path)
+        assert db2.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 1
+    finally:
+        paths.set_data_dir_override(None)

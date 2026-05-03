@@ -8,7 +8,7 @@ Thanks for your interest in contributing! Here's how to get started.
 git clone https://github.com/ShiyuCheng2018/polily.git && cd polily
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest tests/ -q  # verify everything works
+pytest tests/ -q  # verify everything works (~1721 tests)
 ```
 
 ### AI Features (optional)
@@ -19,6 +19,51 @@ AI agents require [Claude CLI](https://docs.anthropic.com/en/docs/claude-code):
 npm install -g @anthropic-ai/claude-code
 claude login
 ```
+
+### Dev/prod data isolation (recommended)
+
+If you also USE polily as a regular user on the same machine (typical for the maintainer + power users), v0.11.0+ defaults data to `~/Library/Application Support/polily/` (production-like). You probably want **repo-local dev data** so:
+
+- Tests + dev sessions don't pollute your real polily data
+- Different feature branches can isolate state per worktree
+- A dev launchd daemon (`com.polily.scheduler.dev`) coexists with your real prod daemon
+
+#### Option A: direnv (recommended — auto-loads on cd)
+
+```bash
+brew install direnv
+echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc  # or your shell rc
+exec zsh
+cd polily
+cp .envrc.example .envrc
+direnv allow
+```
+
+Now `cd polily` auto-exports:
+- `POLILY_DATA_DIR=$REPO/data` — dev db lives in repo
+- `POLILY_LOG_DIR=$POLILY_DATA_DIR/logs` — dev logs live in repo
+- `POLILY_LAUNCHD_LABEL=com.polily.scheduler.dev` — dev launchd label distinct from prod
+
+`cd` out of the repo → env auto-unloads → polily uses default platformdirs (prod). Your dev work and real polily data never collide.
+
+#### Option B: shell alias fallback (no direnv)
+
+Add to your shell rc:
+```bash
+alias polily-dev='POLILY_DATA_DIR=$HOME/MyProjects/polily/data POLILY_LAUNCHD_LABEL=com.polily.scheduler.dev $HOME/MyProjects/polily/.venv/bin/polily'
+```
+
+Use `polily-dev` for dev work, plain `polily` for normal use.
+
+#### What this gives you
+
+| Action | dev mode (.envrc loaded) | prod mode (no env) |
+|---|---|---|
+| `polily` (TUI) | Uses `$REPO/data/polily.db` | Uses `~/Library/Application Support/polily/polily.db` |
+| `polily scheduler restart` | Registers `com.polily.scheduler.dev` plist | Registers `com.polily.scheduler` plist |
+| `pytest tests/` | Tests use `tmp_path` regardless (the conftest fixture handles isolation) | Same |
+
+**Note**: `.envrc` is gitignored (your local override). `.envrc.example` is the template (in git, copied by every contributor).
 
 ## Branch Strategy
 
@@ -89,10 +134,12 @@ refactor/*
 
 ## Testing
 
-- 339 tests, all must pass before merge
+- All tests must pass before merge (currently ~1721 tests + 1 skipped Linux XDG)
 - New features need tests
-- Mock AI agents in tests (don't call real Claude CLI)
+- Mock AI agents in tests (don't call real Claude CLI) — `tests/conftest.py` has helpers
 - Use `make_market()` factory from `tests/conftest.py`
+- Use `polily_db` fixture for tests that need a real `PolilyDB` (it isolates via `tmp_path` + `POLILY_DATA_DIR` env override)
+- If you write a local `service` fixture using `PolilyService()`, **must** include `monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))` — otherwise the test will write to the user's real production db (verified failure mode, see commit `77c8d89`)
 
 ## What to Contribute
 

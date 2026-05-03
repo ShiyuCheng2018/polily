@@ -160,13 +160,13 @@ def _write_dev_feedback(
     if not feedback:
         return
     try:
-        import os
         from datetime import UTC, datetime
 
         import polily
+        from polily.core import paths
 
-        log_dir = os.path.join(os.getcwd(), "data", "logs")
-        os.makedirs(log_dir, exist_ok=True)
+        log_path = paths.agent_feedback_log()
+        # paths.log_dir() (called inside agent_feedback_log) handles mkdir.
         now_utc = datetime.now(UTC)
         now_local = now_utc.astimezone()
         utc_str = now_utc.strftime("%Y-%m-%d %H:%M:%S")
@@ -177,7 +177,7 @@ def _write_dev_feedback(
             .replace("\r", " ")
             .replace('"', "'")
         )
-        with open(os.path.join(log_dir, "agent_feedback.log"), "a") as f:
+        with open(log_path, "a") as f:
             ops_summary = ",".join(op.action for op in output.operations) or "none"
             f.write(
                 f'\n=== [UTC: {utc_str} | local: {local_str}] '
