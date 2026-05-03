@@ -8,6 +8,7 @@
   "binding.delete_item": "删除",
   "binding.open_item": "打开",
   "binding.refresh": "刷新",
+  "binding.restart_polily": "应用配置",
   "binding.cursor_down": "下",
   "binding.cursor_up": "上",
   "binding.cursor_top": "顶部",

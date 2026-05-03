@@ -929,17 +929,80 @@ class ConfigView(Widget):
             self._refresh_state_in_place()
 
     def on_mount(self) -> None:
-        from polily.core.events import TOPIC_HEARTBEAT
+        from polily.core.events import TOPIC_HEARTBEAT, TOPIC_LANGUAGE_CHANGED
         self.service.event_bus.subscribe(TOPIC_HEARTBEAT, self._on_heartbeat)
+        self.service.event_bus.subscribe(
+            TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
+        )
 
     def on_unmount(self) -> None:
         import contextlib
 
-        from polily.core.events import TOPIC_HEARTBEAT
+        from polily.core.events import TOPIC_HEARTBEAT, TOPIC_LANGUAGE_CHANGED
         with contextlib.suppress(Exception):
             self.service.event_bus.unsubscribe(
                 TOPIC_HEARTBEAT, self._on_heartbeat,
             )
+        with contextlib.suppress(Exception):
+            self.service.event_bus.unsubscribe(
+                TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
+            )
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Re-render labels frozen at compose time.
+
+        ConfigView has three families of i18n strings:
+          1. Dynamic (banner / leaf rows / family sums / section badges) —
+             already re-evaluated by `_refresh_state_in_place` because they
+             call t() at update time.
+          2. Frozen-at-compose (PolilyCard title, ConfigSection.section_title,
+             WeightsTree weights-header static) — these were cached as
+             plain strings during initial compose; they need explicit
+             updates here.
+          3. BINDINGS labels (Refresh / Apply Config) — handled by
+             I18nFooter on its own subscription.
+
+        We keep the in-place pattern (no recompose=True) so the user's
+        expand/collapse state, scroll position, and focus survive a
+        deliberate F2 toggle. Section titles are re-derived from a
+        section_id → catalog-key map; weights header is requeried by
+        class.
+        """
+        import contextlib
+
+        from textual.widgets import Static
+
+        # 1) PolilyCard title.
+        with contextlib.suppress(Exception):
+            self.query_one(
+                "#config-card .polily-card-title", Static,
+            ).update(t("config.card.title", icon=ICON_CONFIG))
+
+        # 2) Each ConfigSection's frozen section_title — re-derive from
+        # section_id, then re-render the header (which concatenates
+        # section_title with the live [changed N/M] badge).
+        section_keys = {
+            "movement": "config.section.movement",
+            "scoring": "config.section.scoring",
+            "mispricing": "config.section.mispricing",
+            "wallet": "config.section.wallet",
+        }
+        for section in self.query(ConfigSection):
+            key = section_keys.get(section.section_id)
+            if key is not None:
+                section.section_title = t(key)
+            section.update_count_badge()
+
+        # 3) WeightsTree static header.
+        with contextlib.suppress(Exception):
+            for header in self.query(
+                "#movement-weights-tree .weights-header",
+            ):
+                if isinstance(header, Static):
+                    header.update(t("config.weights.header"))
+
+        # Banner + leaves + family sums refresh in place.
+        self._refresh_state_in_place()
 
     def _on_heartbeat(self, payload: dict) -> None:
         """SF10 — dedicated heartbeat topic, no business-topic hijacking.

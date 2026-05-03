@@ -8,6 +8,7 @@
   "binding.delete_item": "Delete",
   "binding.open_item": "Open",
   "binding.refresh": "Refresh",
+  "binding.restart_polily": "Apply Config",
   "binding.cursor_down": "Down",
   "binding.cursor_up": "Up",
   "binding.cursor_top": "Top",
