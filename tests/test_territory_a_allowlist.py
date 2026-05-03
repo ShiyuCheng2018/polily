@@ -54,12 +54,15 @@ def test_territory_a_partition_covers_all_leaves():
 
 
 def test_hidden_in_tui_exact_membership():
-    """Lock the currently-hidden leaves. Future additions to
+    """Lock the 8 currently-hidden leaves. Future additions to
     HIDDEN_IN_TUI must update this test in the same commit (forces a
     conscious choice, mirrors EPHEMERAL_FIELDS pattern).
 
     v0.11.4: added update_check.last_dismissed_version — TUI-managed
     state for the "new version available" indicator, not user-tunable.
+    feat/runtime-i18n: added tui.language — runtime-mutable via F2;
+    canonical value lives in user_prefs, PolilyConfig field is just a
+    startup fallback default.
     """
     assert frozenset({
         "api.request_timeout_seconds",
@@ -67,6 +70,7 @@ def test_hidden_in_tui_exact_membership():
         "ai.narrative_writer.timeout_seconds",
         "ai.narrative_writer.max_prompt_chars",
         "tui.heartbeat_seconds",
+        "tui.language",
         "archiving.db_file",
         "update_check.last_dismissed_version",
     }) == HIDDEN_IN_TUI

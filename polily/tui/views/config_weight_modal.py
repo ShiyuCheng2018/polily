@@ -34,6 +34,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll  # noqa: F40
 from textual.screen import ModalScreen
 from textual.widgets import Button, Collapsible, Input, Markdown, Static
 
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_CONFIG
 from polily.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 from polily.tui.widgets.field_row import FieldRow
@@ -124,7 +125,7 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
 
     # priority=True: Input widgets consume escape; without priority the
     # screen-level binding never fires when an Input has focus.
-    BINDINGS = [Binding("escape", "cancel", "取消", priority=True)]
+    BINDINGS = [Binding("escape", "cancel", "Cancel", priority=True)]
 
     def __init__(
         self,
@@ -172,8 +173,11 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
     # ---- Compose ------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
-        title = (
-            f"{ICON_CONFIG} 编辑权重 · {self._market_type} / {self._which}"
+        title = t(
+            "weight_modal.title",
+            icon=ICON_CONFIG,
+            market_type=self._market_type,
+            family=self._which,
         )
         n_leaves = len(self._current_values)
 
@@ -184,8 +188,11 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
         with VerticalScroll(id="dialog-box"):
             with PolilyCard(title=title):
                 yield Static(
-                    f"key_path: [bold]{self._key_path_prefix}[/bold]   "
-                    f"[dim]({n_leaves} 项)[/dim]",
+                    t(
+                        "weight_modal.keypath_label",
+                        key_path=self._key_path_prefix,
+                        n=n_leaves,
+                    ),
                     id="modal-keypath",
                 )
 
@@ -196,15 +203,17 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
                 glossary = self._build_glossary_markdown()
                 if glossary:
                     with Collapsible(
-                        title="信号术语速查", collapsed=True, id="glossary-block",
+                        title=t("weight_modal.glossary_title"),
+                        collapsed=True, id="glossary-block",
                     ):
                         yield Markdown(glossary, id="glossary-md")
 
                 # One FieldRow per leaf — preserves dict insertion order
                 # which is Pydantic field order (T5.6 lesson).
                 for leaf, value in self._current_values.items():
-                    helper_default = (
-                        f"默认 {self._default_values.get(leaf, 0.0):.2f}"
+                    helper_default = t(
+                        "weight_modal.input_default",
+                        default=self._default_values.get(leaf, 0.0),
                     )
                     yield FieldRow(
                         label=leaf,
@@ -218,7 +227,7 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
                 yield Static(self._sum_text(), id="family-sum")
                 yield Static("", id="modal-error")
                 yield Static(
-                    "[yellow]⚠ 保存后需要重启 polily 才生效[/yellow]",
+                    t("weight_modal.warn_restart"),
                     id="modal-warn",
                 )
 
@@ -228,16 +237,18 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
                 # whole modal fits a 40-line terminal without scrolling.
                 with Horizontal(id="button-row"):
                     yield Button(
-                        "⚖ 自动归一化",
+                        t("weight_modal.button.auto_normalize"),
                         id="auto-normalize",
                         variant="primary",
                     )
                     yield Button(
-                        "重置为默认", id="reset-btn", variant="warning",
+                        t("weight_modal.button.reset"),
+                        id="reset-btn", variant="warning",
                     )
 
                 yield ConfirmCancelBar(
-                    confirm_label="保存（需重启）", cancel_label="取消",
+                    confirm_label=t("weight_modal.button.save"),
+                    cancel_label=t("weight_modal.button.cancel"),
                 )
 
     def on_mount(self) -> None:
@@ -304,11 +315,15 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
     def _sum_text(self) -> str:
         total = self._current_sum()
         if total != total:  # NaN
-            return "  [yellow]sum = NaN[/yellow]   [dim](输入有非法字符)[/dim]"
+            return t("weight_modal.sum.nan")
         in_range = _SUM_MIN <= total <= _SUM_MAX
         color = "green" if in_range else "yellow"
-        hint = "" if in_range else f"   [dim](需要在 {_SUM_MIN}-{_SUM_MAX} 之间)[/dim]"
-        return f"  sum = [{color}]{total:.2f}[/{color}]{hint}"
+        if in_range:
+            return t("weight_modal.sum.in_range", color=color, total=total)
+        return t(
+            "weight_modal.sum.out_of_range",
+            color=color, total=total, lo=_SUM_MIN, hi=_SUM_MAX,
+        )
 
     def _refresh_sum_and_save_state(self) -> None:
         """Re-render the sum static and update Save's disabled flag."""
@@ -364,7 +379,7 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
         # If any value is NaN, normalize is meaningless — bail with warning.
         if any(v != v for v in values.values()):
             self.notify(
-                "无法归一化：部分输入不是数字",
+                t("weight_modal.notify.normalize_nan"),
                 severity="warning",
                 timeout=4,
             )
@@ -372,7 +387,7 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
         total = sum(values.values())
         if total <= 0:
             self.notify(
-                "无法归一化：当前所有值都是 0",
+                t("weight_modal.notify.normalize_zero"),
                 severity="warning",
                 timeout=4,
             )
@@ -404,13 +419,14 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
         # Pull the latest input snapshot at save time.
         values = self._read_inputs()
         if self._has_negative_or_invalid(values):
-            self._show_error("权重必须是非负数字")
+            self._show_error(t("weight_modal.error.must_be_nonneg"))
             return
         total = sum(values.values())
         if not (_SUM_MIN <= total <= _SUM_MAX):
-            self._show_error(
-                f"权重之和必须在 [{_SUM_MIN}, {_SUM_MAX}] 区间，当前 {total:.4f}",
-            )
+            self._show_error(t(
+                "weight_modal.error.sum_out_of_range",
+                lo=_SUM_MIN, hi=_SUM_MAX, total=total,
+            ))
             return
 
         # Build the batch update map and commit atomically.
@@ -423,18 +439,19 @@ class WeightFamilyEditModal(ModalScreen[bool | None]):
         try:
             config_mod.save_knob_batch(self._service.db, updates)
         except config_mod.ConfigValidationError as e:
-            self._show_error(f"Pydantic 校验失败: {e}")
+            self._show_error(t("weight_modal.error.pydantic_failed", detail=str(e)))
             return
         except (ValueError, Exception) as e:
             # ValueError raised for non-territory-A keys; broader Exception
             # for unforeseen failures. Surface either as a save-time error
             # rather than crashing the modal.
-            self._show_error(f"保存失败: {e}")
+            self._show_error(t("weight_modal.error.save_failed", detail=str(e)))
             return
 
-        self.notify(
-            f"已保存 {self._key_path_prefix} ({len(updates)} 项)",
-        )
+        self.notify(t(
+            "weight_modal.notify.saved",
+            key_path_prefix=self._key_path_prefix, n=len(updates),
+        ))
         self.dismiss(True)
 
     def _show_error(self, message: str) -> None:

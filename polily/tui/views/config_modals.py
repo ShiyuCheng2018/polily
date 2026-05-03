@@ -21,6 +21,7 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Markdown, Static
 
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_CONFIG
 from polily.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 from polily.tui.widgets.field_row import FieldRow
@@ -69,7 +70,7 @@ class ConfigEditModal(ModalScreen[bool | None]):
     # otherwise consume the escape key before the screen-level binding fires.
     # priority bindings run BEFORE focused-widget key handling, so ESC reliably
     # dismisses regardless of which child has focus.
-    BINDINGS = [Binding("escape", "cancel", "取消", priority=True)]
+    BINDINGS = [Binding("escape", "cancel", "Cancel", priority=True)]
 
     def __init__(
         self,
@@ -127,18 +128,22 @@ class ConfigEditModal(ModalScreen[bool | None]):
         docs = load_all()
         description_md = docs.get(
             self._key_path,
-            f"*(no markdown description for `{self._key_path}`)*",
+            t("config_modal.no_description", key_path=self._key_path),
         )
 
         with Vertical(id="dialog-box"):
-            with PolilyCard(title=f"{ICON_CONFIG} 编辑 · {self._last_segment}"):
+            with PolilyCard(title=t(
+                "config_modal.title",
+                icon=ICON_CONFIG,
+                leaf=self._last_segment,
+            )):
                 yield Static(
-                    f"key_path: [bold]{self._key_path}[/bold]",
+                    t("config_modal.keypath_label", key_path=self._key_path),
                     id="modal-keypath",
                 )
                 yield Markdown(description_md, id="modal-description")
                 yield FieldRow(
-                    label="新值",
+                    label=t("config_modal.input_label"),
                     unit="",
                     input_widget=Input(
                         value=str(self._current_value), id="modal-input",
@@ -146,14 +151,17 @@ class ConfigEditModal(ModalScreen[bool | None]):
                 )
                 yield Static("", id="modal-error")
                 yield Static(
-                    "[yellow]⚠ 保存后需要重启 polily 才生效[/yellow]",
+                    t("config_modal.warn_restart"),
                     id="modal-warn",
                 )
                 yield ConfirmCancelBar(
-                    confirm_label="保存（需重启）",
-                    cancel_label="取消",
+                    confirm_label=t("config_modal.button.save"),
+                    cancel_label=t("config_modal.button.cancel"),
                 )
-                yield Button("重置为默认", id="reset-btn", variant="warning")
+                yield Button(
+                    t("config_modal.button.reset"),
+                    id="reset-btn", variant="warning",
+                )
 
     def action_cancel(self) -> None:
         # Round-2 (Goku #2) — cancel pending validation timer so it can't
@@ -194,7 +202,9 @@ class ConfigEditModal(ModalScreen[bool | None]):
             return
         annotation = _resolve_field_annotation(self._key_path)
         if annotation is None:
-            self._show_error(f"无法定位 {self._key_path} 的类型")
+            self._show_error(
+                t("config_modal.error.cannot_resolve_type", key_path=self._key_path),
+            )
             return
         try:
             _coerce_value(raw, annotation)
@@ -245,9 +255,12 @@ class ConfigEditModal(ModalScreen[bool | None]):
         try:
             save_knob(self._service.db, self._key_path, new_value)
         except ConfigValidationError as e:
-            self._show_error(f"Pydantic 校验失败: {e}")
+            self._show_error(t("config_modal.error.pydantic_failed", detail=str(e)))
             return
-        self.notify(f"已保存 {self._key_path} = {new_value}")
+        self.notify(t(
+            "config_modal.notify.saved",
+            key_path=self._key_path, value=new_value,
+        ))
         self.dismiss(True)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -265,7 +278,7 @@ class ConfigEditModal(ModalScreen[bool | None]):
         try:
             reset(self._service.db, self._key_path)
         except Exception as e:
-            self._show_error(f"重置失败: {e}")
+            self._show_error(t("config_modal.error.reset_failed", detail=str(e)))
             return
         # Update the input + cleared current_value tracking
         self.query_one("#modal-input", Input).value = str(self._default_value)
@@ -279,4 +292,8 @@ class ConfigEditModal(ModalScreen[bool | None]):
         # save the default. Belt-and-suspenders.
         with contextlib.suppress(Exception):
             self.query_one("#confirm", Button).disabled = False
-        self.notify(f"已重置 {self._last_segment} 为默认 {self._default_value}")
+        self.notify(t(
+            "config_modal.notify.reset",
+            leaf=self._last_segment,
+            default=self._default_value,
+        ))
