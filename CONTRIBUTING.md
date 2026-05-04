@@ -65,6 +65,32 @@ Use `polily-dev` for dev work, plain `polily` for normal use.
 
 **Note**: `.envrc` is gitignored (your local override). `.envrc.example` is the template (in git, copied by every contributor).
 
+### Tip: refreshing the cached version display
+
+After `git pull` / branch switch / new tags fetched, `polily --version` will show the version that was current at your last `pip install -e .`, not the live git state. This is hatch-vcs editable-install design (avoids re-running `git describe` on every Python import).
+
+To refresh the cached `polily/_version.py`:
+
+```bash
+.venv/bin/pip install -e . --force-reinstall --no-deps
+.venv/bin/python -c "from polily import __version__; print(__version__)"
+# Should now show e.g. 0.11.2.devN+gHASH for current HEAD
+```
+
+This is **cosmetic only** — runtime behavior always uses the live source code (editable install symlinks). Only the `__version__` string is cached. If you don't care about the displayed version, you can ignore.
+
+Optional automation: install a git post-merge hook that auto-refreshes:
+
+```bash
+cat > .git/hooks/post-merge <<'EOF'
+#!/bin/bash
+.venv/bin/pip install -e . --force-reinstall --no-deps --quiet
+EOF
+chmod +x .git/hooks/post-merge
+```
+
+Hooks are not committed — `.git/hooks/` is per-clone.
+
 ## Branch Strategy
 
 ```
@@ -98,6 +124,27 @@ refactor/*
 - **patch** (0.1.1): bug fixes only
 - **minor** (0.2.0): new features, backward compatible
 - **major** (1.0.0): breaking changes
+
+## Release process
+
+### PyPI publish — environment configuration gotcha
+
+The `pypi-publish` GitHub environment must allow BOTH the master branch AND the `v*` tag pattern in its deployment policy. This is non-obvious because the workflow's checkout context is the **tag** (e.g. `v0.11.1`), not the branch — even though the tag was created from master.
+
+If you only allow `master` (branch type), the workflow fails 2 seconds in with:
+
+> Tag "v0.11.X" is not allowed to deploy to pypi-publish due to environment protection rules.
+
+Add the tag policy:
+
+```bash
+gh api -X POST repos/<owner>/<repo>/environments/pypi-publish/deployment-branch-policies \
+  -f name='v*' -f type='tag'
+```
+
+Or via UI: repo settings → Environments → pypi-publish → "Deployment branches and tags" → custom policy → add `v*` as a tag pattern.
+
+Verified working with v0.11.1 release on 2026-05-04. Hit this trap once during the first PyPI publish; documenting so future-us / forks don't hit it again.
 
 ## Development Workflow
 
