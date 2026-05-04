@@ -1,22 +1,27 @@
 """Verify launchd plist generates the right KeepAlive policy + stderr redirect.
 
-v0.11.2 changes two plist keys:
+v0.11.2 introduced two plist changes:
 
-1. KeepAlive policy migrated from `{"SuccessfulExit": False}` (no restart on
-   clean SIGTERM exit-0) to `{"Crashed": True}` (restart on crashes only).
+1. **KeepAlive policy** -- v0.11.2 set this to `{"Crashed": True}` thinking
+   it would mean "restart on crash but respect clean stops". This was wrong:
+   per Apple's launchd semantics, dict-style KeepAlive with `Crashed: True`
+   means "the daemon should be running ONLY IF the previous exit was a
+   crash". On `launchctl load`, there is no previous exit, so the condition
+   is false -> daemon never starts. Symptom: TUI launch -> plist regenerated
+   correctly -> launchctl load returns 0 -> but daemon stays at PID `-`
+   forever until forcibly kickstarted.
 
-   Why the change: prod daemon was observed dying via SIGTERM exit-0 twice
-   in one day (2026-05-04), and KeepAlive's SuccessfulExit:False semantic
-   correctly chose NOT to restart -- which left the user without a daemon
-   until they noticed and manually restarted. Crashed:True restarts on
-   SIGKILL/segfault but respects clean stops via `launchctl unload` (which
-   is what `polily scheduler stop` does -- it removes the agent entirely,
-   no respawn loop).
+   v0.11.3 reverts to **`KeepAlive: True`** (boolean) -- launchd's "always
+   keep alive" mode. Daemon starts on load, restarts on any exit. The
+   original v0.11.1 concern about "infinite crash loop" is mitigated by
+   launchd's built-in 10s restart throttle. User-initiated stop goes
+   through `launchctl unload` (which `polily scheduler stop` already does)
+   -- unload removes the agent entirely, no respawn loop.
 
 2. StandardErrorPath migrated from `/dev/null` to a log file under
    paths.log_dir(). Pre-v0.11.2 swallowed all daemon stderr (including
    logger.exception traces) -- v0.11.2 redirects to a file so future
-   bugs are diagnosable.
+   bugs are diagnosable. Unchanged in v0.11.3.
 """
 from __future__ import annotations
 
@@ -25,28 +30,28 @@ import plistlib
 from polily.daemon.scheduler import generate_launchd_plist
 
 
-def test_plist_keepalive_policy_is_crashed_true():
-    """KeepAlive must be {Crashed: True} so daemon auto-restarts on
-    crashes (SIGKILL, segfault, OOM) but respects clean stops via
-    launchctl unload."""
+def test_plist_keepalive_is_unconditional_true():
+    """KeepAlive must be the boolean True so launchd starts the daemon on
+    load and restarts on any exit.
+
+    v0.11.2 used `{"Crashed": True}` which broke initial launch (Apple
+    semantic: 'restart only if previous exit was crash' -> on first load
+    with no previous exit, condition is false -> daemon never starts).
+    User-initiated stop is handled by `polily scheduler stop` calling
+    `launchctl unload` (removes the agent entirely; no respawn).
+    """
     plist_bytes = generate_launchd_plist(working_dir="/tmp/test-working-dir")
     plist = plistlib.loads(plist_bytes)
 
     assert "KeepAlive" in plist, "plist missing KeepAlive — daemon won't auto-restart"
 
     keep_alive = plist["KeepAlive"]
-    assert isinstance(keep_alive, dict), (
-        f"KeepAlive must be a dict (Crashed: True policy), got {type(keep_alive).__name__}"
-    )
-    assert keep_alive.get("Crashed") is True, (
-        f"KeepAlive.Crashed must be True. Got: {keep_alive}. "
-        f"Pre-v0.11.2 used {{SuccessfulExit: False}} which doesn't restart "
-        f"on clean SIGTERM — caused 2 prod outages 2026-05-04."
-    )
-    # Should NOT have SuccessfulExit (they're mutually-exclusive design choices)
-    assert "SuccessfulExit" not in keep_alive, (
-        f"Don't combine SuccessfulExit with Crashed — they conflict. "
-        f"Got: {keep_alive}"
+    assert keep_alive is True, (
+        f"KeepAlive must be the boolean `True`, got {keep_alive!r} "
+        f"({type(keep_alive).__name__}). v0.11.2's `{{Crashed: True}}` "
+        f"caused initial-launch failure: launchd reads it as 'only run if "
+        f"previous exit was a crash', and on first load there is no previous "
+        f"exit, so the daemon never starts."
     )
 
 

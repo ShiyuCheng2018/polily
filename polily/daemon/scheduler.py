@@ -420,27 +420,33 @@ def generate_launchd_plist(
         "Label": _plist_label(),
         "ProgramArguments": [python_path, "-m", "polily.cli", "scheduler", "run"],
         "WorkingDirectory": working_dir,
-        # v0.11.2: switched from {"SuccessfulExit": False} to {"Crashed": True}.
+        # v0.11.3: KeepAlive = True (boolean), not a dict.
         #
-        # Per Apple's launchd.plist(5): `Crashed` = True restarts on abnormal
-        # exits — SIGKILL, SIGSEGV/SIGBUS, SIGABRT, OOM-kill, AND any non-zero
-        # exit code (including os._exit(1) from a polily code error). It does
-        # NOT trigger on:
-        #   - clean exit(0) (e.g., SIGTERM handler that exits cleanly)
-        #   - launchctl bootout / unload (which removes the agent entirely
-        #     BEFORE any signal lands, so neither KeepAlive policy ever sees
-        #     this path)
+        # History:
+        # - v0.10.x..v0.11.1 used {"SuccessfulExit": False}: "restart only if
+        #   the previous exit was non-zero". Worked for initial launch (no
+        #   previous exit means condition is true) but did NOT restart after
+        #   clean SIGTERM exit-0 -> caused 2 silent prod outages 2026-05-04.
         #
-        # `polily scheduler stop` → calls `launchctl unload` (verified in this
-        # file's stop_daemon function) → daemon agent is removed before SIGTERM
-        # is sent → no false-positive restart on user-initiated stops.
+        # - v0.11.2 tried {"Crashed": True} thinking it would mean "restart
+        #   on crash but respect clean stops". This was wrong: Apple's
+        #   semantic for dict-style KeepAlive with `Crashed: True` is
+        #   "the daemon should be running ONLY IF the previous exit was
+        #   a crash". On `launchctl load`, there is no previous exit, so
+        #   the condition is false -> daemon never starts. Verified
+        #   empirically: `launchctl kickstart -k` was required to force
+        #   initial launch, defeating the whole "TUI auto-restarts daemon"
+        #   product expectation.
         #
-        # Pre-v0.11.2 prod daemon died via clean SIGTERM exit-0 twice on
-        # 2026-05-04 and `SuccessfulExit: False` correctly DIDN'T restart,
-        # leaving the user without a polling daemon. `Crashed: True` is more
-        # protective: covers crashes (signals + non-zero exits) without
-        # restarting on legitimate clean stops.
-        "KeepAlive": {"Crashed": True},
+        # - v0.11.3 reverts to plain `True`: launchd's "always keep alive"
+        #   mode. Daemon starts on load, restarts on any exit (clean or
+        #   crash). The original "infinite crash loop" concern from v0.11.0
+        #   inline comments is mitigated by launchd's built-in 10s restart
+        #   throttle. User-initiated stop is handled by `polily scheduler
+        #   stop` -> `launchctl unload`, which REMOVES the agent entirely
+        #   from launchd's registry; KeepAlive doesn't apply to a removed
+        #   agent, so no respawn loop.
+        "KeepAlive": True,
         # v0.11.2: redirect stderr to a real log file so logger.exception traces
         # survive past the daemon process. Pre-v0.11.2 stderr→/dev/null swallowed
         # all exception output, making BUG-2 (dispatcher exception leaving
