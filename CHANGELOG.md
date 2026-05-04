@@ -10,6 +10,16 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.11.3] — 2026-05-04
+
+### Fixed
+
+- **Daemon auto-launch under launchd.** v0.11.2 set `KeepAlive: {Crashed: True}` thinking it meant "restart on crash, respect clean stops". Apple's actual semantic: "the daemon should be running ONLY IF the previous exit was a crash" — on `launchctl load` there is no previous exit, so the condition is false and the daemon never starts. Symptom: TUI launch regenerated the plist correctly + `launchctl load` returned success, but daemon stayed at PID `-`. v0.11.3 reverts to `KeepAlive: True` (always alive) — daemon starts on load, restarts on any exit, and `polily scheduler stop` still cleanly unloads the agent without respawn (because `launchctl unload` removes the agent from launchd's registry entirely).
+
+### Notes
+
+Hotfix-of-hotfix patch. No code changes besides the plist `KeepAlive` value (and the corresponding test assertions). Restores the v0.11.0 / v0.11.1-era "TUI launch auto-restarts daemon" product behavior. Existing pipx users should `pipx upgrade polily`.
+
 ## [0.11.2] — 2026-05-04
 
 ### Fixed
@@ -634,7 +644,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.2...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.3...dev
+[0.11.3]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.3
 [0.11.2]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.2
 [0.11.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.1
 [0.11.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.0
