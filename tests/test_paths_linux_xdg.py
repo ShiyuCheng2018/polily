@@ -1,6 +1,21 @@
 """v0.11.0 — verify paths resolver produces correct Linux defaults via
-platformdirs. Run on macOS via mock; CI matrix should also run on
-real Linux runner (tracked separately as v0.11.x follow-up)."""
+platformdirs.
+
+v0.11.4 (OBS-2): split into two tests for cross-platform clarity.
+
+- ``test_data_dir_uses_platformdirs_user_data_dir`` runs on every OS
+  via a mocked ``platformdirs.user_data_dir``. Exercises the
+  ``polily.core.paths.data_dir`` code path without depending on the
+  host platform's real platformdirs behavior. This is the always-on
+  regression guard.
+
+- ``test_data_dir_uses_xdg_with_real_xdg_env_on_linux`` exercises the
+  real platformdirs + real XDG_DATA_HOME path. Linux-only because
+  platformdirs only honors XDG_DATA_HOME on Linux. Skipped on macOS /
+  Windows. CI matrix's Linux runner picks it up as a real assertion;
+  macOS dev box and macOS CI runner skip it (1 skipped is expected,
+  not a regression).
+"""
 from __future__ import annotations
 
 import platform
