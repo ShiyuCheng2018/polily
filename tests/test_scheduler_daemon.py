@@ -32,7 +32,10 @@ def test_generate_plist_structure():
     plist = plistlib.loads(plist_bytes)
     assert plist["Label"] == "com.polily.scheduler"
     assert "KeepAlive" in plist
-    assert plist["KeepAlive"]["SuccessfulExit"] is False
+    # v0.11.2: KeepAlive policy switched from {SuccessfulExit: False} to
+    # {Crashed: True}. See tests/test_daemon_plist_v0_11_2.py for the
+    # detailed semantic test; this is just structural shape verification.
+    assert plist["KeepAlive"]["Crashed"] is True
     assert plist["WorkingDirectory"] == "/path/to/polily"
 
 

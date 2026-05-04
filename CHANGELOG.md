@@ -10,6 +10,22 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.11.2] — 2026-05-04
+
+### Fixed
+
+- **`phrases.yaml` packaging.** v0.11.1 wheel was missing `polily/config/phrases.yaml` (file was at `config/phrases.yaml` repo root, not inside the package). Pipx-installed polily crashed on first event scoring with `[Errno 2] No such file or directory`. v0.11.2 migrates the file into the `polily.config` subpackage and uses `importlib.resources` for resolution (install-method-agnostic).
+- **Daemon auto-restart.** Pre-v0.11.2 launchd plist used `KeepAlive: {SuccessfulExit: False}` which did NOT restart on clean SIGTERM exit-0. v0.11.2 switches to `KeepAlive: {Crashed: True}` so the daemon auto-recovers from crashes/OOM/SIGKILL while still respecting `polily scheduler stop` (which uses `launchctl unload` — no respawn).
+- **Daemon stderr no longer swallowed.** Pre-v0.11.2 launchd plist routed stderr to `/dev/null`, hiding all `logger.exception` traces. v0.11.2 redirects to `<log_dir>/daemon-stderr.log` so future exception diagnoses are possible.
+
+### Added
+
+- Regression test (`tests/test_packaging_resources.py`) that loads packaged YAML resources via the same `importlib.resources` pattern runtime uses — catches future packaging-bug regressions across editable + pip + pipx install methods.
+
+### Notes
+
+This is a hotfix patch — no breaking changes, no schema changes. v0.10.x → v0.11.0 migration semantics unchanged. Existing pipx users should `pipx upgrade polily`. Existing dev (editable) installs need no action.
+
 ## [0.11.1] — 2026-05-04
 
 ### Added
@@ -618,7 +634,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.1...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.2...dev
+[0.11.2]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.2
 [0.11.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.1
 [0.11.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.0
 [0.10.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.10.1

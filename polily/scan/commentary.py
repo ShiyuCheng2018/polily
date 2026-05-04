@@ -1,19 +1,28 @@
 """Market scoring commentary — phrase selection + cross-product overall."""
 
 import hashlib
-from pathlib import Path
+from importlib.resources import files
 
 import yaml
 
 _PHRASES_CACHE = None
-_PHRASES_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "phrases.yaml"
+# v0.11.2: migrated phrases.yaml into the polily.config subpackage.
+# Pre-v0.11.2 this was `Path(__file__).resolve().parent.parent.parent /
+# "config" / "phrases.yaml"`, which worked under editable install (path
+# resolved to repo root) but silently failed under pipx install (path
+# resolved to site-packages, where no top-level config/ exists).
+# importlib.resources.files() resolves identically across editable +
+# pip + pipx install methods. Returns a Traversable (NOT pathlib.Path);
+# always use Traversable-supported APIs (.is_file, .read_text, .open).
+_PHRASES_PATH = files("polily.config") / "phrases.yaml"
 
 
 def _load_phrases() -> dict:
     global _PHRASES_CACHE
     if _PHRASES_CACHE is None:
-        with open(_PHRASES_PATH) as f:
-            _PHRASES_CACHE = yaml.safe_load(f)
+        # v0.11.2: switched from `with open(_PHRASES_PATH) as f:` to
+        # .read_text() — Traversable doesn't always support builtin open().
+        _PHRASES_CACHE = yaml.safe_load(_PHRASES_PATH.read_text(encoding="utf-8"))
     return _PHRASES_CACHE
 
 
