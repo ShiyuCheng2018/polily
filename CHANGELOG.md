@@ -10,6 +10,17 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.11.1] — 2026-05-04
+
+### Added
+
+- **PyPI distribution.** `pipx install polily` now works. Previous installation flow (`git clone` + `pip install -e .`) still works for contributors but is no longer the recommended path for end users.
+- **Trusted Publishing via GitHub OIDC.** No long-lived PyPI API token to rotate; each release fetches a short-lived publish token from PyPI's OIDC verifier on a per-run basis.
+
+### Notes
+
+This is a distribution-only release — no runtime behavior changes vs. v0.11.0. Existing v0.10.x → v0.11.0 migration semantics still apply unchanged.
+
 ## [0.11.0] — 2026-05-04
 
 ### BREAKING
@@ -607,7 +618,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.0...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.1...dev
+[0.11.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.1
 [0.11.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.0
 [0.10.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.10.1
 [0.10.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.10.0

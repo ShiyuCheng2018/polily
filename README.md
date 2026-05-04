@@ -21,17 +21,14 @@ Polymarket is unfriendly to small accounts:
 
 ## Quick Start
 
-> **Heads up:** PyPI publish is on the v0.11.1 roadmap. Until then, install from source:
-
 ```bash
-git clone https://github.com/ShiyuCheng2018/polily.git && cd polily
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
-
-polily   # launches the TUI; everything happens inside it
+pipx install polily   # recommended
+polily                # launches the TUI; everything happens inside it
 ```
 
-(Once published: `pipx install polily` will be the recommended path.)
+> **Requirements:** [Claude Code](https://claude.com/claude-code) installed and authenticated (polily delegates AI analyses to the `claude` CLI). Run `claude --version` to verify.
+
+For development setup (editable install, running tests, etc.) see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 In the TUI, paste a Polymarket event URL (looks like `https://polymarket.com/event/...`) into the **Tasks** pane. Polily fetches and scores it; from there you can add it to monitoring or open a paper trade.
 
@@ -50,7 +47,7 @@ Override with the `POLILY_DATA_DIR` env var or `polily --data-dir=PATH` CLI flag
 
 ```bash
 polily scheduler stop      # stops the running daemon
-pip install -e .            # (or pipx upgrade polily once published)
+pipx upgrade polily         # or `pip install -U polily` from a venv
 polily                      # first launch detects legacy ./data and prompts:
 #   [polily v0.11.0] 检测到旧版数据库:
 #     /your/repo/data/polily.db

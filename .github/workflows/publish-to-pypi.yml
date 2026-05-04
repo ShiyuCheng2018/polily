@@ -1,0 +1,94 @@
+name: Publish to PyPI
+
+# Why this workflow exists
+# ------------------------
+# Automatically publish polily to PyPI on every stable release. Triggered
+# by the `released` event (when `gh release create vX.Y.Z` flips the
+# release out of draft into "published"); skipped for prereleases.
+#
+# Authentication is via PyPI Trusted Publishing (OIDC) — no long-lived
+# API token. PyPI verifies the OIDC token from GitHub identifies the
+# expected repo + workflow + environment, and issues a short-lived
+# upload token automatically. See https://docs.pypi.org/trusted-publishers/
+#
+# Pre-flight requirement: the project owner registers a "pending
+# publisher" on PyPI (https://pypi.org/manage/account/publishing/) with
+# matching repo / workflow / environment names BEFORE the first release.
+#
+# Note on action pinning: actions are pinned to major version (@v4, @v5)
+# rather than commit SHA. Trade-off: floating-tag (lower friction, auto
+# security patches in v4.x) vs. SHA-pin (supply-chain hardening). Major-
+# pin matches the existing ci.yml convention. Future hardening: pin to
+# SHA via dependabot when GH supply-chain risk profile justifies it.
+
+on:
+  release:
+    types: [released]
+
+# Single in-flight publish. Defends against the rare case where a release
+# is flipped draft→published twice (e.g., GH UI hiccup) and two workflow
+# runs race the actual upload. cancel-in-progress: false because PyPI
+# rejects double-uploads anyway — better to let the first one finish
+# than half-cancel and confuse logs.
+concurrency:
+  group: pypi-publish
+  cancel-in-progress: false
+
+permissions:
+  id-token: write    # required for PyPI Trusted Publishing OIDC + sigstore attestations
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10  # OIDC handshake + build + upload finishes well under this
+    environment: pypi-publish    # matches PyPI pending publisher registration
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # hatch-vcs derives version from the nearest git tag.
+          # fetch-depth: 0 = full history, required for clean version.
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build
+
+      - name: Build wheel + sdist
+        run: python -m build
+
+      - name: Verify built version matches release tag
+        # Defense against tag/version drift: if hatch-vcs produces something
+        # other than the clean release tag, fail fast before publishing.
+        # Example: tag v0.11.1 must produce polily-0.11.1-py3-none-any.whl.
+        #
+        # Extraction strategy: parse wheel filename via sed regex anchored
+        # on the canonical "-py3-none-any.whl" suffix. This handles PEP 440
+        # local versions (e.g. "0.11.1+local.foo") that the prior
+        # `re.match(r'polily-([^-]+)-')` would have truncated incorrectly.
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          # ls -1 to one-per-line; head -1 to handle the (rare) multi-wheel case.
+          wheel=$(ls -1 dist/polily-*-py3-none-any.whl | head -1)
+          built=$(echo "$wheel" | sed -E 's|dist/polily-(.+)-py3-none-any\.whl|\1|')
+          echo "Release tag (without 'v' prefix): $tag"
+          echo "Built wheel version:               $built"
+          echo "Built wheel filename:              $wheel"
+          if [ "$tag" != "$built" ]; then
+            echo "::error::Version mismatch — tag=$tag built=$built. Aborting publish."
+            exit 1
+          fi
+
+      - name: Publish to PyPI via Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Sigstore attestations: cryptographic proof that this artifact was
+          # built by THIS workflow run on THIS repo. PyPI auto-attaches the
+          # bundle to the release. Free with OIDC, and impossible to retrofit
+          # to existing releases later — turn it on at first publish.
+          # See https://docs.pypi.org/attestations/
+          attestations: true
