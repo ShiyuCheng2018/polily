@@ -16,7 +16,7 @@ v0.11.2 changes two plist keys:
 2. StandardErrorPath migrated from `/dev/null` to a log file under
    paths.log_dir(). Pre-v0.11.2 swallowed all daemon stderr (including
    logger.exception traces) -- v0.11.2 redirects to a file so future
-   bugs are diagnosable. (Test added in Task 4.)
+   bugs are diagnosable.
 """
 from __future__ import annotations
 
@@ -47,4 +47,27 @@ def test_plist_keepalive_policy_is_crashed_true():
     assert "SuccessfulExit" not in keep_alive, (
         f"Don't combine SuccessfulExit with Crashed — they conflict. "
         f"Got: {keep_alive}"
+    )
+
+
+def test_plist_stderr_path_redirects_to_log_file():
+    """StandardErrorPath must point at a real log file so logger.exception
+    traces are captured.
+
+    Pre-v0.11.2: StandardErrorPath = /dev/null swallowed all daemon stderr,
+    making BUG-2 (dispatcher exception) impossible to diagnose. Even with
+    BUG-2 not yet fixed, this stderr redirect is independently valuable
+    for any other future bug investigation.
+    """
+    plist_bytes = generate_launchd_plist(working_dir="/tmp/test-working-dir")
+    plist = plistlib.loads(plist_bytes)
+
+    stderr = plist.get("StandardErrorPath", "")
+    assert stderr != "/dev/null", (
+        "StandardErrorPath = /dev/null swallows daemon stderr — "
+        "makes future bug diagnostics impossible. Should point at a "
+        "path under polily.core.paths.log_dir()."
+    )
+    assert "logs" in stderr or "polily" in stderr.lower(), (
+        f"StandardErrorPath should be under polily's log_dir. Got: {stderr}"
     )

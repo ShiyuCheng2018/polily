@@ -441,8 +441,14 @@ def generate_launchd_plist(
         # protective: covers crashes (signals + non-zero exits) without
         # restarting on legitimate clean stops.
         "KeepAlive": {"Crashed": True},
+        # v0.11.2: redirect stderr to a real log file so logger.exception traces
+        # survive past the daemon process. Pre-v0.11.2 stderr→/dev/null swallowed
+        # all exception output, making BUG-2 (dispatcher exception leaving
+        # scan_logs rows stuck) impossible to diagnose post-fact. stdout→/dev/null
+        # is fine — daemon doesn't print to stdout, only to logger which writes
+        # to the poll log.
         "StandardOutPath": "/dev/null",
-        "StandardErrorPath": "/dev/null",
+        "StandardErrorPath": str(_paths.log_dir() / "daemon-stderr.log"),
         "EnvironmentVariables": env,
     }
     return plistlib.dumps(plist, fmt=plistlib.FMT_XML)
