@@ -66,7 +66,7 @@ packages = ["polily"]
 # Ship CHANGELOG.md inside the wheel so `ChangelogView` can render it
 # via `importlib.resources.files("polily") / "CHANGELOG.md"` after
 # pip-install (not just from a source checkout).
-force-include = { "CHANGELOG.md" = "polily/CHANGELOG.md" }
+force-include = { "CHANGELOG.md" = "polily/CHANGELOG.md", "polily/config/phrases.yaml" = "polily/config/phrases.yaml" }
 
 [project.scripts]
 polily = "polily.cli:app"
