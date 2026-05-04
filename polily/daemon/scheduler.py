@@ -420,7 +420,27 @@ def generate_launchd_plist(
         "Label": _plist_label(),
         "ProgramArguments": [python_path, "-m", "polily.cli", "scheduler", "run"],
         "WorkingDirectory": working_dir,
-        "KeepAlive": {"SuccessfulExit": False},
+        # v0.11.2: switched from {"SuccessfulExit": False} to {"Crashed": True}.
+        #
+        # Per Apple's launchd.plist(5): `Crashed` = True restarts on abnormal
+        # exits — SIGKILL, SIGSEGV/SIGBUS, SIGABRT, OOM-kill, AND any non-zero
+        # exit code (including os._exit(1) from a polily code error). It does
+        # NOT trigger on:
+        #   - clean exit(0) (e.g., SIGTERM handler that exits cleanly)
+        #   - launchctl bootout / unload (which removes the agent entirely
+        #     BEFORE any signal lands, so neither KeepAlive policy ever sees
+        #     this path)
+        #
+        # `polily scheduler stop` → calls `launchctl unload` (verified in this
+        # file's stop_daemon function) → daemon agent is removed before SIGTERM
+        # is sent → no false-positive restart on user-initiated stops.
+        #
+        # Pre-v0.11.2 prod daemon died via clean SIGTERM exit-0 twice on
+        # 2026-05-04 and `SuccessfulExit: False` correctly DIDN'T restart,
+        # leaving the user without a polling daemon. `Crashed: True` is more
+        # protective: covers crashes (signals + non-zero exits) without
+        # restarting on legitimate clean stops.
+        "KeepAlive": {"Crashed": True},
         "StandardOutPath": "/dev/null",
         "StandardErrorPath": "/dev/null",
         "EnvironmentVariables": env,
