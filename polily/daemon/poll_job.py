@@ -747,21 +747,54 @@ def _run_pending_analysis(
     can build its NarrativeWriter with the right `config.ai.narrative_writer`
     settings. Without config, PolilyService.__init__ would AttributeError on
     the first agent call.
+
+    v0.11.4 (BUG-2.2): outer try block now wraps the FULL function body
+    (including PolilyService construction), and the except handler explicitly
+    finalizes the scan_logs row to status='failed'. Without this, any
+    exception raised before reaching analyze_event's internal exception
+    handler would leave the row stuck in 'running' indefinitely (only
+    cleaned up by fail_orphan_running on next daemon restart). Real
+    prod incident 2026-05-04 21:38: 2 rows stuck 12+ minutes because
+    of sqlite3.InterfaceError raised in get_event() — caught here,
+    logged, but not finalized.
+
+    Belt-and-suspenders: nested try around finish_scan so its own failure
+    doesn't crash the ai executor thread (would prevent OTHER analyses
+    from running).
     """
     import asyncio
 
+    from polily.scan_log import finish_scan
     from polily.tui.service import PolilyService
 
-    cfg = _ctx.config if _ctx is not None else None
-    service = PolilyService(config=cfg, db=db)
     try:
+        cfg = _ctx.config if _ctx is not None else None
+        service = PolilyService(config=cfg, db=db)
         asyncio.run(
             service.analyze_event(
                 event_id, trigger_source=trigger_source, scan_id=scan_id,
             ),
         )
-    except Exception:
+    except Exception as e:
         logger.exception("Dispatched analysis failed for scan_id=%s", scan_id)
+        try:
+            finish_scan(
+                scan_id,
+                status="failed",
+                error=f"dispatcher_exception: {type(e).__name__}: {e}"[:200],
+                db=db,
+            )
+        except Exception:
+            # Belt-and-suspenders: if finish_scan ALSO fails, log and move on.
+            # The row will be cleaned up by fail_orphan_running on next
+            # daemon restart. Never let this function raise — that would
+            # crash the ai executor thread and prevent OTHER analyses
+            # from running.
+            logger.exception(
+                "finish_scan ALSO failed for scan_id=%s — row left running, "
+                "will be swept by fail_orphan_running on next daemon restart",
+                scan_id,
+            )
 
 
 def _trigger_movement_analysis(
