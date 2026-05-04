@@ -761,6 +761,15 @@ def _run_pending_analysis(
     Belt-and-suspenders: nested try around finish_scan so its own failure
     doesn't crash the ai executor thread (would prevent OTHER analyses
     from running).
+
+    v0.11.4 (BUG-4): full body runs inside `with db._lock:` to serialize
+    DB access from concurrent ai executor threads. Two ai threads racing
+    db.conn.execute() were observed producing sqlite3.InterfaceError
+    (prod 2026-05-04 21:38, captured in daemon-stderr.log thanks to
+    v0.11.2's stderr redirect). The lock is held for the analysis call;
+    finish_scan in the except handler runs WITHOUT the lock (single SQL
+    write that the engine-level WAL serializes), avoiding holding the
+    lock across the failure-path I/O.
     """
     import asyncio
 
@@ -768,13 +777,14 @@ def _run_pending_analysis(
     from polily.tui.service import PolilyService
 
     try:
-        cfg = _ctx.config if _ctx is not None else None
-        service = PolilyService(config=cfg, db=db)
-        asyncio.run(
-            service.analyze_event(
-                event_id, trigger_source=trigger_source, scan_id=scan_id,
-            ),
-        )
+        with db._lock:
+            cfg = _ctx.config if _ctx is not None else None
+            service = PolilyService(config=cfg, db=db)
+            asyncio.run(
+                service.analyze_event(
+                    event_id, trigger_source=trigger_source, scan_id=scan_id,
+                ),
+            )
     except Exception as e:
         logger.exception("Dispatched analysis failed for scan_id=%s", scan_id)
         try:
