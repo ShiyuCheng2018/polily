@@ -10,6 +10,22 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.11.4] — 2026-05-05
+
+### Fixed
+
+- **Dispatcher exception path now finalizes scan_logs row.** Pre-v0.11.4 if `_run_pending_analysis` raised before reaching `analyze_event` (e.g., `PolilyService.__init__` failing or `sqlite3.InterfaceError` from concurrent DB access), the outer try/except logged the trace but did NOT mark the scan_logs row as failed — left in `running` indefinitely until next daemon restart. Real prod incident 2026-05-04 21:38: 2 rows stuck running 12+ minutes. v0.11.4 broadens the try block to wrap the full function and explicitly calls `finish_scan(status='failed', error=...)` on exception, with a belt-and-suspenders nested try so a finish_scan failure can't crash the ai executor thread.
+- **PolilyDB serializes ai-executor concurrent access.** Two ai executor threads racing `db.conn.execute()` produced `sqlite3.InterfaceError: bad parameter or other API misuse` (verified in `daemon-stderr.log` thanks to v0.11.2's redirect fix). v0.11.4 adds a single `threading.RLock` to `PolilyDB` and wraps the entire body of `_run_pending_analysis` with it. Other code paths (sidebar reads, daemon poll loop, manual TUI scans) are unchanged — broad migration to thread-safe wrappers across all 152 `db.conn.execute` call sites is deferred to v0.11.5.
+- **httpx market-fetch: split timeouts + tenacity retry + per-tick circuit breaker.** Pre-v0.11.4 used `httpx.AsyncClient(timeout=15)` which set `read=15s` — the dominant tail under Polymarket CLOB load (76.8% poll error rate observed in v0.11.3 dogfooding). v0.11.4: split timeouts (`connect=5s, read=10s, write=10s, pool=10s`); per-market `_fetch_one` retries up to 3× with exponential backoff on `ConnectError` / `TimeoutException`; circuit breaker aborts retries for the rest of the tick after 5 consecutive ConnectErrors to prevent retry-storm under sustained outage.
+
+### Added
+
+- **Update available indicator on TUI sidebar.** Yellow `*` appears on 更新日志 entry when a newer PyPI version is available than the current installation. Click 更新日志 → background fresh PyPI fetch → mark current latest as seen → `*` disappears until a newer release ships. Cache TTL 6h; network failures silent. Reuses the existing `mark_new_data` infrastructure (same indicator as 任务记录 / 监控). New dep: `packaging>=24.0,<26.0` for PEP 440-correct version comparison.
+
+### Notes
+
+Reliability + UX bundle. No schema migrations; one new HIDDEN_IN_TUI config leaf (`update_check.last_dismissed_version`) auto-seeded on first run. v0.11.x → v0.11.4 upgrade is `pipx upgrade polily`.
+
 ## [0.11.3] — 2026-05-04
 
 ### Fixed
@@ -644,7 +660,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.3...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.4...dev
+[0.11.4]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.4
 [0.11.3]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.3
 [0.11.2]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.2
 [0.11.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.1
