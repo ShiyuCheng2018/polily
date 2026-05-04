@@ -133,6 +133,10 @@ HIDDEN_IN_TUI: frozenset[str] = frozenset({
     # docstring; even if a row exists in db.config, callers bootstrap
     # the path BEFORE loading db.config.
     "archiving.db_file",
+    # update_check.last_dismissed_version — v0.11.4: TUI auto-managed
+    # state for "new version available" indicator. Persisted on user
+    # click of 更新日志 sidebar; not user-tunable from ⚙ 配置.
+    "update_check.last_dismissed_version",
 })
 
 

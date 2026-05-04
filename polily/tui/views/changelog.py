@@ -131,8 +131,43 @@ class ChangelogView(Widget):
         Thread worker so the 3s HTTP call doesn't block the UI. On return
         the Static is updated via `call_from_thread` (required — updates
         from a non-UI thread must be marshaled back to the event loop).
+
+        v0.11.4: also dismisses the "new version available" sidebar `*`
+        marker. Force-fresh PyPI fetch (bypasses 6h cache so user sees
+        TRUE latest at click time), persist as dismissed, clear sidebar
+        `*`. Best-effort; failure logged and swallowed.
         """
         self.run_worker(self._fetch_and_update_version, thread=True, exclusive=True)
+        self.run_worker(self._dismiss_update_marker, thread=True, exclusive=False)
+
+    def _dismiss_update_marker(self) -> None:
+        """Background worker: persist current latest PyPI as dismissed +
+        clear the sidebar `*` for `changelog`. Always clears the marker
+        even if PyPI fetch failed (user clearly saw the changelog)."""
+        try:
+            from polily.core import update_check
+            service = getattr(self.app, "service", None)
+            if service is None:
+                return
+            latest = update_check.get_latest_version(force_refresh=True)
+            if latest:
+                update_check.set_dismissed_version(service.db, latest)
+        except Exception as e:
+            # Log via stderr-redirected daemon log? No — we're in TUI.
+            # Use module-level no-op suppression.
+            import logging
+            logging.getLogger(__name__).debug(
+                "update_check dismiss failed: %s", e,
+            )
+
+        # Always attempt to clear the sidebar marker (UI thread hop)
+        def _clear():
+            from polily.tui.widgets.sidebar import Sidebar
+            with contextlib.suppress(Exception):
+                self.app.query_one("#sidebar", Sidebar).clear_new_data("changelog")
+
+        with contextlib.suppress(Exception):
+            self.app.call_from_thread(_clear)
 
     def _fetch_and_update_version(self) -> None:
         latest = _fetch_latest_release_tag()

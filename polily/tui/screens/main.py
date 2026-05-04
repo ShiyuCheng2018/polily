@@ -14,6 +14,7 @@ v0.8.0 Task 32 migration:
 
 
 import contextlib
+import logging
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -61,6 +62,8 @@ from polily.tui.views.score_result import (
     ScoreViewRescore,
 )
 from polily.tui.widgets.sidebar import MenuSelected, Sidebar
+
+logger = logging.getLogger(__name__)
 
 
 class MainScreen(Screen):
@@ -145,6 +148,19 @@ class MainScreen(Screen):
             bus.subscribe(TOPIC_SCAN_UPDATED, self._on_scan_updated)
             bus.subscribe(TOPIC_POSITION_UPDATED, self._on_position_or_wallet_update)
             bus.subscribe(TOPIC_WALLET_UPDATED, self._on_position_or_wallet_update)
+
+        # v0.11.4: yellow `*` on 更新日志 if newer PyPI version available
+        # and user hasn't dismissed. Reuses sidebar.mark_new_data infra
+        # (same indicator as 任务记录 / 监控). Best-effort: any failure is
+        # logged but never crashes mount. Cache-hit path is local-disk
+        # only (sub-millisecond); cache-miss path may hit network with
+        # a 5s httpx timeout — tolerable on first launch every 6h.
+        try:
+            from polily.core import update_check
+            if update_check.should_show_update_star(self.service.db):
+                sidebar.mark_new_data("changelog")
+        except Exception:
+            logger.exception("update_check.should_show_update_star failed")
 
     def on_unmount(self) -> None:
         bus = getattr(self.service, "event_bus", None)
