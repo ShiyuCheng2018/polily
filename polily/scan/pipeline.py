@@ -33,7 +33,13 @@ def _update_event_scores(
     """
     price_params = price_params or {}
     # Update per-market scores + breakdown
+    from polily.core.user_prefs import get_pref
     from polily.scan.commentary import generate_commentary
+
+    # v0.11.5: pick commentary language from user_prefs (default zh).
+    # Read once per call (not per-candidate) — the user's language
+    # doesn't change inside a single scoring pass.
+    commentary_lang = get_pref(db, "language", default="zh") or "zh"
 
     for c in candidates:
         eid = getattr(c.market, "event_id", None)
@@ -79,6 +85,7 @@ def _update_event_scores(
             commentary = generate_commentary(
                 bd, c.score.total, c.market.market_id,
                 market_type=getattr(c.market, "market_type", "other"),
+                language=commentary_lang,
             )
             bd["commentary"] = commentary
             breakdown = json.dumps(bd)

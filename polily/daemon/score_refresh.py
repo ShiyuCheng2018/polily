@@ -48,6 +48,12 @@ def refresh_scores(
         from polily.core.config import PolilyConfig
         config = PolilyConfig()
 
+    # v0.11.5: pick commentary language from user_prefs (default zh).
+    # Read once per refresh — daemon is a separate process from TUI but
+    # both share the user_prefs table (set by TUI's F2 toggle).
+    from polily.core.user_prefs import get_pref
+    commentary_lang = get_pref(db, "language", default="zh") or "zh"
+
     result = RefreshResult()
     now = datetime.now(UTC).isoformat()
 
@@ -147,6 +153,7 @@ def refresh_scores(
                 # Refresh commentary
                 commentary = generate_commentary(
                     new_bd, score.total, mr.market_id, market_type=market_type,
+                    language=commentary_lang,
                 )
                 new_bd["commentary"] = commentary
 

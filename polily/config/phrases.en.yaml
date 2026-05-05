@@ -1,0 +1,418 @@
+dimensions:
+  liquidity:
+    label: "Liquidity"
+    label_short: "Liquidity"
+    levels:
+      - range: [0, 5]
+        phrases: ["Ghost town — no one trades here", "Limit orders? For who?", "The order book is just decoration"]
+      - range: [5, 10]
+        phrases: ["Easy in, impossible out — you'll get stuck", "Even market makers shake their heads", "Liquidity is basically air"]
+      - range: [10, 15]
+        phrases: ["A $10 order sweeps the whole book", "Slippage will exceed your profit", "This depth is a joke"]
+      - range: [15, 20]
+        phrases: ["Depth is alarming — don't risk real money", "The book is paper-thin, one poke kills it", "Only mosquito-leg-sized trades work"]
+      - range: [20, 25]
+        phrases: ["Even a $20 order needs careful sizing", "Liquidity is borderline acceptable", "Check the book before doing anything"]
+      - range: [25, 30]
+        phrases: ["Tradeable but keep it small", "Small positions only", "Order book is barely passable"]
+      - range: [30, 35]
+        phrases: ["Liquidity is so-so", "Adequate for retail size", "Spread is a bit wide"]
+      - range: [35, 40]
+        phrases: ["Liquidity is below average", "Limit orders work fine", "Avoid market orders"]
+      - range: [40, 45]
+        phrases: ["Liquidity is OK", "Normal-sized trades work", "Spread is acceptable"]
+      - range: [45, 50]
+        phrases: ["Liquidity is decent", "Sufficient most of the time", "Spread occasionally widens"]
+      - range: [50, 55]
+        phrases: ["Liquidity passes muster", "Book is reasonably tight", "Standard sizes execute fine"]
+      - range: [55, 60]
+        phrases: ["Liquidity is good", "Buying and selling both flow", "Order book looks healthy"]
+      - range: [60, 65]
+        phrases: ["Liquidity is solid", "Easy in, easy out", "Market makers are doing their job"]
+      - range: [65, 70]
+        phrases: ["Order book is thick", "Even large orders won't slip much", "Liquidity feels reassuring"]
+      - range: [70, 75]
+        phrases: ["Depth is great", "Tight spread", "Trade with confidence"]
+      - range: [75, 80]
+        phrases: ["Order book is deep", "Top-tier liquidity", "Big money flows in and out easily"]
+      - range: [80, 85]
+        phrases: ["Excellent liquidity", "Book is thick like a wall", "Buy as much as you want"]
+      - range: [85, 90]
+        phrases: ["Premier liquidity", "Market makers fight to quote", "Zero stress on entry/exit"]
+      - range: [90, 95]
+        phrases: ["Institutional-grade depth", "Slippage is essentially zero", "Liquidity scores 10/10"]
+      - range: [95, 100]
+        phrases: ["Buy as much as you want", "Trade freely", "The book has no bottom"]
+
+  verifiability:
+    label: "Settlement Verifiability"
+    label_short: "Verifiability"
+    levels:
+      - range: [0, 5]
+        phrases: ["Settlement is metaphysics — winning doesn't guarantee payout", "Rules might as well not exist", "This settlement standard is a trap"]
+      - range: [5, 10]
+        phrases: ["Dispute probability is sky-high — don't be cannon fodder", "Settlement criteria are absurdly vague", "Win means lawsuit, lose means eat it"]
+      - range: [10, 15]
+        phrases: ["Rules are written like obfuscation — more confused after reading", "Settlement basis won't survive scrutiny", "Non-trivial dispute risk"]
+      - range: [15, 20]
+        phrases: ["Settlement standards have wiggle room — careful", "Rules aren't tight, luck plays a role", "Loopholes between every line"]
+      - range: [20, 25]
+        phrases: ["Settlement is barely passable, don't trust it fully", "Rules exist but with back doors", "Wording has traps — read carefully"]
+      - range: [25, 30]
+        phrases: ["Settlement has basis but isn't rock-solid", "Rules are mostly clear", "You roughly know how it settles"]
+      - range: [30, 35]
+        phrases: ["Settlement basis is so-so", "Rules are passable", "Not particularly objective"]
+      - range: [35, 40]
+        phrases: ["Settlement standards are OK", "Documented but not bulletproof", "Mid-tier verifiability"]
+      - range: [40, 45]
+        phrases: ["Settlement is reliable", "Clear judgment criteria", "Low dispute probability"]
+      - range: [45, 50]
+        phrases: ["Settlement standards are fairly clear", "Backed by data sources", "Rules are well-written"]
+      - range: [50, 55]
+        phrases: ["Verifiability is acceptable", "Official channels available for verification", "Settlement is documented"]
+      - range: [55, 60]
+        phrases: ["Settlement standards are good", "Reasonably authoritative data sources", "Results are easy to verify"]
+      - range: [60, 65]
+        phrases: ["Settlement rules are clear", "Data sources are authoritative", "Dispute probability is very low"]
+      - range: [65, 70]
+        phrases: ["Settlement is unambiguous", "Official data is the source of truth", "Little room for dispute"]
+      - range: [70, 75]
+        phrases: ["Settlement basis is rock-solid", "Black-and-white data", "Result visible at a glance"]
+      - range: [75, 80]
+        phrases: ["Verifiability is high", "Public API is queryable", "Zero settlement disputes"]
+      - range: [80, 85]
+        phrases: ["Settlement is ironclad", "Data source is as solid as it gets", "API reads numbers directly"]
+      - range: [85, 90]
+        phrases: ["Settlement mechanism is near-perfect", "Official data is the verdict", "On-chain verifiable"]
+      - range: [90, 95]
+        phrases: ["Numbers speak, no debate", "Auto-settled when price crosses", "Verification cost is zero"]
+      - range: [95, 100]
+        phrases: ["One glance at the price tells you the result", "Settlement is more certain than an ATM withdrawal", "No way to weasel out of this result"]
+
+  probability:
+    label: "Probability Space"
+    label_short: "Prob Space"
+    levels:
+      - range: [0, 5]
+        phrases: ["Outcome is locked in — entering is donating money", "0.99 YES — what are you buying?", "Pure handout to market makers"]
+      - range: [5, 10]
+        phrases: ["Odds are atrocious — even right you barely earn", "Worse odds than a lottery ticket", "Price is maxed out, don't push"]
+      - range: [10, 15]
+        phrases: ["Probability space is pitifully small", "Odds are friendless", "Risk-reward isn't worth it"]
+      - range: [15, 20]
+        phrases: ["Not enough room unless you have insider info", "Odds are unfriendly", "Right pays a little, wrong pays a lot"]
+      - range: [20, 25]
+        phrases: ["Probability space is narrow — needs a strong signal", "Odds are mediocre", "Need a strong reason to take this risk"]
+      - range: [25, 30]
+        phrases: ["Probability space is mediocre", "Some odds remaining", "Price isn't extreme yet"]
+      - range: [30, 35]
+        phrases: ["Probability space is OK", "Some operating room", "Odds are barely acceptable"]
+      - range: [35, 40]
+        phrases: ["Probability space is medium", "Price is getting interesting", "Odds are passable"]
+      - range: [40, 45]
+        phrases: ["Probability space is decent", "Price is balanced", "Both directions have a case"]
+      - range: [45, 50]
+        phrases: ["Probability space is good", "Odds are fair", "No clear consensus on price"]
+      - range: [50, 55]
+        phrases: ["Price is in the sweet spot", "Odds are right on", "Comfortable entry zone"]
+      - range: [55, 60]
+        phrases: ["Odds are reasonable", "Neither expensive nor cheap", "Probability space is high quality"]
+      - range: [60, 65]
+        phrases: ["Probability space is large", "Both sides have meat on the bone", "Price is still tug-of-war"]
+      - range: [65, 70]
+        phrases: ["Probability space is very large", "Market hasn't formed consensus", "Odds are generous"]
+      - range: [70, 75]
+        phrases: ["Probability space is wide open", "Market is in active battle", "Big money on both sides"]
+      - range: [75, 80]
+        phrases: ["Probability space is broad", "Price near 50/50", "Pick the right direction and cash in"]
+      - range: [80, 85]
+        phrases: ["Golden odds zone", "Probability space is excellent", "Right direction = serious profit"]
+      - range: [85, 90]
+        phrases: ["Outstanding odds", "True 50/50 battlefield", "Top-tier probability space"]
+      - range: [90, 95]
+        phrases: ["Perfect odds", "Probability space near maximum", "Market has zero consensus"]
+      - range: [95, 100]
+        phrases: ["Perfect 50/50", "Pure probability play", "Textbook odds"]
+
+  time:
+    label: "Time Structure"
+    label_short: "Time"
+    levels:
+      - range: [0, 5]
+        phrases: ["Money locked until forever", "Absurdly far out — don't park capital here", "Wait for settlement? Take a summer vacation first"]
+      - range: [5, 10]
+        phrases: ["Timeline is way too long, capital sits idle", "Indefinite — not a savings account", "By the time it settles, flowers will have wilted"]
+      - range: [10, 15]
+        phrases: ["Way too early, what's the rush", "Even cold leftovers settle before this does", "Better uses for the capital"]
+      - range: [15, 20]
+        phrases: ["No rush, plenty of time", "Capital efficiency is pitiful", "Entering now is just early sentry duty"]
+      - range: [20, 25]
+        phrases: ["Time is far out, watch but don't act", "Skip unless you have a massive signal", "Add to watchlist for now"]
+      - range: [25, 30]
+        phrases: ["Time window is mediocre", "Worth starting to watch", "Not the optimal entry timing yet"]
+      - range: [30, 35]
+        phrases: ["Time is OK", "Could position early", "Catalyst isn't too far"]
+      - range: [35, 40]
+        phrases: ["Time frame is acceptable", "Result in a week or two", "Worth considering entry"]
+      - range: [40, 45]
+        phrases: ["Time structure is decent", "Catalyst on the way", "Capital lockup is reasonable"]
+      - range: [45, 50]
+        phrases: ["Time window is good", "Resolves within about a week", "Solid pacing"]
+      - range: [50, 55]
+        phrases: ["Time structure is good", "Catalyst is approaching", "Holding period is reasonable"]
+      - range: [55, 60]
+        phrases: ["Time frame is good", "Result within days", "Capital efficiency is good"]
+      - range: [60, 65]
+        phrases: ["Time window is high quality", "Catalyst is near", "Result coming soon"]
+      - range: [65, 70]
+        phrases: ["Time structure is great", "Golden trading window", "Result within days"]
+      - range: [70, 75]
+        phrases: ["Time window is excellent", "Catalyst is right around the corner", "3-5 days to resolution"]
+      - range: [75, 80]
+        phrases: ["Optimal trading window", "Just a couple days away", "Catalyst is at hand"]
+      - range: [80, 85]
+        phrases: ["Time pacing is perfect", "Result imminent", "Capital efficiency 10/10"]
+      - range: [85, 90]
+        phrases: ["Countdown in progress", "Catalyst tomorrow or the day after", "Short-term opportunity window"]
+      - range: [90, 95]
+        phrases: ["Final seconds", "Result about to drop", "Last entry window"]
+      - range: [95, 100]
+        phrases: ["One last step", "Result today", "Final hours of the countdown"]
+
+  friction:
+    label: "Trading Friction"
+    label_short: "Friction"
+    levels:
+      - range: [0, 5]
+        phrases: ["You lose a chunk just entering — pure handout", "Spread wide enough to drive a truck through, don't touch", "Market makers thank you for the donation"]
+      - range: [5, 10]
+        phrases: ["Round-trip costs 8%+ — what's the point", "Friction exceeds your edge", "Trading fees beat your profit, ridiculous"]
+      - range: [10, 15]
+        phrases: ["Round-trip friction eats most of your profit", "This spread is daylight robbery", "Trading cost stings"]
+      - range: [15, 20]
+        phrases: ["Friction isn't low — need solid edge to justify", "Watch the round-trip spread or get crushed", "Costs will severely compress profit"]
+      - range: [20, 25]
+        phrases: ["Trading costs eat a lot of profit", "Limit orders mandatory or lose more", "Friction is high, do the math first"]
+      - range: [25, 30]
+        phrases: ["Friction is medium-high", "Costs need to be factored in", "Spread stings a bit"]
+      - range: [30, 35]
+        phrases: ["Trading costs are mediocre", "Spread is OK but factor it in", "Friction is manageable"]
+      - range: [35, 40]
+        phrases: ["Friction is medium", "Costs are mid-range", "Normal spread levels"]
+      - range: [40, 45]
+        phrases: ["Friction is fair", "Costs in reasonable range", "Won't impact returns much"]
+      - range: [45, 50]
+        phrases: ["Trading costs are OK", "Round-trip friction is acceptable", "Not too expensive"]
+      - range: [50, 55]
+        phrases: ["Friction is in normal range", "Costs are fine", "Won't eat too much profit"]
+      - range: [55, 60]
+        phrases: ["Friction is fairly low", "Trading cost is good", "Spread is fairly tight"]
+      - range: [60, 65]
+        phrases: ["Friction is below average", "Cost-friendly", "Market maker quotes are tight"]
+      - range: [65, 70]
+        phrases: ["Low friction", "Entry/exit costs are very low", "Spread is well-controlled"]
+      - range: [70, 75]
+        phrases: ["Friction is very low", "Trading costs barely affect returns", "Quotes are tight"]
+      - range: [75, 80]
+        phrases: ["Ultra-low friction", "Entry/exit costs are negligible", "Barely need to think about spread"]
+      - range: [80, 85]
+        phrases: ["Friction is extremely low", "Trading costs are negligible", "Spread is paper-thin"]
+      - range: [85, 90]
+        phrases: ["Friction near zero", "Market makers are competing hard", "Trade in and out painlessly"]
+      - range: [90, 95]
+        phrases: ["Friction is ignorable", "Spread is razor-tight", "Costs are essentially zero"]
+      - range: [95, 100]
+        phrases: ["Zero-friction heaven", "Bid equals ask", "Exchange-grade quotes"]
+
+  net_edge:
+    label: "Net Edge"
+    label_short: "Edge"
+    levels:
+      - range: [0, 5]
+        phrases: ["Market pricing is fine — don't force an edge", "The model and market shook hands", "This price has nothing to fault"]
+      - range: [5, 10]
+        phrases: ["No edge to speak of — minus friction you lose", "Model squints and sees a tiny deviation", "Stop fooling yourself, no edge"]
+      - range: [10, 15]
+        phrases: ["Edge is roughly zero, don't kid yourself", "Theoretically a deviation, practically just fees", "Signal is too weak to detect"]
+      - range: [15, 20]
+        phrases: ["Edge is paper-thin", "Barely covers friction, profit means nothing", "Edge exists but trivial"]
+      - range: [20, 25]
+        phrases: ["Edge just barely covers costs", "Slightly better than nothing", "You decide if it's worth doing"]
+      - range: [25, 30]
+        phrases: ["Model is starting to give signal", "Some meat left after friction", "Edge is worth considering"]
+      - range: [30, 35]
+        phrases: ["Has some edge", "Deviation is starting to mean something", "Model is talking"]
+      - range: [35, 40]
+        phrases: ["Edge is decent", "Clear price-vs-model deviation", "Worth a serious look"]
+      - range: [40, 45]
+        phrases: ["Edge is fairly significant", "Model signal is fairly strong", "Deviation enough to cover costs"]
+      - range: [45, 50]
+        phrases: ["Quite good edge", "Model and market disagree clearly", "Worth heavy attention"]
+      - range: [50, 55]
+        phrases: ["Edge is good", "Model gives a clear signal", "Pricing deviation is significant"]
+      - range: [55, 60]
+        phrases: ["Edge is excellent", "Big gap between market price and model", "This deviation is worth grabbing"]
+      - range: [60, 65]
+        phrases: ["Strong edge signal", "Market is clearly mispricing", "Rare opportunity"]
+      - range: [65, 70]
+        phrases: ["Very strong edge", "Huge gap between model valuation and market", "This kind of deviation is uncommon"]
+      - range: [70, 75]
+        phrases: ["Extremely strong edge", "Market severely diverges from valuation", "If model is right, free money"]
+      - range: [75, 80]
+        phrases: ["Rare large edge", "Mispricing is extreme", "Either market knows something or it's a gift"]
+      - range: [80, 85]
+        phrases: ["Edge is unreal — verify the model isn't wrong first", "Sanity-check before acting", "Deviation is too dramatic"]
+      - range: [85, 90]
+        phrases: ["Free-money tier", "Triple-check the model", "This edge is an outlier"]
+      - range: [90, 95]
+        phrases: ["Either a bug or an opportunity", "Model and market are in serious disagreement", "Check if the data is wrong first"]
+      - range: [95, 100]
+        phrases: ["Something's definitely off", "Either market crashed or you found a goldmine", "Triple-check before acting"]
+
+overall:
+  total_judgment:
+    - range: [0, 10]
+      phrases: ["This market is rotten — don't even touch it", "Structure is fully broken, pure waste of time", "Garbage market, next"]
+    - range: [10, 20]
+      phrases: ["Fundamentals are a mess — don't be the sucker", "Whatever you do here you're donating", "Cut your losses and move on"]
+    - range: [20, 30]
+      phrases: ["Market structure is weak, nothing to play here", "Skip unless you have a super-strong signal", "Conditions too poor to risk it"]
+    - range: [30, 40]
+      phrases: ["Market structure is mediocre, not a good target", "Passable but don't expect much", "Why do this when better opportunities exist"]
+    - range: [40, 50]
+      phrases: ["Below-average structure, makeshift with weak spots", "Lukewarm — chicken ribs", "If picking carefully, skip this one"]
+    - range: [50, 55]
+      phrases: ["Market structure barely passes", "Just clears the trading bar", "Conditions are mediocre"]
+    - range: [55, 60]
+      phrases: ["Market structure is OK", "Worth considering", "Conditions basically met"]
+    - range: [60, 65]
+      phrases: ["Market structure is good", "Worth a serious look", "Conditions are fairly ideal"]
+    - range: [65, 70]
+      phrases: ["Market structure is solid", "Worth spending time on", "Most conditions are in place"]
+    - range: [70, 75]
+      phrases: ["Market structure is very good", "Worth tracking closely", "Most conditions are dialed in"]
+    - range: [75, 80]
+      phrases: ["Market structure is excellent", "Top-priority candidate", "Conditions are quite good"]
+    - range: [80, 85]
+      phrases: ["Market structure is outstanding", "A rare good market", "Looks great across the board"]
+    - range: [85, 90]
+      phrases: ["Market structure is exceptional", "Opportunities like this are uncommon", "Hard to find a flaw"]
+    - range: [90, 95]
+      phrases: ["Textbook market structure", "Top-tier trading opportunity", "Rarely see ones this good"]
+    - range: [95, 100]
+      phrases: ["Perfect market structure", "One in a thousand", "All conditions max out"]
+
+  strongest:
+    - "Bright spot is {dim}: {phrase}"
+    - "Biggest advantage is {dim} — {phrase}"
+    - "{dim} stands out: {phrase}"
+
+  weakest:
+    - "Weak spot is {dim}: {phrase}"
+    - "Biggest risk is in {dim} — {phrase}"
+    - "Watch out for {dim}: {phrase}"
+
+  advice:
+    # === Edge + Liquidity (crypto core scenario) ===
+    - condition: {net_edge_pct_gte: 70, liquidity_pct_gte: 70}
+      phrases: ["Big edge + deep book — textbook setup, build with limit orders", "Strong model signal + sufficient liquidity, execute with discipline", "Opportunities like this are rare, follow the plan"]
+    - condition: {net_edge_pct_gte: 50, liquidity_pct_lt: 30}
+      phrases: ["Edge exists but liquidity is too thin — paper profit only", "Model says opportunity but book is thin, try a small limit order", "Edge looks tempting but you can't get out"]
+    - condition: {net_edge_pct_gte: 50, liquidity_pct_gte: 30, liquidity_pct_lt: 50}
+      phrases: ["Edge is decent but liquidity mediocre, light position with patient limit orders", "Model has signal but book isn't deep enough, control size", "Opportunity exists but be patient on entry/exit"]
+    - condition: {net_edge_pct_gte: 50, liquidity_pct_gte: 50}
+      phrases: ["Edge + liquidity both met, build position with limit orders by the book", "Model found clear deviation and book is deep — execute the plan", "Quant signal clear, liquidity adequate"]
+
+    # === Edge + Friction ===
+    - condition: {net_edge_pct_gte: 40, friction_pct_lt: 20}
+      phrases: ["Has edge but friction eats all the profit, not worth it", "Model sees opportunity but spread too wide, wait for better quotes", "Edge in theory but real entry/exit costs are too high"]
+    - condition: {net_edge_pct_gte: 30, friction_pct_gte: 60}
+      phrases: ["Edge + low friction — good cost-benefit", "Deviation has meat after friction, worth doing", "Model signal + low cost, conditions are good"]
+
+    # === Edge + Time ===
+    - condition: {net_edge_pct_gte: 40, time_pct_lt: 15}
+      phrases: ["Model sees edge but settlement too far, watchlist for now", "Deviation present but time cost high, wait until closer", "Edge here but capital efficiency too low, just track"]
+    - condition: {net_edge_pct_gte: 40, time_pct_gte: 60}
+      phrases: ["Edge + good time window, catalyst incoming, get ready", "Model signal + time aligned, can act", "Clear deviation and settlement near, don't miss it"]
+
+    # === Friction extreme ===
+    - condition: {friction_pct_lt: 10}
+      phrases: ["Friction is absurdly high — entering means losing", "Spread too wide to trade, don't touch", "Market makers are killing it here, don't be the sucker"]
+    - condition: {friction_pct_lt: 25, net_edge_pct_lt: 40}
+      phrases: ["Friction too high, edge can't cover it, wait for tighter spread", "Round-trip friction eats most of profit room, observe only", "MMs make more than you, wait for better quotes"]
+    - condition: {friction_pct_gte: 80, liquidity_pct_gte: 60}
+      phrases: ["Low friction + good liquidity, trading conditions are great", "Entry/exit costs negligible and book is deep, trade away", "Spread barely exists, can act anytime"]
+
+    # === Verifiability related ===
+    - condition: {verifiability_pct_lt: 15, total_gte: 50}
+      phrases: ["Other conditions OK but settlement too vague, watch for disputes", "Data side is fine but settlement rules unreliable, control size", "Structure is OK but settlement risky, don't all-in"]
+    - condition: {verifiability_pct_lt: 25}
+      phrases: ["Settlement basis is unclear, high dispute risk", "Rules too vague, win or lose is debatable", "With this settlement standard, even winning may not pay"]
+    - condition: {verifiability_pct_gte: 80, total_gte: 60}
+      phrases: ["Settlement is rock-solid, other conditions good too, trade with confidence", "High result certainty + good structure, just focus on direction", "Verifiability maxed, no need to worry about disputes"]
+
+    # === Time alone and crosses ===
+    - condition: {time_pct_gte: 80, liquidity_pct_gte: 50, probability_pct_gte: 40}
+      phrases: ["Time + liquidity + probability triple-aligned, get in now", "Golden window with everything in place, don't hesitate", "Catalyst imminent and book is deep, this is the moment"]
+    - condition: {time_pct_gte: 60, liquidity_pct_lt: 30}
+      phrases: ["Deadline near but liquidity too thin, post limit orders and wait", "Time window good but book thin, can post and wait for catalyst", "Settlement near but trading is hard"]
+    - condition: {time_pct_lt: 10}
+      phrases: ["Settlement too far, entering now just locks capital", "Too early, better places for funds", "Watch for now, revisit when within 30-day window"]
+    - condition: {time_pct_lt: 20, total_gte: 50}
+      phrases: ["Other conditions OK but too early, add to watchlist for the time window", "Structure is fine but time too distant, track without rushing in", "Good market but not ripe yet, revisit when closer"]
+    - condition: {time_pct_lt: 20, total_lt: 50}
+      phrases: ["Time far + structure poor, nothing to see", "Too early and conditions bad, skip", "Wait for better opportunities"]
+
+    # === Probability alone and crosses ===
+    - condition: {probability_pct_lt: 10}
+      phrases: ["Price already extreme, no room left", "Lopsided market, skip unless you have insider info", "Odds are unwatchable"]
+    - condition: {probability_pct_lt: 20, liquidity_pct_gte: 50}
+      phrases: ["Price extreme but book deep, contrarian play if you have a strong signal", "Bad odds but good liquidity, suits contrarian thinkers", "Most won't touch but if you have edge consider it"]
+    - condition: {probability_pct_lt: 20}
+      phrases: ["Price too extreme, odds are bad", "Near-final verdict, little point entering", "Odds too poor — even right you barely earn"]
+    - condition: {probability_pct_gte: 70, friction_pct_gte: 60}
+      phrases: ["Good odds + low friction, high cost-benefit ratio", "Big probability space and low cost, good setup", "Price still tug-of-war and cost low, can participate"]
+    - condition: {probability_pct_gte: 70, time_pct_gte: 50}
+      phrases: ["Good odds + suitable time, conditions are good", "Big probability space and good window, worth a serious look", "No verdict yet and catalyst near"]
+
+    # === Liquidity extreme ===
+    - condition: {liquidity_pct_lt: 10}
+      phrases: ["Liquidity is essentially zero, price without market", "Can't trade this book, just look", "Can't buy what you want, can't sell what you have"]
+    - condition: {liquidity_pct_lt: 20, total_gte: 50}
+      phrases: ["Everything except liquidity is OK, wait for book to improve", "Structure OK but book too thin, not currently tradeable", "Conditions decent but missing liquidity — watchlist for now"]
+    - condition: {liquidity_pct_gte: 80, friction_pct_gte: 70}
+      phrases: ["Deep book + low friction, top-tier trading conditions", "Buy as much as you want at extremely low cost", "Market makers competing well, retail benefits"]
+
+    # === Non-crypto high-score scenarios ===
+    - condition: {total_gte: 70, net_edge_pct_lt: 5, is_crypto: false}
+      phrases: ["Market structure is good but no quant edge — judge direction yourself", "Structure is fine, what's missing is direction call, see AI analysis before deciding", "Hardware is good but software isn't, combine news + analysis to call direction"]
+    - condition: {total_gte: 60, is_crypto: false, time_pct_gte: 50}
+      phrases: ["Non-crypto market structure OK + time aligned, study the fundamentals", "Structure score decent, key is your event judgment", "Market conditions in place, do the research before picking direction"]
+
+    # === Total score bands ===
+    - condition: {total_lt: 25}
+      phrases: ["Structure is too poor, don't waste your bullets here", "This market isn't worth your time", "Find better opportunities"]
+    - condition: {total_gte: 25, total_lt: 40}
+      phrases: ["Structure is weak, skip unless you have a unique angle", "Conditions aren't great, risk-reward is bad", "Not impossible but better choices exist"]
+    - condition: {total_gte: 40, total_lt: 55}
+      phrases: ["Conditions are mediocre, small position only if you must", "Structure is so-so, don't put much in", "Borderline — depends on your risk appetite"]
+    - condition: {total_gte: 55, total_lt: 65}
+      phrases: ["Decent overall but nothing standout, light testing position works", "Average opportunity suits light participation", "Conditions pass — strictly control position size"]
+    - condition: {total_gte: 65, total_lt: 75}
+      phrases: ["Conditions are decent, worth taking seriously", "Solid structure, can size up moderately", "Balanced across dimensions, good target"]
+    - condition: {total_gte: 75, total_lt: 85}
+      phrases: ["Conditions are very good, execute by the book — limit orders and controlled size", "Rare good opportunity — limit orders for entry, set stops", "All scores are high, take it seriously but still control risk"]
+    - condition: {total_gte: 85}
+      phrases: ["Top-tier setup, fully research this opportunity", "Rare set of conditions, worth your time and capital", "Every indicator green, execute the plan"]
+
+    # === Multi-dimensional weakness ===
+    - condition: {liquidity_pct_lt: 30, friction_pct_lt: 30}
+      phrases: ["Bad liquidity + high friction, double-trouble, don't touch", "Can't get in or out and it's expensive, triple whammy", "Thin book and wide spread — even MMs don't want to make this"]
+    - condition: {liquidity_pct_lt: 30, time_pct_lt: 20}
+      phrases: ["Bad liquidity + far time, double disadvantage", "Thin book and a long wait, terrible capital efficiency", "Wait for liquidity to improve and time to get closer"]
+    - condition: {probability_pct_lt: 25, friction_pct_lt: 30}
+      phrases: ["Bad odds + high friction, doing it is futile", "No room and it's expensive — what's the point", "Small probability space + high cost — math says no"]
+
+    # === Fallback ===
+    - condition: {total_gte: 0}
+      phrases: ["See the AI analysis before deciding", "Average conditions, caution wins", "Do your research before acting"]
