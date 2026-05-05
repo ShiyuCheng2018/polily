@@ -1,11 +1,11 @@
 """Parse config_docs/*.<lang>.md → dict[key_path, html_description].
 
-v0.10.x — i18n: each docs file has a language suffix (`movement.zh.md` /
-`movement.en.md`). `load_all(lang)` reads the requested language; if a
+v0.10.x — i18n: each docs file has a language suffix (`movement.en.md` /
+`movement.zh.md`). `load_all(lang)` reads the requested language; if a
 particular file lacks a translation for that lang, it falls back to the
-`*.zh.md` canonical so users see content (in zh) instead of a missing
+`*.en.md` canonical so users see content (in en) instead of a missing
 description. CI gate `tests/test_config_docs_i18n_parity.py` enforces
-that every file has both `.zh.md` and `.en.md` companions in shipped
+that every file has both `.en.md` and `.zh.md` companions in shipped
 code, so the fallback is only meaningful for hypothetical new languages
 that haven't been translated yet.
 
@@ -33,10 +33,10 @@ _SUBSECTION_RE = re.compile(r"^###\s+(?P<name>\w+)\s*$")
 
 _DOCS_DIR = Path(__file__).parent
 
-# zh is the canonical fallback per CLAUDE.md ("Chinese for all user-facing
-# output"). New languages opt in by adding `<base>.<lang>.md`; missing
-# translations degrade to zh rather than displaying nothing.
-_FALLBACK_LANG = "zh"
+# en is the canonical fallback (polily ships in English by default; zh is
+# a localized override). New languages opt in by adding `<base>.<lang>.md`;
+# missing translations degrade to en rather than displaying nothing.
+_FALLBACK_LANG = "en"
 
 
 def parse_markdown(path: Path) -> dict[str, str]:
@@ -69,12 +69,13 @@ def parse_markdown(path: Path) -> dict[str, str]:
 
 def _bases() -> list[str]:
     """Return the set of doc bases (e.g. 'movement', 'scoring') by
-    inspecting `<base>.zh.md` files — zh is mandatory in shipped code,
-    so it's the authoritative source of "what files exist".
+    inspecting `<base>.en.md` files — en is the canonical fallback
+    (mandatory in shipped code per CI gate), so it's the authoritative
+    source of "what files exist".
     """
     return sorted(
-        p.name.removesuffix(".zh.md")
-        for p in _DOCS_DIR.glob("*.zh.md")
+        p.name.removesuffix(f".{_FALLBACK_LANG}.md")
+        for p in _DOCS_DIR.glob(f"*.{_FALLBACK_LANG}.md")
         if not p.name.startswith("_")
     )
 

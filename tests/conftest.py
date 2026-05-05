@@ -12,6 +12,29 @@ from polily.core.models import BookLevel, Market
 
 
 @pytest.fixture(autouse=True)
+def _i18n_default_zh_for_tests():
+    """Test suite was written assuming zh as the default UI language.
+    Production default flipped to en (so non-Chinese users get a sensible
+    out-of-box experience), but rather than rewriting hundreds of legacy
+    assertions ("任务记录" / "已过期" / "买入" etc.), we set the active
+    language back to zh for the duration of each test.
+
+    Tests that specifically exercise language toggling (test_i18n.py,
+    test_app_language_toggle.py, test_pr*_views_i18n.py, etc.) call
+    `set_language()` / `init_i18n()` explicitly and override this fixture
+    for their own scope.
+    """
+    import contextlib
+
+    from polily.tui import i18n
+    i18n._ensure_bundled_loaded()
+    with contextlib.suppress(ValueError):
+        # catalogs not loaded (very early failure path) — test surfaces its own error
+        i18n.set_language("zh")
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_polily_claude_cli_env(monkeypatch):
     """v0.9.1: BaseAgent's cli_command default now reads POLILY_CLAUDE_CLI
     from the process env. On any dev box that has ever run

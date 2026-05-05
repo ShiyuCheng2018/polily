@@ -17,6 +17,7 @@ def svc(tmp_path):
     cfg = MagicMock()
     cfg.wallet.starting_balance = 100.0
     cfg.tui.heartbeat_seconds = 5.0  # Phase 0 Task 14: TuiConfig field — Textual timer requires real float
+    cfg.tui.language = "zh"  # autouse i18n fixture sets active lang to zh; pin the cfg side too so PolilyApp._init_i18n_from_prefs doesn't re-init to MagicMock
     db = PolilyDB(tmp_path / "ms.db")
     yield PolilyService(config=cfg, db=db, event_bus=EventBus())
     db.close()

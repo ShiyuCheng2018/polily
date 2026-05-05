@@ -27,18 +27,18 @@ _BUNDLED_LANGS = ("zh", "en")
 
 def _bases() -> list[str]:
     return sorted(
-        p.name.removesuffix(".zh.md")
-        for p in _DOCS_DIR.glob("*.zh.md")
+        p.name.removesuffix(".en.md")
+        for p in _DOCS_DIR.glob("*.en.md")
         if not p.name.startswith("_")
     )
 
 
 def test_every_doc_file_has_companions_for_every_bundled_lang():
-    """Each `<base>.zh.md` must have a `<base>.<lang>.md` for every
+    """Each `<base>.en.md` must have a `<base>.<lang>.md` for every
     bundled language. Catches "translated movement.en.md but forgot
     scoring.en.md" before merge."""
     bases = _bases()
-    assert bases, "no *.zh.md doc files found — the docs dir was emptied?"
+    assert bases, "no *.en.md doc files found — the docs dir was emptied?"
     missing: list[str] = []
     for base in bases:
         for lang in _BUNDLED_LANGS:
@@ -54,7 +54,7 @@ def test_every_doc_file_has_companions_for_every_bundled_lang():
 
 @pytest.mark.parametrize("base", _bases())
 def test_zh_and_en_have_identical_section_keys(base: str):
-    """`## key.path` sections in `<base>.zh.md` must match those in
+    """`## key.path` sections in `<base>.en.md` must match those in
     `<base>.en.md` exactly. Otherwise the user sees blank descriptions
     after F2 toggling (or unintended fallback to zh)."""
     per_lang: dict[str, set[str]] = {}
@@ -95,14 +95,14 @@ def test_signals_glossary_parity_across_languages():
         )
 
 
-def test_loader_falls_back_to_zh_when_lang_file_missing(tmp_path: Path):
+def test_loader_falls_back_to_en_when_lang_file_missing(tmp_path: Path):
     """A loader call for a non-bundled language (e.g. 'ja') must
-    transparently fall back to zh — not crash, not return empty."""
+    transparently fall back to en (canonical) — not crash, not return empty."""
     # Use real docs dir; just ask for a language we know isn't bundled.
     from polily.core.config_docs import load_all
-    zh_docs = load_all("zh")
+    en_docs = load_all("en")
     ja_docs = load_all("ja")  # not bundled
-    assert ja_docs == zh_docs, (
-        "load_all('ja') must fall back to zh wholesale (no per-base mixing "
+    assert ja_docs == en_docs, (
+        "load_all('ja') must fall back to en wholesale (no per-base mixing "
         "for an unbundled language)"
     )

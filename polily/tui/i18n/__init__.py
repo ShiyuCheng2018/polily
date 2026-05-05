@@ -17,7 +17,7 @@ Design notes:
 - t() reads `_current_language` on every call (no caching). Switching language and
   triggering a re-compose is sufficient for views to display new strings.
 - `_lock` is RLock; concurrency cost is negligible compared to TUI render rates.
-- Missing keys fall back to: current → fallback ("zh") → key string itself + warning log.
+- Missing keys fall back to: current → fallback ("en") → key string itself + warning log.
   Raising would break TUI mid-migration; logging makes drift visible.
 
 See docs/internal/runtime-i18n-design.md §4.1 for the full design.
@@ -34,7 +34,7 @@ from polily.tui.i18n.loader import load_catalogs as _load_catalogs
 
 logger = logging.getLogger(__name__)
 
-_FALLBACK_LANG = "zh"
+_FALLBACK_LANG = "en"
 _BUNDLED_CATALOGS_DIR = Path(__file__).parent / "catalogs"
 
 _lock = threading.RLock()
@@ -88,7 +88,7 @@ def init_i18n(catalogs: Mapping[str, Mapping[str, str]], default: str) -> None:
 def t(key: str, **fmt_args: Any) -> str:
     """Translate `key` in the current language. Format with str.format(**fmt_args).
 
-    Lookup order: current language -> fallback (zh) -> key itself.
+    Lookup order: current language -> fallback (en) -> key itself.
     """
     _ensure_bundled_loaded()
     with _lock:

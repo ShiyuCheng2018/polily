@@ -56,12 +56,12 @@ def test_load_all_aggregates_all_md_files_in_config_docs(tmp_path, monkeypatch):
     """load_all walks polily/core/config_docs/*.<lang>.md (excl. _-prefix files).
 
     v0.10.x: file naming is `<base>.<lang>.md`; bases discovered via
-    `*.zh.md` glob (zh is the canonical fallback).
+    `*.en.md` glob (en is the canonical fallback).
     """
     # Point loader at tmp_path
-    (tmp_path / "movement.zh.md").write_text("## movement.magnitude_threshold\n\nfoo\n", encoding="utf-8")
-    (tmp_path / "scoring.zh.md").write_text("## scoring.thresholds.tier_a_min_score\n\nbar\n", encoding="utf-8")
-    (tmp_path / "_helpers.zh.md").write_text("## should_be_ignored\n\nbaz\n", encoding="utf-8")
+    (tmp_path / "movement.en.md").write_text("## movement.magnitude_threshold\n\nfoo\n", encoding="utf-8")
+    (tmp_path / "scoring.en.md").write_text("## scoring.thresholds.tier_a_min_score\n\nbar\n", encoding="utf-8")
+    (tmp_path / "_helpers.en.md").write_text("## should_be_ignored\n\nbaz\n", encoding="utf-8")
 
     monkeypatch.setattr(
         "polily.core.config_docs._loader._DOCS_DIR", tmp_path,
@@ -74,18 +74,22 @@ def test_load_all_aggregates_all_md_files_in_config_docs(tmp_path, monkeypatch):
 
 
 def test_loader_output_contains_default_value_phrase():
-    """Every territory A description starts with `**默认 X。**`
-    (or `**默认 X.Y。**` etc.). Convention pin so future docs follow."""
-    docs = load_all()
-    territory_a = [
-        (k, v) for k, v in docs.items()
-        if k.startswith(("movement.", "scoring.", "mispricing.", "wallet."))
-    ]
-    no_default_phrase = [k for k, v in territory_a if "**默认" not in v]
-    assert not no_default_phrase, (
-        f"{len(no_default_phrase)} sections lack `**默认 X。**` phrase:\n"
-        + "\n".join(f"  - {k}" for k in sorted(no_default_phrase))
-    )
+    """Every territory A description starts with the per-language default
+    phrase: `**Default X.**` (en) / `**默认 X。**` (zh). Convention pin
+    so future docs follow."""
+    import pytest
+    for lang, marker in (("en", "**Default"), ("zh", "**默认")):
+        docs = load_all(lang)
+        territory_a = [
+            (k, v) for k, v in docs.items()
+            if k.startswith(("movement.", "scoring.", "mispricing.", "wallet."))
+        ]
+        no_default_phrase = [k for k, v in territory_a if marker not in v]
+        if no_default_phrase:
+            pytest.fail(
+                f"[{lang}] {len(no_default_phrase)} sections lack `{marker}` phrase:\n"
+                + "\n".join(f"  - {k}" for k in sorted(no_default_phrase))
+            )
 
 
 def test_loader_handles_empty_directory(tmp_path, monkeypatch):
@@ -151,7 +155,7 @@ bar description
 ### should_not_appear
 this is a sub-heading inside a regular section, not the glossary
 """
-    (tmp_path / "movement.zh.md").write_text(md, encoding="utf-8")
+    (tmp_path / "movement.en.md").write_text(md, encoding="utf-8")
     monkeypatch.setattr(
         "polily.core.config_docs._loader._DOCS_DIR", tmp_path,
     )
@@ -171,7 +175,7 @@ def test_load_signals_glossary_returns_empty_when_no_glossary_section(
 
 description without any glossary
 """
-    (tmp_path / "movement.zh.md").write_text(md, encoding="utf-8")
+    (tmp_path / "movement.en.md").write_text(md, encoding="utf-8")
     monkeypatch.setattr(
         "polily.core.config_docs._loader._DOCS_DIR", tmp_path,
     )

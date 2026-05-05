@@ -35,17 +35,17 @@ def test_t_resolves_in_current_language():
     assert i18n.t("binding.quit") == "Quit"
 
 
-def test_t_falls_back_to_zh_when_key_missing_in_current():
+def test_t_falls_back_to_en_when_key_missing_in_current():
     i18n.init_i18n(
-        {"zh": {"wallet.balance": "当前余额"}, "en": {}},
-        default="en",
+        {"zh": {}, "en": {"wallet.balance": "Balance"}},
+        default="zh",
     )
-    # current=en has no "wallet.balance" → fall back to zh
-    assert i18n.t("wallet.balance") == "当前余额"
+    # current=zh has no "wallet.balance" → fall back to en (canonical default)
+    assert i18n.t("wallet.balance") == "Balance"
 
 
 def test_t_returns_key_when_missing_in_all_languages():
-    i18n.init_i18n({"zh": {}, "en": {}}, default="zh")
+    i18n.init_i18n({"zh": {}, "en": {}}, default="en")
     assert i18n.t("nonexistent.key") == "nonexistent.key"
 
 

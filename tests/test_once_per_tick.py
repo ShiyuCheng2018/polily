@@ -202,6 +202,7 @@ def test_decorator_preserves_method_name_and_docstring():
 def svc(tmp_path):
     cfg = MagicMock()
     cfg.tui.heartbeat_seconds = 5.0  # Phase 0 Task 14: real float for Textual timer
+    cfg.tui.language = "zh"  # autouse i18n fixture sets active lang to zh; pin the cfg side too so PolilyApp._init_i18n_from_prefs doesn't re-init to MagicMock
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "t.db")
     upsert_event(
