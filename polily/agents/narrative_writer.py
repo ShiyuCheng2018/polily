@@ -109,7 +109,17 @@ class NarrativeWriterAgent:
         has_position: bool = False,
         position_summary: str | None = None,
     ) -> str:
-        """Build minimal prompt — agent reads DB and searches web on its own."""
+        """Build minimal prompt — agent reads DB and searches web on its own.
+
+        i18n: prepends a self-describing language directive (loaded from the
+        active catalog's `language.directive_for_llm` key) so the LLM
+        responds in the same language the user reads in the TUI. This is
+        injected per-call rather than baked into the system prompt because
+        the user can switch language at runtime — and because the system
+        prompt is loaded once at agent construction.
+        """
+        from polily.tui.i18n import t
+
         mode = "position_management" if has_position else "discovery"
 
         from datetime import UTC, datetime
@@ -119,7 +129,11 @@ class NarrativeWriterAgent:
         utc_iso = now_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00")
         local_str = local_now.strftime("%Y-%m-%d %H:%M %Z")
 
-        prompt = f"""分析事件 {event_id}。
+        language_directive = t("language.directive_for_llm")
+
+        prompt = f"""{language_directive}
+
+分析事件 {event_id}。
 
 模式: {mode}
 数据库: data/polily.db

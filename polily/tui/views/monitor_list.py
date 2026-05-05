@@ -22,12 +22,14 @@ from textual.widget import Widget
 from textual.widgets import DataTable
 
 from polily.core.events import (
+    TOPIC_LANGUAGE_CHANGED,
     TOPIC_MONITOR_UPDATED,
     TOPIC_PRICE_UPDATED,
     TOPIC_SCAN_UPDATED,
 )
 from polily.tui._dispatch import once_per_tick
 from polily.tui.bindings import NAV_BINDINGS
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_AUTO_MONITOR
 from polily.tui.monitor_format import (
     format_ai_version,
@@ -36,6 +38,7 @@ from polily.tui.monitor_format import (
     format_next_check,
 )
 from polily.tui.service import PolilyService
+from polily.tui.widgets._datatable_i18n import set_column_labels
 from polily.tui.widgets.polily_zone import PolilyZone
 
 
@@ -45,18 +48,23 @@ class ViewMonitorDetail(Message):
         self.event_id = event_id
 
 
+# Internal column key -> catalog key. Internal keys are stable ids used by
+# `update_cell` callers (refresh_data); visible labels are looked up via t()
+# so they flip on language switch.
 _COLUMN_SPEC = [
-    ("事件", "title"),
-    ("结构分", "score"),
-    ("子市场", "count"),
-    ("AI版", "ai"),
-    ("异动", "movement"),
-    ("结算", "settlement"),
-    ("下次检查", "next_check"),
+    ("title", "monitor.col.title"),
+    ("score", "monitor.col.score"),
+    ("count", "monitor.col.count"),
+    ("ai", "monitor.col.ai"),
+    ("movement", "monitor.col.movement"),
+    ("settlement", "monitor.col.settlement"),
+    ("next_check", "monitor.col.next_check"),
 ]
 
 
 class MonitorListView(Widget):
+    # NOTE: I18nFooter renders binding labels via t(f"binding.{action}") at
+    # compose time, so the zh strings below are only fallbacks.
     BINDINGS = [
         Binding("enter", "view_detail", "详情", show=True),
         Binding("m", "toggle_monitor", "关闭监控", show=True),
@@ -80,7 +88,7 @@ class MonitorListView(Widget):
     def compose(self) -> ComposeResult:
         with VerticalScroll():
             yield PolilyZone(
-                title=f"{ICON_AUTO_MONITOR} 监控列表",
+                title=f"{ICON_AUTO_MONITOR} {t('monitor.title.zone')}",
                 id="monitor-zone",
             )
 
@@ -98,7 +106,8 @@ class MonitorListView(Widget):
             table = DataTable(id="monitor-table")
             zone.mount(table)
             table.cursor_type = "row"
-            table.add_columns(*_COLUMN_SPEC)
+            for col_key, cat_key in _COLUMN_SPEC:
+                table.add_column(t(cat_key), key=col_key)
 
         self.service.event_bus.subscribe(
             TOPIC_MONITOR_UPDATED, self._on_monitor_update,
@@ -108,6 +117,9 @@ class MonitorListView(Widget):
         )
         self.service.event_bus.subscribe(
             TOPIC_SCAN_UPDATED, self._on_scan_update,
+        )
+        self.service.event_bus.subscribe(
+            TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
         )
         # Initial render bypasses the @once_per_tick decorator — callers
         # (and tests) expect the table to be populated synchronously by
@@ -124,6 +136,21 @@ class MonitorListView(Widget):
         self.service.event_bus.unsubscribe(
             TOPIC_SCAN_UPDATED, self._on_scan_update,
         )
+        self.service.event_bus.unsubscribe(
+            TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
+        )
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Update zone title + DataTable column headers + count cells.
+        Row event titles are user data — left as-is."""
+        from textual.widgets import Static
+        with contextlib.suppress(Exception):
+            self.query_one("#monitor-zone .polily-zone-title", Static).update(
+                f"{ICON_AUTO_MONITOR} {t('monitor.title.zone')}",
+            )
+            table = self.query_one("#monitor-table", DataTable)
+            set_column_labels(table, [(k, t(c)) for k, c in _COLUMN_SPEC])
+        self._render_all()
 
     # -- Bus callbacks (published from non-UI threads — must hop back) --
 
@@ -167,7 +194,7 @@ class MonitorListView(Widget):
             ev = e["event"]
             mc = e["market_count"]
             score_str = f"{ev.structure_score:.0f}" if ev.structure_score else "—"
-            count_str = f"{mc} 个" if mc > 1 else "二元"
+            count_str = t("monitor.count.format", count=mc) if mc > 1 else t("monitor.count.binary")
             ai_str = format_ai_version(e.get("analysis_count", 0))
 
             mov = e.get("movement")
@@ -231,8 +258,7 @@ class MonitorListView(Widget):
         pos_count = self.service.get_event_position_count(eid)
         if pos_count > 0:
             self.notify(
-                f"无法取消监控 — 该事件有 {pos_count} 个持仓未结算，"
-                "请先平仓或等待结算",
+                t("monitor.error.cannot_unmonitor", pos_count=pos_count),
                 severity="warning",
             )
             return
@@ -243,7 +269,7 @@ class MonitorListView(Widget):
             if not confirmed:
                 return
             self.service.toggle_monitor(eid, enable=False)
-            self.notify(f"关闭监控: {title[:30]}")
+            self.notify(t("monitor.notify.unmonitored", title=title[:30]))
             with contextlib.suppress(AttributeError):
                 self.screen.refresh_sidebar_counts()
             with contextlib.suppress(Exception):

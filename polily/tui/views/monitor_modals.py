@@ -17,6 +17,7 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_CANCELLED
 from polily.tui.widgets.confirm_cancel_bar import ConfirmCancelBar
 from polily.tui.widgets.polily_zone import PolilyZone
@@ -55,18 +56,18 @@ class ConfirmUnmonitorModal(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog-box"):
-            with PolilyZone(title=f"{ICON_CANCELLED} 确认取消监控"):
+            with PolilyZone(title=f"{ICON_CANCELLED} {t('monitor_modal.title')}"):
                 yield Static(
                     self._event_title,
                     classes="event-line text-muted pb-sm",
                 )
                 yield Static(
-                    "[dim]取消后此事件将从监控轮询中移除。[/dim]",
+                    t("monitor_modal.body"),
                     classes="event-line text-muted pb-sm",
                 )
                 yield ConfirmCancelBar(
-                    confirm_label="确认取消",
-                    cancel_label="继续监控",
+                    confirm_label=t("monitor_modal.confirm_cancel"),
+                    cancel_label=t("monitor_modal.keep_monitor"),
                     destructive=True,
                 )
 

@@ -129,6 +129,9 @@ HIDDEN_IN_TUI: frozenset[str] = frozenset({
     # tui.* — UI internals; lifted from hardcoded constants but not yet
     # exposed as an editable knob (Phase 0 staging).
     "tui.heartbeat_seconds",
+    # tui.language — runtime-mutable; canonical value lives in user_prefs
+    # (toggled via F2). PolilyConfig field is just a startup fallback.
+    "tui.language",
     # archiving.db_file — Pydantic-default-only per default_db_path()
     # docstring; even if a row exists in db.config, callers bootstrap
     # the path BEFORE loading db.config.

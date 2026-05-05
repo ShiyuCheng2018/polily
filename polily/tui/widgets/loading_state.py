@@ -5,6 +5,8 @@ If true animation needed, caller uses Textual's LoadingIndicator directly.
 """
 from textual.widgets import Static
 
+from polily.tui.i18n import t
+
 
 class LoadingState(Static):
     DEFAULT_CSS = """
@@ -15,6 +17,7 @@ class LoadingState(Static):
     }
     """
 
-    def __init__(self, *, message: str = "加载中", **kwargs) -> None:
-        super().__init__(f"\uf021  {message}...", **kwargs)  # refresh icon
+    def __init__(self, *, message: str | None = None, **kwargs) -> None:
+        msg = message if message is not None else t("widget.loading.default")
+        super().__init__(f"  {msg}...", **kwargs)  # refresh icon
         self.add_class("loading-state")

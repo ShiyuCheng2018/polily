@@ -142,6 +142,11 @@ LOW_SPECIFICITY_VERIFIED: dict[str, str] = {
         "where CONFIG_KEY_DISMISSED = 'update_check.last_dismissed_version'; "
         "leaf-name match because field is read by string key, not attribute)"
     ),
+    "tui.language": (
+        "tui/app.py — startup default fed into init_i18n; runtime override "
+        "stored in DB user_prefs (set via action_toggle_language in PolilyApp). "
+        "Wired in feat/runtime-i18n PR-1 Task 6."
+    ),
 }
 
 
