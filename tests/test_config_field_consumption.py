@@ -136,6 +136,12 @@ LOW_SPECIFICITY_VERIFIED: dict[str, str] = {
         "agents/narrative_writer.py:46 — config.max_prompt_chars "
         "(Phase 0 Task 13 migration: AgentConfig param)"
     ),
+    "update_check.last_dismissed_version": (
+        "core/update_check.py:CONFIG_KEY_DISMISSED constant "
+        "(v0.11.4 — accessed via load_all().get(CONFIG_KEY_DISMISSED) "
+        "where CONFIG_KEY_DISMISSED = 'update_check.last_dismissed_version'; "
+        "leaf-name match because field is read by string key, not attribute)"
+    ),
 }
 
 
