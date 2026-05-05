@@ -51,7 +51,18 @@ class BinaryMarketStructurePanel(Widget):
                 return
 
             weights = self._resolve_weights()
-            commentary = bd.get("commentary") or {}
+            # v0.11.5: live commentary render based on current UI language
+            # (F2 toggle takes effect on next refresh, matching label i18n).
+            from polily.tui.commentary_render import render_commentary
+            mtype = getattr(self._market, "market_type", None) or "other"
+            if mtype == "other" and self._event:
+                mtype = getattr(self._event, "market_type", None) or "other"
+            commentary = render_commentary(
+                bd,
+                float(getattr(self._market, "structure_score", 0) or 0),
+                getattr(self._market, "market_id", ""),
+                market_type=mtype,
+            )
             dim_comments = commentary.get("dim_comments") or {}
 
             dims = [(t(f"scoring.dim.{k}"), k) for k in _DIM_KEYS]

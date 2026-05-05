@@ -13,6 +13,7 @@ v0.8.0 changes:
 """
 
 import contextlib
+import re as _re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -159,13 +160,24 @@ def _scan_kind_label(type_: str) -> str:
 
 @dataclass
 class StepInfo:
-    """A single progress step (live, in-memory)."""
+    """A single progress step (live, in-memory).
 
-    name: str
+    v0.11.5: stores i18n catalog keys + params; the renderer translates
+    at paint time so F2 toggle flips the live progress display
+    immediately. `name` / `detail` literal fields are kept for
+    pre-v0.11.5 persisted-record rendering and for tests that pass raw
+    strings.
+    """
+
+    name: str = ""
     status: str = "running"  # running, done, skip, fail
     detail: str = ""
     start_time: float = field(default_factory=time.time)
     elapsed: float = 0.0
+    # v0.11.5: i18n key + params (None for legacy rows).
+    name_key: str | None = None
+    detail_key: str | None = None
+    detail_params: dict | None = None
 
 
 class LiveProgress(Static):
@@ -199,20 +211,149 @@ class LiveProgress(Static):
         lines = []
         for step in self._steps:
             elapsed_str = f"[dim]{step.elapsed:.1f}s[/dim]"
+            name_str = _resolve_step_name(step)
             if step.status == "running":
                 frame = self._spinner_frame()
-                line = f"   [bold cyan]{frame}[/bold cyan]  {step.name}     {elapsed_str}"
+                line = f"   [bold cyan]{frame}[/bold cyan]  {name_str}     {elapsed_str}"
             elif step.status == "done":
-                detail = f"  [cyan]{step.detail}[/cyan]" if step.detail else ""
-                line = f"   [green]{ICON_COMPLETED}[/green]  {step.name}{detail}     {elapsed_str}"
+                detail_str = _resolve_step_detail(step)
+                detail = f"  [cyan]{detail_str}[/cyan]" if detail_str else ""
+                line = f"   [green]{ICON_COMPLETED}[/green]  {name_str}{detail}     {elapsed_str}"
             elif step.status == "skip":
-                line = f"   [dim]skip[/dim]  {step.name}     {elapsed_str}"
+                line = f"   [dim]skip[/dim]  {name_str}     {elapsed_str}"
             elif step.status == "fail":
-                line = f"   [red]{ICON_FAILED}[/red]  {step.name}     {elapsed_str}"
+                line = f"   [red]{ICON_FAILED}[/red]  {name_str}     {elapsed_str}"
             else:
-                line = f"         {step.name}     {elapsed_str}"
+                line = f"         {name_str}     {elapsed_str}"
             lines.append(line)
         self.update("\n\n".join(lines) if lines else "")
+
+
+def _resolve_step_name(step) -> str:
+    """v0.11.5 i18n: translate `step.name_key` via current language;
+    if missing (pre-v0.11.5 persisted row), try reverse-lookup the
+    literal `step.name` against known catalog entries so F2 toggle
+    flips legacy records too. Final fallback is the literal string.
+    """
+    key = getattr(step, "name_key", None)
+    if key:
+        return t(key)
+    legacy_literal = step.name or ""
+    inferred_key = _STEP_NAME_REVERSE_MAP.get(legacy_literal)
+    if inferred_key:
+        return t(inferred_key)
+    return legacy_literal
+
+
+def _resolve_step_detail(step) -> str:
+    """v0.11.5 i18n: translate `step.detail_key` with `detail_params`
+    via current language; if missing (pre-v0.11.5 persisted row),
+    pattern-match the literal `step.detail` against known templates
+    to recover key + params on the fly. Final fallback is literal."""
+    key = getattr(step, "detail_key", None)
+    if key:
+        params = getattr(step, "detail_params", None) or {}
+        try:
+            return t(key, **params)
+        except Exception:
+            # Defensive: malformed params shouldn't crash the row
+            return step.detail or ""
+    legacy_literal = step.detail or ""
+    if not legacy_literal:
+        return ""
+    inferred = _infer_detail_key_and_params(legacy_literal)
+    if inferred is not None:
+        inferred_key, params = inferred
+        try:
+            return t(inferred_key, **params)
+        except Exception:
+            return legacy_literal
+    return legacy_literal
+
+
+# ---------------------------------------------------------------------------
+# v0.11.5 legacy reverse-lookup tables.
+# Pre-v0.11.5 scan_logs rows persisted only literal name + detail strings
+# in whichever language was active at scoring time. To make F2 toggle flip
+# those rows too, we reverse-match known step names and detail templates
+# back to their catalog keys at render time.
+#
+# Mapping covers the strings the v0.11.4 / pre-i18n pipeline ever emitted
+# (zh) plus the v0.11.5 emit-time-snapshot pipeline output (en). Anything
+# outside these literals falls through to the legacy literal string.
+# ---------------------------------------------------------------------------
+
+_STEP_NAME_REVERSE_MAP: dict[str, str] = {
+    # zh literals (pre-v0.11.5 + v0.11.4 pipeline output)
+    "获取事件": "pipeline.step.fetch_event",
+    "获取盘口": "pipeline.step.fetch_orderbook",
+    "获取实时价格": "pipeline.step.fetch_prices",
+    "评分": "pipeline.step.scoring",
+    # en literals (v0.11.5 snapshot pipeline output, before render-time refactor)
+    "Fetch event": "pipeline.step.fetch_event",
+    "Fetch order book": "pipeline.step.fetch_orderbook",
+    "Fetch live prices": "pipeline.step.fetch_prices",
+    "Scoring": "pipeline.step.scoring",
+}
+
+
+# (compiled regex, catalog key, params extractor lambda)
+_DETAIL_PATTERNS: list[tuple] = [
+    # event_summary: "{title} ({count} 市场)" / "{title} ({count} markets)"
+    (
+        _re.compile(r"^(?P<title>.+?) \((?P<count>\d+) 市场\)$"),
+        "pipeline.detail.event_summary",
+        lambda m: {"title": m.group("title"), "count": int(m.group("count"))},
+    ),
+    (
+        _re.compile(r"^(?P<title>.+?) \((?P<count>\d+) markets\)$"),
+        "pipeline.detail.event_summary",
+        lambda m: {"title": m.group("title"), "count": int(m.group("count"))},
+    ),
+    # market_count: "{count} 市场" / "{count} markets"
+    (
+        _re.compile(r"^(?P<count>\d+) 市场$"),
+        "pipeline.detail.market_count",
+        lambda m: {"count": int(m.group("count"))},
+    ),
+    (
+        _re.compile(r"^(?P<count>\d+) markets$"),
+        "pipeline.detail.market_count",
+        lambda m: {"count": int(m.group("count"))},
+    ),
+    # event_score: "事件 {score} 分" / "Event {score} pts"
+    (
+        _re.compile(r"^事件 (?P<score>[\d.]+) 分$"),
+        "pipeline.detail.event_score",
+        lambda m: {"score": float(m.group("score"))},
+    ),
+    (
+        _re.compile(r"^Event (?P<score>[\d.]+) pts$"),
+        "pipeline.detail.event_score",
+        lambda m: {"score": float(m.group("score"))},
+    ),
+    # event_not_found
+    (
+        _re.compile(r"^未找到事件$"),
+        "pipeline.detail.event_not_found",
+        lambda _m: {},
+    ),
+    (
+        _re.compile(r"^Event not found$"),
+        "pipeline.detail.event_not_found",
+        lambda _m: {},
+    ),
+]
+
+
+def _infer_detail_key_and_params(literal: str) -> tuple[str, dict] | None:
+    """Match a legacy literal detail string against known templates;
+    return (catalog_key, params_dict) on hit, None on miss."""
+    for regex, key, extractor in _DETAIL_PATTERNS:
+        m = regex.match(literal)
+        if m:
+            return key, extractor(m)
+    return None
 
 
 # --- Messages ---
@@ -756,14 +897,18 @@ class ScanLogDetailView(Widget):
                 with PolilyZone(title=t("scan_log.title.detail.steps")):
                     for step in log.steps:
                         elapsed_str = f"[dim]{step.elapsed:.1f}s[/dim]"
-                        detail = f"  [cyan]{step.detail}[/cyan]" if step.detail else ""
+                        # v0.11.5: translate keys at render time so F2
+                        # flips historical step names too.
+                        name_str = _resolve_step_name(step)
+                        detail_str = _resolve_step_detail(step)
+                        detail = f"  [cyan]{detail_str}[/cyan]" if detail_str else ""
                         status_label_step = {
                             "done": f"[green]{ICON_COMPLETED}[/green]",
                             "skip": "[dim]skip[/dim]",
                             "fail": f"[red]{ICON_FAILED}[/red]",
                         }.get(step.status, step.status)
                         yield Static(
-                            f"  {status_label_step}  {step.name}{detail}     {elapsed_str}",
+                            f"  {status_label_step}  {name_str}{detail}     {elapsed_str}",
                             classes="step-row",
                         )
 

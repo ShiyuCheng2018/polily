@@ -91,7 +91,16 @@ class SubMarketTable(Widget):
                 if mr.score_breakdown:
                     with contextlib.suppress(ValueError, TypeError):
                         bd = _json.loads(mr.score_breakdown)
-                        overall = bd.get("commentary", {}).get("overall", "")
+                        # v0.11.5: live commentary render — picks current UI
+                        # language. Replaces stale `bd["commentary"]` reads.
+                        from polily.tui.commentary_render import render_commentary
+                        mtype = getattr(mr, "market_type", None) or "other"
+                        if mtype == "other" and self._event:
+                            mtype = getattr(self._event, "market_type", None) or "other"
+                        overall = render_commentary(
+                            bd, float(mr.structure_score),
+                            mr.market_id, market_type=mtype,
+                        ).get("overall", "")
                 score_str = f"{mr.structure_score:.0f} {overall}" if overall else f"{mr.structure_score:.0f}"
             table.add_row(f"{prefix}{label}", yes, no, spread, vol, end, score_str, key=f"m_{mr.market_id}")
             self._row_map.append({"type": "market", "market": mr})
@@ -130,13 +139,24 @@ class SubMarketTable(Widget):
         if tw.get("net_edge", 0) > 0:
             dim_keys.append("net_edge")
 
+        # v0.11.5: regenerate dim_comments live in current UI language.
+        live_dim_comments: dict = {}
+        if bd:
+            from polily.tui.commentary_render import render_commentary
+            live_dim_comments = render_commentary(
+                bd,
+                float(getattr(mr, "structure_score", 0) or 0),
+                mr.market_id,
+                market_type=mtype,
+            ).get("dim_comments", {})
+
         for i, (name, val, max_val) in enumerate(breakdown):
             val = min(val, max_val) if max_val > 0 else val
             bar_len = int(val / max_val * 15) if max_val > 0 else 0
             bar = "█" * bar_len + "░" * (15 - bar_len)
             comment = ""
             if bd and i < len(dim_keys):
-                comment = bd.get("commentary", {}).get("dim_comments", {}).get(dim_keys[i], "")
+                comment = live_dim_comments.get(dim_keys[i], "")
             connector = "└" if i == len(breakdown) - 1 else "├"
             table.add_row(
                 f"  {connector} {name}", f"{bar} {val:.0f}/{max_val}", comment, "", "", "", "",
