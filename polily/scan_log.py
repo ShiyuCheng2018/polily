@@ -11,12 +11,26 @@ logger = logging.getLogger(__name__)
 
 
 class ScanStepRecord(BaseModel):
-    """A single pipeline step's record."""
+    """A single pipeline step's record.
+
+    v0.11.5 i18n: pipeline emits stable catalog keys (`name_key` /
+    `detail_key`) plus a params dict; the view translates at render
+    time so F2 toggle takes effect on persisted records too. The
+    legacy `name` / `detail` literal-string fields stay for backward
+    compatibility — pre-v0.11.5 rows in scan_logs only have those.
+    Renderer prefers `name_key` / `detail_key` when set, else falls
+    back to the literal strings.
+    """
 
     name: str
     status: str  # done, skip, fail
     detail: str = ""
     elapsed: float = 0.0
+    # v0.11.5: i18n catalog key + params for live re-translation.
+    # None on rows persisted by pre-v0.11.5 code.
+    name_key: str | None = None
+    detail_key: str | None = None
+    detail_params: dict | None = None
 
 
 class ScanLogEntry(BaseModel):

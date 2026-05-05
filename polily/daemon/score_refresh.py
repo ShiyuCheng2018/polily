@@ -41,12 +41,16 @@ def refresh_scores(
     4. Recalculate event-level scores
     5. Batch commit
     """
-    from polily.scan.commentary import generate_commentary
     from polily.scan.event_scoring import compute_event_quality_score
 
     if config is None:
         from polily.core.config import PolilyConfig
         config = PolilyConfig()
+
+    # v0.11.5: commentary text no longer persisted into score_breakdown
+    # (view layer renders live via polily.tui.commentary_render). Daemon
+    # only refreshes numeric breakdown — F2 toggle takes effect on next
+    # view paint without daemon coordination.
 
     result = RefreshResult()
     now = datetime.now(UTC).isoformat()
@@ -144,11 +148,10 @@ def refresh_scores(
                 if market.round_trip_friction_pct is not None:
                     new_bd["round_trip_friction_pct"] = round(market.round_trip_friction_pct, 4)
 
-                # Refresh commentary
-                commentary = generate_commentary(
-                    new_bd, score.total, mr.market_id, market_type=market_type,
-                )
-                new_bd["commentary"] = commentary
+                # v0.11.5: commentary not persisted (view renders live).
+                # Drop any stale `commentary` key from old data so the
+                # JSON stays clean on next read.
+                new_bd.pop("commentary", None)
 
                 db.conn.execute(
                     "UPDATE markets SET structure_score = ?, score_breakdown = ?, updated_at = ? WHERE market_id = ?",

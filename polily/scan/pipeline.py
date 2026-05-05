@@ -32,8 +32,15 @@ def _update_event_scores(
     Event-level score + tier are handled by _update_event_quality_scores.
     """
     price_params = price_params or {}
-    # Update per-market scores + breakdown
-    from polily.scan.commentary import generate_commentary
+    # Update per-market scores + breakdown.
+    #
+    # v0.11.5: commentary text is NO LONGER persisted into score_breakdown.
+    # Pre-v0.11.5 we baked the zh/en strings into the JSON at scoring
+    # time, which made F2 toggle leave commentary in stale language.
+    # Now the view layer re-renders commentary on every paint via
+    # `polily.tui.commentary_render.render_commentary` using
+    # `current_language()` — same pattern as Yuan's i18n labels.
+    # Numeric breakdown still persists (drives the bars + agent prompts).
 
     for c in candidates:
         eid = getattr(c.market, "event_id", None)
@@ -76,11 +83,8 @@ def _update_event_scores(
             # Round-trip friction
             if c.market.round_trip_friction_pct is not None:
                 bd["round_trip_friction_pct"] = round(c.market.round_trip_friction_pct, 4)
-            commentary = generate_commentary(
-                bd, c.score.total, c.market.market_id,
-                market_type=getattr(c.market, "market_type", "other"),
-            )
-            bd["commentary"] = commentary
+            # v0.11.5: bd no longer includes "commentary" — view layer
+            # generates it live in current language on each render.
             breakdown = json.dumps(bd)
             db.conn.execute(
                 "UPDATE markets SET structure_score = ?, score_breakdown = ? WHERE market_id = ?",
@@ -252,36 +256,57 @@ async def fetch_and_score_event(
     from polily.api import parse_gamma_event
     from polily.scan.event_scoring import compute_event_quality_score
 
-    def _report(name, status, detail=""):
+    # v0.11.5 i18n: pipeline emits stable catalog keys (+ optional
+    # detail_params dict) through progress_cb. The TUI side renders
+    # `t(name_key, **params)` at paint time — F2 toggle re-translates
+    # both live progress AND persisted scan_logs records on the next
+    # render. Keeps `polily.scan` framework-free of `polily.tui.i18n`.
+    def _report(
+        name_key: str,
+        status: str,
+        detail_key: str | None = None,
+        detail_params: dict | None = None,
+    ):
         if progress_cb:
-            progress_cb(name, status, detail)
+            progress_cb(name_key, status, detail_key, detail_params)
 
     # 1. Fetch from Gamma API
-    _report("获取事件", "start")
+    _report("pipeline.step.fetch_event", "start")
     event_data = await _fetch_event_by_slug(slug, config)
     if not event_data:
-        _report("获取事件", "fail", "未找到事件")
+        _report(
+            "pipeline.step.fetch_event", "fail",
+            detail_key="pipeline.detail.event_not_found",
+        )
         return None
     event_row, markets = parse_gamma_event(event_data)
-    _report("获取事件", "done", f"{event_row.title} ({len(markets)} 市场)")
+    _report(
+        "pipeline.step.fetch_event", "done",
+        detail_key="pipeline.detail.event_summary",
+        detail_params={"title": event_row.title, "count": len(markets)},
+    )
 
     if not markets:
         return None
 
     # 2. Fetch orderbook
-    _report("获取盘口", "start")
+    _report("pipeline.step.fetch_orderbook", "start")
     markets = await enrich_with_orderbook(markets, config)
-    _report("获取盘口", "done", f"{len(markets)} 市场")
+    _report(
+        "pipeline.step.fetch_orderbook", "done",
+        detail_key="pipeline.detail.market_count",
+        detail_params={"count": len(markets)},
+    )
 
     # 3. Fetch Binance prices (crypto only)
     price_params: dict = {}
     if event_row.market_type in ("crypto", "crypto_threshold"):
-        _report("获取实时价格", "start")
+        _report("pipeline.step.fetch_prices", "start")
         price_params = await _fetch_price_params_batch(markets, config)
-        _report("获取实时价格", "done")
+        _report("pipeline.step.fetch_prices", "done")
 
     # 4. Score each market
-    _report("评分", "start")
+    _report("pipeline.step.scoring", "start")
     scored = []
     for m in markets:
         m.market_type = event_row.market_type
@@ -292,7 +317,11 @@ async def fetch_and_score_event(
 
     # 5. Event quality score
     event_score = compute_event_quality_score(event_row, markets)
-    _report("评分", "done", f"事件 {event_score.total:.0f} 分")
+    _report(
+        "pipeline.step.scoring", "done",
+        detail_key="pipeline.detail.event_score",
+        detail_params={"score": event_score.total},
+    )
 
     # 6. Persist to DB
     _persist_single_event(event_row, markets, scored, event_score, price_params, db)

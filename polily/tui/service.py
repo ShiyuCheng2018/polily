@@ -934,15 +934,35 @@ class PolilyService:
                 break
         self._emit_progress()
 
-    def _on_pipeline_progress(self, name: str, status: str, detail: str = "") -> None:
-        """Callback for pipeline step progress."""
+    def _on_pipeline_progress(
+        self,
+        name_key: str,
+        status: str,
+        detail_key: str | None = None,
+        detail_params: dict | None = None,
+    ) -> None:
+        """Callback for pipeline step progress.
+
+        v0.11.5: pipeline emits stable i18n catalog keys (not pre-
+        translated strings). View renders via `t(key, **params)` so F2
+        toggle takes effect on next paint, including persisted records.
+        """
         if status == "start":
-            self._step_start(name)
+            self._steps.append(
+                StepInfo(
+                    name="",  # legacy literal — not used when name_key set
+                    name_key=name_key,
+                    status="running",
+                    start_time=time.time(),
+                ),
+            )
+            self._emit_progress()
         elif status in ("done", "skip", "fail"):
             for s in reversed(self._steps):
                 if s.status == "running":
                     s.status = status
-                    s.detail = detail
+                    s.detail_key = detail_key
+                    s.detail_params = detail_params
                     s.elapsed = time.time() - s.start_time
                     break
             self._emit_progress()
@@ -950,14 +970,31 @@ class PolilyService:
     def _emit_progress(self) -> None:
         if self.on_progress:
             snapshot = [
-                StepInfo(s.name, s.status, s.detail, s.start_time, s.elapsed)
+                StepInfo(
+                    name=s.name,
+                    name_key=s.name_key,
+                    status=s.status,
+                    detail=s.detail,
+                    detail_key=s.detail_key,
+                    detail_params=s.detail_params,
+                    start_time=s.start_time,
+                    elapsed=s.elapsed,
+                )
                 for s in self._steps
             ]
             self.on_progress(snapshot)
 
     def _steps_to_records(self) -> list[ScanStepRecord]:
         return [
-            ScanStepRecord(name=s.name, status=s.status, detail=s.detail, elapsed=s.elapsed)
+            ScanStepRecord(
+                name=s.name,
+                status=s.status,
+                detail=s.detail,
+                elapsed=s.elapsed,
+                name_key=s.name_key,
+                detail_key=s.detail_key,
+                detail_params=s.detail_params,
+            )
             for s in self._steps
             if s.status != "running"
         ]

@@ -103,11 +103,20 @@ class ScoreResultView(Widget):
         with VerticalScroll(id="scroll-area"):
             # Zone: 评分步骤 (only when a scan log is found)
             if log and log.steps:
+                # v0.11.5: translate step name + detail at render time
+                # so F2 toggle flips the steps display (incl. legacy
+                # Chinese-literal rows via reverse-lookup).
+                from polily.tui.views.scan_log import (
+                    _resolve_step_detail,
+                    _resolve_step_name,
+                )
                 with PolilyZone(title=f"{ICON_SCAN} {t('score.title.steps')}", id="steps-zone"):
                     for step in log.steps:
                         elapsed_str = f"[dim]{step.elapsed:.1f}s[/dim]"
+                        name_str = _resolve_step_name(step)
+                        detail_str = _resolve_step_detail(step)
                         detail_text = (
-                            f"  [cyan]{step.detail}[/cyan]" if step.detail else ""
+                            f"  [cyan]{detail_str}[/cyan]" if detail_str else ""
                         )
                         status_label = {
                             "done": "[green]done[/green]",
@@ -115,7 +124,7 @@ class ScoreResultView(Widget):
                             "fail": "[red]FAIL[/red]",
                         }.get(step.status, step.status)
                         yield Static(
-                            f"  {status_label}  {step.name}"
+                            f"  {status_label}  {name_str}"
                             f"{detail_text}     {elapsed_str}",
                             classes="step-row",
                         )
