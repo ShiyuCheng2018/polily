@@ -272,7 +272,7 @@
   "kpi.leader.most_likely": "Most Likely",
   "kpi.leader.no_tradable": "No tradable",
 
-  "position.empty": "No positions — press t to mark",
+  "position.empty": "No positions — press t to trade",
   "position.entry_label": "Entry @",
   "position.shares_paren": "({shares:.0f}sh)",
   "position.summary": "Total ${value:.2f}  [{pnl_color}]{pnl_sign}${pnl:.2f}[/{pnl_color}]",
