@@ -330,11 +330,13 @@ async def test_reset_modal_confirm_clears_state(tmp_path, monkeypatch):
         modal.query_one("#confirm-input", Input).value = "reset"
         await pilot.pause()
         modal.query_one("#confirm", Button).press()
-        # Wait for the worker thread to complete the reset and dismiss.
-        for _ in range(20):
-            await pilot.pause()
-            if host.dismiss_result is not None:
-                break
+        # Wait for the worker thread to finish, then drain the
+        # call_from_thread → dismiss callback message. The 20-iter
+        # `pilot.pause()` loop was Python 3.13 flaky (Textual ticked
+        # past dismiss faster than 20 yields could absorb on 3.13's
+        # asyncio); workers.wait_for_complete is deterministic.
+        await modal.workers.wait_for_complete()
+        await pilot.pause()
 
     assert host.dismiss_result is True
     assert svc.wallet.get_cash() == pytest.approx(100.0)
@@ -381,10 +383,13 @@ async def test_reset_modal_sigterms_daemon_before_reset(tmp_path, monkeypatch):
         modal.query_one("#ack-daemon", Checkbox).value = True
         await pilot.pause()
         modal.query_one("#confirm", Button).press()
-        for _ in range(20):
-            await pilot.pause()
-            if host.dismiss_result is not None:
-                break
+        # Wait for the worker thread to finish, then drain the
+        # call_from_thread → dismiss callback message. The 20-iter
+        # `pilot.pause()` loop was Python 3.13 flaky (Textual ticked
+        # past dismiss faster than 20 yields could absorb on 3.13's
+        # asyncio); workers.wait_for_complete is deterministic.
+        await modal.workers.wait_for_complete()
+        await pilot.pause()
 
     assert host.dismiss_result is True
     # kill_daemon called with "TERM", then reset_wallet zeroed cash back to start.
@@ -469,10 +474,13 @@ async def test_reset_modal_auto_restarts_daemon_when_monitors_exist(
         modal.query_one("#ack-daemon", Checkbox).value = True
         await pilot.pause()
         modal.query_one("#confirm", Button).press()
-        for _ in range(20):
-            await pilot.pause()
-            if host.dismiss_result is not None:
-                break
+        # Wait for the worker thread to finish, then drain the
+        # call_from_thread → dismiss callback message. The 20-iter
+        # `pilot.pause()` loop was Python 3.13 flaky (Textual ticked
+        # past dismiss faster than 20 yields could absorb on 3.13's
+        # asyncio); workers.wait_for_complete is deterministic.
+        await modal.workers.wait_for_complete()
+        await pilot.pause()
 
     assert host.dismiss_result is True
     assert calls == ["restart"], (
@@ -504,10 +512,13 @@ async def test_reset_modal_skips_restart_when_no_active_monitors(
         modal.query_one("#ack-daemon", Checkbox).value = True
         await pilot.pause()
         modal.query_one("#confirm", Button).press()
-        for _ in range(20):
-            await pilot.pause()
-            if host.dismiss_result is not None:
-                break
+        # Wait for the worker thread to finish, then drain the
+        # call_from_thread → dismiss callback message. The 20-iter
+        # `pilot.pause()` loop was Python 3.13 flaky (Textual ticked
+        # past dismiss faster than 20 yields could absorb on 3.13's
+        # asyncio); workers.wait_for_complete is deterministic.
+        await modal.workers.wait_for_complete()
+        await pilot.pause()
 
     assert host.dismiss_result is True
     assert calls == [], (
@@ -551,10 +562,13 @@ async def test_reset_modal_restart_failure_still_dismisses_truthy(
         modal.query_one("#ack-daemon", Checkbox).value = True
         await pilot.pause()
         modal.query_one("#confirm", Button).press()
-        for _ in range(20):
-            await pilot.pause()
-            if host.dismiss_result is not None:
-                break
+        # Wait for the worker thread to finish, then drain the
+        # call_from_thread → dismiss callback message. The 20-iter
+        # `pilot.pause()` loop was Python 3.13 flaky (Textual ticked
+        # past dismiss faster than 20 yields could absorb on 3.13's
+        # asyncio); workers.wait_for_complete is deterministic.
+        await modal.workers.wait_for_complete()
+        await pilot.pause()
 
     assert host.dismiss_result is True, (
         "reset must still report success; restart is secondary"
