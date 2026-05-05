@@ -20,7 +20,7 @@ Design notes:
 - Missing keys fall back to: current → fallback ("zh") → key string itself + warning log.
   Raising would break TUI mid-migration; logging makes drift visible.
 
-See docs/runtime-i18n-design.md §4.1 for the full design.
+See docs/internal/runtime-i18n-design.md §4.1 for the full design.
 """
 from __future__ import annotations
 

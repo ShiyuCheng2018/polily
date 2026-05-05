@@ -1,6 +1,6 @@
 """I18nFooter — Textual Footer subclass that translates binding labels at compose time.
 
-Selected approach (see docs/runtime-i18n-design.md §6.4 / §6.7):
+Selected approach (see docs/internal/runtime-i18n-design.md §6.4 / §6.7):
 override `compose()` to look up each binding's description via
 `t(f"binding.{action}")` instead of reading the frozen
 `binding.description` attribute. Subscribe to `TOPIC_LANGUAGE_CHANGED`

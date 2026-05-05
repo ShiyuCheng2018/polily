@@ -22,7 +22,7 @@ structured release notes — see `git log` for history.
 
 ### Internal
 
-- **Design + spike captured in repo.** `docs/runtime-i18n-design.md` documents the architecture (catalog format / event topic / persistence priority order / Footer-refresh root-cause analysis) and `scripts/spike_i18n_footer.py` preserves the minimal Textual reproduction used to validate the chosen approach against rejected alternatives.
+- **Spike preserved.** `scripts/spike_i18n_footer.py` preserves the minimal Textual reproduction used to validate the chosen Footer-refresh approach against rejected alternatives.
 
 - **Shared helpers added.** `polily/tui/i18n/` package (loader + `t()` / `set_language()` / `current_language()` API), `polily/tui/widgets/i18n_footer.py` (Footer subclass that re-translates binding labels at compose time), `polily/tui/widgets/_datatable_i18n.py` (column-label resizer that bumps Textual's `column.content_width` when the new label is wider than the old one — fixes the "Trig/Stat/Reas" header truncation bug on the queue/history tables), `polily/tui/lifecycle_labels.py` (i18n wrappers around `core/lifecycle.py` Chinese label functions, keeping `core/` framework-free).
 
