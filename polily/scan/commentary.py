@@ -1,29 +1,46 @@
-"""Market scoring commentary — phrase selection + cross-product overall."""
+"""Market scoring commentary — phrase selection + cross-product overall.
+
+v0.11.5: bilingual support. `phrases.{lang}.yaml` files live under
+`polily.config`; `_load_phrases(language)` picks the right one. Falls
+back to zh on unknown languages. Caller passes `language` explicitly
+(via the `generate_commentary(..., language=...)` param) — keeps
+`scan/` framework-free of `tui/i18n/` direct coupling.
+"""
 
 import hashlib
 from importlib.resources import files
 
 import yaml
 
-_PHRASES_CACHE = None
-# v0.11.2: migrated phrases.yaml into the polily.config subpackage.
-# Pre-v0.11.2 this was `Path(__file__).resolve().parent.parent.parent /
-# "config" / "phrases.yaml"`, which worked under editable install (path
-# resolved to repo root) but silently failed under pipx install (path
-# resolved to site-packages, where no top-level config/ exists).
-# importlib.resources.files() resolves identically across editable +
+# Per-language cache: {"zh": dict, "en": dict}
+_PHRASES_CACHE: dict[str, dict] = {}
+
+_FALLBACK_LANG = "zh"
+
+# v0.11.2 + v0.11.5: phrases live under `polily.config` subpackage so
+# `importlib.resources.files()` resolves identically across editable +
 # pip + pipx install methods. Returns a Traversable (NOT pathlib.Path);
 # always use Traversable-supported APIs (.is_file, .read_text, .open).
-_PHRASES_PATH = files("polily.config") / "phrases.yaml"
 
 
-def _load_phrases() -> dict:
-    global _PHRASES_CACHE
-    if _PHRASES_CACHE is None:
-        # v0.11.2: switched from `with open(_PHRASES_PATH) as f:` to
-        # .read_text() — Traversable doesn't always support builtin open().
-        _PHRASES_CACHE = yaml.safe_load(_PHRASES_PATH.read_text(encoding="utf-8"))
-    return _PHRASES_CACHE
+def _phrases_path(language: str):
+    """Return the Traversable for `phrases.<lang>.yaml`, fallback to zh."""
+    candidate = files("polily.config") / f"phrases.{language}.yaml"
+    if candidate.is_file():
+        return candidate
+    return files("polily.config") / f"phrases.{_FALLBACK_LANG}.yaml"
+
+
+def _load_phrases(language: str = _FALLBACK_LANG) -> dict:
+    """Load (and cache) phrases for the given language. Falls back to zh
+    if the requested language file is missing.
+    """
+    if language not in _PHRASES_CACHE:
+        path = _phrases_path(language)
+        _PHRASES_CACHE[language] = yaml.safe_load(
+            path.read_text(encoding="utf-8"),
+        )
+    return _PHRASES_CACHE[language]
 
 
 def _normalize_pct(weighted_score: float, max_weight: float) -> float:
@@ -41,8 +58,14 @@ def _pick_variant(market_id: str, dimension: str, num_variants: int = 3) -> int:
     return int.from_bytes(digest[:4], "big") % num_variants
 
 
-def get_dimension_phrase(dimension: str, weighted_score: float, max_weight: float, market_id: str) -> str:
-    phrases = _load_phrases()
+def get_dimension_phrase(
+    dimension: str,
+    weighted_score: float,
+    max_weight: float,
+    market_id: str,
+    language: str = _FALLBACK_LANG,
+) -> str:
+    phrases = _load_phrases(language)
     pct = _normalize_pct(weighted_score, max_weight)
     idx = _level_index(pct)
     dim_data = phrases["dimensions"][dimension]
@@ -51,7 +74,13 @@ def get_dimension_phrase(dimension: str, weighted_score: float, max_weight: floa
     return level_phrases[variant]
 
 
-def generate_commentary(breakdown: dict, total_score: float, market_id: str, market_type: str = "other") -> dict:
+def generate_commentary(
+    breakdown: dict,
+    total_score: float,
+    market_id: str,
+    market_type: str = "other",
+    language: str = _FALLBACK_LANG,
+) -> dict:
     """Generate full commentary from score breakdown.
 
     Args:
@@ -59,6 +88,10 @@ def generate_commentary(breakdown: dict, total_score: float, market_id: str, mar
         total_score: total structure score (0-100)
         market_id: for deterministic phrase selection
         market_type: "crypto", "sports", "political", "other"
+        language: "zh" or "en" — picks `phrases.<lang>.yaml`. v0.11.5
+            addition; defaults to zh for backward compatibility. Callers
+            should read `polily.core.user_prefs.get_pref(db, "language",
+            "zh")` and pass through.
 
     Returns dict with:
         - dim_comments: {dimension: phrase} for each dimension
@@ -70,7 +103,7 @@ def generate_commentary(breakdown: dict, total_score: float, market_id: str, mar
     """
     from polily.scan.scoring import _DEFAULT_WEIGHTS, _TYPE_WEIGHTS
 
-    phrases = _load_phrases()
+    phrases = _load_phrases(language)
     tw = _TYPE_WEIGHTS.get(market_type, _DEFAULT_WEIGHTS)
 
     # Generate per-dimension phrases
@@ -87,7 +120,7 @@ def generate_commentary(breakdown: dict, total_score: float, market_id: str, mar
             continue
         pct = _normalize_pct(score, max_w)
         dim_pcts[dim] = pct
-        dim_comments[dim] = get_dimension_phrase(dim, score, max_w, market_id)
+        dim_comments[dim] = get_dimension_phrase(dim, score, max_w, market_id, language=language)
 
     # Find strongest and weakest
     if dim_pcts:
@@ -126,9 +159,13 @@ def generate_commentary(breakdown: dict, total_score: float, market_id: str, mar
     if advice:
         parts.append(advice)
 
+    # Joiner: zh uses \u3002 (full-width period); en uses ". " (period + space).
+    # Picked by language so the rendered overall reads natural in either UI.
+    joiner = "\u3002" if language == "zh" else ". "
+
     return {
         "dim_comments": dim_comments,
-        "overall": "\u3002".join(parts),
+        "overall": joiner.join(parts),
         "judgment": judgment,
         "strongest_text": strongest_text,
         "weakest_text": weakest_text,

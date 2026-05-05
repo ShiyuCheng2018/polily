@@ -2,10 +2,13 @@
 
 from datetime import UTC, datetime
 
+from polily.tui.i18n import t
+
 
 def _relative(iso_time: str, *, now: datetime | None = None) -> str:
-    """Return relative time string like '6天8小时' or '已过期'.
+    """Return relative time string like '6天8小时' / '6d 8h' or '已过期'.
 
+    Templates live in catalog under countdown.* — flips with language.
     `now` parameter is honored when provided (used by tests for
     deterministic output independent of real-clock drift). Defaults
     to `datetime.now(UTC)` for production callers.
@@ -17,15 +20,15 @@ def _relative(iso_time: str, *, now: datetime | None = None) -> str:
         reference = now if now is not None else datetime.now(UTC)
         total_seconds = int((target - reference).total_seconds())
         if total_seconds <= 0:
-            return "已过期"
+            return t("countdown.expired")
         days = total_seconds // 86400
         hours = (total_seconds % 86400) // 3600
         minutes = (total_seconds % 3600) // 60
         if days > 0:
-            return f"{days}天{hours}小时"
+            return t("countdown.days_hours", days=days, hours=hours)
         if hours > 0:
-            return f"{hours}小时{minutes}分"
-        return f"{minutes}分钟"
+            return t("countdown.hours_minutes", hours=hours, minutes=minutes)
+        return t("countdown.minutes", minutes=minutes)
     except (ValueError, TypeError):
         return "?"
 

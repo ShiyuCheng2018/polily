@@ -1,7 +1,7 @@
-"""ConfigView: sidebar entry "⚙ 配置" — TUI knob editor.
+"""ConfigView: sidebar Config entry — TUI knob editor.
 
 Per design §5.2 + Q7. Layout:
-  - Banner at top (drift count + "重启 polily" button) — Phase 5.7
+  - Banner at top (drift count + Restart polily button) — Phase 5.7
   - 4 sections (Movement / Scoring / Mispricing / Wallet), each foldable
   - Inside each section: 2-line leaf rows (last_segment / dim full key_path)
   - Movement section has a nested weights subtree (4 market types ×
@@ -21,6 +21,7 @@ from textual.widgets import Static
 
 from polily.core.config_store import EPHEMERAL_FIELDS, _flatten_pydantic, is_territory_a
 from polily.tui.bindings import NAV_BINDINGS
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_CONFIG
 from polily.tui.service import PolilyService
 from polily.tui.widgets.polily_card import PolilyCard
@@ -71,7 +72,7 @@ class LeafRow(Widget):
         # show=False keeps the global help bar uncluttered. The ConfigView's
         # parent BINDINGS surface the relevant keys; per-row Enter is
         # discoverable from the focus highlight.
-        Binding("enter", "edit", "编辑", show=False),
+        Binding("enter", "edit", "Edit", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -114,7 +115,11 @@ class LeafRow(Widget):
 
     @property
     def source_label(self) -> str:
-        return "你" if self.is_user_edited else "默认"
+        return (
+            t("config.leaf.source.user")
+            if self.is_user_edited
+            else t("config.leaf.source.default")
+        )
 
     @property
     def is_pending(self) -> bool:
@@ -325,7 +330,7 @@ class WeightFamilyNode(Widget):
     can_focus = True
 
     BINDINGS = [
-        Binding("enter", "edit", "编辑", show=False),
+        Binding("enter", "edit", "Edit", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -364,9 +369,7 @@ class WeightFamilyNode(Widget):
 
     def _sum_text(self) -> str:
         sum_color = "green" if 0.99 <= self.family_sum <= 1.01 else "yellow"
-        return (
-            f"     [dim]sum = [{sum_color}]{self.family_sum:.2f}[/{sum_color}][/dim]"
-        )
+        return t("config.family.sum", color=sum_color, value=self.family_sum)
 
     def compose(self) -> ComposeResult:
         yield Static(
@@ -472,7 +475,7 @@ class WeightsTree(Widget):
         self._view = view
 
     def compose(self) -> ComposeResult:
-        yield Static("  ▼ weights (异动信号权重)", classes="weights-header")
+        yield Static(t("config.weights.header"), classes="weights-header")
         for market_type in ("crypto", "political", "economic_data", "default"):
             yield MarketTypeNode(
                 market_type, self._current, self._loaded, self._defaults,
@@ -504,8 +507,8 @@ class ConfigSection(Widget):
     # SF15 — Space mirrors Enter (a11y convention). show=False keeps the
     # global help bar uncluttered; focus highlight signals discoverability.
     BINDINGS = [
-        Binding("enter", "toggle", "展开/折叠", show=False),
-        Binding("space", "toggle", "展开/折叠", show=False),
+        Binding("enter", "toggle", "Toggle", show=False),
+        Binding("space", "toggle", "Toggle", show=False),
     ]
 
     def __init__(
@@ -527,7 +530,7 @@ class ConfigSection(Widget):
         badge = ""
         if self._view is not None:
             changed, total = self._count_section_changes()
-            badge = f"   [dim][已改 {changed} / {total}][/dim]"
+            badge = t("config.section.changed_badge", changed=changed, total=total)
         return f"{marker}  {self.section_title}{badge}"
 
     def compose(self) -> ComposeResult:
@@ -636,8 +639,8 @@ class ConfigView(Widget):
     """
 
     BINDINGS = [
-        Binding("r", "refresh", "刷新", show=True),
-        Binding("ctrl+r", "restart_polily", "应用配置", show=True),
+        Binding("r", "refresh", "Refresh", show=True),
+        Binding("ctrl+r", "restart_polily", "Apply Config", show=True),
         *NAV_BINDINGS,
     ]
 
@@ -685,21 +688,29 @@ class ConfigView(Widget):
         # a stray bordered "配置" card with empty body that ate vertical
         # space. Wrap the scroll inside so the title labels the scroll
         # region (matches wallet.py:135-137 pattern).
-        with PolilyCard(title=f"{ICON_CONFIG} 配置", id="config-card"):
+        with PolilyCard(
+            title=t("config.card.title", icon=ICON_CONFIG), id="config-card",
+        ):
             with VerticalScroll(id="config-scroll"):
-                yield ConfigSection("movement", "异动触发 (Movement)", view=self, expanded=True)
-                yield ConfigSection("scoring", "评分 (Scoring)", view=self)
-                yield ConfigSection("mispricing", "错误定价 (Mispricing)", view=self)
-                yield ConfigSection("wallet", "钱包 (Wallet)", view=self)
+                yield ConfigSection(
+                    "movement", t("config.section.movement"),
+                    view=self, expanded=True,
+                )
+                yield ConfigSection(
+                    "scoring", t("config.section.scoring"), view=self,
+                )
+                yield ConfigSection(
+                    "mispricing", t("config.section.mispricing"), view=self,
+                )
+                yield ConfigSection(
+                    "wallet", t("config.section.wallet"), view=self,
+                )
 
     def _banner_text(self) -> str:
         n = _count_pending_changes(self.loaded_config, self.current_config)
         if n == 0:
-            return "[dim]无未生效改动[/dim]"
-        return (
-            f"[yellow]●[/yellow] [bold]{n} 项改动未生效[/bold]   "
-            f"[dim](按 Ctrl+R 重启 polily 应用)[/dim]"
-        )
+            return t("config.banner.no_changes")
+        return t("config.banner.pending_changes", count=n)
 
     def _refresh_drift_banner(self) -> None:
         """Re-render the drift banner Static in place."""
@@ -795,7 +806,7 @@ class ConfigView(Widget):
 
         if self._restart_in_flight:
             self.notify(
-                "正在重启 daemon — 请稍候",
+                t("config.notify.restart_in_flight"),
                 severity="warning",
                 timeout=3,
             )
@@ -815,7 +826,11 @@ class ConfigView(Widget):
         # Step 2 + 3: subprocess + UI follow-up run on a worker thread so
         # the event loop stays responsive even if `polily scheduler
         # restart` hangs.
-        self.notify("正在重启 daemon...", title="重启 polily", timeout=10)
+        self.notify(
+            t("config.notify.restarting"),
+            title=t("config.notify.restart_title"),
+            timeout=10,
+        )
         self.run_worker(self._restart_daemon_worker, thread=True, exclusive=True)
 
     def _restart_daemon_worker(self) -> None:
@@ -851,7 +866,10 @@ class ConfigView(Widget):
             ) as e:
                 self.app.call_from_thread(
                     self.notify,
-                    f"❌ 重启 daemon 失败: {type(e).__name__}: {e}",
+                    t(
+                        "config.notify.restart_failed_typed",
+                        kind=type(e).__name__, detail=str(e),
+                    ),
                     severity="error",
                     timeout=10,
                 )
@@ -861,8 +879,10 @@ class ConfigView(Widget):
                 err = (result.stderr or result.stdout or "").strip()[:500]
                 self.app.call_from_thread(
                     self.notify,
-                    f"❌ 重启 daemon 失败 (rc={result.returncode}): "
-                    f"{err or '(no output)'}",
+                    t(
+                        "config.notify.restart_failed_rc",
+                        rc=result.returncode, detail=err or "(no output)",
+                    ),
                     severity="error",
                     timeout=10,
                 )
@@ -873,8 +893,8 @@ class ConfigView(Widget):
             # touch Textual widgets, so they must run on the main thread.
             self.app.call_from_thread(
                 self.notify,
-                "✅ Daemon 已重启 — 你的配置已生效",
-                title="重启 polily",
+                t("config.notify.restart_success"),
+                title=t("config.notify.restart_title"),
                 timeout=4,
             )
             self.app.call_from_thread(self._reload_after_daemon_restart)
@@ -909,17 +929,80 @@ class ConfigView(Widget):
             self._refresh_state_in_place()
 
     def on_mount(self) -> None:
-        from polily.core.events import TOPIC_HEARTBEAT
+        from polily.core.events import TOPIC_HEARTBEAT, TOPIC_LANGUAGE_CHANGED
         self.service.event_bus.subscribe(TOPIC_HEARTBEAT, self._on_heartbeat)
+        self.service.event_bus.subscribe(
+            TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
+        )
 
     def on_unmount(self) -> None:
         import contextlib
 
-        from polily.core.events import TOPIC_HEARTBEAT
+        from polily.core.events import TOPIC_HEARTBEAT, TOPIC_LANGUAGE_CHANGED
         with contextlib.suppress(Exception):
             self.service.event_bus.unsubscribe(
                 TOPIC_HEARTBEAT, self._on_heartbeat,
             )
+        with contextlib.suppress(Exception):
+            self.service.event_bus.unsubscribe(
+                TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
+            )
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Re-render labels frozen at compose time.
+
+        ConfigView has three families of i18n strings:
+          1. Dynamic (banner / leaf rows / family sums / section badges) —
+             already re-evaluated by `_refresh_state_in_place` because they
+             call t() at update time.
+          2. Frozen-at-compose (PolilyCard title, ConfigSection.section_title,
+             WeightsTree weights-header static) — these were cached as
+             plain strings during initial compose; they need explicit
+             updates here.
+          3. BINDINGS labels (Refresh / Apply Config) — handled by
+             I18nFooter on its own subscription.
+
+        We keep the in-place pattern (no recompose=True) so the user's
+        expand/collapse state, scroll position, and focus survive a
+        deliberate F2 toggle. Section titles are re-derived from a
+        section_id → catalog-key map; weights header is requeried by
+        class.
+        """
+        import contextlib
+
+        from textual.widgets import Static
+
+        # 1) PolilyCard title.
+        with contextlib.suppress(Exception):
+            self.query_one(
+                "#config-card .polily-card-title", Static,
+            ).update(t("config.card.title", icon=ICON_CONFIG))
+
+        # 2) Each ConfigSection's frozen section_title — re-derive from
+        # section_id, then re-render the header (which concatenates
+        # section_title with the live [changed N/M] badge).
+        section_keys = {
+            "movement": "config.section.movement",
+            "scoring": "config.section.scoring",
+            "mispricing": "config.section.mispricing",
+            "wallet": "config.section.wallet",
+        }
+        for section in self.query(ConfigSection):
+            key = section_keys.get(section.section_id)
+            if key is not None:
+                section.section_title = t(key)
+            section.update_count_badge()
+
+        # 3) WeightsTree static header.
+        with contextlib.suppress(Exception):
+            for header in self.query(
+                "#movement-weights-tree .weights-header",
+            ):
+                if isinstance(header, Static):
+                    header.update(t("config.weights.header"))
+
+        # Banner + leaves + family sums refresh in place.
+        self._refresh_state_in_place()
 
     def _on_heartbeat(self, payload: dict) -> None:
         """SF10 — dedicated heartbeat topic, no business-topic hijacking.

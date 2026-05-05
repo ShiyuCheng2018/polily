@@ -9,23 +9,25 @@ from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import DataTable, Static
 
-from polily.core.lifecycle import MarketState, market_state, market_state_label
+from polily.core.lifecycle import MarketState, market_state
+from polily.tui.i18n import t
+from polily.tui.lifecycle_labels import market_state_label_i18n
 
 
 def _settlement_cell_text(market, *, now: datetime | None = None) -> str:
-    """Render the '结算' column cell for a sub-market.
+    """Render the settlement column cell for a sub-market.
 
     TRADING → countdown string (e.g. '04-25 10:00 (3天0小时)').
-    Non-TRADING → bracketed state label (e.g. '[即将结算]').
+    Non-TRADING → bracketed translated state label (e.g. '[即将结算]' / '[Pending Settlement]').
 
     Column is narrow so SETTLED does NOT include winner suffix — that
-    lives in the '市场' zone title (single market) or the breadcrumb.
+    lives in the market zone title (single market) or the breadcrumb.
     """
     state = market_state(market, now=now)
     if state == MarketState.TRADING:
         from polily.tui.utils import format_countdown
         return format_countdown(market.end_date) if market.end_date else "?"
-    return f"[{market_state_label(state)}]"
+    return f"[{market_state_label_i18n(state)}]"
 
 
 class SubMarketTable(Widget):
@@ -48,7 +50,15 @@ class SubMarketTable(Widget):
         yield Static("")
         table = DataTable(id="sub-market-table")
         table.cursor_type = "row"
-        table.add_columns("选项", "YES", "NO", "价差", "成交量", "结算", "评分")
+        table.add_columns(
+            t("sub_market.col.option"),
+            "YES",
+            "NO",
+            t("sub_market.col.spread"),
+            t("sub_market.col.volume"),
+            t("sub_market.col.settlement"),
+            t("sub_market.col.score"),
+        )
         yield table
 
     def on_mount(self) -> None:
@@ -81,7 +91,16 @@ class SubMarketTable(Widget):
                 if mr.score_breakdown:
                     with contextlib.suppress(ValueError, TypeError):
                         bd = _json.loads(mr.score_breakdown)
-                        overall = bd.get("commentary", {}).get("overall", "")
+                        # v0.11.5: live commentary render — picks current UI
+                        # language. Replaces stale `bd["commentary"]` reads.
+                        from polily.tui.commentary_render import render_commentary
+                        mtype = getattr(mr, "market_type", None) or "other"
+                        if mtype == "other" and self._event:
+                            mtype = getattr(self._event, "market_type", None) or "other"
+                        overall = render_commentary(
+                            bd, float(mr.structure_score),
+                            mr.market_id, market_type=mtype,
+                        ).get("overall", "")
                 score_str = f"{mr.structure_score:.0f} {overall}" if overall else f"{mr.structure_score:.0f}"
             table.add_row(f"{prefix}{label}", yes, no, spread, vol, end, score_str, key=f"m_{mr.market_id}")
             self._row_map.append({"type": "market", "market": mr})
@@ -103,13 +122,15 @@ class SubMarketTable(Widget):
 
         if bd:
             breakdown = [
-                ("流动性", bd.get("liquidity", 0), tw["liquidity"]),
-                ("可验证性", bd.get("verifiability", 0), tw["verifiability"]),
-                ("概率空间", bd.get("probability", 0), tw["probability"]),
-                ("时间", bd.get("time", 0), tw["time"]),
-                ("摩擦", bd.get("friction", 0), tw["friction"]),
+                (t("scoring.dim.liquidity"), bd.get("liquidity", 0), tw["liquidity"]),
+                (t("scoring.dim.verifiability"), bd.get("verifiability", 0), tw["verifiability"]),
+                (t("scoring.dim.probability"), bd.get("probability", 0), tw["probability"]),
+                (t("scoring.dim.time"), bd.get("time", 0), tw["time"]),
+                (t("scoring.dim.friction"), bd.get("friction", 0), tw["friction"]),
             ]
             if tw.get("net_edge", 0) > 0:
+                # 'Edge' is intentionally untranslated — it's the project's
+                # canonical term for the dimension (matches scan/scoring.py).
                 breakdown.append(("Edge", bd.get("net_edge", 0), tw["net_edge"]))
         else:
             breakdown = []
@@ -118,13 +139,24 @@ class SubMarketTable(Widget):
         if tw.get("net_edge", 0) > 0:
             dim_keys.append("net_edge")
 
+        # v0.11.5: regenerate dim_comments live in current UI language.
+        live_dim_comments: dict = {}
+        if bd:
+            from polily.tui.commentary_render import render_commentary
+            live_dim_comments = render_commentary(
+                bd,
+                float(getattr(mr, "structure_score", 0) or 0),
+                mr.market_id,
+                market_type=mtype,
+            ).get("dim_comments", {})
+
         for i, (name, val, max_val) in enumerate(breakdown):
             val = min(val, max_val) if max_val > 0 else val
             bar_len = int(val / max_val * 15) if max_val > 0 else 0
             bar = "█" * bar_len + "░" * (15 - bar_len)
             comment = ""
             if bd and i < len(dim_keys):
-                comment = bd.get("commentary", {}).get("dim_comments", {}).get(dim_keys[i], "")
+                comment = live_dim_comments.get(dim_keys[i], "")
             connector = "└" if i == len(breakdown) - 1 else "├"
             table.add_row(
                 f"  {connector} {name}", f"{bar} {val:.0f}/{max_val}", comment, "", "", "", "",

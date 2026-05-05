@@ -11,6 +11,7 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
+from polily.tui.i18n import t
 from polily.tui.icons import ICON_CONFIG
 from polily.tui.widgets.polily_zone import PolilyZone
 
@@ -38,8 +39,8 @@ class FatalConfigScreen(Screen):
     """
 
     BINDINGS = [
-        Binding("q", "quit_app", "退出"),
-        Binding("ctrl+c", "quit_app", "退出"),
+        Binding("q", "quit_app", "Quit"),
+        Binding("ctrl+c", "quit_app", "Quit"),
     ]
 
     def __init__(self, *, error_message: str) -> None:
@@ -56,26 +57,18 @@ class FatalConfigScreen(Screen):
         from rich.markup import escape as _escape_markup
 
         with Vertical(id="fatal-box"):
-            with PolilyZone(title=f"{ICON_CONFIG} ⚠ 配置损坏 — polily 无法启动"):
-                yield Static(
-                    "数据库 config 表含有非法值，Pydantic 验证失败：",
-                )
+            with PolilyZone(title=t("fatal_config.zone_title", icon=ICON_CONFIG)):
+                yield Static(t("fatal_config.intro"))
                 yield Static(_escape_markup(str(self._error)), id="error-text")
-                yield Static("修复选项：")
-                yield Static(
-                    "1. 重置所有配置为默认（不可逆）：",
-                )
+                yield Static(t("fatal_config.recovery_intro"))
+                yield Static(t("fatal_config.recovery_all"))
                 yield Static("$ polily config reset --all", classes="recovery-cmd")
-                yield Static(
-                    "2. 重置某一项配置为默认：",
-                )
+                yield Static(t("fatal_config.recovery_one"))
                 yield Static(
                     "$ polily config reset <key_path>",
                     classes="recovery-cmd",
                 )
-                yield Static(
-                    "[dim](按 Q 或 Ctrl+C 退出 polily)[/dim]",
-                )
+                yield Static(t("fatal_config.exit_hint"))
 
     def action_quit_app(self) -> None:
         import os

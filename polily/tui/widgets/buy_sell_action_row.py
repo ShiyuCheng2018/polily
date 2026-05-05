@@ -19,6 +19,8 @@ from textual.containers import Horizontal
 from textual.message import Message
 from textual.widgets import Button
 
+from polily.tui.i18n import t
+
 
 class BuySellActionRow(Horizontal):
     """Pair of YES/NO action buttons for buy or sell context."""
@@ -54,7 +56,7 @@ class BuySellActionRow(Horizontal):
         self._no_disabled = False
 
     def compose(self) -> ComposeResult:
-        verb = "买" if self._side == "buy" else "卖"
+        verb = t(f"widget.buy_sell.verb.{self._side}")
         yield Button(
             f"{verb} YES", id="btn-yes", variant="success", classes="trade-btn",
         )
@@ -90,17 +92,17 @@ class BuySellActionRow(Horizontal):
         self._refresh()
 
     def _refresh(self) -> None:
-        verb = "买" if self._side == "buy" else "卖"
+        verb = t(f"widget.buy_sell.verb.{self._side}")
         yes_btn = self.query_one("#btn-yes", Button)
         no_btn = self.query_one("#btn-no", Button)
         if self._yes_price is not None and 0 < self._yes_price < 1:
             yes_btn.label = f"{verb} YES {self._yes_price * 100:.1f}¢"
         else:
-            yes_btn.label = "YES (价格不可用)"
+            yes_btn.label = t("widget.buy_sell.price_unavailable", outcome="YES")
         if self._no_price is not None and 0 < self._no_price < 1:
             no_btn.label = f"{verb} NO {self._no_price * 100:.1f}¢"
         else:
-            no_btn.label = "NO (价格不可用)"
+            no_btn.label = t("widget.buy_sell.price_unavailable", outcome="NO")
         # Disabled: caller-specified OR price-missing (which makes button useless)
         yes_btn.disabled = self._yes_disabled or (self._yes_price is None)
         no_btn.disabled = self._no_disabled or (self._no_price is None)

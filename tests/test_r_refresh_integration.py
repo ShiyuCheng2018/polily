@@ -21,6 +21,7 @@ from polily.tui.service import PolilyService
 def _service_with_event():
     cfg = MagicMock()
     cfg.tui.heartbeat_seconds = 5.0  # Phase 0 Task 14: real float for Textual timer
+    cfg.tui.language = "zh"  # autouse i18n fixture sets active lang to zh; pin the cfg side too so PolilyApp._init_i18n_from_prefs doesn't re-init to MagicMock
     cfg.wallet.starting_balance = 100.0
     tmp = tempfile.TemporaryDirectory()
     db = PolilyDB(Path(tmp.name) / "t.db")

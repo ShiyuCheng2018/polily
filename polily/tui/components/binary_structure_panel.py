@@ -15,15 +15,12 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
 
+from polily.tui.i18n import t
 from polily.tui.widgets.cards import DashPanel
 
-_DIMENSIONS = [
-    ("流动性", "liquidity"),
-    ("可验证性", "verifiability"),
-    ("概率空间", "probability"),
-    ("时间", "time"),
-    ("摩擦", "friction"),
-]
+# Internal dim keys (canonical, used in score_breakdown JSON) → catalog keys.
+# Labels are looked up via t() at compose time so they flip on language switch.
+_DIM_KEYS = ["liquidity", "verifiability", "probability", "time", "friction"]
 
 _BAR_WIDTH = 15
 
@@ -46,19 +43,31 @@ class BinaryMarketStructurePanel(Widget):
 
     def compose(self) -> ComposeResult:
         panel = DashPanel()
-        panel.border_title = "市场结构"
+        panel.border_title = t("binary_structure.title")
         with panel:
             bd = self._parse_breakdown()
             if not bd:
-                yield Static("[dim]暂无结构评分[/dim]", classes="empty-row")
+                yield Static(f"[dim]{t('binary_structure.empty')}[/dim]", classes="empty-row")
                 return
 
             weights = self._resolve_weights()
-            commentary = bd.get("commentary") or {}
+            # v0.11.5: live commentary render based on current UI language
+            # (F2 toggle takes effect on next refresh, matching label i18n).
+            from polily.tui.commentary_render import render_commentary
+            mtype = getattr(self._market, "market_type", None) or "other"
+            if mtype == "other" and self._event:
+                mtype = getattr(self._event, "market_type", None) or "other"
+            commentary = render_commentary(
+                bd,
+                float(getattr(self._market, "structure_score", 0) or 0),
+                getattr(self._market, "market_id", ""),
+                market_type=mtype,
+            )
             dim_comments = commentary.get("dim_comments") or {}
 
-            dims = list(_DIMENSIONS)
+            dims = [(t(f"scoring.dim.{k}"), k) for k in _DIM_KEYS]
             if weights.get("net_edge", 0) > 0:
+                # 'Edge' kept untranslated (canonical scoring term).
                 dims.append(("Edge", "net_edge"))
 
             for label, key in dims:
@@ -73,7 +82,7 @@ class BinaryMarketStructurePanel(Widget):
 
             overall = commentary.get("overall") or ""
             if overall:
-                yield Static(f"[b]总评:[/b] {overall}", classes="overall-row")
+                yield Static(f"[b]{t('binary_structure.overall')}:[/b] {overall}", classes="overall-row")
 
     def update_data(self, market, event=None) -> None:
         """v0.10.1 in-place refresh — see EventHeader.update_data."""

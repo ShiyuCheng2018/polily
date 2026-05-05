@@ -10,6 +10,42 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.11.5] — 2026-05-05
+
+### Added
+
+- **Runtime i18n: bilingual TUI with hotkey toggle (zh ↔ en).** Press **F2** anywhere to flip the entire UI between Simplified Chinese (default) and English without restarting; the choice is persisted to `data/polily.db` (`user_prefs.language`) so the next launch starts in the same language. All 9 views (wallet / changelog / history / paper_status / monitor_list / score_result / archived_events / scan_log / event_detail), 7 components (event_header / sub_market_table / analysis_panel / event_kpi / binary_structure_panel / position_panel / movement_sparkline), 4 modal/dialog files (wallet_modals / trade_dialog / scan_modals / monitor_modals), 5 widgets (sidebar / I18nFooter / buy_sell_action_row / empty_state / loading_state / ConfirmCancelBar) and the MainScreen status bar / countdown formatter / lifecycle state labels are all bilingual. Footer / DataTable column headers / KV labels / static texts all update in place — no scroll, cursor or modal state is lost on switch.
+
+- **LLM analysis output follows UI language.** The NarrativeWriter agent prepends a per-language directive (sourced from each catalog's `language.directive_for_llm` key) to every analysis prompt, so when you toggle to English the AI narrative section comes back in English; toggling back gets the next analysis in Chinese. Industry terms (YES/NO, ¢, $, %, market identifiers) stay as-is in both languages.
+
+- **Adding another language is a one-file change.** Drop a `polily/tui/i18n/catalogs/<lang>.json` file with the same key set as `zh.json` / `en.json` and it shows up in the F2 cycle automatically — no code changes needed. CI gate (`tests/test_i18n.py::test_bundled_catalogs_have_consistent_key_sets`) enforces key-set parity across all loaded catalogs so a new language can't ship with missing keys.
+
+- **CI gate against zh string-literal regressions.** `tests/test_no_residual_zh_in_tui.py` walks `polily/tui/**.py` and fails if a new Chinese string literal appears in a non-allowlisted file — pushing future contributors toward `t("catalog.key")` instead of inline literals.
+
+- **Bilingual score commentary phrases.** The 543 Chinese phrases in `polily/config/phrases.yaml` (6 dimensions × 20 score levels × 3 variants, plus the overall judgment / strongest / weakest / advice cross-product) are now matched by a fully translated `polily/config/phrases.en.yaml`. The structure-score column commentary, dimension-row hints and overall verdict text follow the F2 language toggle in both new scans and historical records — `polily.scan.commentary._load_phrases(lang)` selects per language, and the view layer regenerates the rendered text on every paint. CI parity test asserts both files keep the same dimension keys, level counts and advice condition shape, so adding or removing a phrase in one language without the other fails fast.
+
+### Changed
+
+- **Score commentary and pipeline progress messages re-render live on F2 toggle.** Pre-v0.11.5 the rendered text was baked into SQLite at scoring time (`markets.score_breakdown.commentary` and `scan_logs.steps_json`), so toggling the UI language updated labels but left these fields stuck in the prior language. Both subsystems now persist stable catalog keys (+ params) and let the view translate at paint time, matching how the rest of the i18n surface behaves. Pre-v0.11.5 rows that only have literal name / detail strings are reverse-matched against known catalog entries (step names + 4 detail templates) at render time, so historical records flip with F2 too. Unknown literals pass through unchanged.
+
+### Fixed
+
+- **`position.empty` hint reads "press t to trade".** The English string previously said "press t to mark", which is ambiguous out of context; the corresponding Chinese string is "无持仓 — 按 t 建仓" (open a position). The new wording matches the actual action.
+
+- **Pipeline progress messages now use the i18n catalog.** The single-event scoring pipeline (`polily.scan.pipeline.fetch_and_score_event`) previously emitted hard-coded Chinese strings ("获取事件", "获取盘口", "评分", "{title} ({n} 市场)", etc.) through its progress callback, so English-mode users saw Chinese text in the live progress UI. Step names and dynamic detail templates now live as `pipeline.step.*` / `pipeline.detail.*` catalog entries; the pipeline emits keys, the view translates.
+
+### Internal
+
+- **Spike preserved.** `scripts/spike_i18n_footer.py` preserves the minimal Textual reproduction used to validate the chosen Footer-refresh approach against rejected alternatives.
+
+- **Shared helpers added.** `polily/tui/i18n/` package (loader + `t()` / `set_language()` / `current_language()` API), `polily/tui/widgets/i18n_footer.py` (Footer subclass that re-translates binding labels at compose time), `polily/tui/widgets/_datatable_i18n.py` (column-label resizer that bumps Textual's `column.content_width` when the new label is wider than the old one — fixes the "Trig/Stat/Reas" header truncation bug on the queue/history tables), `polily/tui/lifecycle_labels.py` (i18n wrappers around `core/lifecycle.py` Chinese label functions, keeping `core/` framework-free).
+
+- **`core/user_prefs.py` + `user_prefs` table** — first user-preference K/V store, scoped to runtime-mutable settings that shouldn't round-trip to YAML (so we don't fight git over user config).
+
+- **`polily/tui/commentary_render.py`** — single `render_commentary()` helper that bridges `polily.scan.commentary` (framework-free) to the TUI's `current_language()`, so views regenerate commentary on every paint without re-coupling `scan/` to the i18n state.
+
+- **`ScanStepRecord` and `StepInfo` schema additions.** New optional `name_key` / `detail_key` / `detail_params` fields persist the i18n key + params alongside the legacy literal `name` / `detail` strings; the scan_log + score_result renderers prefer the keys when present, fall back to literals (with reverse-lookup for known templates) otherwise. Backward compatible — pre-v0.11.5 rows render correctly without migration.
+
 ## [0.11.4] — 2026-05-05
 
 ### Fixed
@@ -660,7 +696,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.4...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.5...dev
+[0.11.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.5
 [0.11.4]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.4
 [0.11.3]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.3
 [0.11.2]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.2

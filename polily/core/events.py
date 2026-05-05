@@ -52,6 +52,10 @@ TOPIC_PRICE_UPDATED = "price.updated"
 # even though that's rare in v1).
 TOPIC_HEARTBEAT = "tui.heartbeat"
 
+# Payload: {"language": str}  — emitted when user toggles the active TUI language.
+# Subscribers (views, custom Footer) re-render their visible text via t() lookup.
+TOPIC_LANGUAGE_CHANGED = "lang.changed"
+
 
 class EventBus:
     """Thread-safe topic pub/sub. Handlers run synchronously on publish."""

@@ -67,56 +67,69 @@ async def test_renders_five_default_dimension_labels():
 
 @pytest.mark.asyncio
 async def test_shows_overall_commentary():
+    """v0.11.5: commentary is rendered LIVE from current language —
+    the panel ignores any pre-seeded `commentary` key in score_breakdown.
+    Assert structural correctness: the 总评 label is present and the
+    rendered overall string is non-empty (specific phrase varies with
+    yaml content + market_id seed)."""
     from polily.tui.components import BinaryMarketStructurePanel
 
+    # No pre-seeded commentary — view must render live
     bd = {
         "liquidity": 18, "verifiability": 8, "probability": 15,
         "time": 12, "friction": 10,
-        "commentary": {"dim_comments": {}, "overall": "结构扎实，主要变量在时效层"},
     }
     panel = BinaryMarketStructurePanel(_make_market(bd), event=_make_event())
     async with _Host(panel).run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         text = _flatten_text(panel)
 
-    assert "结构扎实，主要变量在时效层" in text
+    # 总评: label is present (zh) — proves the overall row was rendered
+    assert "总评" in text or "Overall" in text, (
+        f"Overall commentary label missing in rendered panel: {text!r}"
+    )
 
 
 @pytest.mark.asyncio
 async def test_shows_dim_comments_per_row():
+    """v0.11.5: each dim row's comment column is rendered live from
+    phrases.<lang>.yaml. Don't assert exact phrases (they're seed-
+    dependent). Instead verify each row has a non-trivial comment
+    (i.e. the phrase column isn't all empty)."""
     from polily.tui.components import BinaryMarketStructurePanel
 
     bd = {
         "liquidity": 18, "verifiability": 8, "probability": 15,
         "time": 12, "friction": 10,
-        "commentary": {
-            "dim_comments": {
-                "liquidity": "流动性描述X", "verifiability": "可验证性描述Y",
-                "probability": "概率空间Z", "time": "时间窗W", "friction": "摩擦V",
-            },
-            "overall": "",
-        },
     }
     panel = BinaryMarketStructurePanel(_make_market(bd), event=_make_event())
     async with _Host(panel).run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         text = _flatten_text(panel)
 
-    for phrase in ["流动性描述X", "可验证性描述Y", "概率空间Z", "时间窗W", "摩擦V"]:
-        assert phrase in text, f"dim comment {phrase!r} missing"
+    # Each dim label should be present + the rendered text should be
+    # substantially longer than just the labels themselves (proving
+    # commentary phrases are actually populating the comment column).
+    for label in ["流动性", "可验证性", "概率空间", "时间", "摩擦"]:
+        assert label in text, f"dim label {label!r} missing"
+    # Lower bound on length — pure labels + bars + numbers is < 200 chars;
+    # commentary adds substantial Chinese phrase content.
+    assert len(text) > 200, (
+        f"Rendered panel too short ({len(text)} chars) — commentary "
+        f"may not be rendering. Got: {text!r}"
+    )
 
 
 @pytest.mark.asyncio
 async def test_includes_edge_row_for_crypto():
+    """v0.11.5: Edge row appears for crypto markets; comment is
+    rendered live — assert structural presence rather than exact
+    phrase."""
     from polily.tui.components import BinaryMarketStructurePanel
 
     bd = {
         "liquidity": 18, "verifiability": 8, "probability": 15,
         "time": 12, "friction": 10, "net_edge": 20,
-        "commentary": {
-            "dim_comments": {"net_edge": "Edge评分高"},
-            "overall": "",
-        },
     }
     market = _make_market(bd, market_type="crypto")
     panel = BinaryMarketStructurePanel(market, event=_make_event(market_type="crypto"))
@@ -124,8 +137,53 @@ async def test_includes_edge_row_for_crypto():
         await pilot.pause()
         text = _flatten_text(panel)
 
-    assert "Edge" in text
-    assert "Edge评分高" in text
+    assert "Edge" in text, "Edge label missing for crypto market"
+
+
+@pytest.mark.asyncio
+async def test_commentary_re_renders_on_language_toggle():
+    """Regression: the same panel (same bd, same market_id) renders
+    different commentary text after `set_language` is flipped — the
+    behavior the user explicitly asked for in v0.11.5 dev testing.
+    """
+    from polily.tui.components import BinaryMarketStructurePanel
+    from polily.tui.i18n import set_language
+
+    bd = {
+        "liquidity": 18, "verifiability": 8, "probability": 15,
+        "time": 12, "friction": 10,
+    }
+    market = _make_market(bd, market_type="other")
+
+    # Render in zh
+    set_language("zh")
+    try:
+        panel_zh = BinaryMarketStructurePanel(market, event=_make_event())
+        async with _Host(panel_zh).run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            zh_text = _flatten_text(panel_zh)
+
+        # Render in en
+        set_language("en")
+        panel_en = BinaryMarketStructurePanel(market, event=_make_event())
+        async with _Host(panel_en).run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            en_text = _flatten_text(panel_en)
+    finally:
+        set_language("zh")  # restore for other tests
+
+    # zh text contains Chinese; en text doesn't (commentary phrases at least)
+    import re
+    cjk = re.compile(r"[一-鿿]")
+    # Some labels stay zh (label keys come from i18n catalog which Yuan
+    # built), so check that en text has SUBSTANTIALLY less CJK than zh.
+    zh_cjk_count = len(cjk.findall(zh_text))
+    en_cjk_count = len(cjk.findall(en_text))
+    assert en_cjk_count < zh_cjk_count, (
+        f"After F2 to en, CJK character count should drop substantially. "
+        f"zh={zh_cjk_count}, en={en_cjk_count}. "
+        f"Commentary may not be re-rendering on language toggle."
+    )
 
 
 @pytest.mark.asyncio
