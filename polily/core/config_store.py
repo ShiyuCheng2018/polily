@@ -4,7 +4,7 @@ Per design §3.2 — db.config is the single source of truth for polily
 configuration. Three field tiers:
 
 - territory A (40 leaves): TUI-editable, persisted in db
-- HIDDEN_IN_TUI (6 leaves): persisted in db but not exposed via TUI Edit modal
+- HIDDEN_IN_TUI (7 leaves): persisted in db but not exposed via TUI Edit modal
 - EPHEMERAL_FIELDS (1 leaf): never persisted; computed at runtime via Pydantic
   default_factory (e.g., api.user_agent which follows __version__)
 

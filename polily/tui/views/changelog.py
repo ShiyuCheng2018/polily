@@ -143,15 +143,26 @@ class ChangelogView(Widget):
     def _dismiss_update_marker(self) -> None:
         """Background worker: persist current latest PyPI as dismissed +
         clear the sidebar `*` for `changelog`. Always clears the marker
-        even if PyPI fetch failed (user clearly saw the changelog)."""
+        even if PyPI fetch failed or service is unavailable (user
+        clearly saw the changelog).
+
+        v0.11.4 review fix CR-3: the persist-dismissal block was guarded
+        by `if service is None: return`, which short-circuited the
+        trailing clear-marker block. That broke the "always clears"
+        contract whenever the app had no service (e.g., during early
+        mount races). Now persist is best-effort and clear runs
+        unconditionally.
+        """
+        # Best-effort persist: only attempts when we have a db service.
+        # Any failure (no service, PyPI down, db error) is logged and
+        # swallowed so the UI-clear path below always runs.
         try:
             from polily.core import update_check
             service = getattr(self.app, "service", None)
-            if service is None:
-                return
-            latest = update_check.get_latest_version(force_refresh=True)
-            if latest:
-                update_check.set_dismissed_version(service.db, latest)
+            if service is not None:
+                latest = update_check.get_latest_version(force_refresh=True)
+                if latest:
+                    update_check.set_dismissed_version(service.db, latest)
         except Exception as e:
             # Log via stderr-redirected daemon log? No — we're in TUI.
             # Use module-level no-op suppression.
@@ -160,7 +171,8 @@ class ChangelogView(Widget):
                 "update_check dismiss failed: %s", e,
             )
 
-        # Always attempt to clear the sidebar marker (UI thread hop)
+        # Always attempt to clear the sidebar marker (UI thread hop) —
+        # independent of persist-dismissal success or service availability.
         def _clear():
             from polily.tui.widgets.sidebar import Sidebar
             with contextlib.suppress(Exception):

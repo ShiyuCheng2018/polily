@@ -392,3 +392,106 @@ async def test_changelog_view_updates_version_after_fetch(tmp_path):
             )
     finally:
         changelog_mod._fetch_latest_release_tag = original  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# v0.11.4 review fix CR-3: _dismiss_update_marker MUST always clear the
+# sidebar marker, even when service is unavailable or PyPI fetch failed.
+# Pre-fix: an early `return` when `service is None` skipped the trailing
+# clear-marker block, leaving the yellow `*` stuck after the user clicked
+# 更新日志. Contract violation per docstring.
+# ---------------------------------------------------------------------------
+
+
+def test_dismiss_update_marker_clears_sidebar_when_service_missing():
+    """Regression CR-3: clear_new_data must run even with service=None.
+
+    The function's docstring promises "Always clears the marker even if
+    PyPI fetch failed (user clearly saw the changelog)". The original
+    `if service is None: return` short-circuited the trailing clear
+    block, breaking that contract for any code path that hits a None
+    service (test fixtures, race conditions during early mount).
+    """
+    from polily.tui.views import changelog as changelog_mod
+
+    captured: list[tuple[str, str]] = []
+
+    class _FakeSidebar:
+        def clear_new_data(self, menu_id):
+            captured.append(("clear_new_data", menu_id))
+
+    class _FakeApp:
+        service = None  # The trigger condition for the regression
+
+        def query_one(self, *_a, **_kw):
+            return _FakeSidebar()
+
+        def call_from_thread(self, fn, *args, **kwargs):
+            # Run the UI-thread callback synchronously for the test
+            fn(*args, **kwargs)
+
+    class _FakeView:
+        app = _FakeApp()
+
+    # Call as bound method
+    changelog_mod.ChangelogView._dismiss_update_marker(_FakeView())
+
+    assert ("clear_new_data", "changelog") in captured, (
+        f"clear_new_data must run even when service is None — "
+        f"docstring promises always-clear contract. Got: {captured}"
+    )
+
+
+def test_dismiss_update_marker_clears_sidebar_when_pypi_fails(monkeypatch, tmp_path):
+    """Regression CR-3: clear_new_data must run even when PyPI fetch raises.
+
+    The clear-block must be independent of the persist-dismissal-state
+    block — so a network failure can't strand the yellow `*` on
+    sidebar.
+    """
+    from polily.core import paths
+    from polily.tui.views import changelog as changelog_mod
+
+    paths.set_data_dir_override(tmp_path)
+
+    # Force any update_check call to raise so the persist branch dies
+    def _raise(*_a, **_kw):
+        raise RuntimeError("PyPI down")
+
+    monkeypatch.setattr(
+        "polily.core.update_check.get_latest_version", _raise,
+    )
+
+    captured: list[str] = []
+
+    class _FakeSidebar:
+        def clear_new_data(self, menu_id):
+            captured.append(menu_id)
+
+    from polily.core.db import PolilyDB
+
+    db = PolilyDB(tmp_path / "t.db")
+
+    class _FakeService:
+        pass
+
+    svc = _FakeService()
+    svc.db = db
+
+    class _FakeApp:
+        service = svc
+
+        def query_one(self, *_a, **_kw):
+            return _FakeSidebar()
+
+        def call_from_thread(self, fn, *args, **kwargs):
+            fn(*args, **kwargs)
+
+    class _FakeView:
+        app = _FakeApp()
+
+    changelog_mod.ChangelogView._dismiss_update_marker(_FakeView())
+
+    assert "changelog" in captured, (
+        f"clear_new_data must run even when PyPI fetch raises. Got: {captured}"
+    )

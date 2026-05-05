@@ -249,3 +249,106 @@ def test_cards_css_uses_theme_variables():
         assert not re.search(r"#[0-9A-Fa-f]{3,8}\b", css), (
             f"{cls.__name__}.DEFAULT_CSS contains hardcoded hex color: {css!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# v0.11.4 review fix CR-1: MainScreen.on_mount must NOT block on PyPI fetch.
+# Pre-fix: should_show_update_star() ran synchronously on the mount thread,
+# so a cache-miss (every fresh install + every 6h cache expiry) would freeze
+# the TUI for up to 5s while httpx awaited PyPI. Must be dispatched to a
+# worker thread.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_check_runs_in_worker_not_main_thread(svc, monkeypatch):
+    """Regression CR-1: should_show_update_star must run off the mount thread.
+
+    Captures the thread name at the call site. Pre-fix, the call ran
+    inline on the same thread that executed `on_mount` (i.e., the main
+    asyncio loop's thread, named 'MainThread' or similar). Post-fix, it
+    runs in a `run_worker(thread=True)` worker, which Textual names
+    differently (something like 'AppWorker' / a non-main thread).
+    """
+    import threading
+
+    from polily.core import update_check
+    from polily.tui.app import PolilyApp
+
+    captured_threads: list[str] = []
+    main_thread_name = threading.current_thread().name
+
+    def spy_should_show(db, *_a, **_kw):
+        captured_threads.append(threading.current_thread().name)
+        return False  # don't actually mark — just observe the thread
+
+    monkeypatch.setattr(
+        update_check, "should_show_update_star", spy_should_show,
+    )
+
+    app = PolilyApp(service=svc)
+    app._restart_daemon = lambda: None
+    async with app.run_test(size=(120, 40)) as pilot:
+        # Wait for any worker thread to land
+        for _ in range(20):
+            await pilot.pause()
+            if captured_threads:
+                break
+
+    assert captured_threads, (
+        "should_show_update_star was never called — on_mount must dispatch "
+        "the update check (in a worker thread)"
+    )
+
+    # All recorded calls must be off the main thread
+    for tname in captured_threads:
+        assert tname != main_thread_name, (
+            f"should_show_update_star ran on main thread {tname!r} — "
+            f"this blocks the TUI on cache-miss network calls. Must be in "
+            f"run_worker(thread=True). Captured: {captured_threads}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_check_marks_sidebar_when_newer_available(svc, monkeypatch):
+    """Worker path actually marks the sidebar `*` when check returns True.
+
+    Companion to the thread-isolation test: confirms the worker's
+    success path still invokes `sidebar.mark_new_data("changelog")` via
+    a UI-thread hop (call_from_thread).
+    """
+    from polily.core import update_check
+    from polily.tui.app import PolilyApp
+    from polily.tui.widgets.sidebar import Sidebar
+
+    monkeypatch.setattr(
+        update_check, "should_show_update_star", lambda db, *_a, **_kw: True,
+    )
+
+    from polily.tui.widgets.sidebar import SidebarItem
+
+    def _changelog_item(_app):
+        for item in _app.screen.query(SidebarItem):
+            if item.menu_id == "changelog":
+                return item
+        return None
+
+    app = PolilyApp(service=svc)
+    app._restart_daemon = lambda: None
+    async with app.run_test(size=(120, 40)) as pilot:
+        # Pump until worker hop has landed and sidebar updates
+        item = None
+        for _ in range(30):
+            await pilot.pause()
+            item = _changelog_item(app)
+            if item is not None and item._has_new:
+                break
+
+        assert item is not None, "changelog SidebarItem should be mounted"
+        assert item._has_new, (
+            "After worker check returns True, changelog SidebarItem._has_new "
+            "must be True (yellow `*` shown via mark_new_data)"
+        )
+
+    # silence unused-import warning
+    _ = Sidebar
