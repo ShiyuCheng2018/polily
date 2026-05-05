@@ -361,11 +361,22 @@ class MainScreen(Screen):
                 view.focus()
 
     def refresh_sidebar_counts(self):
+        # Defensive: this is invoked via app.call_from_thread from bus
+        # heartbeat callbacks (TOPIC_POSITION_UPDATED / TOPIC_WALLET_UPDATED).
+        # If the sidebar isn't mounted (test that mounts another widget at
+        # app level, or mid-teardown), the queued callback would raise
+        # NoMatches into the test's run_test exception capture. Suppress
+        # — the next heartbeat re-publishes and the sidebar self-heals.
+        from textual.css.query import NoMatches
+        try:
+            sidebar = self.query_one("#sidebar", Sidebar)
+        except NoMatches:
+            return
         monitor = self.service.get_monitor_count()
         paper = len(self.service.get_open_trades())
         archive_count = len(self.service.get_archived_events())
         history = self.service.get_history_count()
-        self.query_one("#sidebar", Sidebar).update_counts(monitor, paper, archive_count, history)
+        sidebar.update_counts(monitor, paper, archive_count, history)
 
     # --- Message handlers ---
 
