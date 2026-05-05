@@ -14,6 +14,7 @@ v0.8.0 Task 32 migration:
 
 
 import contextlib
+import logging
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -61,6 +62,8 @@ from polily.tui.views.score_result import (
     ScoreViewRescore,
 )
 from polily.tui.widgets.sidebar import MenuSelected, Sidebar
+
+logger = logging.getLogger(__name__)
 
 
 class MainScreen(Screen):
@@ -145,6 +148,37 @@ class MainScreen(Screen):
             bus.subscribe(TOPIC_SCAN_UPDATED, self._on_scan_updated)
             bus.subscribe(TOPIC_POSITION_UPDATED, self._on_position_or_wallet_update)
             bus.subscribe(TOPIC_WALLET_UPDATED, self._on_position_or_wallet_update)
+
+        # v0.11.4: yellow `*` on 更新日志 if newer PyPI version available
+        # and user hasn't dismissed. Reuses sidebar.mark_new_data infra
+        # (same indicator as 任务记录 / 监控).
+        #
+        # v0.11.4 review fix CR-1: dispatched to worker thread because
+        # cache-miss path makes a 5s httpx call to PyPI (every fresh
+        # install + every 6h cache expiry). Pre-fix this blocked the
+        # mount thread, freezing the TUI for up to 5s on cold start.
+        # Best-effort: any failure is logged but never crashes mount.
+        self.run_worker(self._check_update_indicator, thread=True, exclusive=False)
+
+    def _check_update_indicator(self) -> None:
+        """Background worker: check PyPI for newer version, mark sidebar
+        `*` if available. Runs on worker thread so a cache-miss network
+        call (up to 5s) doesn't block the mount thread / freeze TUI.
+        UI-thread hop via `call_from_thread` for the actual sidebar
+        mutation (Textual contract: widget mutations from non-UI threads
+        must be marshaled back). Best-effort — any failure logged.
+        """
+        try:
+            from polily.core import update_check
+            if update_check.should_show_update_star(self.service.db):
+                def _mark():
+                    with contextlib.suppress(Exception):
+                        self.query_one("#sidebar", Sidebar).mark_new_data("changelog")
+
+                with contextlib.suppress(Exception):
+                    self.app.call_from_thread(_mark)
+        except Exception:
+            logger.exception("update_check.should_show_update_star failed")
 
     def on_unmount(self) -> None:
         bus = getattr(self.service, "event_bus", None)

@@ -4,7 +4,7 @@ Per design §3.2 — db.config is the single source of truth for polily
 configuration. Three field tiers:
 
 - territory A (40 leaves): TUI-editable, persisted in db
-- HIDDEN_IN_TUI (6 leaves): persisted in db but not exposed via TUI Edit modal
+- HIDDEN_IN_TUI (7 leaves): persisted in db but not exposed via TUI Edit modal
 - EPHEMERAL_FIELDS (1 leaf): never persisted; computed at runtime via Pydantic
   default_factory (e.g., api.user_agent which follows __version__)
 
@@ -133,6 +133,10 @@ HIDDEN_IN_TUI: frozenset[str] = frozenset({
     # docstring; even if a row exists in db.config, callers bootstrap
     # the path BEFORE loading db.config.
     "archiving.db_file",
+    # update_check.last_dismissed_version — v0.11.4: TUI auto-managed
+    # state for "new version available" indicator. Persisted on user
+    # click of 更新日志 sidebar; not user-tunable from ⚙ 配置.
+    "update_check.last_dismissed_version",
 })
 
 

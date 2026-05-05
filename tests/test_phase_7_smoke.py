@@ -49,7 +49,7 @@ def test_phase_7_full_happy_path(tmp_path, monkeypatch):
         assert "READ ONLY" in yaml_text
         assert "magnitude_threshold: 70" in yaml_text
 
-        # 3. db.config has 46 rows (47 leaves - 1 EPHEMERAL).
+        # 3. db.config has 47 rows (48 leaves - 1 EPHEMERAL).
         from polily.core.config_store import load_all
         from polily.core.db import PolilyDB
 
@@ -57,7 +57,7 @@ def test_phase_7_full_happy_path(tmp_path, monkeypatch):
         db = PolilyDB(db_path)
         flat = load_all(db)
         db.close()
-        assert len(flat) == 46
+        assert len(flat) == 47
         assert "api.user_agent" not in flat  # EPHEMERAL never persisted
 
         # 4. Edit via save_knob (simulating Edit modal save handler).

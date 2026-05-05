@@ -119,9 +119,10 @@ def test_territory_a_total_leaf_count_is_40():
     )
 
 
-def test_hidden_in_tui_leaf_count_is_6():
-    """Locks Q1 HIDDEN_IN_TUI scope at 6 leaves (api.* × 2 / tui.* × 1 /
-    ai.narrative_writer.* × 3 / archiving.db_file × 1 — minus EPHEMERAL).
+def test_hidden_in_tui_leaf_count_is_7():
+    """Locks HIDDEN_IN_TUI scope at 7 leaves (api.* × 1 / tui.* × 1 /
+    ai.narrative_writer.* × 3 / archiving.db_file × 1 / update_check.* × 1).
+    v0.11.4 bumped 6 → 7 by adding update_check.last_dismissed_version.
 
     Hidden = leaves in the schema that are NOT EPHEMERAL and NOT territory A.
     """
@@ -130,8 +131,8 @@ def test_hidden_in_tui_leaf_count_is_6():
         key for key in flat
         if key not in EPHEMERAL_FIELDS and not is_territory_a(key)
     }
-    assert len(hidden) == 6, (
-        f"expected 6 HIDDEN_IN_TUI leaves, got {len(hidden)}: "
+    assert len(hidden) == 7, (
+        f"expected 7 HIDDEN_IN_TUI leaves, got {len(hidden)}: "
         f"{sorted(hidden)}"
     )
 
@@ -161,14 +162,15 @@ def test_flatten_pydantic_includes_ephemeral_fields():
     assert "api.user_agent" in flat
 
 
-def test_flatten_pydantic_total_leaf_count_is_47():
-    """Locks the 47-leaf invariant from design §3.2.
+def test_flatten_pydantic_total_leaf_count_is_48():
+    """Locks the leaf-count invariant. v0.11.4 bumped 47 → 48 by adding
+    update_check.last_dismissed_version (HIDDEN_IN_TUI).
 
     If this fails the schema changed — update the design doc + this test
     together (and audit territory A whitelist before continuing).
     """
     flat = _flatten_pydantic(PolilyConfig())
-    assert len(flat) == 47, f"expected 47 leaves, got {len(flat)}: {sorted(flat.keys())}"
+    assert len(flat) == 48, f"expected 48 leaves, got {len(flat)}: {sorted(flat.keys())}"
 
 
 def test_unflatten_scalar_leaves():
@@ -215,12 +217,12 @@ def test_flatten_then_unflatten_roundtrips():
 
 
 def test_ensure_seeded_populates_empty_db(polily_db):
-    """First-run seed inserts 46 rows (47 leaves minus 1 EPHEMERAL)."""
+    """First-run seed inserts 47 rows (48 leaves minus 1 EPHEMERAL)."""
     ensure_seeded(polily_db)
 
     cur = polily_db.conn.execute("SELECT COUNT(*) FROM config")
     count = cur.fetchone()[0]
-    assert count == 46, f"expected 46 rows (47 - 1 ephemeral), got {count}"
+    assert count == 47, f"expected 47 rows (48 - 1 ephemeral), got {count}"
 
 
 def test_ensure_seeded_skips_ephemeral_fields(polily_db):
@@ -254,7 +256,7 @@ def test_ensure_seeded_is_idempotent(polily_db):
     ensure_seeded(polily_db)
     ensure_seeded(polily_db)
     cur = polily_db.conn.execute("SELECT COUNT(*) FROM config")
-    assert cur.fetchone()[0] == 46
+    assert cur.fetchone()[0] == 47
 
 
 def test_ensure_seeded_does_not_overwrite_user_edited_value(polily_db):
@@ -342,11 +344,11 @@ def test_ensure_seeded_safe_under_concurrent_threads_each_with_own_connection(tm
         t.join()
 
     assert not errors, f"ensure_seeded raised under concurrent threads: {errors}"
-    # Verify final state: exactly 46 rows, no duplicates
+    # Verify final state: exactly 47 rows, no duplicates
     db = PolilyDB(db_path)
     try:
         cur = db.conn.execute("SELECT COUNT(*) FROM config")
-        assert cur.fetchone()[0] == 46
+        assert cur.fetchone()[0] == 47
     finally:
         db.close()
 
@@ -373,7 +375,7 @@ def test_ensure_seeded_safe_across_independent_db_connections(tmp_path):
         ensure_seeded(db_b)
 
         cur = db_b.conn.execute("SELECT COUNT(*) FROM config")
-        assert cur.fetchone()[0] == 46  # not 92 (no duplicates)
+        assert cur.fetchone()[0] == 47  # not 94 (no duplicates)
 
         # Both connections see the same data
         flat_a = load_all(db_a)

@@ -106,6 +106,20 @@ class WalletConfig(BaseModel):
     )
 
 
+class UpdateCheckConfig(BaseModel):
+    """v0.11.4: state for the TUI's "new version available" indicator.
+
+    Storage-only knob — not user-tunable. The dismissed_version is
+    persisted via config_store.upsert when user clicks 更新日志 sidebar.
+    Listed in HIDDEN_IN_TUI so it doesn't appear in ⚙ 配置 UI.
+
+    Default empty string (not None) because config_store._flatten_pydantic
+    rejects None-valued leaves (SF9 guard). Empty string treated as
+    "never dismissed" by update_check module.
+    """
+    last_dismissed_version: str = ""
+
+
 class MovementWeights(BaseModel):
     """Per-market-type signal weights for magnitude and quality."""
     magnitude: dict[str, float] = {}
@@ -189,6 +203,7 @@ class PolilyConfig(BaseModel):
     archiving: ArchivingConfig = ArchivingConfig()
     wallet: WalletConfig = Field(default_factory=WalletConfig)
     movement: MovementConfig = MovementConfig()
+    update_check: UpdateCheckConfig = Field(default_factory=UpdateCheckConfig)
 
 
 class ConfigValidationError(Exception):

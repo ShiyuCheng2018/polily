@@ -19,7 +19,14 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
+from polily.core import clob as _clob
 from polily.core.db import PolilyDB
 from polily.core.event_store import (
     get_event,
@@ -43,6 +50,96 @@ logger = logging.getLogger(__name__)
 _SEMAPHORE_LIMIT = 100
 _poll_count = 0  # Safe: poll executor is single-threaded (APScheduler config)
 _poll_log: logging.Logger | None = None
+
+# v0.11.4 OBS-1: split httpx timeouts. Pre-v0.11.4 used `timeout=15` which
+# set ALL fields (connect/read/write/pool) to 15s. The dominant tail under
+# Polymarket CLOB load was read=15s. Connect/write/pool drop to defaults
+# that fail fast.
+_HTTPX_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=10.0)
+
+# v0.11.4 OBS-1: per-tick circuit breaker. After 5 consecutive ConnectErrors
+# in a single poll tick, abort retries for remaining markets to prevent the
+# 19-min worst-case retry storm under sustained outage. Reset at the start
+# of every tick via _reset_tick_circuit_breaker().
+_TICK_FAIL_COUNT = 0
+_BREAKER_THRESHOLD = 5
+
+# v0.11.4 OBS-1: shared semaphore for _fetch_one. Module-level so
+# _fetch_one (now module-level) can use it without nesting.
+_FETCH_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+def _get_fetch_semaphore() -> asyncio.Semaphore:
+    """Lazy-init asyncio.Semaphore tied to the current event loop.
+
+    Created on first use because asyncio.Semaphore must bind to a running
+    loop; module-import time has no loop.
+    """
+    global _FETCH_SEMAPHORE
+    if _FETCH_SEMAPHORE is None:
+        _FETCH_SEMAPHORE = asyncio.Semaphore(_SEMAPHORE_LIMIT)
+    return _FETCH_SEMAPHORE
+
+
+def _reset_tick_circuit_breaker() -> None:
+    """Called at the start of every poll tick to reset the breaker."""
+    global _TICK_FAIL_COUNT
+    _TICK_FAIL_COUNT = 0
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1.5, min=1, max=10),
+    retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException)),
+    reraise=True,  # re-raise the original exception (not RetryError) so
+                   # circuit-breaker counter logic can match exception type
+)
+async def _fetch_one_inner(client: httpx.AsyncClient, market) -> dict:
+    """Inner: tenacity-retried fetch. 3 attempts, exponential backoff.
+
+    Calls via module-level `_clob.fetch_clob_market_data` so existing
+    tests that `patch("polily.core.clob.fetch_clob_market_data")` continue
+    to take effect, AND new tests that `monkeypatch.setattr(poll_job,
+    "fetch_clob_market_data", ...)` also take effect via the alias below.
+    """
+    return await fetch_clob_market_data(client, market.clob_token_id_yes)
+
+
+async def _fetch_one(client: httpx.AsyncClient, market) -> dict:
+    """v0.11.4: retry transient errors via tenacity (3 attempts, exponential
+    backoff). Circuit breaker: after 5 consecutive ConnectErrors in a single
+    tick, skip retries for remaining markets to prevent retry-storm-induced
+    poll skip cascade.
+    """
+    global _TICK_FAIL_COUNT
+    sem = _get_fetch_semaphore()
+    if _TICK_FAIL_COUNT >= _BREAKER_THRESHOLD:
+        # Breaker tripped — single attempt, no retry
+        async with sem:
+            return await fetch_clob_market_data(client, market.clob_token_id_yes)
+    try:
+        async with sem:
+            return await _fetch_one_inner(client, market)
+    except (httpx.ConnectError, httpx.TimeoutException):
+        _TICK_FAIL_COUNT += 1
+        raise
+
+
+async def fetch_clob_market_data(*args, **kwargs):
+    """Module-level async alias for polily.core.clob.fetch_clob_market_data.
+
+    Why this exists (v0.11.4): two test-patch styles must both work:
+    1. `patch("polily.core.clob.fetch_clob_market_data")` — used by 20+
+       existing tests. Resolves through `_clob.fetch_clob_market_data`
+       attribute lookup.
+    2. `monkeypatch.setattr(poll_job, "fetch_clob_market_data", ...)` —
+       used by v0.11.4 retry/circuit-breaker tests.
+
+    Implementation: this thin async proxy looks up the attribute on
+    `_clob` at call time, so style 1 works. Style 2 replaces THIS module
+    attribute entirely, short-circuiting the proxy.
+    """
+    return await _clob.fetch_clob_market_data(*args, **kwargs)
 
 # Gamma API for post-close resolution checks.
 GAMMA_BASE_URL = "https://gamma-api.polymarket.com"
@@ -303,6 +400,11 @@ def global_poll(db: PolilyDB | None = None) -> None:
     t_start = _time.monotonic()
     _poll_count += 1
     warn = False
+
+    # v0.11.4 OBS-1: reset per-tick circuit breaker. After 5 consecutive
+    # ConnectErrors in a single tick, _fetch_one switches to single-attempt
+    # mode for the remaining markets to prevent retry-storm.
+    _reset_tick_circuit_breaker()
 
     markets = _get_monitored_markets(db)
     fetchable = [m for m in markets if m.clob_token_id_yes]
@@ -747,21 +849,64 @@ def _run_pending_analysis(
     can build its NarrativeWriter with the right `config.ai.narrative_writer`
     settings. Without config, PolilyService.__init__ would AttributeError on
     the first agent call.
+
+    v0.11.4 (BUG-2.2): outer try block now wraps the FULL function body
+    (including PolilyService construction), and the except handler explicitly
+    finalizes the scan_logs row to status='failed'. Without this, any
+    exception raised before reaching analyze_event's internal exception
+    handler would leave the row stuck in 'running' indefinitely (only
+    cleaned up by fail_orphan_running on next daemon restart). Real
+    prod incident 2026-05-04 21:38: 2 rows stuck 12+ minutes because
+    of sqlite3.InterfaceError raised in get_event() — caught here,
+    logged, but not finalized.
+
+    Belt-and-suspenders: nested try around finish_scan so its own failure
+    doesn't crash the ai executor thread (would prevent OTHER analyses
+    from running).
+
+    v0.11.4 (BUG-4): full body runs inside `with db._lock:` to serialize
+    DB access from concurrent ai executor threads. Two ai threads racing
+    db.conn.execute() were observed producing sqlite3.InterfaceError
+    (prod 2026-05-04 21:38, captured in daemon-stderr.log thanks to
+    v0.11.2's stderr redirect). The lock is held for the analysis call;
+    finish_scan in the except handler runs WITHOUT the lock (single SQL
+    write that the engine-level WAL serializes), avoiding holding the
+    lock across the failure-path I/O.
     """
     import asyncio
 
+    from polily.scan_log import finish_scan
     from polily.tui.service import PolilyService
 
-    cfg = _ctx.config if _ctx is not None else None
-    service = PolilyService(config=cfg, db=db)
     try:
-        asyncio.run(
-            service.analyze_event(
-                event_id, trigger_source=trigger_source, scan_id=scan_id,
-            ),
-        )
-    except Exception:
+        with db._lock:
+            cfg = _ctx.config if _ctx is not None else None
+            service = PolilyService(config=cfg, db=db)
+            asyncio.run(
+                service.analyze_event(
+                    event_id, trigger_source=trigger_source, scan_id=scan_id,
+                ),
+            )
+    except Exception as e:
         logger.exception("Dispatched analysis failed for scan_id=%s", scan_id)
+        try:
+            finish_scan(
+                scan_id,
+                status="failed",
+                error=f"dispatcher_exception: {type(e).__name__}: {e}"[:200],
+                db=db,
+            )
+        except Exception:
+            # Belt-and-suspenders: if finish_scan ALSO fails, log and move on.
+            # The row will be cleaned up by fail_orphan_running on next
+            # daemon restart. Never let this function raise — that would
+            # crash the ai executor thread and prevent OTHER analyses
+            # from running.
+            logger.exception(
+                "finish_scan ALSO failed for scan_id=%s — row left running, "
+                "will be swept by fail_orphan_running on next daemon restart",
+                scan_id,
+            )
 
 
 def _trigger_movement_analysis(
@@ -939,16 +1084,11 @@ async def _fetch_all(
     results: list parallel to markets (dict | Exception).
     underlying_prices: {"BTCUSDT": 71035.0, ...} — empty if no crypto.
     trades_by_market_id: {"m1": [{"price":..., "size":..., "side":...}, ...], ...}
+
+    v0.11.4 OBS-1: split httpx timeouts (read=10s, was 15s) + tenacity
+    retry inside _fetch_one (module-level) + per-tick circuit breaker.
     """
-    from polily.core.clob import fetch_clob_market_data
-
-    sem = asyncio.Semaphore(_SEMAPHORE_LIMIT)
-
-    async def _fetch_one(client: httpx.AsyncClient, market):
-        async with sem:
-            return await fetch_clob_market_data(client, market.clob_token_id_yes)
-
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with httpx.AsyncClient(timeout=_HTTPX_TIMEOUT) as client:
         clob_tasks = [_fetch_one(client, m) for m in markets]
 
         binance_task = None

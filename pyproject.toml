@@ -36,6 +36,7 @@ dependencies = [
     "ccxt>=4.0",
     "textual>=3.0",
     "apscheduler>=3.10,<4.0",
+    "packaging>=24.0,<26.0",
 ]
 
 [project.optional-dependencies]
