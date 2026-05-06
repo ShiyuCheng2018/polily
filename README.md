@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/polily_logo.png" alt="Polily logo" width="200">
+  <img src="assets/polily_logo_tight.png" alt="Polily logo" width="400">
 </div>
 
 # Polily — A Polymarket Monitoring Agent That Actually Works
