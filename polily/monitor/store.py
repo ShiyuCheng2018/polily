@@ -29,31 +29,35 @@ def append_movement(
 ) -> None:
     """Append a movement log entry."""
 
-    db.conn.execute(
-        """INSERT INTO movement_log
-        (event_id, market_id, created_at, yes_price, no_price, prev_yes_price,
-         trade_volume, bid_depth, ask_depth, spread,
-         magnitude, quality, label, triggered_analysis, snapshot)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            event_id,
-            market_id,
-            datetime.now(UTC).isoformat(),
-            yes_price,
-            no_price,
-            prev_yes_price,
-            trade_volume,
-            bid_depth,
-            ask_depth,
-            spread,
-            magnitude,
-            quality,
-            label,
-            1 if triggered_analysis else 0,
-            snapshot,
-        ),
-    )
-    # Note: caller is responsible for commit (batch commit in poll_job)
+    # v0.11.6: each call self-commits via db.transaction() (prior to v0.11.6
+    # the function deliberately wrote without committing and the caller
+    # batch-committed in poll_job). Per-row commit under WAL has equivalent
+    # perf and isolates failures across iterations.
+    with db.transaction() as conn:
+        conn.execute(
+            """INSERT INTO movement_log
+            (event_id, market_id, created_at, yes_price, no_price, prev_yes_price,
+             trade_volume, bid_depth, ask_depth, spread,
+             magnitude, quality, label, triggered_analysis, snapshot)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                event_id,
+                market_id,
+                datetime.now(UTC).isoformat(),
+                yes_price,
+                no_price,
+                prev_yes_price,
+                trade_volume,
+                bid_depth,
+                ask_depth,
+                spread,
+                magnitude,
+                quality,
+                label,
+                1 if triggered_analysis else 0,
+                snapshot,
+            ),
+        )
 
 
 def get_event_movements(event_id: str, db: PolilyDB, hours: int = 6) -> list[dict]:
@@ -63,35 +67,38 @@ def get_event_movements(event_id: str, db: PolilyDB, hours: int = 6) -> list[dic
     ordered by created_at DESC (most recent first).
     """
     cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
-    rows = db.conn.execute(
-        """SELECT * FROM movement_log
-        WHERE event_id = ? AND created_at >= ?
-        ORDER BY created_at DESC""",
-        (event_id, cutoff),
-    ).fetchall()
+    with db.transaction() as conn:
+        rows = conn.execute(
+            """SELECT * FROM movement_log
+            WHERE event_id = ? AND created_at >= ?
+            ORDER BY created_at DESC""",
+            (event_id, cutoff),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
 def get_event_latest(event_id: str, db: PolilyDB) -> dict | None:
     """Get the most recent movement_log entry for an event."""
-    row = db.conn.execute(
-        """SELECT * FROM movement_log
-        WHERE event_id = ?
-        ORDER BY id DESC LIMIT 1""",
-        (event_id,),
-    ).fetchone()
+    with db.transaction() as conn:
+        row = conn.execute(
+            """SELECT * FROM movement_log
+            WHERE event_id = ?
+            ORDER BY id DESC LIMIT 1""",
+            (event_id,),
+        ).fetchone()
     return dict(row) if row else None
 
 
 def get_today_analysis_count(event_id: str, db: PolilyDB) -> int:
     """Count how many times an event triggered AI analysis today."""
     today = datetime.now(UTC).strftime("%Y-%m-%d")
-    row = db.conn.execute(
-        """SELECT COUNT(*) FROM movement_log
-        WHERE event_id = ? AND triggered_analysis = 1
-        AND created_at >= ?""",
-        (event_id, today),
-    ).fetchone()
+    with db.transaction() as conn:
+        row = conn.execute(
+            """SELECT COUNT(*) FROM movement_log
+            WHERE event_id = ? AND triggered_analysis = 1
+            AND created_at >= ?""",
+            (event_id, today),
+        ).fetchone()
     return row[0] if row else 0
 
 
@@ -132,12 +139,13 @@ def get_recent_movements(market_id: str, db: PolilyDB, hours: int = 6) -> list[d
     Backward-compatible alias: queries by market_id column instead of event_id.
     """
     cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
-    rows = db.conn.execute(
-        """SELECT * FROM movement_log
-        WHERE (market_id = ? OR event_id = ?) AND created_at >= ?
-        ORDER BY created_at DESC""",
-        (market_id, market_id, cutoff),
-    ).fetchall()
+    with db.transaction() as conn:
+        rows = conn.execute(
+            """SELECT * FROM movement_log
+            WHERE (market_id = ? OR event_id = ?) AND created_at >= ?
+            ORDER BY created_at DESC""",
+            (market_id, market_id, cutoff),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -148,11 +156,11 @@ def prune_old_movements(db: PolilyDB, days: int = 7) -> int:
     Returns number of rows deleted.
     """
     cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
-    cursor = db.conn.execute(
-        "DELETE FROM movement_log WHERE created_at < ?", (cutoff,)
-    )
-    deleted = cursor.rowcount
-    db.conn.commit()
-    if deleted > 0:
-        db.conn.execute("PRAGMA optimize")
+    with db.transaction() as conn:
+        cursor = conn.execute(
+            "DELETE FROM movement_log WHERE created_at < ?", (cutoff,)
+        )
+        deleted = cursor.rowcount
+        if deleted > 0:
+            conn.execute("PRAGMA optimize")
     return deleted

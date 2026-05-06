@@ -204,11 +204,11 @@ class PolilyService:
         self._current_log.event_id = event_id
 
         # Upsert: remove old add_event record for this event
-        self.db.conn.execute(
-            "DELETE FROM scan_logs WHERE type = 'add_event' AND event_id = ? AND scan_id != ?",
-            (event_id, self._current_log.scan_id),
-        )
-        self.db.conn.commit()
+        with self.db.transaction() as conn:
+            conn.execute(
+                "DELETE FROM scan_logs WHERE type = 'add_event' AND event_id = ? AND scan_id != ?",
+                (event_id, self._current_log.scan_id),
+            )
 
         self._finish_log("completed")
         return result
@@ -255,15 +255,15 @@ class PolilyService:
             # Atomic "insert only if no running row exists for this event":
             # INSERT ... SELECT ... WHERE NOT EXISTS evaluates within one
             # statement, so two concurrent callers can't both slip through.
-            cur = self.db.conn.execute(
-                "INSERT INTO scan_logs(scan_id, type, event_id, market_title, "
-                "started_at, status, trigger_source) "
-                "SELECT ?, 'analyze', ?, ?, ?, 'running', ? "
-                "WHERE NOT EXISTS (SELECT 1 FROM scan_logs "
-                "                  WHERE event_id=? AND status='running')",
-                (scan_id, event_id, event.title, now_iso, trigger_source, event_id),
-            )
-            self.db.conn.commit()
+            with self.db.transaction() as conn:
+                cur = conn.execute(
+                    "INSERT INTO scan_logs(scan_id, type, event_id, market_title, "
+                    "started_at, status, trigger_source) "
+                    "SELECT ?, 'analyze', ?, ?, ?, 'running', ? "
+                    "WHERE NOT EXISTS (SELECT 1 FROM scan_logs "
+                    "                  WHERE event_id=? AND status='running')",
+                    (scan_id, event_id, event.title, now_iso, trigger_source, event_id),
+                )
             if cur.rowcount == 0:
                 raise AnalysisInProgressError(t("service.error.analysis_in_progress"))
 
@@ -385,9 +385,10 @@ class PolilyService:
         from polily.agents import narrator_registry
         from polily.scan_log import finish_scan
 
-        row = self.db.conn.execute(
-            "SELECT status FROM scan_logs WHERE scan_id=?", (scan_id,),
-        ).fetchone()
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT status FROM scan_logs WHERE scan_id=?", (scan_id,),
+            ).fetchone()
         if row is None or row["status"] != "running":
             return False
         # Best-effort kill via registry. A miss just means the narrator already
@@ -449,35 +450,36 @@ class PolilyService:
             GROUP BY e.event_id
             ORDER BY COALESCE(e.structure_score, 0) DESC
         """
-        rows = self.db.conn.execute(sql).fetchall()
+        with self.db.transaction() as conn:
+            rows = conn.execute(sql).fetchall()
 
-        # Single aggregate query for per-event market summaries, scoped
-        # to the events the outer query just returned (avoids scanning
-        # historical archived events whose markets we won't display).
-        event_ids = [r["event_id"] for r in rows]
-        summary_by_event: dict[str, list] = {}
-        if event_ids:
-            placeholders = ",".join("?" for _ in event_ids)
-            summary_rows = self.db.conn.execute(
-                f"""
-                SELECT event_id,
-                       json_group_array(
-                           json_object(
-                               'closed', closed,
-                               'end_date', end_date,
-                               'resolved_outcome', resolved_outcome
-                           )
-                       ) AS summary_json
-                FROM markets
-                WHERE event_id IN ({placeholders})
-                GROUP BY event_id
-                """,
-                tuple(event_ids),
-            ).fetchall()
-            summary_by_event = {
-                r["event_id"]: json.loads(r["summary_json"] or "[]")
-                for r in summary_rows
-            }
+            # Single aggregate query for per-event market summaries, scoped
+            # to the events the outer query just returned (avoids scanning
+            # historical archived events whose markets we won't display).
+            event_ids = [r["event_id"] for r in rows]
+            summary_by_event: dict[str, list] = {}
+            if event_ids:
+                placeholders = ",".join("?" for _ in event_ids)
+                summary_rows = conn.execute(
+                    f"""
+                    SELECT event_id,
+                           json_group_array(
+                               json_object(
+                                   'closed', closed,
+                                   'end_date', end_date,
+                                   'resolved_outcome', resolved_outcome
+                               )
+                           ) AS summary_json
+                    FROM markets
+                    WHERE event_id IN ({placeholders})
+                    GROUP BY event_id
+                    """,
+                    tuple(event_ids),
+                ).fetchall()
+                summary_by_event = {
+                    r["event_id"]: json.loads(r["summary_json"] or "[]")
+                    for r in summary_rows
+                }
 
         results = []
         for row in rows:
@@ -526,7 +528,8 @@ class PolilyService:
             GROUP BY e.event_id
             ORDER BY e.updated_at DESC
         """
-        rows = self.db.conn.execute(sql).fetchall()
+        with self.db.transaction() as conn:
+            rows = conn.execute(sql).fetchall()
         results = []
         for row in rows:
             d = dict(row)
@@ -612,11 +615,12 @@ class PolilyService:
         The two queries (this one and get_archived_events) form a clean
         partition: monitored-and-not-closed vs monitored-and-closed.
         """
-        row = self.db.conn.execute(
-            """SELECT COUNT(*) FROM event_monitors em
-               JOIN events e ON em.event_id = e.event_id
-               WHERE em.auto_monitor = 1 AND e.closed = 0""",
-        ).fetchone()
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                """SELECT COUNT(*) FROM event_monitors em
+                   JOIN events e ON em.event_id = e.event_id
+                   WHERE em.auto_monitor = 1 AND e.closed = 0""",
+            ).fetchone()
         return row[0] if row else 0
 
     def is_event_monitored(self, event_id: str) -> bool:
@@ -695,37 +699,38 @@ class PolilyService:
 
         Ordered newest-first by created_at.
         """
-        cur = self.db.conn.execute(
-            """
-            SELECT
-                w.id,
-                w.created_at,
-                w.type,
-                w.market_id,
-                w.event_id,
-                w.side,
-                w.shares,
-                w.price,
-                w.amount_usd,
-                w.realized_pnl,
-                COALESCE(m.question, '') AS title,
-                CASE WHEN w.type = 'SELL' THEN (
-                    SELECT COALESCE(SUM(-f.amount_usd), 0)
-                    FROM wallet_transactions f
-                    WHERE f.type = 'FEE'
-                      AND f.market_id = w.market_id
-                      AND f.side = w.side
-                      AND f.notes LIKE '%SELL%'
-                      AND ABS(julianday(f.created_at) - julianday(w.created_at))
-                          < 2.0 / 86400.0
-                ) ELSE 0 END AS fee_usd
-            FROM wallet_transactions w
-            LEFT JOIN markets m ON m.market_id = w.market_id
-            WHERE w.type IN ('SELL', 'RESOLVE')
-            ORDER BY w.id DESC
-            """,
-        )
-        return [dict(r) for r in cur.fetchall()]
+        with self.db.transaction() as conn:
+            cur = conn.execute(
+                """
+                SELECT
+                    w.id,
+                    w.created_at,
+                    w.type,
+                    w.market_id,
+                    w.event_id,
+                    w.side,
+                    w.shares,
+                    w.price,
+                    w.amount_usd,
+                    w.realized_pnl,
+                    COALESCE(m.question, '') AS title,
+                    CASE WHEN w.type = 'SELL' THEN (
+                        SELECT COALESCE(SUM(-f.amount_usd), 0)
+                        FROM wallet_transactions f
+                        WHERE f.type = 'FEE'
+                          AND f.market_id = w.market_id
+                          AND f.side = w.side
+                          AND f.notes LIKE '%SELL%'
+                          AND ABS(julianday(f.created_at) - julianday(w.created_at))
+                              < 2.0 / 86400.0
+                    ) ELSE 0 END AS fee_usd
+                FROM wallet_transactions w
+                LEFT JOIN markets m ON m.market_id = w.market_id
+                WHERE w.type IN ('SELL', 'RESOLVE')
+                ORDER BY w.id DESC
+                """,
+            )
+            return [dict(r) for r in cur.fetchall()]
 
     def get_realized_summary(self) -> dict:
         """Aggregate for the history page header.
@@ -735,21 +740,22 @@ class PolilyService:
         total_fees — SUM(-amount_usd) over FEE rows (all-time scope: every
             fee the user paid; matches the pattern shown inline per row)
         """
-        row = self.db.conn.execute(
-            """
-            SELECT
-                COUNT(*) FILTER (WHERE type IN ('SELL', 'RESOLVE')) AS count,
-                COALESCE(
-                    SUM(realized_pnl) FILTER (WHERE type IN ('SELL', 'RESOLVE')),
-                    0.0
-                ) AS total_pnl,
-                COALESCE(
-                    SUM(-amount_usd) FILTER (WHERE type = 'FEE'),
-                    0.0
-                ) AS total_fees
-            FROM wallet_transactions
-            """,
-        ).fetchone()
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE type IN ('SELL', 'RESOLVE')) AS count,
+                    COALESCE(
+                        SUM(realized_pnl) FILTER (WHERE type IN ('SELL', 'RESOLVE')),
+                        0.0
+                    ) AS total_pnl,
+                    COALESCE(
+                        SUM(-amount_usd) FILTER (WHERE type = 'FEE'),
+                        0.0
+                    ) AS total_fees
+                FROM wallet_transactions
+                """,
+            ).fetchone()
         return {
             "count": row["count"],
             "total_pnl": row["total_pnl"],
@@ -765,21 +771,22 @@ class PolilyService:
         `auto_monitor` off or no monitor row. Policy guard in front of
         every trade so autopilot / external callers inherit the check.
         """
-        row = self.db.conn.execute(
-            "SELECT em.auto_monitor FROM markets m "
-            "LEFT JOIN event_monitors em ON em.event_id = m.event_id "
-            "WHERE m.market_id = ?",
-            (market_id,),
-        ).fetchone()
-        if row is None:
-            # Market doesn't exist — let downstream raise a more specific error.
-            return
-        if not row["auto_monitor"]:
-            event_row = self.db.conn.execute(
-                "SELECT event_id FROM markets WHERE market_id = ?",
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT em.auto_monitor FROM markets m "
+                "LEFT JOIN event_monitors em ON em.event_id = m.event_id "
+                "WHERE m.market_id = ?",
                 (market_id,),
             ).fetchone()
-            raise MonitorRequiredError(event_row["event_id"])
+            if row is None:
+                # Market doesn't exist — let downstream raise a more specific error.
+                return
+            if not row["auto_monitor"]:
+                event_row = conn.execute(
+                    "SELECT event_id FROM markets WHERE market_id = ?",
+                    (market_id,),
+                ).fetchone()
+                raise MonitorRequiredError(event_row["event_id"])
 
     def execute_buy(self, *, market_id: str, side: str, shares: float) -> dict:
         self._assert_monitor_active_for_market(market_id)
@@ -860,11 +867,11 @@ class PolilyService:
 
     def pass_event(self, event_id: str) -> None:
         """Mark an event as passed by the user."""
-        self.db.conn.execute(
-            "UPDATE events SET user_status = 'pass' WHERE event_id = ?",
-            (event_id,),
-        )
-        self.db.conn.commit()
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE events SET user_status = 'pass' WHERE event_id = ?",
+                (event_id,),
+            )
 
     def toggle_monitor(self, event_id: str, enable: bool) -> None:
         """Enable or disable monitoring for an event.

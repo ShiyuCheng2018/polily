@@ -37,33 +37,34 @@ class AnalysisVersion(BaseModel):
 
 def append_analysis(event_id: str, version: AnalysisVersion, db) -> None:
     """Append an analysis version for an event. No version limit."""
-    db.conn.execute(
-        """INSERT INTO analyses
-        (event_id, version, created_at, trigger_source,
-         prices_snapshot, narrative_output,
-         structure_score, score_breakdown,
-         mispricing_signal, mispricing_details, elapsed_seconds)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            event_id, version.version, version.created_at,
-            version.trigger_source,
-            json.dumps(version.prices_snapshot, ensure_ascii=False),
-            json.dumps(version.narrative_output, ensure_ascii=False),
-            version.structure_score,
-            json.dumps(version.score_breakdown, ensure_ascii=False) if version.score_breakdown else None,
-            version.mispricing_signal, version.mispricing_details,
-            version.elapsed_seconds,
-        ),
-    )
-    db.conn.commit()
+    with db.transaction() as conn:
+        conn.execute(
+            """INSERT INTO analyses
+            (event_id, version, created_at, trigger_source,
+             prices_snapshot, narrative_output,
+             structure_score, score_breakdown,
+             mispricing_signal, mispricing_details, elapsed_seconds)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                event_id, version.version, version.created_at,
+                version.trigger_source,
+                json.dumps(version.prices_snapshot, ensure_ascii=False),
+                json.dumps(version.narrative_output, ensure_ascii=False),
+                version.structure_score,
+                json.dumps(version.score_breakdown, ensure_ascii=False) if version.score_breakdown else None,
+                version.mispricing_signal, version.mispricing_details,
+                version.elapsed_seconds,
+            ),
+        )
 
 
 def get_event_analyses(event_id: str, db) -> list[AnalysisVersion]:
     """Get all analysis versions for an event, ordered by version."""
-    rows = db.conn.execute(
-        "SELECT * FROM analyses WHERE event_id = ? ORDER BY version ASC",
-        (event_id,),
-    ).fetchall()
+    with db.transaction() as conn:
+        rows = conn.execute(
+            "SELECT * FROM analyses WHERE event_id = ? ORDER BY version ASC",
+            (event_id,),
+        ).fetchall()
     result = []
     for row in rows:
         try:
