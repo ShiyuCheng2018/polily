@@ -210,7 +210,7 @@ async def test_save_rejects_value_failing_pydantic_validation(service):
     # db should NOT have the invalid value
     from polily.core.config_store import load_all
     flat = load_all(service.db)
-    assert flat["wallet.starting_balance"] == 100.0
+    assert flat["wallet.starting_balance"] == 1000.0
 
 
 @pytest.mark.asyncio

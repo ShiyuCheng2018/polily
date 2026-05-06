@@ -28,7 +28,7 @@ def test_load_config_from_db_returns_polily_config_with_defaults(polily_db):
     config = load_config_from_db(polily_db)
     assert isinstance(config, PolilyConfig)
     assert config.movement.magnitude_threshold == 70
-    assert config.wallet.starting_balance == 100.0
+    assert config.wallet.starting_balance == 1000.0
 
 
 def test_load_config_from_db_reflects_user_edits(polily_db):

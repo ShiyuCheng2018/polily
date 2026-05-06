@@ -29,6 +29,10 @@ def _seed_crypto_market(db: PolilyDB) -> None:
 
 
 def _services(db: PolilyDB) -> tuple[WalletService, PositionManager, TradeEngine]:
+    # v0.11.6: PolilyDB._seed_wallet_if_needed auto-seeds at the schema
+    # default ($1000 since v0.11.6); reset_wallet brings it back to the
+    # legacy $100 baseline these tests assert against.
+    reset_wallet(db, starting_balance=100.0)
     wallet = WalletService(db)
     pm = PositionManager(db)
     engine = TradeEngine(db, wallet, pm)

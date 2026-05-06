@@ -31,7 +31,7 @@ def test_generate_yaml_body_is_valid_yaml_matching_pydantic_dump(tmp_path):
     )
     parsed = yaml_lib.safe_load(body)
     assert parsed["movement"]["magnitude_threshold"] == 70
-    assert parsed["wallet"]["starting_balance"] == 100.0
+    assert parsed["wallet"]["starting_balance"] == 1000.0
     assert parsed["api"]["user_agent"].startswith("polily/")  # default_factory
 
 

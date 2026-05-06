@@ -98,4 +98,4 @@ def test_concurrent_writers_produce_consistent_file(tmp_path):
     # Must be a complete dict (not a half-truncated read)
     assert isinstance(parsed, dict)
     assert "wallet" in parsed
-    assert parsed["wallet"]["starting_balance"] == 100.0
+    assert parsed["wallet"]["starting_balance"] == 1000.0

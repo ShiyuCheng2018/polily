@@ -23,6 +23,15 @@ from polily.tui.views.wallet_modals import TopupModal, WalletResetModal, Withdra
 
 def _seed(tmp_path, *, auto_monitor: bool = True) -> PolilyService:
     db = PolilyDB(tmp_path / "t.db")
+    # v0.11.6: PolilyDB._seed_wallet_if_needed picks up the schema default
+    # ($1000 since v0.11.6) at construction time. The 40+ assertions in
+    # this file hard-code "$100.00" / "100.00" / numbers derived from a
+    # $100 wallet, so we explicitly reset the wallet to the legacy $100
+    # default to keep the existing expectations stable. The schema-default
+    # bump is exercised separately in tests/test_wallet_config.py et al.
+    from polily.core.config import WalletConfig
+    from polily.core.wallet_reset import reset_wallet
+    reset_wallet(db, starting_balance=100.0)
     upsert_event(
         EventRow(event_id="e1", title="BTC April", updated_at="now"),
         db,
@@ -44,7 +53,8 @@ def _seed(tmp_path, *, auto_monitor: bool = True) -> PolilyService:
     if auto_monitor:
         from polily.core.monitor_store import upsert_event_monitor
         upsert_event_monitor("e1", auto_monitor=True, db=db)
-    return PolilyService(config=PolilyConfig(), db=db)
+    cfg = PolilyConfig(wallet=WalletConfig(starting_balance=100.0))
+    return PolilyService(config=cfg, db=db)
 
 
 class _WalletHost(App):

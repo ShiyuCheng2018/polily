@@ -4,13 +4,18 @@ import pytest
 
 from polily.core.db import PolilyDB
 from polily.core.wallet import InsufficientFunds, WalletService
+from polily.core.wallet_reset import reset_wallet
 
 
 @pytest.fixture
 def wallet(tmp_path):
     db = PolilyDB(tmp_path / "test.db")
+    # v0.11.6: PolilyDB._seed_wallet_if_needed auto-seeds at the schema
+    # default ($1000 since v0.11.6); reset_wallet brings it back to the
+    # legacy $100 baseline these tests assert against.
+    reset_wallet(db, starting_balance=100.0)
     svc = WalletService(db)
-    svc.initialize(starting_balance=100.0)
+    svc.initialize(starting_balance=100.0)  # no-op (row already exists)
     return svc
 
 
@@ -158,8 +163,9 @@ def test_topup_total_and_withdraw_total_accumulate(wallet):
 def test_topup_respects_commit_false(tmp_path):
     """commit=False leaves the change in an open transaction, visible on same conn but uncommitted."""
     db = PolilyDB(tmp_path / "t.db")
+    reset_wallet(db, starting_balance=100.0)
     svc = WalletService(db)
-    svc.initialize(starting_balance=100.0)
+    svc.initialize(starting_balance=100.0)  # no-op (row already exists)
     svc.topup(10.0, commit=False)
     # Same connection sees the pending change.
     assert svc.get_cash() == 110.0
@@ -171,8 +177,9 @@ def test_topup_respects_commit_false(tmp_path):
 
 def test_deduct_respects_commit_false(tmp_path):
     db = PolilyDB(tmp_path / "t.db")
+    reset_wallet(db, starting_balance=100.0)
     svc = WalletService(db)
-    svc.initialize(starting_balance=100.0)
+    svc.initialize(starting_balance=100.0)  # no-op (row already exists)
     svc.deduct(20.0, tx_type="BUY", commit=False, market_id="m1", side="yes")
     assert svc.get_cash() == 80.0
     db.conn.rollback()
@@ -234,8 +241,9 @@ def test_credit_allows_zero_amount(wallet):
 def test_multiple_commit_false_ops_commit_together(tmp_path):
     """Multiple commit=False writes must persist together on a single commit call."""
     db = PolilyDB(tmp_path / "t.db")
+    reset_wallet(db, starting_balance=100.0)
     svc = WalletService(db)
-    svc.initialize(starting_balance=100.0)
+    svc.initialize(starting_balance=100.0)  # no-op (row already exists)
     # TradeEngine-style: debit cost + debit fee, then one commit.
     svc.deduct(10.0, tx_type="BUY", commit=False, market_id="m1", side="yes")
     svc.deduct(0.36, tx_type="FEE", commit=False, market_id="m1", side="yes")

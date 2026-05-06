@@ -44,11 +44,19 @@ def test_load_config_from_db_can_be_called_twice_back_to_back(tmp_path):
         db.close()
 
 
-def test_load_config_from_db_works_with_autocommit_isolation(tmp_path):
+def test_load_config_from_db_works_with_autocommit_isolation(tmp_path, monkeypatch):
     """Belt-and-suspenders: even if a future caller flips
     `db.conn.isolation_level = None` (autocommit), the explicit
     BEGIN IMMEDIATE + commit pair must still work — no implicit
     transaction wrapper means our explicit one is the only one."""
+    # v0.11.6: pin paths.data_dir() to tmp_path so _migrate_yaml_to_db
+    # doesn't pick up the user's real ~/Library/Application Support
+    # config.yaml. Without this, an existing $100 yaml leaks into the
+    # tmp db and the new $1000 default-assert fails.
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
+
     db = PolilyDB(tmp_path / "polily.db")
     try:
         # Switch the connection to autocommit mode AFTER schema init
@@ -57,7 +65,7 @@ def test_load_config_from_db_works_with_autocommit_isolation(tmp_path):
         db.conn.isolation_level = None
         cfg = load_config_from_db(db)
         assert cfg is not None
-        assert cfg.wallet.starting_balance == 100.0
+        assert cfg.wallet.starting_balance == 1000.0
     finally:
         db.close()
 
@@ -68,6 +76,11 @@ def test_load_config_from_db_rolls_back_on_seed_failure(tmp_path, monkeypatch):
     Pre-fix `with db.conn:` would auto-rollback, but only if BEGIN IMMEDIATE
     didn't first conflict with the implicit transaction. Post-fix: explicit
     rollback in the except branch."""
+    # v0.11.6: pin paths.data_dir() to tmp_path (see test above).
+    from polily.core import paths
+    paths.set_data_dir_override(None)
+    monkeypatch.setenv("POLILY_DATA_DIR", str(tmp_path))
+
     db = PolilyDB(tmp_path / "polily.db")
     try:
         from polily.core import config_store
@@ -94,6 +107,6 @@ def test_load_config_from_db_rolls_back_on_seed_failure(tmp_path, monkeypatch):
         # must have been released. If rollback had failed, we'd hang
         # forever on BEGIN IMMEDIATE here (or get a busy timeout).
         cfg = load_config_from_db(db)
-        assert cfg.wallet.starting_balance == 100.0
+        assert cfg.wallet.starting_balance == 1000.0
     finally:
         db.close()

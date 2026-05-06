@@ -20,22 +20,23 @@ license: MIT
 [![CI](https://github.com/ShiyuCheng2018/polily/actions/workflows/ci.yml/badge.svg)](https://github.com/ShiyuCheng2018/polily/actions/workflows/ci.yml)
 [![Last commit](https://img.shields.io/github/last-commit/ShiyuCheng2018/polily)](https://github.com/ShiyuCheng2018/polily/commits/master)
 
-Paste a Polymarket event URL and Polily decides **whether it's worth your time, scores the structure, hunts mispricing, watches for moves, and closes out positions automatically when markets resolve**. A monitoring agent built for small accounts.
+Paste a Polymarket event URL and Polily decides **whether it's worth your time, scores the structure, hunts mispricing, watches for moves, and closes out positions automatically when markets resolve**. A monitoring agent that surfaces what Polymarket's UI hides — for every event you're considering.
 
 ## Why You Need It
 
-Polymarket is unfriendly to small accounts:
+Polymarket's UI hides what actually matters:
 
-- **Spread and thin liquidity quietly eat your PnL** — if you don't price them in before clicking, you're already behind
-- **A good story doesn't make a good market** — narratives are seductive; structure is what the numbers say
-- **Watching markets is expensive** — refreshing pages by hand doesn't scale past two or three events
+- **Spread, depth, and fees quietly eat your PnL** — at any account size. Polymarket shows mid-price; you trade against the order book. polily surfaces both before you click
+- **A good story doesn't make a good market** — narratives are seductive; structure (depth, spread, time-to-close, friction) is what the numbers say
+- **Watching 5+ events by hand doesn't scale** — refreshing pages doesn't tell you *when* something actually changed
+- **Crypto markets carry vol-implied edge** — Polymarket has no vol model; polily compares against live Binance data and flags mispriced probabilities
 
 ## What It Does For You
 
 1. **Paste a URL → instant dossier + value check** — pulls the full event + child markets, scores 0–100 across spread / depth / objectivity / time / friction, surfaces hidden costs, and tells you whether the event is worth following
 2. **Mispricing detection** — for crypto threshold markets, compares against a log-normal vol model fed by live Binance data and flags probabilities that look mis-priced
 3. **Background watching + move alerts** — a daemon polls prices for everything in your watchlist; meaningful moves trigger AI analysis and notifications
-4. **Paper trading with a full wallet** — real cash balance, aggregated positions (YES + NO coexist), Polymarket-accurate taker fees, buy / add / reduce / close, and automatic settlement when markets resolve — so your paper PnL curve reflects what real trading would have looked like
+4. **Paper trading with a realistic wallet** — tracks positions, fees, and PnL exactly as live trading would: real cash balance, aggregated positions (YES + NO coexist), Polymarket-accurate taker fees, and automatic settlement when markets resolve — so your paper PnL curve reflects live execution, not a sanitized backtest
 
 > A high structure score ≠ YES will win. It measures *whether the market is tradeable*, not *whether you should buy* — keep the two separate.
 

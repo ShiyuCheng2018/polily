@@ -101,7 +101,7 @@ class ArchivingConfig(BaseModel):
 class WalletConfig(BaseModel):
     """Wallet starting balance for v0.6.0 paper trading system."""
     starting_balance: float = Field(
-        default=100.0,
+        default=1000.0,
         ge=1.0,
         description="Initial cash when wallet is first created or reset.",
     )

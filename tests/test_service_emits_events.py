@@ -20,6 +20,12 @@ def svc_with_bus(tmp_path):
     cfg = MagicMock()
     cfg.wallet.starting_balance = 100.0
     db = PolilyDB(tmp_path / "t.db")
+    # v0.11.6: PolilyDB._seed_wallet_if_needed auto-seeds at the schema
+    # default ($1000 since v0.11.6); reset_wallet brings it back to the
+    # legacy $100 baseline these tests assert against (topup → balance=150,
+    # withdraw → balance=70).
+    from polily.core.wallet_reset import reset_wallet
+    reset_wallet(db, starting_balance=100.0)
     upsert_event(EventRow(event_id="ev1", title="T", updated_at="now"), db)
     bus = EventBus()
     svc = PolilyService(config=cfg, db=db, event_bus=bus)

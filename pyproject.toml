@@ -12,7 +12,7 @@ readme = "README.md"
 authors = [
     { name = "Shiyu Cheng", email = "starkeyshiyu@gmail.com" },
 ]
-keywords = ["polymarket", "prediction-market", "decision-support", "tui", "crypto"]
+keywords = ["polymarket", "prediction-market", "decision-support", "tui", "crypto", "quantitative-analysis", "risk-management", "portfolio-monitoring"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: MIT License",
