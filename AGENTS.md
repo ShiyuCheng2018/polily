@@ -12,7 +12,7 @@ Finds structure, surfaces risk, sizes friction, watches positions. The user pull
 
 Not a user-profile spec — these are facts about how the product is used, useful when deciding trade-offs:
 
-- **Small-account usage pattern.** $5 in friction cost is not a rounding error at this tier. Surface every fee / slippage component explicitly; never silently absorb costs into a "net" number.
+- **Friction transparency over net numbers.** Polymarket's UI hides spread, depth, and fees — users get burned because the friction is invisible. Surface every fee / slippage / depth-constraint component explicitly; never silently absorb costs into a "net" number. The dollar amount changes with account size; the invisibility risk is the same at $50 and $20,000.
 - **Manual operation, not automation.** Users click buttons; sub-second latency isn't the pressure. But signals must be scannable — a user should decide "look closer vs. skip" in ≤5s.
 - **Daily review cadence.** ≥5s refresh intervals are fine; no tick-level streaming UI needed. Heartbeat-driven refresh (see `polily/tui/screens/main.py::_bus_heartbeat`) is the canonical pattern.
 - **URL-driven depth, not scan breadth.** Users bring their own events. The pipeline is deep due-diligence on one event at a time, not shallow breadth across thousands. If a feature requires iterating 8000+ markets, it's likely a misunderstanding of the product shape.

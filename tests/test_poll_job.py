@@ -433,8 +433,12 @@ async def test_resolve_closed_market_writes_resolved_outcome_without_position(
 
     monkeypatch.setattr(poll_job, "_fetch_gamma_market", fake_fetch_gamma)
 
+    # v0.11.6: reset_wallet brings the auto-seeded $1000 default down
+    # to the legacy $100 these tests use.
+    from polily.core.wallet_reset import reset_wallet
+    reset_wallet(db, starting_balance=100.0)
     wallet = WalletService(db)
-    wallet.initialize(100.0)
+    wallet.initialize(100.0)  # no-op (row already exists)
     positions = PositionManager(db)
     resolver = ResolutionHandler(db, wallet, positions)
 
@@ -471,8 +475,12 @@ async def test_resolve_closed_market_without_position_does_not_credit_wallet(
 
     monkeypatch.setattr(poll_job, "_fetch_gamma_market", fake_fetch_gamma)
 
+    # v0.11.6: reset_wallet brings the auto-seeded $1000 default down
+    # to the legacy $100 these tests use.
+    from polily.core.wallet_reset import reset_wallet
+    reset_wallet(db, starting_balance=100.0)
     wallet = WalletService(db)
-    wallet.initialize(100.0)
+    wallet.initialize(100.0)  # no-op (row already exists)
     before_cash = wallet.get_cash()
     before_tx_count = db.conn.execute(
         "SELECT COUNT(*) c FROM wallet_transactions"
@@ -535,8 +543,12 @@ async def test_backfill_stuck_resolutions_heals_legacy_rows(tmp_path, monkeypatc
         }
 
     monkeypatch.setattr(poll_job, "_fetch_gamma_market", fake_fetch_gamma)
+    # v0.11.6: reset_wallet brings the auto-seeded $1000 default down
+    # to the legacy $100 these tests use.
+    from polily.core.wallet_reset import reset_wallet
+    reset_wallet(db, starting_balance=100.0)
     wallet = WalletService(db)
-    wallet.initialize(100.0)
+    wallet.initialize(100.0)  # no-op (row already exists)
     positions = PositionManager(db)
     resolver = ResolutionHandler(db, wallet, positions)
 
@@ -600,8 +612,12 @@ async def test_backfill_stuck_resolutions_caps_at_100(tmp_path, monkeypatch):
 
     monkeypatch.setattr(poll_job, "_fetch_gamma_market", fake_fetch_gamma)
 
+    # v0.11.6: reset_wallet brings the auto-seeded $1000 default down
+    # to the legacy $100 these tests use.
+    from polily.core.wallet_reset import reset_wallet
+    reset_wallet(db, starting_balance=100.0)
     wallet = WalletService(db)
-    wallet.initialize(100.0)
+    wallet.initialize(100.0)  # no-op (row already exists)
     positions = PositionManager(db)
     resolver = ResolutionHandler(db, wallet, positions)
 

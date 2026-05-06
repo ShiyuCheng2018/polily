@@ -17,9 +17,10 @@ from polily.core.db import PolilyDB
 
 
 def get_pref(db: PolilyDB, key: str, default: str | None = None) -> str | None:
-    row = db.conn.execute(
-        "SELECT value FROM user_prefs WHERE key = ?", (key,)
-    ).fetchone()
+    with db.transaction() as conn:
+        row = conn.execute(
+            "SELECT value FROM user_prefs WHERE key = ?", (key,)
+        ).fetchone()
     if row is None:
         return default
     return row["value"] if hasattr(row, "keys") else row[0]
@@ -27,16 +28,17 @@ def get_pref(db: PolilyDB, key: str, default: str | None = None) -> str | None:
 
 def set_pref(db: PolilyDB, key: str, value: str) -> None:
     now = datetime.now(UTC).isoformat()
-    db.conn.execute(
-        """
-        INSERT INTO user_prefs (key, value, updated_at) VALUES (?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-        """,
-        (key, value, now),
-    )
-    db.conn.commit()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_prefs (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
 
 
 def list_prefs(db: PolilyDB) -> dict[str, str]:
-    rows = db.conn.execute("SELECT key, value FROM user_prefs").fetchall()
+    with db.transaction() as conn:
+        rows = conn.execute("SELECT key, value FROM user_prefs").fetchall()
     return {r["key"]: r["value"] for r in rows}

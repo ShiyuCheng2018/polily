@@ -42,56 +42,55 @@ def _update_event_scores(
     # `current_language()` — same pattern as Yuan's i18n labels.
     # Numeric breakdown still persists (drives the bars + agent prompts).
 
-    for c in candidates:
-        eid = getattr(c.market, "event_id", None)
-        if eid:
-            from polily.scan.scoring import _DEFAULT_WEIGHTS, _TYPE_WEIGHTS
-            mtype = getattr(c.market, "market_type", "other")
-            _tw = _TYPE_WEIGHTS.get(mtype, _DEFAULT_WEIGHTS)
-            bd = {
-                "liquidity": round(c.score.liquidity_structure, 1),
-                "verifiability": round(c.score.objective_verifiability, 1),
-                "probability": round(c.score.probability_space, 1),
-                "time": round(c.score.time_structure, 1),
-                "friction": round(c.score.trading_friction, 1),
-            }
-            if _tw.get("net_edge", 0) > 0:
-                bd["net_edge"] = round(c.score.net_edge, 1)
-            # Persist mispricing data for agent consumption
-            mp = c.mispricing
-            if mp.signal != "none" or mp.theoretical_fair_value is not None:
-                bd["mispricing"] = {
-                    "fair_value": mp.theoretical_fair_value,
-                    "fair_value_low": mp.fair_value_low,
-                    "fair_value_high": mp.fair_value_high,
-                    "deviation_pct": mp.deviation_pct,
-                    "direction": mp.direction,
-                    "signal": mp.signal,
-                    "model_confidence": mp.model_confidence,
+    with db.transaction() as conn:
+        for c in candidates:
+            eid = getattr(c.market, "event_id", None)
+            if eid:
+                from polily.scan.scoring import _DEFAULT_WEIGHTS, _TYPE_WEIGHTS
+                mtype = getattr(c.market, "market_type", "other")
+                _tw = _TYPE_WEIGHTS.get(mtype, _DEFAULT_WEIGHTS)
+                bd = {
+                    "liquidity": round(c.score.liquidity_structure, 1),
+                    "verifiability": round(c.score.objective_verifiability, 1),
+                    "probability": round(c.score.probability_space, 1),
+                    "time": round(c.score.time_structure, 1),
+                    "friction": round(c.score.trading_friction, 1),
                 }
-            # Persist price params (volatility, threshold, underlying price)
-            mkt_p = price_params.get(c.market.market_id, {})
-            if mkt_p:
-                bd["price_params"] = {
-                    k: v for k, v in {
-                        "underlying_price": mkt_p.get("current_underlying_price"),
-                        "threshold_price": mkt_p.get("threshold_price"),
-                        "annual_volatility": mkt_p.get("annual_volatility"),
-                        "vol_source": mkt_p.get("vol_source"),
-                    }.items() if v is not None
-                }
-            # Round-trip friction
-            if c.market.round_trip_friction_pct is not None:
-                bd["round_trip_friction_pct"] = round(c.market.round_trip_friction_pct, 4)
-            # v0.11.5: bd no longer includes "commentary" — view layer
-            # generates it live in current language on each render.
-            breakdown = json.dumps(bd)
-            db.conn.execute(
-                "UPDATE markets SET structure_score = ?, score_breakdown = ? WHERE market_id = ?",
-                (c.score.total, breakdown, c.market.market_id),
-            )
-
-    db.conn.commit()
+                if _tw.get("net_edge", 0) > 0:
+                    bd["net_edge"] = round(c.score.net_edge, 1)
+                # Persist mispricing data for agent consumption
+                mp = c.mispricing
+                if mp.signal != "none" or mp.theoretical_fair_value is not None:
+                    bd["mispricing"] = {
+                        "fair_value": mp.theoretical_fair_value,
+                        "fair_value_low": mp.fair_value_low,
+                        "fair_value_high": mp.fair_value_high,
+                        "deviation_pct": mp.deviation_pct,
+                        "direction": mp.direction,
+                        "signal": mp.signal,
+                        "model_confidence": mp.model_confidence,
+                    }
+                # Persist price params (volatility, threshold, underlying price)
+                mkt_p = price_params.get(c.market.market_id, {})
+                if mkt_p:
+                    bd["price_params"] = {
+                        k: v for k, v in {
+                            "underlying_price": mkt_p.get("current_underlying_price"),
+                            "threshold_price": mkt_p.get("threshold_price"),
+                            "annual_volatility": mkt_p.get("annual_volatility"),
+                            "vol_source": mkt_p.get("vol_source"),
+                        }.items() if v is not None
+                    }
+                # Round-trip friction
+                if c.market.round_trip_friction_pct is not None:
+                    bd["round_trip_friction_pct"] = round(c.market.round_trip_friction_pct, 4)
+                # v0.11.5: bd no longer includes "commentary" — view layer
+                # generates it live in current language on each render.
+                breakdown = json.dumps(bd)
+                conn.execute(
+                    "UPDATE markets SET structure_score = ?, score_breakdown = ? WHERE market_id = ?",
+                    (c.score.total, breakdown, c.market.market_id),
+                )
 
 
 async def enrich_with_orderbook(
@@ -346,8 +345,8 @@ def _persist_single_event(event_row, markets, scored, event_score, price_params,
         upsert_market(row, db)
 
     _update_event_scores(scored, db, price_params=price_params)
-    db.conn.execute(
-        "UPDATE events SET structure_score = ?, updated_at = ? WHERE event_id = ?",
-        (event_score.total, datetime.now(UTC).isoformat(), event_row.event_id),
-    )
-    db.conn.commit()
+    with db.transaction() as conn:
+        conn.execute(
+            "UPDATE events SET structure_score = ?, updated_at = ? WHERE event_id = ?",
+            (event_score.total, datetime.now(UTC).isoformat(), event_row.event_id),
+        )

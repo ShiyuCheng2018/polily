@@ -1,21 +1,50 @@
+<div align="center">
+  <img src="assets/polily_logo_tight.png" alt="Polily logo" width="400">
+</div>
+
 # Polily — A Polymarket Monitoring Agent That Actually Works
 
-Paste a Polymarket event URL and Polily decides **whether it's worth your time, scores the structure, hunts mispricing, watches for moves, and closes out positions automatically when markets resolve**. A monitoring agent built for small accounts.
+<!-- AI_METADATA
+purpose: monitor and analyze Polymarket prediction market events with structure scoring, mispricing detection, and paper trading
+keywords: polymarket, prediction-market, paper-trading, mispricing-detection, structure-scoring, risk-management, portfolio-monitoring, quantitative-analysis, monitoring-agent, textual-tui
+suitable_for: individual Polymarket traders ($50-$20k+ accounts), URL-driven event due-diligence, paper-trading workflows, structure/friction/mispricing analysis
+not_suitable_for: high-frequency trading, live order routing (no real-money execution), institutional volume, batch screening all markets, automated trading
+install: pipx install polily
+requires: python>=3.11, claude-cli (Claude Code subscription required for AI analyses)
+example_query: "score this polymarket event: https://polymarket.com/event/<slug>"
+entry_point: polily
+interactive: true
+license: MIT
+-->
+
+[![PyPI](https://img.shields.io/pypi/v/polily)](https://pypi.org/project/polily/)
+[![Python](https://img.shields.io/pypi/pyversions/polily)](https://pypi.org/project/polily/)
+[![License](https://img.shields.io/pypi/l/polily)](https://github.com/ShiyuCheng2018/polily/blob/master/LICENSE)
+[![Downloads](https://img.shields.io/pypi/dm/polily)](https://pypi.org/project/polily/)
+[![CI](https://github.com/ShiyuCheng2018/polily/actions/workflows/ci.yml/badge.svg)](https://github.com/ShiyuCheng2018/polily/actions/workflows/ci.yml)
+[![Last commit](https://img.shields.io/github/last-commit/ShiyuCheng2018/polily)](https://github.com/ShiyuCheng2018/polily/commits/master)
+
+Paste a Polymarket event URL and Polily decides **whether it's worth your time, scores the structure, hunts mispricing, watches for moves, and closes out positions automatically when markets resolve**. A monitoring agent that surfaces what Polymarket's UI hides — for every event you're considering.
+
+<div align="center">
+  <img src="assets/polily_lifecycle.png" alt="Polily lifecycle: Markets → Monitor → AI → You" width="900">
+</div>
 
 ## Why You Need It
 
-Polymarket is unfriendly to small accounts:
+Polymarket's UI hides what actually matters:
 
-- **Spread and thin liquidity quietly eat your PnL** — if you don't price them in before clicking, you're already behind
-- **A good story doesn't make a good market** — narratives are seductive; structure is what the numbers say
-- **Watching markets is expensive** — refreshing pages by hand doesn't scale past two or three events
+- **Spread, depth, and fees quietly eat your PnL** — at any account size. Polymarket shows mid-price; you trade against the order book. polily surfaces both before you click
+- **A good story doesn't make a good market** — narratives are seductive; structure (depth, spread, time-to-close, friction) is what the numbers say
+- **Watching 5+ events by hand doesn't scale** — refreshing pages doesn't tell you *when* something actually changed
+- **Crypto markets carry vol-implied edge** — Polymarket has no vol model; polily compares against live Binance data and flags mispriced probabilities
 
 ## What It Does For You
 
 1. **Paste a URL → instant dossier + value check** — pulls the full event + child markets, scores 0–100 across spread / depth / objectivity / time / friction, surfaces hidden costs, and tells you whether the event is worth following
 2. **Mispricing detection** — for crypto threshold markets, compares against a log-normal vol model fed by live Binance data and flags probabilities that look mis-priced
 3. **Background watching + move alerts** — a daemon polls prices for everything in your watchlist; meaningful moves trigger AI analysis and notifications
-4. **Paper trading with a full wallet** — real cash balance, aggregated positions (YES + NO coexist), Polymarket-accurate taker fees, buy / add / reduce / close, and automatic settlement when markets resolve — so your paper PnL curve reflects what real trading would have looked like
+4. **Paper trading with a realistic wallet** — tracks positions, fees, and PnL exactly as live trading would: real cash balance, aggregated positions (YES + NO coexist), Polymarket-accurate taker fees, and automatic settlement when markets resolve — so your paper PnL curve reflects live execution, not a sanitized backtest
 
 > A high structure score ≠ YES will win. It measures *whether the market is tradeable*, not *whether you should buy* — keep the two separate.
 
@@ -40,24 +69,6 @@ Starting v0.11.0, polily uses OS-standard locations:
 - **Linux:** `$XDG_DATA_HOME/polily` or `~/.local/share/polily/`
 
 Override with the `POLILY_DATA_DIR` env var or `polily --data-dir=PATH` CLI flag (highest priority). Logs go to `<data-dir>/logs/` by default; override with `POLILY_LOG_DIR`.
-
-### Upgrading from v0.10.x
-
-⚠ **Stop the v0.10.x daemon BEFORE upgrading.** The legacy daemon polls `./data/polily.db` (cwd-relative) every 30s; if it's still alive while v0.11.0 migrates the file, you risk a torn WAL copy or post-migration state divergence.
-
-```bash
-polily scheduler stop      # stops the running daemon
-pipx upgrade polily         # or `pip install -U polily` from a venv
-polily                      # first launch detects legacy ./data and prompts:
-#   [polily v0.11.0] 检测到旧版数据库:
-#     /your/repo/data/polily.db
-#   polily 现在将数据保存到:
-#     /Users/you/Library/Application Support/polily/polily.db
-#   是否复制旧数据到新位置? [Y/n]: Y
-polily scheduler restart    # re-register daemon at the new path
-```
-
-A `.migrated_to_v0.11.0` marker is written so the prompt does not re-fire on subsequent launches. If you decline (N), polily starts with an empty new db; manually migrate later with `cp /repo/data/polily.db* ~/Library/Application\ Support/polily/`.
 
 ## Requirements
 

@@ -293,8 +293,8 @@ def ensure_seeded(db) -> None:
         for key, value in defaults_flat.items()
         if key not in EPHEMERAL_FIELDS
     ]
-    with db.conn:
-        db.conn.executemany(
+    with db.transaction() as conn:
+        conn.executemany(
             "INSERT OR IGNORE INTO config (key_path, value, updated_at) VALUES (?, ?, ?)",
             rows,
         )
@@ -307,13 +307,14 @@ def load_all(db) -> dict[str, Any]:
     row exists (someone might have done raw SQL). The Pydantic
     default_factory is the canonical source for those values.
     """
-    cur = db.conn.execute("SELECT key_path, value FROM config")
-    flat: dict[str, Any] = {}
-    for key_path, raw_value in cur.fetchall():
-        if key_path in EPHEMERAL_FIELDS:
-            continue
-        flat[key_path] = json.loads(raw_value)
-    return flat
+    with db.transaction() as conn:
+        cur = conn.execute("SELECT key_path, value FROM config")
+        flat: dict[str, Any] = {}
+        for key_path, raw_value in cur.fetchall():
+            if key_path in EPHEMERAL_FIELDS:
+                continue
+            flat[key_path] = json.loads(raw_value)
+        return flat
 
 
 class ConfigSaveError(Exception):
@@ -338,8 +339,8 @@ def upsert(db, key_path: str, value: Any) -> None:
             f"{key_path} is computed at runtime and cannot be persisted"
         )
     now = datetime.now(UTC).isoformat()
-    with db.conn:
-        db.conn.execute(
+    with db.transaction() as conn:
+        conn.execute(
             """
             INSERT INTO config (key_path, value, updated_at) VALUES (?, ?, ?)
             ON CONFLICT(key_path) DO UPDATE SET
@@ -430,11 +431,12 @@ def _migrate_yaml_to_db(db) -> MigrationStatus:
     Garbled / unreadable yaml: returns ("skipped_invalid", reason) and
     rescues the file as .bak.
     """
-    cur = db.conn.execute("SELECT COUNT(*) FROM config")
-    if cur.fetchone()[0] > 0:
-        status: MigrationStatus = ("skipped_already_migrated",)
-        _set_last_migration_status(status)
-        return status
+    with db.transaction() as conn:
+        cur = conn.execute("SELECT COUNT(*) FROM config")
+        if cur.fetchone()[0] > 0:
+            status: MigrationStatus = ("skipped_already_migrated",)
+            _set_last_migration_status(status)
+            return status
 
     # v0.11.0: yaml lives next to the db at paths.data_dir() / config.yaml.
     # Pre-v0.11.0 used cwd-rel Path("config.yaml") — fragile under pipx
@@ -487,8 +489,8 @@ def _migrate_yaml_to_db(db) -> MigrationStatus:
         for key, value in flat.items()
         if key not in EPHEMERAL_FIELDS
     ]
-    with db.conn:
-        db.conn.executemany(
+    with db.transaction() as conn:
+        conn.executemany(
             "INSERT OR IGNORE INTO config (key_path, value, updated_at) VALUES (?, ?, ?)",
             rows,
         )
