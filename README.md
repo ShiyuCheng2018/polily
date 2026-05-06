@@ -26,6 +26,10 @@ license: MIT
 
 Paste a Polymarket event URL and Polily decides **whether it's worth your time, scores the structure, hunts mispricing, watches for moves, and closes out positions automatically when markets resolve**. A monitoring agent that surfaces what Polymarket's UI hides — for every event you're considering.
 
+<div align="center">
+  <img src="assets/polily_lifecycle.png" alt="Polily lifecycle: Markets → Monitor → AI → You" width="900">
+</div>
+
 ## Why You Need It
 
 Polymarket's UI hides what actually matters:
