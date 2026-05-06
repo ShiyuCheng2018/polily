@@ -56,16 +56,17 @@ def refresh_scores(
     now = datetime.now(UTC).isoformat()
 
     # Collect scored markets from monitored events only
-    rows = db.conn.execute(
-        """SELECT m.*, e.market_type
-        FROM markets m
-        JOIN events e ON m.event_id = e.event_id
-        JOIN event_monitors em ON e.event_id = em.event_id
-        WHERE m.active = 1 AND m.closed = 0
-        AND m.score_breakdown IS NOT NULL
-        AND e.closed = 0
-        AND em.auto_monitor = 1""",
-    ).fetchall()
+    with db.transaction() as conn:
+        rows = conn.execute(
+            """SELECT m.*, e.market_type
+            FROM markets m
+            JOIN events e ON m.event_id = e.event_id
+            JOIN event_monitors em ON e.event_id = em.event_id
+            WHERE m.active = 1 AND m.closed = 0
+            AND m.score_breakdown IS NOT NULL
+            AND e.closed = 0
+            AND em.auto_monitor = 1""",
+        ).fetchall()
 
     if not rows:
         return result
@@ -153,26 +154,31 @@ def refresh_scores(
                 # JSON stays clean on next read.
                 new_bd.pop("commentary", None)
 
-                db.conn.execute(
-                    "UPDATE markets SET structure_score = ?, score_breakdown = ?, updated_at = ? WHERE market_id = ?",
-                    (score.total, json.dumps(new_bd, ensure_ascii=False, default=str), now, mr.market_id),
-                )
+                with db.transaction() as conn:
+                    conn.execute(
+                        "UPDATE markets SET structure_score = ?, score_breakdown = ?, updated_at = ? WHERE market_id = ?",
+                        (score.total, json.dumps(new_bd, ensure_ascii=False, default=str), now, mr.market_id),
+                    )
                 result.markets_refreshed += 1
 
             # Recalculate event-level score
             if market_models:
                 event_score = compute_event_quality_score(event, market_models)
-                db.conn.execute(
-                    "UPDATE events SET structure_score = ?, updated_at = ? WHERE event_id = ?",
-                    (event_score.total, now, event_id),
-                )
+                with db.transaction() as conn:
+                    conn.execute(
+                        "UPDATE events SET structure_score = ?, updated_at = ? WHERE event_id = ?",
+                        (event_score.total, now, event_id),
+                    )
                 result.events_refreshed += 1
 
         except Exception:
             logger.exception("Score refresh failed for event %s", event_id)
             continue
 
-    db.conn.commit()
+    # v0.11.6: each UPDATE auto-commits on its own `with db.transaction()`
+    # exit. Was: trailing db.conn.commit() flushed the whole loop's writes.
+    # Per-row commit under WAL has equivalent perf and avoids losing
+    # earlier work on a mid-loop failure.
 
     if result.markets_refreshed > 0:
         logger.debug(

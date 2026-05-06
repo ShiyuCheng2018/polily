@@ -277,11 +277,12 @@ async def backfill_stuck_resolutions(
 
     Returns the number of markets processed (for logging).
     """
-    rows = db.conn.execute(
-        "SELECT market_id FROM markets "
-        "WHERE closed = 1 AND resolved_outcome IS NULL "
-        "LIMIT 100"
-    ).fetchall()
+    with db.transaction() as conn:
+        rows = conn.execute(
+            "SELECT market_id FROM markets "
+            "WHERE closed = 1 AND resolved_outcome IS NULL "
+            "LIMIT 100"
+        ).fetchall()
     if not rows:
         return 0
 
@@ -464,16 +465,15 @@ def global_poll(db: PolilyDB | None = None) -> None:
 
     # Write trades to markets.recent_trades
     trades_ok = 0
-    for market in fetchable:
-        trades = trades_by_id.get(market.market_id)
-        if trades:
-            db.conn.execute(
-                "UPDATE markets SET recent_trades = ? WHERE market_id = ?",
-                (json.dumps(trades), market.market_id),
-            )
-            trades_ok += 1
-
-    db.conn.commit()
+    with db.transaction() as conn:
+        for market in fetchable:
+            trades = trades_by_id.get(market.market_id)
+            if trades:
+                conn.execute(
+                    "UPDATE markets SET recent_trades = ? WHERE market_id = ?",
+                    (json.dumps(trades), market.market_id),
+                )
+                trades_ok += 1
 
     # Close events where all sub-markets are gone. Delegates to the shared
     # close_event routine: flip `events.closed=1` + log. `auto_monitor` is
@@ -790,8 +790,11 @@ def _run_intelligence_layer(db: PolilyDB) -> None:
             logger.exception("Intelligence layer failed for event %s", event_id)
             continue
 
-    # Batch commit all movement_log entries
-    db.conn.commit()
+    # v0.11.6: append_movement (in monitor/store.py) self-commits via
+    # db.transaction(). Per-row commits replace the prior "batch commit
+    # at end" — under WAL, perf is equivalent, and a mid-loop failure
+    # no longer rolls back earlier rows (the surrounding try/except
+    # already isolates iteration failures).
 
 
 def dispatch_pending_analyses(db: PolilyDB, scheduler) -> int:
@@ -952,13 +955,14 @@ def _check_event_trigger(
 
     # Aggregate: max M and Q across sub-markets in latest tick (within 60s)
     cutoff = (datetime.now(UTC) - timedelta(seconds=60)).isoformat()
-    recent = db.conn.execute(
-        """SELECT magnitude, quality FROM movement_log
-        WHERE event_id = ? AND market_id IS NOT NULL
-        AND created_at >= ?
-        ORDER BY created_at DESC""",
-        (event_id, cutoff),
-    ).fetchall()
+    with db.transaction() as conn:
+        recent = conn.execute(
+            """SELECT magnitude, quality FROM movement_log
+            WHERE event_id = ? AND market_id IS NOT NULL
+            AND created_at >= ?
+            ORDER BY created_at DESC""",
+            (event_id, cutoff),
+        ).fetchall()
 
     if not recent:
         return
@@ -975,12 +979,13 @@ def _check_event_trigger(
         return
 
     # Check cooldown: last triggered analysis for this event
-    last_triggered = db.conn.execute(
-        """SELECT created_at FROM movement_log
-        WHERE event_id = ? AND triggered_analysis = 1
-        ORDER BY created_at DESC LIMIT 1""",
-        (event_id,),
-    ).fetchone()
+    with db.transaction() as conn:
+        last_triggered = conn.execute(
+            """SELECT created_at FROM movement_log
+            WHERE event_id = ? AND triggered_analysis = 1
+            ORDER BY created_at DESC LIMIT 1""",
+            (event_id,),
+        ).fetchone()
 
     if last_triggered:
         try:
@@ -1013,14 +1018,15 @@ def _check_event_trigger(
     )
 
     # Mark triggered in movement_log (the highest-scoring market entry)
-    db.conn.execute(
-        """UPDATE movement_log SET triggered_analysis = 1
-        WHERE event_id = ? AND market_id IS NOT NULL
-        AND id = (SELECT id FROM movement_log
-                  WHERE event_id = ? AND market_id IS NOT NULL
-                  ORDER BY created_at DESC LIMIT 1)""",
-        (event_id, event_id),
-    )
+    with db.transaction() as conn:
+        conn.execute(
+            """UPDATE movement_log SET triggered_analysis = 1
+            WHERE event_id = ? AND market_id IS NOT NULL
+            AND id = (SELECT id FROM movement_log
+                      WHERE event_id = ? AND market_id IS NOT NULL
+                      ORDER BY created_at DESC LIMIT 1)""",
+            (event_id, event_id),
+        )
 
     # Write pending scan_logs row; the next poll tick's dispatcher picks it up
     # (Q5: unified queue so movement analyses also show in menu 0's 待办 zone).
@@ -1040,13 +1046,14 @@ def _check_event_trigger(
 
 def _get_monitored_markets(db: PolilyDB) -> list:
     """Get active markets only from monitored events."""
-    rows = db.conn.execute(
-        """SELECT m.* FROM markets m
-        JOIN event_monitors em ON m.event_id = em.event_id
-        WHERE m.active = 1 AND m.closed = 0
-        AND em.auto_monitor = 1
-        ORDER BY m.market_id""",
-    ).fetchall()
+    with db.transaction() as conn:
+        rows = conn.execute(
+            """SELECT m.* FROM markets m
+            JOIN event_monitors em ON m.event_id = em.event_id
+            WHERE m.active = 1 AND m.closed = 0
+            AND em.auto_monitor = 1
+            ORDER BY m.market_id""",
+        ).fetchall()
     from polily.core.event_store import MarketRow
     return [MarketRow.model_validate(dict(r)) for r in rows]
 
@@ -1056,12 +1063,13 @@ def _collect_crypto_symbols(db: PolilyDB) -> set[str]:
 
     Returns e.g. {"BTCUSDT", "ETHUSDT"}.
     """
-    rows = db.conn.execute(
-        """SELECT DISTINCT e.title FROM events e
-        JOIN event_monitors em ON e.event_id = em.event_id
-        WHERE e.market_type = 'crypto' AND e.closed = 0
-        AND em.auto_monitor = 1""",
-    ).fetchall()
+    with db.transaction() as conn:
+        rows = conn.execute(
+            """SELECT DISTINCT e.title FROM events e
+            JOIN event_monitors em ON e.event_id = em.event_id
+            WHERE e.market_type = 'crypto' AND e.closed = 0
+            AND em.auto_monitor = 1""",
+        ).fetchall()
     symbols = set()
     for row in rows:
         pair = extract_crypto_asset(row["title"])
