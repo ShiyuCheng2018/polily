@@ -10,6 +10,27 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.11.6] — 2026-05-06
+
+### Fixed
+
+- **PolilyDB serializes ALL DB access via `db.transaction()`.** v0.11.4's narrow lock wrapped only `_run_pending_analysis`; the other ~98 raw `db.conn.execute` call sites still bypassed it. v0.11.6 introduces `db.transaction()` — a single context manager combining `db._lock` (RLock — re-entrant safe) with sqlite3's auto-commit `with conn:` semantic, then migrates all sites across daemon / wallet / TUI / scan paths to use it. Net result: the `sqlite3.InterfaceError: bad parameter or other API misuse` race that motivated v0.11.4 cannot recur in any code path. New invariant test (`tests/test_lock_migration_invariant.py`) future-proofs the migration; new concurrency stress test (`tests/test_db_concurrent_stress.py`) provides empirical coverage.
+
+### Changed
+
+- **Wallet ledger + 已实现交易历史 colors now reflect P&L impact, not cash flow direction.** Pre-v0.11.6: BUY rows showed red because cash flowed out of the wallet — but BUY is just a position open, not a realized loss. v0.11.6: BUY/WITHDRAW/RESET → gray (`dim`); TOPUP → green (encourage capital adds); FEE → red (real cost); SELL/RESOLVE → green/red by realized P&L sign with `abs(realized) < $0.005` rendered gray (fixes the false-colored `+$0.00`/`-$0.00` rows in 已实现交易历史). User-visible: wallet 流水 reads cleaner (no red BUY wall on profitable days); zero-magnitude history rows no longer mislead.
+- **Default paper wallet starting balance: $100 → $1000.** Affects FRESH installs only — existing wallets persist their actual `starting_balance` and are unchanged. Aligns the out-of-box experience with the broadened positioning ($50-$20k+ accounts).
+- **Repositioning from "small account" to any size.** README tagline + "Why You Need It" rewritten — was "A monitoring agent built for small accounts / Polymarket is unfriendly to small accounts", now "A monitoring agent that surfaces what Polymarket's UI hides — for every event you're considering / Polymarket's UI hides what actually matters". Paper-trading bullet's "full wallet" → "realistic wallet" (tracks positions/fees/PnL exactly as live trading). Internal `CLAUDE.md` / `AGENTS.md` Design Context bullet rewritten from "Small-account usage pattern" → "Friction transparency over net numbers" — same engineering principle, broader applicability.
+- **PyPI keywords expanded**: +`quantitative-analysis`, +`risk-management`, +`portfolio-monitoring` (5 → 8). Better discoverability for the broader audience.
+
+### Added
+
+- **README polish for humans + AI agents**: 6 visible badges (PyPI version, Python, License, Downloads/month, CI status, last commit) so first-time human visitors see project health at a glance. Plus a hidden `<!-- AI_METADATA -->` HTML comment block with 10 structured fields (`purpose`, `keywords`, `suitable_for`, `not_suitable_for`, `install`, `requires`, `example_query`, `entry_point`, `interactive`, `license`) so AI agents — which the user expects to be the majority of GitHub traffic in coming years — can parse polily's purpose and suitability without scraping prose, AND know NOT to recommend it for HFT / institutional / batch-screening use cases.
+
+### Notes
+
+Reliability + UX + repositioning bundle. No code-breaking changes; no schema migrations. The default-wallet bump ($100 → $1000) only affects fresh installs — your existing paper wallet persists its actual `starting_balance` from the `wallet` table. Upgrade is `pipx upgrade polily`.
+
 ## [0.11.5] — 2026-05-05
 
 ### Added
@@ -696,7 +717,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.5...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.6...dev
+[0.11.6]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.6
 [0.11.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.5
 [0.11.4]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.4
 [0.11.3]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.3
