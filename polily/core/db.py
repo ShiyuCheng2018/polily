@@ -249,18 +249,19 @@ class PolilyDB:
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        # v0.11.4 BUG-4: re-entrant lock for runtime serialization.
-        # Used by _run_pending_analysis (poll_job.py) to wrap the entire
-        # analysis call body. Non-reentrant Lock would deadlock if the
-        # ai-executor-side code path indirectly re-acquires; RLock allows
-        # same-thread recursion safely.
+        # _lock: re-entrant lock for serializing sqlite3 access.
         #
-        # Scope (v0.11.4 only):
-        # - Single application-level critical section: _run_pending_analysis
-        # - Other code paths (sync sidebar reads, daemon poll loop,
-        #   manual TUI scans) are NOT lock-protected — they were never
-        #   observed to race, and broad migration was deferred to v0.11.5
-        #   per Whis review (avoids 152-call-site PR scope creep).
+        # v0.11.4 introduced this lock as a narrow fix wrapping
+        # _run_pending_analysis (poll_job.py) only. v0.11.6 extended
+        # protection to ALL DB access via PolilyDB.transaction()
+        # (the canonical entry point). Every read/write across the
+        # codebase now flows through that context manager, which
+        # acquires this lock.
+        #
+        # Re-entrancy (RLock not Lock): WalletService.execute_buy →
+        # wallet.debit → positions.upsert nests `with db.transaction()`
+        # blocks on the same thread; non-reentrant Lock would deadlock.
+        # Same-thread re-entry is safe; cross-thread re-entry blocks.
         self._lock = threading.RLock()
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row

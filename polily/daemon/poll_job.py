@@ -882,14 +882,17 @@ def _run_pending_analysis(
     from polily.tui.service import PolilyService
 
     try:
-        with db._lock:
-            cfg = _ctx.config if _ctx is not None else None
-            service = PolilyService(config=cfg, db=db)
-            asyncio.run(
-                service.analyze_event(
-                    event_id, trigger_source=trigger_source, scan_id=scan_id,
-                ),
-            )
+        # v0.11.6: prior `with db._lock:` wrap removed — Tasks 3-6 migrated
+        # all DB access (including service.analyze_event's downstream calls)
+        # to `db.transaction()` which acquires `db._lock` internally. The
+        # outer wrap was redundant after the broad migration completed.
+        cfg = _ctx.config if _ctx is not None else None
+        service = PolilyService(config=cfg, db=db)
+        asyncio.run(
+            service.analyze_event(
+                event_id, trigger_source=trigger_source, scan_id=scan_id,
+            ),
+        )
     except Exception as e:
         logger.exception("Dispatched analysis failed for scan_id=%s", scan_id)
         try:
