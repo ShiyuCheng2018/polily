@@ -19,6 +19,11 @@ from polily.tui.service import PolilyService
 @pytest.fixture
 def svc(tmp_path):
     db = PolilyDB(tmp_path / "t.db")
+    # v0.11.6: PolilyDB._seed_wallet_if_needed auto-seeds at the schema
+    # default ($1000 since v0.11.6); reset_wallet brings it back to the
+    # legacy $100 baseline these tests assert against.
+    from polily.core.wallet_reset import reset_wallet
+    reset_wallet(db, starting_balance=100.0)
     db.conn.executescript(
         """
         INSERT INTO events (event_id,title,updated_at)

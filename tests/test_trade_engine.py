@@ -8,6 +8,7 @@ from polily.core.db import PolilyDB
 from polily.core.positions import InsufficientShares, PositionManager
 from polily.core.trade_engine import TradeEngine
 from polily.core.wallet import InsufficientFunds, WalletService
+from polily.core.wallet_reset import reset_wallet
 
 
 @pytest.fixture
@@ -24,8 +25,11 @@ def setup(tmp_path):
             VALUES ('m1','e1','Q','tok_yes','tok_no',0.5,1,0.072,'t');
     """)
     db.conn.commit()
+    # v0.11.6: reset_wallet brings the auto-seeded $1000 (new schema
+    # default) back to the legacy $100 baseline these tests assert against.
+    reset_wallet(db, starting_balance=100.0)
     wallet = WalletService(db)
-    wallet.initialize(100.0)
+    wallet.initialize(100.0)  # no-op (row already exists)
     pm = PositionManager(db)
     engine = TradeEngine(db, wallet, pm)
     return db, wallet, pm, engine
@@ -43,8 +47,11 @@ def fees_off_setup(tmp_path):
             VALUES ('m1','e1','Q','tok_yes','tok_no',0.5,0,NULL,'t');
     """)
     db.conn.commit()
+    # v0.11.6: reset_wallet brings the auto-seeded $1000 (new schema
+    # default) back to the legacy $100 baseline these tests assert against.
+    reset_wallet(db, starting_balance=100.0)
     wallet = WalletService(db)
-    wallet.initialize(100.0)
+    wallet.initialize(100.0)  # no-op (row already exists)
     pm = PositionManager(db)
     engine = TradeEngine(db, wallet, pm)
     return db, wallet, pm, engine

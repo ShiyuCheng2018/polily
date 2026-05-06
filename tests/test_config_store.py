@@ -145,7 +145,7 @@ def test_flatten_pydantic_scalar_leaves():
     flat = _flatten_pydantic(PolilyConfig())
     assert flat["movement.magnitude_threshold"] == 70
     assert flat["movement.quality_threshold"] == 60
-    assert flat["wallet.starting_balance"] == 100.0
+    assert flat["wallet.starting_balance"] == 1000.0
     assert flat["api.request_timeout_seconds"] == 20
 
 
@@ -395,7 +395,7 @@ def test_load_all_returns_dict_keyed_by_key_path(polily_db):
     flat = load_all(polily_db)
     assert isinstance(flat, dict)
     assert flat["movement.magnitude_threshold"] == 70
-    assert flat["wallet.starting_balance"] == 100.0
+    assert flat["wallet.starting_balance"] == 1000.0
     assert flat["mispricing.enabled"] is True
 
 

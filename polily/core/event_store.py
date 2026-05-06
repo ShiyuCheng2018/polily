@@ -127,8 +127,8 @@ def upsert_event(event: EventRow, db: PolilyDB) -> None:
         ON CONFLICT(event_id) DO UPDATE SET {conflict_set}
     """
     values = tuple(getattr(event, c) for c in _EVENT_INSERT_COLS)
-    db.conn.execute(sql, values)
-    db.conn.commit()
+    with db.transaction() as conn:
+        conn.execute(sql, values)
 
 
 # All columns in the events table (for SELECT *).
@@ -149,8 +149,9 @@ def _row_to_event(row: dict) -> EventRow:
 
 def get_event(event_id: str, db: PolilyDB) -> EventRow | None:
     """Fetch a single event by ID, or None if not found."""
-    cur = db.conn.execute("SELECT * FROM events WHERE event_id = ?", (event_id,))
-    row = cur.fetchone()
+    with db.transaction() as conn:
+        cur = conn.execute("SELECT * FROM events WHERE event_id = ?", (event_id,))
+        row = cur.fetchone()
     if row is None:
         return None
     return _row_to_event(row)
@@ -208,14 +209,15 @@ def upsert_market(market: MarketRow, db: PolilyDB) -> None:
         ON CONFLICT(market_id) DO UPDATE SET {conflict_set}
     """
     values = tuple(getattr(market, c) for c in _MARKET_INSERT_COLS)
-    db.conn.execute(sql, values)
-    db.conn.commit()
+    with db.transaction() as conn:
+        conn.execute(sql, values)
 
 
 def get_market(market_id: str, db: PolilyDB) -> MarketRow | None:
     """Fetch a single market by ID, or None if not found."""
-    cur = db.conn.execute("SELECT * FROM markets WHERE market_id = ?", (market_id,))
-    row = cur.fetchone()
+    with db.transaction() as conn:
+        cur = conn.execute("SELECT * FROM markets WHERE market_id = ?", (market_id,))
+        row = cur.fetchone()
     if row is None:
         return None
     return _row_to_market(row)
@@ -223,11 +225,12 @@ def get_market(market_id: str, db: PolilyDB) -> MarketRow | None:
 
 def get_event_markets(event_id: str, db: PolilyDB) -> list[MarketRow]:
     """Fetch all markets belonging to an event."""
-    cur = db.conn.execute(
-        "SELECT * FROM markets WHERE event_id = ? ORDER BY market_id",
-        (event_id,),
-    )
-    return [_row_to_market(row) for row in cur.fetchall()]
+    with db.transaction() as conn:
+        cur = conn.execute(
+            "SELECT * FROM markets WHERE event_id = ? ORDER BY market_id",
+            (event_id,),
+        )
+        return [_row_to_market(row) for row in cur.fetchall()]
 
 
 def get_active_markets(db: PolilyDB) -> list[MarketRow]:
@@ -236,10 +239,11 @@ def get_active_markets(db: PolilyDB) -> list[MarketRow]:
     Only markets from filtered events exist in DB (pipeline persists after filter),
     so no additional scan_eligible check needed.
     """
-    cur = db.conn.execute(
-        "SELECT * FROM markets WHERE active = 1 AND closed = 0 ORDER BY market_id",
-    )
-    return [_row_to_market(row) for row in cur.fetchall()]
+    with db.transaction() as conn:
+        cur = conn.execute(
+            "SELECT * FROM markets WHERE active = 1 AND closed = 0 ORDER BY market_id",
+        )
+        return [_row_to_market(row) for row in cur.fetchall()]
 
 
 def market_row_to_model(
@@ -387,7 +391,8 @@ def update_market_prices(
     values.append(datetime.now(UTC).isoformat())
     values.append(market_id)
     sql = f"UPDATE markets SET {', '.join(updates)} WHERE market_id = ?"
-    db.conn.execute(sql, tuple(values))
+    with db.transaction() as conn:
+        conn.execute(sql, tuple(values))
 
 
 def mark_market_closed(market_id: str, db: PolilyDB) -> None:
@@ -395,8 +400,8 @@ def mark_market_closed(market_id: str, db: PolilyDB) -> None:
     from datetime import UTC, datetime
 
     now = datetime.now(UTC).isoformat()
-    db.conn.execute(
-        "UPDATE markets SET closed=1, accepting_orders=0, updated_at=? WHERE market_id=?",
-        (now, market_id),
-    )
-    db.conn.commit()
+    with db.transaction() as conn:
+        conn.execute(
+            "UPDATE markets SET closed=1, accepting_orders=0, updated_at=? WHERE market_id=?",
+            (now, market_id),
+        )

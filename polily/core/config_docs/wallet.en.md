@@ -7,12 +7,12 @@ without putting real money in. This section configures the seed cash.
 
 ## wallet.starting_balance
 
-**Default 100.0 USD.** Initial cash on wallet reset; also the seed amount
-when polily is installed for the first time.
+**Default 1000.0 USD.** Initial cash on wallet reset; also the seed
+amount when polily is installed for the first time.
 
-**When to change it:** Your real small account is only $50 → set to 50.0
-so paper-trade sizing mirrors reality. Want to rehearse the discipline of
-a larger account in paper → push to 500 or 1000.
+**When to change it:** Your real Polymarket account size is $X → set to
+X.0 so paper trading mirrors your live constraints. The value only
+shapes position-size simulation; it does not affect structure scoring.
 
 Note: increasing `starting_balance` does NOT touch real money; polily is
 paper trading only — the wallet number drives internal P&L accounting +

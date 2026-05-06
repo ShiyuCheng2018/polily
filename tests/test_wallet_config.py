@@ -10,7 +10,7 @@ from polily.core.db import PolilyDB
 
 def test_wallet_config_default():
     cfg = PolilyConfig()
-    assert cfg.wallet.starting_balance == 100.0
+    assert cfg.wallet.starting_balance == 1000.0
 
 
 def test_wallet_config_override(tmp_path):

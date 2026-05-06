@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 def close_event(event_id: str, title: str, db: PolilyDB, trigger_source: str) -> None:
     """Mark an event closed. Preserves auto_monitor."""
     now = datetime.now(UTC).isoformat()
-    db.conn.execute(
-        "UPDATE events SET closed=1, updated_at=? WHERE event_id=?",
-        (now, event_id),
-    )
-    db.conn.commit()
+    with db.transaction() as conn:
+        conn.execute(
+            "UPDATE events SET closed=1, updated_at=? WHERE event_id=?",
+            (now, event_id),
+        )
 
     logger.info(
         "Event %s closed (title=%r, trigger=%s)",

@@ -562,11 +562,12 @@ def _count_monitored_active_markets(db) -> int:
     line over time. Extracted into a helper (rather than inlined SQL)
     so tests can import and exercise the production path directly.
     """
-    return db.conn.execute(
-        """SELECT COUNT(*) FROM markets m
-           JOIN event_monitors em ON m.event_id = em.event_id
-           WHERE m.active = 1 AND m.closed = 0 AND em.auto_monitor = 1""",
-    ).fetchone()[0]
+    with db.transaction() as conn:
+        return conn.execute(
+            """SELECT COUNT(*) FROM markets m
+               JOIN event_monitors em ON m.event_id = em.event_id
+               WHERE m.active = 1 AND m.closed = 0 AND em.auto_monitor = 1""",
+        ).fetchone()[0]
 
 
 def run_daemon(db, config=None) -> None:
@@ -628,9 +629,10 @@ def run_daemon(db, config=None) -> None:
     from polily.daemon.poll_job import _get_poll_log
     plog = _get_poll_log()
     plog.info(f"── daemon started ── {active} markets, poll every 30s ──")
-    pending_count = db.conn.execute(
-        "SELECT COUNT(*) FROM scan_logs WHERE status='pending'"
-    ).fetchone()[0]
+    with db.transaction() as conn:
+        pending_count = conn.execute(
+            "SELECT COUNT(*) FROM scan_logs WHERE status='pending'"
+        ).fetchone()[0]
     plog.info(f"  pending scan_logs rows: {pending_count}")
 
     print(f"Polily daemon started — {active} markets, poll every 30s. Ctrl+C to stop.")

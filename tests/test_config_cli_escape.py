@@ -34,7 +34,7 @@ def test_config_reset_all_clears_all_user_edits(tmp_path):
     flat = load_all(db)
     db.close()
     assert flat["movement.magnitude_threshold"] == 70  # back to default
-    assert flat["wallet.starting_balance"] == 100.0
+    assert flat["wallet.starting_balance"] == 1000.0
 
 
 def test_config_reset_single_key(tmp_path):

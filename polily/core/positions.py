@@ -56,26 +56,34 @@ class PositionManager:
 
     # ---- reads ----
     def get_position(self, market_id: str, side: str) -> dict | None:
-        row = self.db.conn.execute(
-            "SELECT * FROM positions WHERE market_id=? AND side=?",
-            (market_id, side),
-        ).fetchone()
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT * FROM positions WHERE market_id=? AND side=?",
+                (market_id, side),
+            ).fetchone()
         return dict(row) if row else None
 
     def get_all_positions(self) -> list[dict]:
-        cur = self.db.conn.execute(
-            "SELECT * FROM positions ORDER BY opened_at DESC"
-        )
-        return [dict(r) for r in cur.fetchall()]
+        with self.db.transaction() as conn:
+            cur = conn.execute(
+                "SELECT * FROM positions ORDER BY opened_at DESC"
+            )
+            return [dict(r) for r in cur.fetchall()]
 
     def get_event_positions(self, event_id: str) -> list[dict]:
-        cur = self.db.conn.execute(
-            "SELECT * FROM positions WHERE event_id=? ORDER BY opened_at DESC",
-            (event_id,),
-        )
-        return [dict(r) for r in cur.fetchall()]
+        with self.db.transaction() as conn:
+            cur = conn.execute(
+                "SELECT * FROM positions WHERE event_id=? ORDER BY opened_at DESC",
+                (event_id,),
+            )
+            return [dict(r) for r in cur.fetchall()]
 
     # ---- writes ----
+    # v0.11.6 §1.5.1 carve-out: same commit=False contract as WalletService.
+    # TradeEngine's _atomic_buy/_atomic_sell pass commit=False so that
+    # position mutation + wallet debit/credit land in ONE outer transaction.
+    # Wrap method bodies in `with self.db._lock:` for thread safety; keep
+    # the conditional db.conn.commit() intact.
     def add_shares(
         self,
         *,
@@ -98,30 +106,31 @@ class PositionManager:
         if side not in _VALID_SIDES:
             raise ValueError(f"side must be one of {_VALID_SIDES}, got {side!r}")
 
-        now = datetime.now(UTC).isoformat()
-        existing = self.get_position(market_id, side)
-        if existing is None:
-            cost_basis = shares * price
-            self.db.conn.execute(
-                """INSERT INTO positions
-                (market_id,side,event_id,shares,avg_cost,cost_basis,realized_pnl,title,opened_at,updated_at)
-                VALUES (?,?,?,?,?,?,0,?,?,?)""",
-                (market_id, side, event_id, shares, price, cost_basis, title, now, now),
-            )
-        else:
-            new_shares = existing["shares"] + shares
-            new_avg = (
-                existing["shares"] * existing["avg_cost"] + shares * price
-            ) / new_shares
-            new_cost_basis = new_shares * new_avg
-            self.db.conn.execute(
-                """UPDATE positions
-                SET shares=?, avg_cost=?, cost_basis=?, updated_at=?
-                WHERE market_id=? AND side=?""",
-                (new_shares, new_avg, new_cost_basis, now, market_id, side),
-            )
-        if commit:
-            self.db.conn.commit()
+        with self.db._lock:
+            now = datetime.now(UTC).isoformat()
+            existing = self.get_position(market_id, side)
+            if existing is None:
+                cost_basis = shares * price
+                self.db.conn.execute(
+                    """INSERT INTO positions
+                    (market_id,side,event_id,shares,avg_cost,cost_basis,realized_pnl,title,opened_at,updated_at)
+                    VALUES (?,?,?,?,?,?,0,?,?,?)""",
+                    (market_id, side, event_id, shares, price, cost_basis, title, now, now),
+                )
+            else:
+                new_shares = existing["shares"] + shares
+                new_avg = (
+                    existing["shares"] * existing["avg_cost"] + shares * price
+                ) / new_shares
+                new_cost_basis = new_shares * new_avg
+                self.db.conn.execute(
+                    """UPDATE positions
+                    SET shares=?, avg_cost=?, cost_basis=?, updated_at=?
+                    WHERE market_id=? AND side=?""",
+                    (new_shares, new_avg, new_cost_basis, now, market_id, side),
+                )
+            if commit:
+                self.db.conn.commit()
 
     def remove_shares(
         self,
@@ -141,33 +150,34 @@ class PositionManager:
         """
         if shares <= 0:
             raise ValueError(f"shares must be positive, got {shares}")
-        pos = self.get_position(market_id, side)
-        if pos is None:
-            raise PositionNotFound(f"{market_id}/{side}")
-        if shares > pos["shares"]:
-            raise InsufficientShares(
-                f"requested {shares} > held {pos['shares']}"
-            )
+        with self.db._lock:
+            pos = self.get_position(market_id, side)
+            if pos is None:
+                raise PositionNotFound(f"{market_id}/{side}")
+            if shares > pos["shares"]:
+                raise InsufficientShares(
+                    f"requested {shares} > held {pos['shares']}"
+                )
 
-        realized = (price - pos["avg_cost"]) * shares
-        new_shares = pos["shares"] - shares
-        new_realized_total = pos["realized_pnl"] + realized
-        now = datetime.now(UTC).isoformat()
+            realized = (price - pos["avg_cost"]) * shares
+            new_shares = pos["shares"] - shares
+            new_realized_total = pos["realized_pnl"] + realized
+            now = datetime.now(UTC).isoformat()
 
-        if new_shares <= _SHARES_EPS:  # fully closed (float precision guard)
-            self.db.conn.execute(
-                "DELETE FROM positions WHERE market_id=? AND side=?",
-                (market_id, side),
-            )
-        else:
-            new_cost_basis = new_shares * pos["avg_cost"]
-            self.db.conn.execute(
-                """UPDATE positions
-                SET shares=?, cost_basis=?, realized_pnl=?, updated_at=?
-                WHERE market_id=? AND side=?""",
-                (new_shares, new_cost_basis, new_realized_total, now, market_id, side),
-            )
-        if commit:
-            self.db.conn.commit()
+            if new_shares <= _SHARES_EPS:  # fully closed (float precision guard)
+                self.db.conn.execute(
+                    "DELETE FROM positions WHERE market_id=? AND side=?",
+                    (market_id, side),
+                )
+            else:
+                new_cost_basis = new_shares * pos["avg_cost"]
+                self.db.conn.execute(
+                    """UPDATE positions
+                    SET shares=?, cost_basis=?, realized_pnl=?, updated_at=?
+                    WHERE market_id=? AND side=?""",
+                    (new_shares, new_cost_basis, new_realized_total, now, market_id, side),
+                )
+            if commit:
+                self.db.conn.commit()
 
-        return realized
+            return realized

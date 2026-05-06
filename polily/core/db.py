@@ -5,6 +5,7 @@ import json
 import logging
 import sqlite3
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -248,18 +249,19 @@ class PolilyDB:
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        # v0.11.4 BUG-4: re-entrant lock for runtime serialization.
-        # Used by _run_pending_analysis (poll_job.py) to wrap the entire
-        # analysis call body. Non-reentrant Lock would deadlock if the
-        # ai-executor-side code path indirectly re-acquires; RLock allows
-        # same-thread recursion safely.
+        # _lock: re-entrant lock for serializing sqlite3 access.
         #
-        # Scope (v0.11.4 only):
-        # - Single application-level critical section: _run_pending_analysis
-        # - Other code paths (sync sidebar reads, daemon poll loop,
-        #   manual TUI scans) are NOT lock-protected — they were never
-        #   observed to race, and broad migration was deferred to v0.11.5
-        #   per Whis review (avoids 152-call-site PR scope creep).
+        # v0.11.4 introduced this lock as a narrow fix wrapping
+        # _run_pending_analysis (poll_job.py) only. v0.11.6 extended
+        # protection to ALL DB access via PolilyDB.transaction()
+        # (the canonical entry point). Every read/write across the
+        # codebase now flows through that context manager, which
+        # acquires this lock.
+        #
+        # Re-entrancy (RLock not Lock): WalletService.execute_buy →
+        # wallet.debit → positions.upsert nests `with db.transaction()`
+        # blocks on the same thread; non-reentrant Lock would deadlock.
+        # Same-thread re-entry is safe; cross-thread re-entry blocks.
         self._lock = threading.RLock()
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
@@ -288,6 +290,75 @@ class PolilyDB:
                 self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
+
+    @contextmanager
+    def transaction(self):
+        """v0.11.6 canonical DB access point.
+
+        Acquires self._lock (RLock — re-entrant safe). When NOT
+        already inside a transaction, also opens sqlite3's auto-commit
+        `with conn:` context (commits on clean exit, rolls back on
+        Exception). When ALREADY in a transaction (nested call from
+        same thread), yields without re-opening — the outer caller
+        owns the transaction boundary.
+
+        Why nested-detection matters (Whis-review Blocker 1, 2026-05-05):
+        the naïve `with self._lock: with self.conn: yield self.conn`
+        is broken for nested calls. RLock IS re-entrant, but
+        `with conn:` is NOT — when the inner block exits cleanly,
+        sqlite3's __exit__ COMMITs the in-progress transaction.
+        Subsequent outer rollbacks find nothing to roll back. Empirical
+        result: outer `_atomic_buy` debits cash → calls inner
+        wallet.deduct → inner exits clean → cash committed → outer
+        position validation raises → outer "rollback" is a no-op →
+        money lost.
+
+        The fix: check `self.conn.in_transaction` and, if true, just
+        acquire the lock and yield. Outer scope owns commit/rollback.
+
+        Usage (migration target):
+
+            # Read
+            with db.transaction() as conn:
+                rows = conn.execute("SELECT ...").fetchall()
+
+            # Single leaf write (no outer transaction)
+            with db.transaction() as conn:
+                conn.execute("INSERT ...", params)
+                # auto-commits on exit; rollback on Exception
+
+            # Nested call — outer owns commit
+            def outer():
+                with db.transaction() as conn:  # opens transaction
+                    conn.execute("UPDATE wallet ...")
+                    inner_helper(conn)
+                    # outer __exit__ commits (or rolls back on raise)
+
+            def inner_helper(conn):
+                with db.transaction() as conn:  # nested — lock-only,
+                    conn.execute("INSERT positions ...")  # no auto-commit
+
+        Note: files in `polily/core/trade_engine.py`, the
+        `wallet.credit(commit=False)` paths, and the BEGIN IMMEDIATE
+        blocks in `polily/core/config.py` + `polily/cli.py` do NOT
+        migrate to this primitive — see §1.5.1 of the design doc for
+        the carve-out rationale (BaseException handling, cross-process
+        race protection). They use `with db._lock:` instead and keep
+        their existing explicit transaction code.
+
+        Read-only callers wrap reads in this too — the perf cost is
+        negligible (SQLite WAL serializes writes anyway).
+        """
+        with self._lock:
+            if self.conn.in_transaction:
+                # Nested call — outer scope owns the transaction
+                yield self.conn
+            else:
+                # Top-level — sqlite3 auto-commit on clean exit;
+                # rollback on Exception (NOT BaseException — see
+                # carve-out files for BaseException safety)
+                with self.conn:
+                    yield self.conn
 
     def __enter__(self) -> "PolilyDB":
         return self

@@ -32,6 +32,11 @@ def _seed(
     exercise the fee path. Callers override to test fees-off markets.
     """
     db = PolilyDB(tmp_path / "t.db")
+    # v0.11.6: PolilyDB._seed_wallet_if_needed auto-seeds at the schema
+    # default ($1000 since v0.11.6); reset_wallet brings it back to the
+    # legacy $100 baseline the cash-insufficient tests assert against.
+    from polily.core.wallet_reset import reset_wallet
+    reset_wallet(db, starting_balance=100.0)
     upsert_event(
         EventRow(event_id="e1", title="BTC April", updated_at="now"),
         db,

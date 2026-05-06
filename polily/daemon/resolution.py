@@ -133,8 +133,8 @@ class ResolutionHandler:
                 f"winner_side must be one of {_VALID_WINNERS}, got {winner_side!r}"
             )
 
-        with self.db.conn:
-            cur = self.db.conn.execute(
+        with self.db.transaction() as conn:
+            cur = conn.execute(
                 "UPDATE markets SET resolved_outcome=? WHERE market_id=?",
                 (winner_side, market_id),
             )
@@ -144,7 +144,7 @@ class ResolutionHandler:
                     market_id,
                 )
 
-            rows = self.db.conn.execute(
+            rows = conn.execute(
                 "SELECT * FROM positions WHERE market_id=?", (market_id,)
             ).fetchall()
 
@@ -167,7 +167,7 @@ class ResolutionHandler:
                     realized_pnl=realized,
                     notes=_resolve_notes(winner_side),
                 )
-                self.db.conn.execute(
+                conn.execute(
                     "DELETE FROM positions WHERE market_id=? AND side=?",
                     (market_id, pos["side"]),
                 )

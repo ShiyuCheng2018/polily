@@ -65,28 +65,29 @@ def save_scan_log(entry: ScanLogEntry, db) -> None:
     steps_json = json.dumps(
         [s.model_dump() for s in entry.steps], ensure_ascii=False,
     ) if entry.steps else None
-    db.conn.execute(
-        """INSERT OR REPLACE INTO scan_logs
-        (scan_id, type, event_id, market_title, started_at, finished_at,
-         total_elapsed, status, error, total_markets,
-         research_count, watchlist_count, filtered_count, steps)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            entry.scan_id, entry.type, entry.event_id, entry.market_title,
-            entry.started_at, entry.finished_at,
-            entry.total_elapsed, entry.status, entry.error,
-            entry.total_markets, entry.research_count,
-            entry.watchlist_count, entry.filtered_count, steps_json,
-        ),
-    )
-    db.conn.commit()
+    with db.transaction() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO scan_logs
+            (scan_id, type, event_id, market_title, started_at, finished_at,
+             total_elapsed, status, error, total_markets,
+             research_count, watchlist_count, filtered_count, steps)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                entry.scan_id, entry.type, entry.event_id, entry.market_title,
+                entry.started_at, entry.finished_at,
+                entry.total_elapsed, entry.status, entry.error,
+                entry.total_markets, entry.research_count,
+                entry.watchlist_count, entry.filtered_count, steps_json,
+            ),
+        )
 
 
 def load_scan_logs(db, limit: int = 100) -> list[ScanLogEntry]:
     """Load scan logs from SQLite, most recent first."""
-    rows = db.conn.execute(
-        "SELECT * FROM scan_logs ORDER BY started_at DESC LIMIT ?", (limit,),
-    ).fetchall()
+    with db.transaction() as conn:
+        rows = conn.execute(
+            "SELECT * FROM scan_logs ORDER BY started_at DESC LIMIT ?", (limit,),
+        ).fetchall()
     result = []
     for row in rows:
         try:
@@ -204,25 +205,25 @@ def insert_pending_scan(
         parsed = parsed.replace(tzinfo=UTC)
     scheduled_at_utc = parsed.astimezone(UTC).isoformat()
     scan_id = _make_scan_id(prefix="p")
-    db.conn.execute(
-        "INSERT INTO scan_logs(scan_id, type, event_id, market_title, started_at, "
-        "status, trigger_source, scheduled_at, scheduled_reason) "
-        "VALUES (?, 'analyze', ?, ?, ?, 'pending', ?, ?, ?)",
-        (scan_id, event_id, event_title, now, trigger_source, scheduled_at_utc, scheduled_reason),
-    )
-    db.conn.commit()
+    with db.transaction() as conn:
+        conn.execute(
+            "INSERT INTO scan_logs(scan_id, type, event_id, market_title, started_at, "
+            "status, trigger_source, scheduled_at, scheduled_reason) "
+            "VALUES (?, 'analyze', ?, ?, ?, 'pending', ?, ?, ?)",
+            (scan_id, event_id, event_title, now, trigger_source, scheduled_at_utc, scheduled_reason),
+        )
     return scan_id
 
 
 def claim_pending_scan(scan_id: str, db) -> bool:
     """Atomically move a pending row to running. Returns False if already claimed."""
     now = datetime.now(UTC).isoformat()
-    cur = db.conn.execute(
-        "UPDATE scan_logs SET status='running', started_at=? "
-        "WHERE scan_id=? AND status='pending'",
-        (now, scan_id),
-    )
-    db.conn.commit()
+    with db.transaction() as conn:
+        cur = conn.execute(
+            "UPDATE scan_logs SET status='running', started_at=? "
+            "WHERE scan_id=? AND status='pending'",
+            (now, scan_id),
+        )
     return cur.rowcount > 0
 
 
@@ -243,30 +244,30 @@ def finish_scan(
     if status not in ("completed", "failed", "cancelled"):
         raise ValueError(f"Invalid terminal status: {status!r}")
     now = datetime.now(UTC)
-    started_row = db.conn.execute(
-        "SELECT started_at FROM scan_logs WHERE scan_id=?", (scan_id,),
-    ).fetchone()
-    elapsed = 0.0
-    if started_row and started_row["started_at"]:
-        with contextlib.suppress(ValueError):
-            elapsed = (now - datetime.fromisoformat(started_row["started_at"])).total_seconds()
-    cur = db.conn.execute(
-        "UPDATE scan_logs SET status=?, finished_at=?, total_elapsed=?, error=? "
-        "WHERE scan_id=? AND status='running'",
-        (status, now.isoformat(), elapsed, error, scan_id),
-    )
-    db.conn.commit()
+    with db.transaction() as conn:
+        started_row = conn.execute(
+            "SELECT started_at FROM scan_logs WHERE scan_id=?", (scan_id,),
+        ).fetchone()
+        elapsed = 0.0
+        if started_row and started_row["started_at"]:
+            with contextlib.suppress(ValueError):
+                elapsed = (now - datetime.fromisoformat(started_row["started_at"])).total_seconds()
+        cur = conn.execute(
+            "UPDATE scan_logs SET status=?, finished_at=?, total_elapsed=?, error=? "
+            "WHERE scan_id=? AND status='running'",
+            (status, now.isoformat(), elapsed, error, scan_id),
+        )
     return cur.rowcount
 
 
 def supersede_pending_for_event(event_id: str, db) -> int:
     """Mark every pending row for an event as superseded. Returns # rows changed."""
-    cur = db.conn.execute(
-        "UPDATE scan_logs SET status='superseded' "
-        "WHERE event_id=? AND status='pending'",
-        (event_id,),
-    )
-    db.conn.commit()
+    with db.transaction() as conn:
+        cur = conn.execute(
+            "UPDATE scan_logs SET status='superseded' "
+            "WHERE event_id=? AND status='pending'",
+            (event_id,),
+        )
     return cur.rowcount
 
 
@@ -302,31 +303,32 @@ def fetch_overdue_pending(db, stale_threshold_minutes: int = 30) -> list[dict]:
     `+00:00` one (lex-smaller) instead of the `+08:00` one (time-earlier).
     """
     now = datetime.now(UTC).isoformat()
-    rows = db.conn.execute(
-        """
-        WITH earliest_per_event AS (
-            SELECT event_id, MIN(datetime(scheduled_at)) AS min_sched_dt
-            FROM scan_logs
-            WHERE status = 'pending'
-              AND datetime(scheduled_at) <= datetime(?)
-              AND datetime(scheduled_at) >= datetime(?, ? || ' minutes')
-            GROUP BY event_id
-        )
-        SELECT s.scan_id, s.event_id, s.market_title, s.scheduled_at,
-               s.scheduled_reason, s.trigger_source
-        FROM scan_logs s
-        JOIN earliest_per_event e
-          ON e.event_id = s.event_id
-          AND datetime(s.scheduled_at) = e.min_sched_dt
-        WHERE s.status = 'pending'
-          AND NOT EXISTS (
-              SELECT 1 FROM scan_logs s2
-              WHERE s2.event_id = s.event_id AND s2.status = 'running'
-          )
-        ORDER BY datetime(s.scheduled_at) ASC
-        """,
-        (now, now, f"-{stale_threshold_minutes}"),
-    ).fetchall()
+    with db.transaction() as conn:
+        rows = conn.execute(
+            """
+            WITH earliest_per_event AS (
+                SELECT event_id, MIN(datetime(scheduled_at)) AS min_sched_dt
+                FROM scan_logs
+                WHERE status = 'pending'
+                  AND datetime(scheduled_at) <= datetime(?)
+                  AND datetime(scheduled_at) >= datetime(?, ? || ' minutes')
+                GROUP BY event_id
+            )
+            SELECT s.scan_id, s.event_id, s.market_title, s.scheduled_at,
+                   s.scheduled_reason, s.trigger_source
+            FROM scan_logs s
+            JOIN earliest_per_event e
+              ON e.event_id = s.event_id
+              AND datetime(s.scheduled_at) = e.min_sched_dt
+            WHERE s.status = 'pending'
+              AND NOT EXISTS (
+                  SELECT 1 FROM scan_logs s2
+                  WHERE s2.event_id = s.event_id AND s2.status = 'running'
+              )
+            ORDER BY datetime(s.scheduled_at) ASC
+            """,
+            (now, now, f"-{stale_threshold_minutes}"),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -337,11 +339,11 @@ def fail_orphan_running(db) -> int:
     Returns count of rows updated.
     """
     now = datetime.now(UTC).isoformat()
-    cur = db.conn.execute(
-        "UPDATE scan_logs SET status='failed', finished_at=?, "
-        "error='进程中断，未完成' "
-        "WHERE status='running'",
-        (now,),
-    )
-    db.conn.commit()
+    with db.transaction() as conn:
+        cur = conn.execute(
+            "UPDATE scan_logs SET status='failed', finished_at=?, "
+            "error='进程中断，未完成' "
+            "WHERE status='running'",
+            (now,),
+        )
     return cur.rowcount

@@ -34,11 +34,11 @@ def reset_wallet(db: PolilyDB, *, starting_balance: float) -> None:
             f"starting_balance must be positive, got {starting_balance}"
         )
     now = datetime.now(UTC).isoformat()
-    with db.conn:
-        db.conn.execute("DELETE FROM positions")
-        db.conn.execute("DELETE FROM wallet_transactions")
-        db.conn.execute("DELETE FROM wallet")
-        db.conn.execute(
+    with db.transaction() as conn:
+        conn.execute("DELETE FROM positions")
+        conn.execute("DELETE FROM wallet_transactions")
+        conn.execute("DELETE FROM wallet")
+        conn.execute(
             "INSERT INTO wallet (id,cash_usd,starting_balance,topup_total,withdraw_total,created_at,updated_at) "
             "VALUES (1,?,?,0,0,?,?)",
             (starting_balance, starting_balance, now, now),
