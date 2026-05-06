@@ -10,6 +10,10 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Fixed
+
+- **ESC behaviour fixed for the main screen and focused inputs.** Two issues addressed in one pass: (1) pressing <kbd>Esc</kbd> from the top-level main screen previously cleared the entire UI to a blank screen — Textual seeds the screen stack with an empty default screen at index 0, so the global "back" action's `len(screen_stack) > 1` check popped MainScreen and revealed the empty default; (2) once focus landed in the Polymarket URL field every keystroke went to the text buffer, trapping the user with no way to reach the digit-nav / `q` / `r` shortcuts. ESC now releases Input focus first (so global hotkeys come back), then falls through to pop the current screen — but only if there's a real screen underneath. MainScreen on top with no focused Input is a silent no-op; detail screens / modals still pop as before.
+
 ## [0.11.5] — 2026-05-05
 
 ### Added

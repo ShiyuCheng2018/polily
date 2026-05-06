@@ -152,6 +152,63 @@ class TestTUIDetailView:
             await pilot.pause()
             assert app.is_running
 
+    @pytest.mark.asyncio
+    async def test_escape_on_main_screen_is_noop(self):
+        """Pressing ESC on the main screen must NOT pop it.
+
+        Regression: Textual's screen_stack always starts with a default
+        empty screen at index 0 — pushing MainScreen makes the stack
+        [_default, MainScreen]. A naive `len > 1` check in action_back
+        would pop MainScreen and leave the empty default visible
+        ("everything disappears"). ESC on the bottom-most user screen
+        must be a silent no-op.
+        """
+        from polily.tui.screens.main import MainScreen
+        app = PolilyApp(service=_mock_service())
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, MainScreen)
+            # Make sure no Input is focused — otherwise the defocus path
+            # would handle ESC instead of the no-op path under test.
+            app.screen.set_focus(None)
+            await pilot.pause()
+            assert not isinstance(app.focused, __import__("textual.widgets",
+                                                          fromlist=["Input"]).Input)
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            # MainScreen still on top — not popped to the default empty screen.
+            assert isinstance(app.screen, MainScreen)
+            assert app.is_running
+
+    @pytest.mark.asyncio
+    async def test_escape_defocuses_input_on_main_screen(self):
+        """ESC while focus is in an Input must release focus, not no-op.
+
+        Without this, after the user clicks into the Polymarket URL field
+        every keystroke goes to the text buffer — `1`/`2`/`3` digit-nav,
+        `r`, `q`, etc. are all swallowed and the user is trapped in the
+        Input. ESC is the canonical "let me out" key.
+        """
+        from textual.widgets import Input
+        app = PolilyApp(service=_mock_service())
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            url_input = app.screen.query_one("#url-input", Input)
+            url_input.focus()
+            await pilot.pause()
+            assert app.focused is url_input
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            # Focus released; MainScreen still on top.
+            assert app.focused is not url_input
+            assert not isinstance(app.focused, Input)
+            from polily.tui.screens.main import MainScreen
+            assert isinstance(app.screen, MainScreen)
+
 
 class TestTUIRefreshAndScan:
     @pytest.mark.asyncio
