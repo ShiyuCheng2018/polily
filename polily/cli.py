@@ -338,15 +338,24 @@ def cmd_config_reset(
             # Re-import ensure_seeded from the source module rather than
             # using the local binding so monkeypatch.setattr(config_store,
             # "ensure_seeded", ...) in tests sees the override.
+            #
+            # v0.11.6 §1.5.1 carve-out: BEGIN IMMEDIATE retained — cross-
+            # process race protection requires immediate-mode at TXN start,
+            # not on first write. db.transaction() (deferred mode) only
+            # promotes to immediate at FIRST WRITE, leaving the
+            # SELECT-then-INSERT race window open for competitor processes.
+            # Wrapped in `with db._lock:` for thread safety; transaction
+            # code unchanged.
             from polily.core import config_store
-            db.conn.execute("BEGIN IMMEDIATE")
-            try:
-                db.conn.execute("DELETE FROM config")
-                config_store.ensure_seeded(db)
-                db.conn.commit()
-            except Exception:
-                db.conn.rollback()
-                raise
+            with db._lock:
+                db.conn.execute("BEGIN IMMEDIATE")
+                try:
+                    db.conn.execute("DELETE FROM config")
+                    config_store.ensure_seeded(db)
+                    db.conn.commit()
+                except Exception:
+                    db.conn.rollback()
+                    raise
             # SF3 — daemon's in-memory PolilyConfig snapshot still has the
             # pre-reset values. Tell the user to restart so they aren't
             # confused about why their reset "didn't take effect" until

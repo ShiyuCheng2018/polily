@@ -254,14 +254,22 @@ def load_config_from_db(db) -> PolilyConfig:
     # builds — `OperationalError: cannot start a transaction within a
     # transaction`. Explicit control sidesteps both ambiguity and the
     # nested-with confusion (ensure_seeded itself uses `with db.conn:`).
-    db.conn.execute("BEGIN IMMEDIATE")
-    try:
-        _migrate_yaml_to_db(db)
-        ensure_seeded(db)
-        db.conn.commit()
-    except Exception:
-        db.conn.rollback()
-        raise
+    #
+    # v0.11.6 §1.5.1 carve-out: BEGIN IMMEDIATE retained — cross-process
+    # race protection requires immediate-mode at TXN start, not on first
+    # write. db.transaction() (deferred mode) only promotes to immediate
+    # at FIRST WRITE, leaving the SELECT-then-INSERT race window open
+    # for competitor processes. Wrapped in `with db._lock:` for thread
+    # safety; transaction code unchanged.
+    with db._lock:
+        db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            _migrate_yaml_to_db(db)
+            ensure_seeded(db)
+            db.conn.commit()
+        except Exception:
+            db.conn.rollback()
+            raise
 
     flat = load_all(db)
     # Defensive — even if user manually inserted EPHEMERAL_FIELDS rows via
@@ -503,22 +511,26 @@ def save_knob_batch(db, updates: dict[str, Any]) -> None:
     from datetime import UTC, datetime
 
     now = datetime.now(UTC).isoformat()
-    db.conn.execute("BEGIN IMMEDIATE")
-    try:
-        for key_path, value in updates.items():
-            db.conn.execute(
-                """
-                INSERT INTO config (key_path, value, updated_at) VALUES (?, ?, ?)
-                ON CONFLICT(key_path) DO UPDATE SET
-                    value = excluded.value,
-                    updated_at = excluded.updated_at
-                """,
-                (key_path, json.dumps(value), now),
-            )
-        db.conn.commit()
-    except Exception:
-        db.conn.rollback()
-        raise
+    # v0.11.6 §1.5.1 carve-out: same BEGIN IMMEDIATE rationale as the
+    # load_config_from_db block above. Wrapped in `with db._lock:` for
+    # thread safety; transaction code unchanged.
+    with db._lock:
+        db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            for key_path, value in updates.items():
+                db.conn.execute(
+                    """
+                    INSERT INTO config (key_path, value, updated_at) VALUES (?, ?, ?)
+                    ON CONFLICT(key_path) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = excluded.updated_at
+                    """,
+                    (key_path, json.dumps(value), now),
+                )
+            db.conn.commit()
+        except Exception:
+            db.conn.rollback()
+            raise
 
     # `upsert` is intentionally NOT used inside the transaction (its
     # `with db.conn:` context manager would conflict). The
