@@ -62,24 +62,6 @@ Starting v0.11.0, polily uses OS-standard locations:
 
 Override with the `POLILY_DATA_DIR` env var or `polily --data-dir=PATH` CLI flag (highest priority). Logs go to `<data-dir>/logs/` by default; override with `POLILY_LOG_DIR`.
 
-### Upgrading from v0.10.x
-
-⚠ **Stop the v0.10.x daemon BEFORE upgrading.** The legacy daemon polls `./data/polily.db` (cwd-relative) every 30s; if it's still alive while v0.11.0 migrates the file, you risk a torn WAL copy or post-migration state divergence.
-
-```bash
-polily scheduler stop      # stops the running daemon
-pipx upgrade polily         # or `pip install -U polily` from a venv
-polily                      # first launch detects legacy ./data and prompts:
-#   [polily v0.11.0] 检测到旧版数据库:
-#     /your/repo/data/polily.db
-#   polily 现在将数据保存到:
-#     /Users/you/Library/Application Support/polily/polily.db
-#   是否复制旧数据到新位置? [Y/n]: Y
-polily scheduler restart    # re-register daemon at the new path
-```
-
-A `.migrated_to_v0.11.0` marker is written so the prompt does not re-fire on subsequent launches. If you decline (N), polily starts with an empty new db; manually migrate later with `cp /repo/data/polily.db* ~/Library/Application\ Support/polily/`.
-
 ## Requirements
 
 Polily v0.8.0+ requires a [Nerd Font](https://www.nerdfonts.com/) installed
