@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="assets/polily_logo.png" alt="Polily logo" width="200">
+</div>
+
 # Polily — A Polymarket Monitoring Agent That Actually Works
 
 <!-- AI_METADATA
