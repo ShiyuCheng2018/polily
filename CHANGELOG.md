@@ -10,6 +10,10 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Fixed
+
+- **ESC on the main screen is now a no-op.** Pressing <kbd>Esc</kbd> from the top-level main screen previously cleared the entire UI to a blank screen — Textual seeds the screen stack with an empty default screen at index 0, so the global "back" action's `len(screen_stack) > 1` check popped MainScreen and revealed the empty default. ESC now silently does nothing when MainScreen is on top, while still popping detail screens / modals as before.
+
 ## [0.11.5] — 2026-05-05
 
 ### Added

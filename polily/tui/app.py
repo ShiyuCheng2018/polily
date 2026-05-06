@@ -76,7 +76,16 @@ class PolilyApp(App):
         self.exit()
 
     async def action_back(self) -> None:
-        """Pop current screen if any; else no-op."""
+        """Pop current screen if any; else no-op.
+
+        Textual seeds the screen stack with a default empty `Screen(id="_default")`
+        at index 0 before any `push_screen` runs, so on the main screen the
+        stack is `[_default, MainScreen]` (length 2) — a plain `len > 1` check
+        would pop MainScreen and leave the empty default visible. Skip the
+        pop when the top screen is MainScreen (no further "back" exists).
+        """
+        if isinstance(self.screen, MainScreen):
+            return
         if len(self.screen_stack) > 1:
             self.pop_screen()
 

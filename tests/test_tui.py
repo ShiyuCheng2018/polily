@@ -152,6 +152,30 @@ class TestTUIDetailView:
             await pilot.pause()
             assert app.is_running
 
+    @pytest.mark.asyncio
+    async def test_escape_on_main_screen_is_noop(self):
+        """Pressing ESC on the main screen must NOT pop it.
+
+        Regression: Textual's screen_stack always starts with a default
+        empty screen at index 0 — pushing MainScreen makes the stack
+        [_default, MainScreen]. A naive `len > 1` check in action_back
+        would pop MainScreen and leave the empty default visible
+        ("everything disappears"). ESC on the bottom-most user screen
+        must be a silent no-op.
+        """
+        from polily.tui.screens.main import MainScreen
+        app = PolilyApp(service=_mock_service())
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, MainScreen)
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            # MainScreen still on top — not popped to the default empty screen.
+            assert isinstance(app.screen, MainScreen)
+            assert app.is_running
+
 
 class TestTUIRefreshAndScan:
     @pytest.mark.asyncio
