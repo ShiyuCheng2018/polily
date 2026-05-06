@@ -100,46 +100,52 @@ class TradeEngine:
         BaseException (KeyboardInterrupt) both trigger rollback — the shared
         check_same_thread=False connection makes leaked transactions process-wide.
         """
-        committed = False
-        self.db.conn.execute("BEGIN")
-        try:
-            self.wallet.deduct(
-                cost,
-                tx_type="BUY",
-                commit=False,
-                market_id=market_id,
-                event_id=event_id,
-                side=side,
-                shares=shares,
-                price=price,
-            )
-            if fee > 0:
+        # v0.11.6 §1.5.1 carve-out: keep explicit BEGIN/commit/rollback +
+        # try/finally + committed flag (BaseException safety — `with conn:`
+        # would NOT roll back on Ctrl-C mid-trade, leaking a transaction on
+        # the shared check_same_thread=False connection). Wrap in db._lock
+        # for thread safety; transaction code unchanged.
+        with self.db._lock:
+            committed = False
+            self.db.conn.execute("BEGIN")
+            try:
                 self.wallet.deduct(
-                    fee,
-                    tx_type="FEE",
+                    cost,
+                    tx_type="BUY",
                     commit=False,
                     market_id=market_id,
                     event_id=event_id,
                     side=side,
-                    notes=f"taker fee for BUY {shares}@{price}",
+                    shares=shares,
+                    price=price,
                 )
-            self.positions.add_shares(
-                market_id=market_id,
-                side=side,
-                event_id=event_id,
-                title=title,
-                shares=shares,
-                price=price,
-                commit=False,
-            )
-            self.db.conn.commit()
-            committed = True
-        finally:
-            if not committed:
-                try:
-                    self.db.conn.rollback()
-                except Exception:
-                    logger.exception("rollback after BUY failure also failed")
+                if fee > 0:
+                    self.wallet.deduct(
+                        fee,
+                        tx_type="FEE",
+                        commit=False,
+                        market_id=market_id,
+                        event_id=event_id,
+                        side=side,
+                        notes=f"taker fee for BUY {shares}@{price}",
+                    )
+                self.positions.add_shares(
+                    market_id=market_id,
+                    side=side,
+                    event_id=event_id,
+                    title=title,
+                    shares=shares,
+                    price=price,
+                    commit=False,
+                )
+                self.db.conn.commit()
+                committed = True
+            finally:
+                if not committed:
+                    try:
+                        self.db.conn.rollback()
+                    except Exception:
+                        logger.exception("rollback after BUY failure also failed")
 
     def execute_sell(self, *, market_id: str, side: str, shares: float) -> dict:
         """Sell `shares` of `side` at live price. Atomic: all writes commit together."""
@@ -195,58 +201,63 @@ class TradeEngine:
         event_id: str,
     ) -> float:
         """Inner SELL transaction. Same try/finally + flag pattern as BUY."""
-        committed = False
-        realized: float = 0.0
-        self.db.conn.execute("BEGIN")
-        try:
-            realized = self.positions.remove_shares(
-                market_id=market_id,
-                side=side,
-                shares=shares,
-                price=price,
-                commit=False,
-            )
-            self.wallet.credit(
-                proceeds,
-                tx_type="SELL",
-                commit=False,
-                market_id=market_id,
-                event_id=event_id,
-                side=side,
-                shares=shares,
-                price=price,
-                realized_pnl=realized,
-            )
-            if fee > 0:
-                self.wallet.deduct(
-                    fee,
-                    tx_type="FEE",
+        # v0.11.6 §1.5.1 carve-out: same BaseException-safety reasoning
+        # as _atomic_buy. Wrap in db._lock for thread safety; transaction
+        # code unchanged.
+        with self.db._lock:
+            committed = False
+            realized: float = 0.0
+            self.db.conn.execute("BEGIN")
+            try:
+                realized = self.positions.remove_shares(
+                    market_id=market_id,
+                    side=side,
+                    shares=shares,
+                    price=price,
+                    commit=False,
+                )
+                self.wallet.credit(
+                    proceeds,
+                    tx_type="SELL",
                     commit=False,
                     market_id=market_id,
                     event_id=event_id,
                     side=side,
-                    notes=f"taker fee for SELL {shares}@{price}",
+                    shares=shares,
+                    price=price,
+                    realized_pnl=realized,
                 )
-            self.db.conn.commit()
-            committed = True
-        finally:
-            if not committed:
-                try:
-                    self.db.conn.rollback()
-                except Exception:
-                    logger.exception("rollback after SELL failure also failed")
+                if fee > 0:
+                    self.wallet.deduct(
+                        fee,
+                        tx_type="FEE",
+                        commit=False,
+                        market_id=market_id,
+                        event_id=event_id,
+                        side=side,
+                        notes=f"taker fee for SELL {shares}@{price}",
+                    )
+                self.db.conn.commit()
+                committed = True
+            finally:
+                if not committed:
+                    try:
+                        self.db.conn.rollback()
+                    except Exception:
+                        logger.exception("rollback after SELL failure also failed")
         return realized
 
     # ---- internals ----
     def _load_market_event(self, market_id: str) -> tuple[dict, dict]:
-        m = self.db.conn.execute(
-            "SELECT * FROM markets WHERE market_id=?", (market_id,)
-        ).fetchone()
-        if m is None:
-            raise ValueError(f"market {market_id} not found")
-        e = self.db.conn.execute(
-            "SELECT * FROM events WHERE event_id=?", (m["event_id"],)
-        ).fetchone()
+        with self.db.transaction() as conn:
+            m = conn.execute(
+                "SELECT * FROM markets WHERE market_id=?", (market_id,)
+            ).fetchone()
+            if m is None:
+                raise ValueError(f"market {market_id} not found")
+            e = conn.execute(
+                "SELECT * FROM events WHERE event_id=?", (m["event_id"],)
+            ).fetchone()
         if e is None:
             # Orphaned market — cascade delete race or seed corruption. Fail loudly
             # rather than let a KeyError on event["event_id"] mask the real cause.

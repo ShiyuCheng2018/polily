@@ -34,30 +34,33 @@ class WalletService:
     # ---- initialization ----
     def initialize(self, starting_balance: float) -> None:
         """Create wallet singleton if not exists. Idempotent."""
-        row = self.db.conn.execute("SELECT id FROM wallet WHERE id=1").fetchone()
-        if row is not None:
-            return
-        now = datetime.now(UTC).isoformat()
-        self.db.conn.execute(
-            "INSERT INTO wallet (id,cash_usd,starting_balance,topup_total,withdraw_total,created_at,updated_at) "
-            "VALUES (1,?,?,0,0,?,?)",
-            (starting_balance, starting_balance, now, now),
-        )
-        self.db.conn.commit()
+        with self.db.transaction() as conn:
+            row = conn.execute("SELECT id FROM wallet WHERE id=1").fetchone()
+            if row is not None:
+                return
+            now = datetime.now(UTC).isoformat()
+            conn.execute(
+                "INSERT INTO wallet (id,cash_usd,starting_balance,topup_total,withdraw_total,created_at,updated_at) "
+                "VALUES (1,?,?,0,0,?,?)",
+                (starting_balance, starting_balance, now, now),
+            )
 
     # ---- reads ----
     def get_cash(self) -> float:
-        row = self.db.conn.execute("SELECT cash_usd FROM wallet WHERE id=1").fetchone()
+        with self.db.transaction() as conn:
+            row = conn.execute("SELECT cash_usd FROM wallet WHERE id=1").fetchone()
         return row["cash_usd"] if row else 0.0
 
     def get_starting_balance(self) -> float:
-        row = self.db.conn.execute(
-            "SELECT starting_balance FROM wallet WHERE id=1"
-        ).fetchone()
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT starting_balance FROM wallet WHERE id=1"
+            ).fetchone()
         return row["starting_balance"] if row else 0.0
 
     def get_snapshot(self) -> dict:
-        row = self.db.conn.execute("SELECT * FROM wallet WHERE id=1").fetchone()
+        with self.db.transaction() as conn:
+            row = conn.execute("SELECT * FROM wallet WHERE id=1").fetchone()
         if not row:
             return {}
         snap = dict(row)
@@ -73,10 +76,11 @@ class WalletService:
         closing formula with price ∈ {0, 1}. TOPUP/WITHDRAW/BUY/FEE/MIGRATION
         all leave realized_pnl NULL and are excluded here via IS NOT NULL.
         """
-        row = self.db.conn.execute(
-            "SELECT COALESCE(SUM(realized_pnl), 0.0) AS total "
-            "FROM wallet_transactions WHERE realized_pnl IS NOT NULL"
-        ).fetchone()
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(realized_pnl), 0.0) AS total "
+                "FROM wallet_transactions WHERE realized_pnl IS NOT NULL"
+            ).fetchone()
         return row["total"] if row else 0.0
 
     def get_equity(self, positions_market_value: float) -> float:
@@ -85,49 +89,58 @@ class WalletService:
     def list_transactions(
         self, limit: int = 50, tx_type: str | None = None
     ) -> list[dict]:
-        if tx_type:
-            cur = self.db.conn.execute(
-                "SELECT * FROM wallet_transactions WHERE type=? ORDER BY id DESC LIMIT ?",
-                (tx_type, limit),
-            )
-        else:
-            cur = self.db.conn.execute(
-                "SELECT * FROM wallet_transactions ORDER BY id DESC LIMIT ?",
-                (limit,),
-            )
-        return [dict(r) for r in cur.fetchall()]
+        with self.db.transaction() as conn:
+            if tx_type:
+                cur = conn.execute(
+                    "SELECT * FROM wallet_transactions WHERE type=? ORDER BY id DESC LIMIT ?",
+                    (tx_type, limit),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT * FROM wallet_transactions ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                )
+            return [dict(r) for r in cur.fetchall()]
 
     # ---- writes ----
+    # v0.11.6 §1.5.1 carve-out: write methods support commit=False so that
+    # callers (TradeEngine, ResolutionHandler) can wrap multi-step writes
+    # in ONE outer transaction. Migrating these to db.transaction() would
+    # commit prematurely on inner exit (Whis-review Blocker 1). Wrap each
+    # method body in `with self.db._lock:` for thread safety; keep the
+    # conditional db.conn.commit() intact.
     def topup(
         self, amount: float, *, commit: bool = True, notes: str | None = None
     ) -> None:
         if amount <= 0:
             raise ValueError(f"topup amount must be positive, got {amount}")
-        now = datetime.now(UTC).isoformat()
-        self.db.conn.execute(
-            "UPDATE wallet SET cash_usd=cash_usd+?, topup_total=topup_total+?, updated_at=? WHERE id=1",
-            (amount, amount, now),
-        )
-        new_cash = self.get_cash()
-        self._insert_tx("TOPUP", amount_usd=amount, balance_after=new_cash, notes=notes)
-        if commit:
-            self.db.conn.commit()
+        with self.db._lock:
+            now = datetime.now(UTC).isoformat()
+            self.db.conn.execute(
+                "UPDATE wallet SET cash_usd=cash_usd+?, topup_total=topup_total+?, updated_at=? WHERE id=1",
+                (amount, amount, now),
+            )
+            new_cash = self._get_cash_locked()
+            self._insert_tx("TOPUP", amount_usd=amount, balance_after=new_cash, notes=notes)
+            if commit:
+                self.db.conn.commit()
 
     def withdraw(self, amount: float, *, commit: bool = True) -> None:
         if amount <= 0:
             raise ValueError(f"withdraw amount must be positive, got {amount}")
-        cash = self.get_cash()
-        if amount > cash:
-            raise InsufficientFunds(f"withdraw ${amount} exceeds cash ${cash}")
-        now = datetime.now(UTC).isoformat()
-        self.db.conn.execute(
-            "UPDATE wallet SET cash_usd=cash_usd-?, withdraw_total=withdraw_total+?, updated_at=? WHERE id=1",
-            (amount, amount, now),
-        )
-        new_cash = self.get_cash()
-        self._insert_tx("WITHDRAW", amount_usd=-amount, balance_after=new_cash)
-        if commit:
-            self.db.conn.commit()
+        with self.db._lock:
+            cash = self._get_cash_locked()
+            if amount > cash:
+                raise InsufficientFunds(f"withdraw ${amount} exceeds cash ${cash}")
+            now = datetime.now(UTC).isoformat()
+            self.db.conn.execute(
+                "UPDATE wallet SET cash_usd=cash_usd-?, withdraw_total=withdraw_total+?, updated_at=? WHERE id=1",
+                (amount, amount, now),
+            )
+            new_cash = self._get_cash_locked()
+            self._insert_tx("WITHDRAW", amount_usd=-amount, balance_after=new_cash)
+            if commit:
+                self.db.conn.commit()
 
     def deduct(
         self, amount: float, *, tx_type: str, commit: bool = True, **fields: object,
@@ -139,18 +152,19 @@ class WalletService:
             raise ValueError(
                 f"deduct tx_type must be one of {_DEDUCT_TX_TYPES}, got {tx_type!r}"
             )
-        cash = self.get_cash()
-        if amount > cash:
-            raise InsufficientFunds(f"deduct ${amount} exceeds cash ${cash}")
-        now = datetime.now(UTC).isoformat()
-        self.db.conn.execute(
-            "UPDATE wallet SET cash_usd=cash_usd-?, updated_at=? WHERE id=1",
-            (amount, now),
-        )
-        new_cash = self.get_cash()
-        self._insert_tx(tx_type, amount_usd=-amount, balance_after=new_cash, **fields)
-        if commit:
-            self.db.conn.commit()
+        with self.db._lock:
+            cash = self._get_cash_locked()
+            if amount > cash:
+                raise InsufficientFunds(f"deduct ${amount} exceeds cash ${cash}")
+            now = datetime.now(UTC).isoformat()
+            self.db.conn.execute(
+                "UPDATE wallet SET cash_usd=cash_usd-?, updated_at=? WHERE id=1",
+                (amount, now),
+            )
+            new_cash = self._get_cash_locked()
+            self._insert_tx(tx_type, amount_usd=-amount, balance_after=new_cash, **fields)
+            if commit:
+                self.db.conn.commit()
 
     def credit(
         self, amount: float, *, tx_type: str, commit: bool = True, **fields: object,
@@ -162,17 +176,31 @@ class WalletService:
             raise ValueError(
                 f"credit tx_type must be one of {_CREDIT_TX_TYPES}, got {tx_type!r}"
             )
-        now = datetime.now(UTC).isoformat()
-        self.db.conn.execute(
-            "UPDATE wallet SET cash_usd=cash_usd+?, updated_at=? WHERE id=1",
-            (amount, now),
-        )
-        new_cash = self.get_cash()
-        self._insert_tx(tx_type, amount_usd=amount, balance_after=new_cash, **fields)
-        if commit:
-            self.db.conn.commit()
+        with self.db._lock:
+            now = datetime.now(UTC).isoformat()
+            self.db.conn.execute(
+                "UPDATE wallet SET cash_usd=cash_usd+?, updated_at=? WHERE id=1",
+                (amount, now),
+            )
+            new_cash = self._get_cash_locked()
+            self._insert_tx(tx_type, amount_usd=amount, balance_after=new_cash, **fields)
+            if commit:
+                self.db.conn.commit()
 
     # ---- internal ----
+    def _get_cash_locked(self) -> float:
+        """Read cash_usd from inside an existing lock acquisition.
+
+        Re-acquires self.db._lock (RLock — re-entrant) so the call satisfies
+        the v0.11.6 invariant ("no raw db.conn outside with db._lock"); the
+        outer caller already holds the lock so this is a free no-op acquire.
+        """
+        with self.db._lock:
+            row = self.db.conn.execute(
+                "SELECT cash_usd FROM wallet WHERE id=1"
+            ).fetchone()
+        return row["cash_usd"] if row else 0.0
+
     def _insert_tx(
         self,
         tx_type: str,
@@ -182,23 +210,27 @@ class WalletService:
         fee_usd: float = 0.0,
         **fields: object,
     ) -> None:
-        now = datetime.now(UTC).isoformat()
-        self.db.conn.execute(
-            """INSERT INTO wallet_transactions
-            (created_at,type,market_id,event_id,side,shares,price,amount_usd,fee_usd,balance_after,realized_pnl,notes)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                now,
-                tx_type,
-                fields.get("market_id"),
-                fields.get("event_id"),
-                fields.get("side"),
-                fields.get("shares"),
-                fields.get("price"),
-                amount_usd,
-                fee_usd,
-                balance_after,
-                fields.get("realized_pnl"),
-                fields.get("notes"),
-            ),
-        )
+        # Re-acquires the lock for invariant compliance — RLock re-entry
+        # is free when the outer caller (topup/withdraw/deduct/credit) is
+        # already holding it.
+        with self.db._lock:
+            now = datetime.now(UTC).isoformat()
+            self.db.conn.execute(
+                """INSERT INTO wallet_transactions
+                (created_at,type,market_id,event_id,side,shares,price,amount_usd,fee_usd,balance_after,realized_pnl,notes)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    now,
+                    tx_type,
+                    fields.get("market_id"),
+                    fields.get("event_id"),
+                    fields.get("side"),
+                    fields.get("shares"),
+                    fields.get("price"),
+                    amount_usd,
+                    fee_usd,
+                    balance_after,
+                    fields.get("realized_pnl"),
+                    fields.get("notes"),
+                ),
+            )
