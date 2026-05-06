@@ -271,6 +271,18 @@ class PolilyService:
         existing = get_event_analyses(event_id, self.db)
         new_version_num = (existing[-1].version if existing else 0) + 1
 
+        # AF-1 (v0.11.7): capture prices BEFORE the agent runs so that
+        # the prompt embeds frozen values. NarrativeWriter takes 2-5 min
+        # to complete and the daemon poll job writes markets.yes_price
+        # every 30s. Without freezing, agent's multiple sqlite3 lookups
+        # within one analysis lifetime read different commits — narrative
+        # contains internally inconsistent prices (event 57711 v5
+        # reproduced this with 1-cent disagreement across 3 places in
+        # the same report).
+        prices_snapshot = {
+            mr.market_id: {"yes": mr.yes_price, "no": mr.no_price} for mr in markets
+        }
+
         narrator = NarrativeWriterAgent(self.config.ai.narrative_writer)
         self._current_narrator = narrator
         narrator_registry.register(scan_id, narrator)
@@ -284,6 +296,7 @@ class PolilyService:
                 on_heartbeat=on_heartbeat,
                 event_title=event.title,
                 trigger_source=trigger_source,
+                frozen_prices=prices_snapshot,
             )
         except Exception as e:
             agent_error = e
@@ -321,9 +334,8 @@ class PolilyService:
         # another writer (e.g. user cancel) already finalized the row, we
         # discard the narrator's output entirely so the cancelled scan
         # doesn't surface as a fresh entry in the event's history.
-        prices_snapshot = {
-            mr.market_id: {"yes": mr.yes_price, "no": mr.no_price} for mr in markets
-        }
+        # prices_snapshot was captured BEFORE the agent run (AF-1) — reuse
+        # the same dict so the persisted version matches what the agent saw.
         version = AnalysisVersion(
             version=new_version_num,
             created_at=datetime.now(UTC).isoformat(),

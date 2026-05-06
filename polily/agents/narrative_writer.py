@@ -60,9 +60,19 @@ class NarrativeWriterAgent:
         *,
         event_title: str | None = None,
         trigger_source: str,
+        frozen_prices: dict[str, dict[str, float]] | None = None,
     ) -> NarrativeWriterOutput:
-        """Generate analysis with semantic validation + retry."""
-        prompt = self._build_prompt(event_id, has_position, position_summary)
+        """Generate analysis with semantic validation + retry.
+
+        v0.11.7 (AF-1): `frozen_prices` is a snapshot of market prices
+        captured by the caller BEFORE the agent runs. When provided,
+        `_build_prompt` embeds them in a YAML block so the agent reads
+        them from prompt text and does not re-query the markets table.
+        """
+        prompt = self._build_prompt(
+            event_id, has_position, position_summary,
+            frozen_prices=frozen_prices,
+        )
 
         last_output = None
         for attempt in range(2):  # 1 initial + 1 retry
@@ -108,6 +118,8 @@ class NarrativeWriterAgent:
         event_id: str,
         has_position: bool = False,
         position_summary: str | None = None,
+        *,
+        frozen_prices: dict[str, dict[str, float]] | None = None,
     ) -> str:
         """Build minimal prompt — agent reads DB and searches web on its own.
 
