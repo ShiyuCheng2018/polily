@@ -38,6 +38,7 @@ from polily.core.events import (
 )
 from polily.tui._dispatch import dispatch_to_ui
 from polily.tui.bindings import NAV_BINDINGS
+from polily.tui.formatters import amount_color
 from polily.tui.i18n import t
 from polily.tui.icons import ICON_COMPLETED
 from polily.tui.service import PolilyService
@@ -46,11 +47,19 @@ from polily.tui.widgets.polily_zone import PolilyZone
 
 
 def _fmt_pnl(value: float) -> str:
-    if value > 0:
-        return f"[green]+${value:.2f}[/green]"
-    if value < 0:
-        return f"[red]-${abs(value):.2f}[/red]"
-    return "$0.00"
+    """v0.11.6: delegate color choice to amount_color() so the
+    threshold-zero rule is shared with the wallet view. Same input
+    (value = realized_pnl) produces the same color across both views.
+
+    Rows in 已实现交易历史 are by definition SELL or RESOLVE; we pass
+    "SELL" as a representative tx_type — amount_color treats both
+    identically.
+    """
+    if abs(value) < 0.005:
+        return "$0.00"
+    color = amount_color("SELL", value, value)
+    sign = "+" if value > 0 else "-"
+    return f"[{color}]{sign}${abs(value):.2f}[/{color}]"
 
 
 def _fmt_time(created_at: str) -> str:

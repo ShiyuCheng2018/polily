@@ -37,6 +37,7 @@ from polily.core.events import (
 )
 from polily.tui._dispatch import once_per_tick
 from polily.tui.bindings import NAV_BINDINGS
+from polily.tui.formatters import amount_color
 from polily.tui.i18n import t
 from polily.tui.icons import ICON_WALLET
 from polily.tui.service import PolilyService
@@ -349,9 +350,13 @@ class WalletView(Widget):
             return
         for tx in txs:
             amt = tx["amount_usd"]
-            amt_color = "green" if amt > 0 else "red" if amt < 0 else "dim"
+            # v0.11.6: delegate color choice to amount_color() so the
+            # rule (P&L impact, not cash-flow direction) is shared with
+            # the 已实现交易历史 view. BUY rows now render gray; near-
+            # zero realized P&L on SELL/RESOLVE also reads gray.
+            color = amount_color(tx["type"], amt, tx.get("realized_pnl"))
             amt_sign = "+" if amt > 0 else ""
-            amt_str = f"[{amt_color}]{amt_sign}${amt:.2f}[/{amt_color}]"
+            amt_str = f"[{color}]{amt_sign}${amt:.2f}[/{color}]"
             desc = _format_tx_description(tx)
             table.add_row(
                 _format_ts(tx["created_at"]),

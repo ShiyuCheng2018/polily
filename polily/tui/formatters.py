@@ -6,6 +6,13 @@ this helper; future shared formatters land here too.
 """
 from __future__ import annotations
 
+# Tag used for "neutral" rows. The plan originally specified Textual's
+# `$text-muted` CSS variable, but that token is rejected by Rich's
+# markup parser (`[$text-muted]…[/$text-muted]` fails with MarkupError).
+# `dim` is a Rich style modifier that renders identically across light
+# and dark themes and was already in use by the legacy wallet view.
+GRAY = "dim"
+
 
 def amount_color(
     tx_type: str,
@@ -38,10 +45,9 @@ def amount_color(
             tx_types (matches the wallet_transactions schema).
 
     Returns:
-        One of: "green", "red", "$text-muted". All three are valid
-        Rich/Textual color markup tokens.
+        One of: "green", "red", "dim". All three are valid Rich/Textual
+        color markup tokens.
     """
-    GRAY = "$text-muted"
     if tx_type == "TOPUP":
         return "green"
     if tx_type in ("BUY", "WITHDRAW", "RESET"):

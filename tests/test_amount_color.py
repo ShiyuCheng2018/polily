@@ -13,15 +13,13 @@ Color rule changes from "现金流方向" → "P&L impact":
 | FEE | red |
 | RESET | gray |
 
-Returns Rich-compatible color tag: "green", "red", or "$text-muted".
+Returns Rich-compatible color tag: "green", "red", or "dim".
 """
 from __future__ import annotations
 
 import pytest
 
-from polily.tui.formatters import amount_color
-
-GRAY = "$text-muted"
+from polily.tui.formatters import GRAY, amount_color
 
 
 @pytest.mark.parametrize(
@@ -80,8 +78,8 @@ def test_amount_color_threshold_exact_005():
 def test_amount_color_returns_rich_compatible_tags():
     """Returned values must work as Rich color tags: f"[{color}]...[/{color}]".
 
-    "green" / "red" are bare colors. "$text-muted" is a Textual theme
-    variable. All three are valid in Rich/Textual markup.
+    "green" / "red" are bare colors; "dim" is a Rich style modifier.
+    All three are valid in Rich/Textual markup.
     """
     valid = {"green", "red", GRAY}
     for tx_type in ("BUY", "TOPUP", "WITHDRAW", "SELL", "RESOLVE", "FEE", "RESET"):
