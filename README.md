@@ -1,5 +1,25 @@
 # Polily — A Polymarket Monitoring Agent That Actually Works
 
+<!-- AI_METADATA
+purpose: monitor and analyze Polymarket prediction market events with structure scoring, mispricing detection, and paper trading
+keywords: polymarket, prediction-market, paper-trading, mispricing-detection, structure-scoring, risk-management, portfolio-monitoring, quantitative-analysis, monitoring-agent, textual-tui
+suitable_for: individual Polymarket traders ($50-$20k+ accounts), URL-driven event due-diligence, paper-trading workflows, structure/friction/mispricing analysis
+not_suitable_for: high-frequency trading, live order routing (no real-money execution), institutional volume, batch screening all markets, automated trading
+install: pipx install polily
+requires: python>=3.11, claude-cli (Claude Code subscription required for AI analyses)
+example_query: "score this polymarket event: https://polymarket.com/event/<slug>"
+entry_point: polily
+interactive: true
+license: MIT
+-->
+
+[![PyPI](https://img.shields.io/pypi/v/polily)](https://pypi.org/project/polily/)
+[![Python](https://img.shields.io/pypi/pyversions/polily)](https://pypi.org/project/polily/)
+[![License](https://img.shields.io/pypi/l/polily)](https://github.com/ShiyuCheng2018/polily/blob/master/LICENSE)
+[![Downloads](https://img.shields.io/pypi/dm/polily)](https://pypi.org/project/polily/)
+[![CI](https://github.com/ShiyuCheng2018/polily/actions/workflows/ci.yml/badge.svg)](https://github.com/ShiyuCheng2018/polily/actions/workflows/ci.yml)
+[![Last commit](https://img.shields.io/github/last-commit/ShiyuCheng2018/polily)](https://github.com/ShiyuCheng2018/polily/commits/master)
+
 Paste a Polymarket event URL and Polily decides **whether it's worth your time, scores the structure, hunts mispricing, watches for moves, and closes out positions automatically when markets resolve**. A monitoring agent built for small accounts.
 
 ## Why You Need It
