@@ -245,6 +245,12 @@ class TestPositionMode:
             alternative_market_id="0xalt",
             alternative_note="Better strike",
         )
-        assert out.stop_loss == 0.25
-        assert out.take_profit == 0.85
+        # v0.11.7: stop_loss / take_profit are StopLossOrTakeProfit instances.
+        # Bare-float input (0.25 / 0.85 fed via _valid_output kwargs) is
+        # normalized by the field_validator to {side: "yes", price: <value>};
+        # YES is the legacy default per the v5 sample's de-facto agent behavior.
+        assert out.stop_loss.side == "yes"
+        assert out.stop_loss.price == 0.25
+        assert out.take_profit.side == "yes"
+        assert out.take_profit.price == 0.85
         assert out.alternative_market_id == "0xalt"

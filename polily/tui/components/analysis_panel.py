@@ -14,6 +14,23 @@ CONFIDENCE_BAR = {
 }
 
 
+def _format_stop_loss_or_take_profit(label: str, v: object) -> str:
+    """Render stop_loss / take_profit value in the new {side, price}
+    schema; gracefully render legacy bare-float fixtures from pre-v0.11.7
+    analyses rows.
+
+    New format:    "<label> YES @ $0.55"  (label from t('analysis.stop_loss'))
+    Legacy format: "<label> $0.55"  (no side info available; render as-is)
+    """
+    if isinstance(v, dict) and "side" in v and "price" in v:
+        return f"{label} {v['side'].upper()} @ ${v['price']:.2f}"
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        # Legacy bare float — pre-v0.11.7 analyses fixture in DB.
+        return f"{label} ${v:.2f}"
+    # Defensive fallback (shouldn't reach here under v0.11.7+ schema).
+    return f"{label} {v!r}"
+
+
 class AnalysisPanel(Widget):
     """AI analysis panel with operations, research, risk, summary modules."""
 
@@ -103,9 +120,13 @@ class AnalysisPanel(Widget):
             if sl is not None or tp is not None:
                 parts = []
                 if sl is not None:
-                    parts.append(f"{t('analysis.stop_loss')} {sl:.2f}")
+                    parts.append(_format_stop_loss_or_take_profit(
+                        t("analysis.stop_loss"), sl,
+                    ))
                 if tp is not None:
-                    parts.append(f"{t('analysis.take_profit')} {tp:.2f}")
+                    parts.append(_format_stop_loss_or_take_profit(
+                        t("analysis.take_profit"), tp,
+                    ))
                 yield Static(f"  {'  '.join(parts)}")
             alt = n.get("alternative_market_id")
             if alt:

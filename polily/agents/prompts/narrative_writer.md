@@ -165,6 +165,8 @@ sqlite3 "$POLILY_DB" "SELECT * FROM event_monitors WHERE event_id='{event_id}'"
 
 **换仓:** 如果同一事件里有更好的子市场，填 alternative_market_id + alternative_note
 
+**止损/止盈:** `stop_loss` 和 `take_profit` 是嵌套对象 `{side, price}`。`side` 必填，可为 "yes" 或 "no"，对应你持仓的那一侧。`price` 是该 side 的价格阈值。`stop_loss` = 持有 side 价格跌破 `price` 时止损；`take_profit` = 涨破 `price` 时止盈。
+
 你是专业分析师，怎么判断 HOLD/加仓/减仓/清仓由你决定。thesis_status 是你对论点现状的判断。
 
 **全方位管理:** 你能看到用户全部的钱包状态、所有持仓（跨事件）、完整的交易历史。结合这些数据给出 "全方位" 的建议：
@@ -236,8 +238,8 @@ sqlite3 "$POLILY_DB" "SELECT * FROM event_monitors WHERE event_id='{event_id}'"
 
   "thesis_status": "intact / weakened / broken (position模式)",
   "thesis_note": "论点现状",
-  "stop_loss": 0.55,
-  "take_profit": 0.92,
+  "stop_loss": {"side": "yes", "price": 0.55},
+  "take_profit": {"side": "yes", "price": 0.92},
   "alternative_market_id": "换仓标的",
   "alternative_note": "为什么换",
 
