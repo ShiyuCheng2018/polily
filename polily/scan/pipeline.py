@@ -42,6 +42,30 @@ def _update_event_scores(
     # `current_language()` — same pattern as Yuan's i18n labels.
     # Numeric breakdown still persists (drives the bars + agent prompts).
 
+    # AF-3 (v0.11.7): batch-compute implied_fair_value for negRisk events.
+    # Each Market carries neg_risk on it (propagated by parse_gamma_event),
+    # so we can group candidates by event_id and call compute_implied_fair_values
+    # once per event. Non-negRisk events / single-market events / events with
+    # <2 valid yes_prices return empty dict and contribute nothing here.
+    from polily.scan.event_scoring import compute_implied_fair_values
+
+    markets_by_event: dict[str, list] = {}
+    for c in candidates:
+        eid = getattr(c.market, "event_id", None)
+        if eid is None:
+            continue
+        markets_by_event.setdefault(eid, []).append(c.market)
+
+    implied_fv_by_market: dict[str, float] = {}
+    for mkts in markets_by_event.values():
+        if mkts:
+            # compute_implied_fair_values reads .neg_risk from its first arg
+            # via getattr(..., "neg_risk", False). Pass mkts[0] as the
+            # "event" since Market also has neg_risk (duck-typed).
+            implied_fv_by_market.update(
+                compute_implied_fair_values(mkts[0], mkts),
+            )
+
     with db.transaction() as conn:
         for c in candidates:
             eid = getattr(c.market, "event_id", None)
@@ -84,6 +108,10 @@ def _update_event_scores(
                 # Round-trip friction
                 if c.market.round_trip_friction_pct is not None:
                     bd["round_trip_friction_pct"] = round(c.market.round_trip_friction_pct, 4)
+                # AF-3: add implied_fair_value if this market belongs to a
+                # negRisk event with ≥2 valid yes_prices (otherwise key absent).
+                if c.market.market_id in implied_fv_by_market:
+                    bd["implied_fair_value"] = implied_fv_by_market[c.market.market_id]
                 # v0.11.5: bd no longer includes "commentary" — view layer
                 # generates it live in current language on each render.
                 breakdown = json.dumps(bd)
