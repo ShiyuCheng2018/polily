@@ -42,7 +42,12 @@ def test_generate_yaml_overwrites_existing_file(tmp_path):
     generate_yaml(PolilyConfig(), target)
 
     content = target.read_text(encoding="utf-8")
-    assert "999" not in content
+    # Match the precise key:value pair instead of a bare "999" substring —
+    # the header timestamp's microseconds can contain "999" (e.g.
+    # 14:35:16.899915 has it inside 899915), and that's not a regression.
+    # We care that the stale movement.magnitude_threshold was overwritten,
+    # which is exactly what this assertion expresses.
+    assert "magnitude_threshold: 999" not in content
     assert "magnitude_threshold: 70" in content
 
 
