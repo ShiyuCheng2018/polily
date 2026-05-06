@@ -15,6 +15,7 @@ structured release notes — see `git log` for history.
 ### Fixed
 
 - **PolilyDB serializes ALL DB access via `db.transaction()`.** v0.11.4's narrow lock wrapped only `_run_pending_analysis`; the other ~98 raw `db.conn.execute` call sites still bypassed it. v0.11.6 introduces `db.transaction()` — a single context manager combining `db._lock` (RLock — re-entrant safe) with sqlite3's auto-commit `with conn:` semantic, then migrates all sites across daemon / wallet / TUI / scan paths to use it. Net result: the `sqlite3.InterfaceError: bad parameter or other API misuse` race that motivated v0.11.4 cannot recur in any code path. New invariant test (`tests/test_lock_migration_invariant.py`) future-proofs the migration; new concurrency stress test (`tests/test_db_concurrent_stress.py`) provides empirical coverage.
+- **ESC behaviour fixed for the main screen and focused inputs.** Two issues addressed in one pass: (1) pressing <kbd>Esc</kbd> from the top-level main screen previously cleared the entire UI to a blank screen — Textual seeds the screen stack with an empty default screen at index 0, so the global "back" action's `len(screen_stack) > 1` check popped MainScreen and revealed the empty default; (2) once focus landed in the Polymarket URL field every keystroke went to the text buffer, trapping the user with no way to reach the digit-nav / `q` / `r` shortcuts. ESC now releases Input focus first (so global hotkeys come back), then falls through to pop the current screen — but only if there's a real screen underneath. MainScreen on top with no focused Input is a silent no-op; detail screens / modals still pop as before.
 
 ### Changed
 
@@ -26,6 +27,8 @@ structured release notes — see `git log` for history.
 ### Added
 
 - **README polish for humans + AI agents**: 6 visible badges (PyPI version, Python, License, Downloads/month, CI status, last commit) so first-time human visitors see project health at a glance. Plus a hidden `<!-- AI_METADATA -->` HTML comment block with 10 structured fields (`purpose`, `keywords`, `suitable_for`, `not_suitable_for`, `install`, `requires`, `example_query`, `entry_point`, `interactive`, `license`) so AI agents — which the user expects to be the majority of GitHub traffic in coming years — can parse polily's purpose and suitability without scraping prose, AND know NOT to recommend it for HFT / institutional / batch-screening use cases.
+- **Polily logo above H1.** Visual brand mark (`assets/polily_logo.png`, 1024×1024) renders centered at width=200 above the title on both GitHub and PyPI.
+- **Lifecycle diagram between tagline and "Why You Need It".** Visual product-flow diagram (`assets/polily_lifecycle.png`, 2160×710 @ 2x) showing Markets → Monitor → AI → You with the cron self-scheduling and the human-in-the-loop trade actions. One image gives readers the whole loop in 5 seconds.
 
 ### Notes
 

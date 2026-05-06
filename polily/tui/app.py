@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from textual.app import App
+from textual.widgets import Input
 
 from polily.core.events import TOPIC_LANGUAGE_CHANGED, get_event_bus
 from polily.core.user_prefs import get_pref, set_pref
@@ -76,7 +77,27 @@ class PolilyApp(App):
         self.exit()
 
     async def action_back(self) -> None:
-        """Pop current screen if any; else no-op."""
+        """ESC handler — release focused Input first, then pop screen.
+
+        Two semantics in priority order:
+
+        1. If an Input widget has focus (e.g. the Polymarket URL field on
+           the main screen), defocus it. While Input has focus every keypress
+           goes to the text buffer, so the user can't reach the digit-nav /
+           q / r shortcuts — ESC is the canonical "let me out" key.
+
+        2. Otherwise, pop the current screen if there's one underneath.
+           Textual seeds the screen stack with an empty `Screen(id="_default")`
+           at index 0 before any `push_screen` runs, so on the main screen
+           the stack is `[_default, MainScreen]` (length 2) — a plain
+           `len > 1` check would pop MainScreen and reveal the empty
+           default. Skip the pop when MainScreen is on top.
+        """
+        if isinstance(self.focused, Input):
+            self.screen.set_focus(None)
+            return
+        if isinstance(self.screen, MainScreen):
+            return
         if len(self.screen_stack) > 1:
             self.pop_screen()
 
