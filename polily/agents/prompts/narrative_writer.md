@@ -144,6 +144,10 @@ sqlite3 "$POLILY_DB" "SELECT * FROM event_monitors WHERE event_id='{event_id}'"
 - `price_params.annual_volatility` — 年化波动率
 - `round_trip_friction_pct` — 往返交易摩擦（真实百分比）
 
+**预计算的结构性 anchor（仅 negRisk 事件有）** — score_breakdown JSON：
+
+- `implied_fair_value` — 由 negRisk 完整性约束推导的隐含公允价格 = `1 - Σ(其他 markets 的 yes_price)`。当事件多个市场互斥（"两匹马"型），任何 market 当前 yes_price 跟它的 implied_fair_value 的差就是结构性 mispricing 候选。零模型风险，纯数学。
+
 ## 分析框架（所有 market_type 通用）
 
 分析前先问自己（不必显式回答，但答案必须从分析中体现）:
