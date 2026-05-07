@@ -16,21 +16,21 @@ structured release notes — see `git log` for history.
 
 - **Wallet ledger 流水颜色按现金流而非 P&L 着色（仅交易流水视图）。** v0.11.6 把"已实现交易历史"的 P&L 着色规则也用在了"交易流水"，导致同一笔卖出在流水里只要 realized_pnl 是负的就染红——哪怕它带回正现金流（例：亏本卖出 +$0.44 染红，反直觉）。v0.11.7 把 `amount_color()` 加上 `view_mode` 参数，wallet ledger 用 cash-flow 视角（cash in→green / cash out→gray / fee→red），已实现交易历史保持 P&L 视角不变。BUY 在两个视图都恒为灰色（仓位开立不是 P&L 事件）。
 
-- **NarrativeWriter 内部价格不再自相矛盾（AF-1）。** 之前 prompt 含三个 `FROM markets` 的 sqlite3 模板，agent 一次分析里跑多个 sqlite3 子进程；分析持续 2-5 分钟期间 daemon poll 每 30s 提交一次 `markets.yes_price`，所以同一篇分析里同一市场的 yes_price 可能差 1 美分（event 57711 v5 三处对不上）。v0.11.7 service 层在调用 agent 前先冻结价格快照，prompt 顶部以 YAML 块嵌入；同时删除三个 `FROM markets` 模板并加显式提示"价格不要从 markets 表查询"。invariant grep 测试永久把守，未来不会回归。
-
 ### Changed
 
 - **`stop_loss` / `take_profit` schema 改成 `{side, price}` 嵌套对象（AF-5a）。** 之前是 bare float（`stop_loss: 0.55`），agent 不知道这是 YES 价格、NO 价格还是 P&L %。新 schema 要求显式 `side`：`stop_loss: {side: "yes", price: 0.55}` 表示"持有 YES 时 YES 价格跌破 $0.55 止损"。Backward compat：DB 里 pre-v0.11.7 的 bare-float 记录在读取时由 Pydantic field_validator 静默归一化为 `{side: "yes", price: <value>}`（YES 是默认 side，匹配 v5 sample 的实际 agent 行为）。TUI history view 渲染 legacy 行不会崩。
+
+- **NarrativeWriter prompt 加入数据时效性教育（AF-1 重新定位）。** 事件 57711 v5 的 dev_feedback 把同一报告里出现不同 yes_price 诊断为 "WAL 模式时序问题"——agent 误诊。实际是 daemon 每 30s 写入新价格、agent 2-5 分钟分析窗口里多次查表读到不同值，是真实市场流动而非 bug。v0.11.7 在 prompt 加 "## 数据时效性" 章节，把数据库字段按更新节奏分四类（实时流 / 周期计算 / 外部 API / 静态），教 agent 用时间戳引用价格、把分析窗口内的漂移当作叙述输入（"during my analysis Alphabet drifted 14 bps over 2 min"），不再当作 bug 抱怨。比"冻结快照"更尊重 agent 的机动性，也保留了对 score_breakdown / mispricing / implied_fair_value 等 anchor 数据的访问。
 
 - **Prompt 改用 universal 5 self-reflective questions（AF-5b）。** 之前 prompt 对非 crypto 事件只说"靠基本面和信息面"，对 crypto 暗示"用 mispricing 数据就够了"——两句话都太抽象/误导。v0.11.7 替换成 5 个 universal 反思式问题（外部 anchor / catalyst 时点 / edge 判断 / 反向论据 / vague 自检），同时适用所有 market_type，激活 agent 的 chain-of-thought。
 
 ### Added
 
-- **negRisk event 评分加 `implied_fair_value`（AF-3）。** 对 negRisk 事件（互斥 outcome），每个 market 的隐含公允价值 = `1 - Σ(其他 markets 的 yes_price)`。完全由 negRisk 完整性约束推导，零模型风险。写入 `markets.score_breakdown.implied_fair_value`（与 mispricing_signal 同款渠道）。Agent 现在对所有 event type 都有 baseline anchor：crypto 用 mispricing_signal，negRisk 用 implied_fair_value，其他 non-crypto 用 self-reflective 框架引导的 WebSearch。
+- **negRisk event 评分加 `implied_fair_value`（AF-3）。** 对 negRisk 事件（互斥 outcome），每个 market 的隐含公允价值 = `1 - Σ(其他 markets 的 yes_price)`。完全由 negRisk 完整性约束推导，零模型风险。写入 `markets.score_breakdown.implied_fair_value`（与 mispricing_signal 同款渠道），pipeline 和 daemon score_refresh 都会重算保持新鲜。Agent 现在对所有 event type 都有 baseline anchor：crypto 用 mispricing_signal，negRisk 用 implied_fair_value，其他 non-crypto 用 self-reflective 框架引导的 WebSearch。
 
 ### Notes
 
-UX + correctness + product extension 混合，零 schema migration，零 breaking API。Wallet 颜色变化仅影响 TUI 显示。AF-1 / AF-5a 的改动保持向后兼容（legacy DB 记录还能读）。`pipx upgrade polily` 即可升级。
+UX + correctness + product extension 混合，零 schema migration，零 breaking API。Wallet 颜色变化仅影响 TUI 显示。AF-5a stop_loss/take_profit schema 保持向后兼容（legacy DB 记录还能读）。`pipx upgrade polily` 即可升级。
 
 ## [0.11.6] — 2026-05-06
 
