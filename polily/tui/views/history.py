@@ -57,7 +57,7 @@ def _fmt_pnl(value: float) -> str:
     """
     if abs(value) < 0.005:
         return "$0.00"
-    color = amount_color("SELL", value, value)
+    color = amount_color("SELL", value, value, view_mode="history")
     sign = "+" if value > 0 else "-"
     return f"[{color}]{sign}${abs(value):.2f}[/{color}]"
 

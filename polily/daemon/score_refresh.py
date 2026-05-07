@@ -86,6 +86,14 @@ def refresh_scores(
         sym = pair.replace("/", "")
         return underlying_prices.get(sym)
 
+    # AF-3 (v0.11.7): import once outside the loop.
+    # score_refresh.py runs periodically; without recomputing implied_fair_value
+    # here, the value from pipeline's last run goes stale (dict() copy of
+    # old_bd preserves but never refreshes the key). Build all markets first,
+    # then compute implied_fv per-event before per-market write so the write
+    # loop can stamp the fresh value.
+    from polily.scan.event_scoring import compute_implied_fair_values
+
     for event_id, market_rows in by_event.items():
         try:
             event = get_event(event_id, db)
@@ -98,11 +106,21 @@ def refresh_scores(
 
             # Build Market models for event-level scoring
             market_models = []
+            # Pair (MarketRow, Market) so the per-market write loop can
+            # access both without rebuilding from mrow twice.
+            paired: list[tuple] = []
 
             for mrow in market_rows:
                 mr = MarketRow.model_validate(dict(mrow))
                 market = market_row_to_model(mr, market_type=market_type)
                 market_models.append(market)
+                paired.append((mr, market))
+
+            # AF-3: compute implied_fair_value per-event from current
+            # in-memory Market models (which carry fresh yes_price from DB).
+            implied_fv_by_market = compute_implied_fair_values(event, market_models)
+
+            for mr, market in paired:
 
                 old_bd = json.loads(mr.score_breakdown)
 
@@ -153,6 +171,16 @@ def refresh_scores(
                 # Drop any stale `commentary` key from old data so the
                 # JSON stays clean on next read.
                 new_bd.pop("commentary", None)
+
+                # AF-3 (v0.11.7): refresh implied_fair_value with current
+                # yes_prices. If the event no longer qualifies (e.g., became
+                # non-negRisk — defensive, unlikely in practice), drop the
+                # stale key from old_bd so it doesn't outlive its truth.
+                mid = mr.market_id
+                if mid in implied_fv_by_market:
+                    new_bd["implied_fair_value"] = implied_fv_by_market[mid]
+                else:
+                    new_bd.pop("implied_fair_value", None)
 
                 with db.transaction() as conn:
                     conn.execute(

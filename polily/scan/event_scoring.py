@@ -114,6 +114,61 @@ def _info_neg_risk(prices: list[float]) -> float:
     return round(min(raw * 20, 20), 2)
 
 
+def compute_implied_fair_values(
+    event: object,
+    markets: list[object],
+) -> dict[str, float]:
+    """Compute per-market implied fair value for negRisk events.
+
+    For a negRisk event with completeness constraint Σ(yes_prices) ≈ 1.0,
+    each market's implied fair value is what its yes_price *would be* if
+    all other markets summed exactly to (1 - this_market.yes_price). This
+    gives a structural anchor — zero model risk, derived purely from the
+    negRisk completeness math.
+
+    Formula::
+
+        implied_fair_value(M) = 1 - Σ(other_markets.yes_price)
+                              = 1 - total + M.yes_price
+
+    Returns empty dict for:
+      - Non-negRisk events (no completeness constraint applies).
+      - Single-market negRisk events (1 - Σ() degenerates to 1, not
+        meaningful as an anchor).
+      - Events where < 2 markets have a valid (non-None) yes_price.
+
+    Otherwise returns ``{market_id: implied_fair_value}`` for every market
+    with a valid yes_price. Values are rounded to 4 decimal places to
+    match yes_price storage precision and keep score_breakdown JSON tidy.
+    Negative values are allowed (e.g., when total > 1 + a market's price)
+    so the agent can see raw magnitudes — clamping would hide overround.
+
+    Args:
+        event: an EventRow-like object with a ``neg_risk`` attribute
+            (bool). Anything that ``getattr(event, "neg_risk", False)``
+            resolves on works.
+        markets: list of Market-like objects with ``market_id`` (str)
+            and ``yes_price`` (float | None) attributes.
+
+    Returns:
+        Dict mapping market_id → implied_fair_value (float, 4dp).
+        Empty dict if not applicable (see exclusion conditions above).
+    """
+    if not getattr(event, "neg_risk", False):
+        return {}
+
+    valid = [m for m in markets if getattr(m, "yes_price", None) is not None]
+    if len(valid) < 2:
+        return {}
+
+    total = sum(m.yes_price for m in valid)
+
+    return {
+        m.market_id: round(1.0 - total + m.yes_price, 4)
+        for m in valid
+    }
+
+
 def _info_independent(prices: list[float]) -> float:
     """Non-negRisk: tradeable ratio + best probability space."""
     n = len(prices)

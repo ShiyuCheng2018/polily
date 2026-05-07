@@ -10,9 +10,29 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.11.7] — 2026-05-07
+
 ### Fixed
 
-- **Scheduled / monitor-triggered analyses now respect the user's TUI language.** Previously, every `auto` / `scheduled` / `movement`-triggered NarrativeWriter run came back in English regardless of the user's F2 choice — the LLM ignored the language toggle for any non-manual trigger. Root cause: the daemon runs in a separate process and never went through `PolilyApp._init_i18n_from_prefs`, so its `polily.tui.i18n` global stayed at the en fallback; `t("language.directive_for_llm")` therefore always rendered the English directive. Fix: `polily.tui.i18n.sync_from_user_pref(db, fallback)` aligns the daemon process's i18n state with `user_prefs.language` before each `_run_pending_analysis` call (per-call rather than once at daemon startup, so an F2 toggle takes effect on the very next scheduled run).
+- **Wallet ledger row coloring now reflects cash-flow direction, not P&L impact (wallet 流水 only).** v0.11.6 applied the 已实现交易历史 P&L coloring rule to the wallet ledger too — so any SELL with negative realized P&L painted red even when cash flowed *into* the account (e.g., a losing-position SELL row showing `+$0.44` came back red, counter-intuitive for a cash-flow ledger). v0.11.7 splits `amount_color()` by `view_mode`: wallet ledger uses cash-flow semantic (cash in → green, cash out → gray, fee → red); 已实现交易历史 keeps the v0.11.6 P&L semantic. BUY rows are gray in both views — opening a position is not a P&L event regardless of which lens you read the row through.
+
+- **Scheduled / monitor-triggered analyses now respect the user's TUI language (#119, @HiveYuan).** Previously, every `auto` / `scheduled` / `movement`-triggered NarrativeWriter run came back in English regardless of the user's F2 choice — the LLM ignored the language toggle for any non-manual trigger. Root cause: the daemon runs in a separate process and never went through `PolilyApp._init_i18n_from_prefs`, so its `polily.tui.i18n` global stayed at the en fallback; `t("language.directive_for_llm")` therefore always rendered the English directive. Fix: `polily.tui.i18n.sync_from_user_pref(db, fallback)` aligns the daemon process's i18n state with `user_prefs.language` before each `_run_pending_analysis` call (per-call rather than once at daemon startup, so an F2 toggle takes effect on the very next scheduled run).
+
+### Changed
+
+- **`stop_loss` / `take_profit` gain a mandatory `{side, price}` schema (AF-5a).** Pre-v0.11.7 these were bare floats (`stop_loss: 0.55`) with ambiguous semantic — the agent had no way to know whether 0.55 meant "YES price drops to 0.55" or "NO price drops to 0.55". The v5 sample showed agent guessing it was a YES price; the prompt didn't say. New schema requires an explicit `side`: `stop_loss: {side: "yes", price: 0.55}` means "stop loss when the YES-side price drops to $0.55 while you're holding YES". Backward compat: pre-v0.11.7 bare-float records in the `analyses` table are silently normalized by a Pydantic field_validator to `{side: "yes", price: <value>}` (YES is the default per the v5 sample's de-facto agent behavior). TUI history view of legacy rows continues to render without crashing.
+
+- **NarrativeWriter prompt gains a streaming-data education section (AF-1 reframe).** Event 57711 v5's dev_feedback diagnosed cross-paragraph `yes_price` drift (0.3265 in one place, 0.3135 in another) as a "WAL 模式时序问题" — that was the agent's misdiagnosis. The actual mechanism: the daemon poll job writes `markets.yes_price` every 30s, and the agent's 2-5 minute analysis window naturally sees multiple commits — real market flow, not a database race. v0.11.7 adds a "## 数据时效性" section to `narrative_writer.md` that organizes DB fields into four freshness buckets (real-time stream / periodic computed / external API / static), teaches the agent to use timestamp-anchored references for streaming fields (e.g. *"at 20:51:25, Alphabet sat at 0.3135"*), and to treat in-window drift as a narrative input (*"during my analysis Alphabet drifted 14 bps over 2 min, reflecting moderate buying pressure"*) rather than a bug to flag in dev_feedback. Respects agent autonomy, keeps `score_breakdown` / `mispricing` / `implied_fair_value` accessible via SQL (not buried in a frozen YAML block).
+
+- **Prompt switches to universal 5 self-reflective questions (AF-5b).** Pre-v0.11.7 the prompt told non-crypto events to lean "on fundamentals and information" and crypto events to lean on `mispricing_signal` — both phrasings too abstract / misleading. v0.11.7 replaces them with five universal interrogative prompts (external anchor / catalyst timing / edge assessment / reverse thesis / vague self-check) that apply to all `market_type` values. Activates the agent's chain-of-thought without micro-managing which dimensions to check.
+
+### Added
+
+- **negRisk events gain `implied_fair_value` in `score_breakdown` (AF-3).** For negRisk events (mutually-exclusive outcomes summing to ≈1.0 by completeness), each market's implied fair value = `1 - Σ(other markets' yes_price)`. Zero model risk — derived purely from negRisk completeness math. Written into `markets.score_breakdown.implied_fair_value` (same channel as crypto's `mispricing_signal`), recomputed at both pipeline scoring time and every `score_refresh` cycle so it doesn't go stale as prices move. The agent now has a baseline structural anchor for every event type: `mispricing_signal` for crypto, `implied_fair_value` for negRisk, self-reflective framework + WebSearch for other non-crypto.
+
+### Notes
+
+UX + correctness + product extension bundle. No schema migration; no breaking API. The wallet color change only affects TUI display. AF-5a `stop_loss` / `take_profit` schema is backward compat (legacy DB records still load). Upgrade with `pipx upgrade polily`.
 
 ## [0.11.6] — 2026-05-06
 
@@ -724,7 +744,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.6...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.7...dev
+[0.11.7]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.7
 [0.11.6]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.6
 [0.11.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.5
 [0.11.4]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.4
