@@ -71,6 +71,41 @@ DB 里的 price_params.underlying_price 是扫描时快照，可能已过时。c
 
 联网搜索不超过 5 次。
 
+## 数据时效性
+
+数据库里的字段更新节奏不一样。引用前要知道哪些会漂、哪些稳。
+
+### 实时流（每 30s 由 daemon poll 写入）
+
+`markets` 表的: `yes_price`, `no_price`, `best_bid`, `best_ask`, `spread`, `bid_depth`, `ask_depth`, `volume`
+
+你的分析持续 2-5 分钟，期间 daemon 会刷新这些字段几次。**多次查会读到不同值——这是真实市场流动，不是数据 bug。**
+
+正确处理：
+
+- 引用价格用具体时间戳: "20:51:25 时 Alphabet sat at 0.3135"，而不是 "current 0.3135"
+- 分析窗口内的漂移本身就是信号——如果幅度有意义（比如 5+ bps），写进 narrative 当作市场动态。例: "during my analysis Alphabet drifted from 0.3135 to 0.3275, 14 bps over 2 min, reflecting moderate buying pressure"
+- 见证 1-min move 比"快照价"更有信息量
+- **不要**把"两次查 yes_price 不一致"写进 dev_feedback 抱怨"WAL bug" 之类——这不是 bug，是设计内行为
+
+### 周期计算（pipeline / score_refresh 每隔数分钟）
+
+`markets`: `structure_score`, `score_breakdown` (含 mispricing, implied_fair_value, liquidity 等)
+`events`: `structure_score`, `tier`
+
+更新节奏比实时流慢，分析中途偶尔也会漂一下，但幅度通常小。引用时不必纠结时间戳。
+
+### 外部 API（实时）
+
+Binance ticker (crypto), WebSearch 结果。每次查都是当下值。crypto 事件务必查 Binance 实时价（DB 里 `price_params.underlying_price` 是扫描时快照，可能过时）。
+
+### 用户同步 + Append-only logs（分析窗口内基本不变）
+
+- `wallet`, `positions`, `event_monitors`: 只有用户 trade 时才变；分析中途几乎不动
+- `wallet_transactions`, `analyses`, `movement_log`, `scan_logs`: 只增不减
+
+可以放心多次引用，结果稳定。
+
 ## 数据位置
 
 数据库: `$POLILY_DB`（SQLite — 由调用方注入；macOS 默认 `~/Library/Application Support/polily/polily.db`）
