@@ -124,6 +124,32 @@ def current_language() -> str:
         return _current_language
 
 
+def sync_from_user_pref(db: Any, fallback: str = _FALLBACK_LANG) -> None:
+    """Load bundled catalogs (if not yet) and set active language from
+    `user_prefs.language` in `db`. Falls back to `fallback` if the pref
+    is unset or names a language we don't ship.
+
+    Used by non-TUI processes (notably the daemon's ai executor running
+    NarrativeWriter) so server-side output — e.g. NarrativeWriter's per-call
+    `t("language.directive_for_llm")` — follows the user's TUI language
+    even though the daemon is a separate process from the one running
+    `PolilyApp._init_i18n_from_prefs`. Call once per analysis (not once
+    at daemon startup) so F2 toggles between scheduled runs take effect.
+    """
+    from polily.core.user_prefs import get_pref
+    global _current_language
+
+    _ensure_bundled_loaded()
+    desired = get_pref(db, "language", default=fallback) or fallback
+    with _lock:
+        if desired in _catalogs:
+            _current_language = desired
+        elif fallback in _catalogs:
+            _current_language = fallback
+        # else: keep whatever we already had — no catalogs loaded means
+        # t() will return key strings either way; nothing better to do.
+
+
 def available_languages() -> list[str]:
     with _lock:
         return sorted(_catalogs.keys())

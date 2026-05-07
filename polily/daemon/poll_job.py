@@ -879,6 +879,7 @@ def _run_pending_analysis(
     import asyncio
 
     from polily.scan_log import finish_scan
+    from polily.tui import i18n
     from polily.tui.service import PolilyService
 
     try:
@@ -887,6 +888,17 @@ def _run_pending_analysis(
         # to `db.transaction()` which acquires `db._lock` internally. The
         # outer wrap was redundant after the broad migration completed.
         cfg = _ctx.config if _ctx is not None else None
+        # v0.11.7: align this daemon-process's i18n state with the user's
+        # TUI language (`user_prefs.language`). The daemon never goes
+        # through PolilyApp._init_i18n_from_prefs, so without this every
+        # NarrativeWriter prompt would default to the en
+        # `language.directive_for_llm`, making scheduled / monitor-triggered
+        # analyses come back in English regardless of F2. Per-call sync
+        # rather than init-once so a mid-flight F2 toggle takes effect on
+        # the very next scheduled run.
+        i18n.sync_from_user_pref(
+            db, fallback=cfg.tui.language if cfg is not None else "en",
+        )
         service = PolilyService(config=cfg, db=db)
         asyncio.run(
             service.analyze_event(
