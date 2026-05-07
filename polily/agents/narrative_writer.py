@@ -60,19 +60,9 @@ class NarrativeWriterAgent:
         *,
         event_title: str | None = None,
         trigger_source: str,
-        frozen_prices: dict[str, dict[str, float]] | None = None,
     ) -> NarrativeWriterOutput:
-        """Generate analysis with semantic validation + retry.
-
-        v0.11.7 (AF-1): `frozen_prices` is a snapshot of market prices
-        captured by the caller BEFORE the agent runs. When provided,
-        `_build_prompt` embeds them in a YAML block so the agent reads
-        them from prompt text and does not re-query the markets table.
-        """
-        prompt = self._build_prompt(
-            event_id, has_position, position_summary,
-            frozen_prices=frozen_prices,
-        )
+        """Generate analysis with semantic validation + retry."""
+        prompt = self._build_prompt(event_id, has_position, position_summary)
 
         last_output = None
         for attempt in range(2):  # 1 initial + 1 retry
@@ -118,8 +108,6 @@ class NarrativeWriterAgent:
         event_id: str,
         has_position: bool = False,
         position_summary: str | None = None,
-        *,
-        frozen_prices: dict[str, dict[str, float]] | None = None,
     ) -> str:
         """Build minimal prompt — agent reads DB and searches web on its own.
 
@@ -129,14 +117,6 @@ class NarrativeWriterAgent:
         injected per-call rather than baked into the system prompt because
         the user can switch language at runtime — and because the system
         prompt is loaded once at agent construction.
-
-        v0.11.7 (AF-1): when `frozen_prices` is provided, render them at
-        the top as a YAML block — the agent reads from prompt text instead
-        of running `sqlite3 ... FROM markets`. Combined with deletion of
-        the three FROM markets templates from narrative_writer.md, this
-        becomes the single source of truth for prices the agent sees,
-        eliminating cross-paragraph price drift (event 57711 v5 was the
-        reproduced incident).
         """
         from polily.tui.i18n import t
 
@@ -151,10 +131,7 @@ class NarrativeWriterAgent:
 
         language_directive = t("language.directive_for_llm")
 
-        # AF-1: prepend frozen prices block (empty string when none).
-        prices_section = self._render_frozen_prices_section(frozen_prices)
-
-        prompt = f"""{prices_section}{language_directive}
+        prompt = f"""{language_directive}
 
 分析事件 {event_id}。
 
@@ -177,49 +154,6 @@ Prompt 指令: polily/agents/prompts/narrative_writer.md
             prompt += "\n\n用户在此事件无持仓。判断这个事件值不值得做，不值得就直接 PASS，值得再说具体怎么做。"
 
         return prompt
-
-    @staticmethod
-    def _render_frozen_prices_section(
-        frozen_prices: dict[str, dict[str, float]] | None,
-        captured_at: str | None = None,
-    ) -> str:
-        """Render the frozen prices block as a leading prompt section.
-
-        Returns empty string if no frozen_prices provided (legacy fallback;
-        callers post-v0.11.7 should always supply them, but this keeps
-        the API forgiving for unit tests of `_build_prompt`).
-
-        Whis-review SG-2 (2026-05-07): `captured_at` is an explicit param
-        (default `None` → `datetime.now(UTC)`) so tests can supply a
-        deterministic timestamp instead of asserting against a flaky
-        wall-clock value. Production callers leave it None.
-        """
-        if not frozen_prices:
-            return ""
-
-        if captured_at is None:
-            from datetime import UTC, datetime
-            captured_at = datetime.now(UTC).isoformat()
-
-        lines = [
-            "## 价格快照（已冻结）",
-            "",
-            "**重要**: 以下价格已在分析开始时冻结。**不要重新查询 `markets` 表**——",
-            "这些是本次分析依据的真实快照。任何叙述里引用的 `yes_price` / `no_price`",
-            "都必须使用下面的值，否则会出现自相矛盾的报告。",
-            "",
-            "```yaml",
-            f"prices_snapshot_at: {captured_at}",
-            "markets:",
-        ]
-        for market_id, prices in frozen_prices.items():
-            yes = prices.get("yes")
-            no = prices.get("no")
-            yes_str = f"{yes:.4f}" if yes is not None else "null"
-            no_str = f"{no:.4f}" if no is not None else "null"
-            lines.append(f"  {market_id}: {{yes: {yes_str}, no: {no_str}}}")
-        lines.extend(["```", "", ""])
-        return "\n".join(lines)
 
 
 def _write_dev_feedback(
