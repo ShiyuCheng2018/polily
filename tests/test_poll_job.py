@@ -674,3 +674,61 @@ class TestPollOnlyMonitoredEvents:
             global_poll(db)
 
         mock_fetch.assert_not_called()
+
+
+class TestRunPendingAnalysisI18nSync:
+    """`_run_pending_analysis` runs in the daemon process where i18n was
+    never initialized from `user_prefs.language`. Without a per-call sync,
+    NarrativeWriter's `t("language.directive_for_llm")` defaults to en
+    and every scheduled / monitor-triggered analysis comes back in English
+    regardless of the user's F2 choice. v0.11.7 fix.
+    """
+
+    def test_syncs_i18n_from_user_pref_before_invoking_service(self, db):
+        from polily.core.user_prefs import set_pref
+        from polily.daemon.poll_job import _run_pending_analysis
+        from polily.scan_log import insert_pending_scan
+        from polily.tui import i18n
+
+        # Precondition: simulate a freshly-spawned daemon process — i18n
+        # at the en default, never touched from db pref.
+        i18n._catalogs = {}
+        i18n._auto_loaded = False
+        i18n._current_language = "en"
+
+        # User chose Chinese in the TUI (F2) — persisted to user_prefs.
+        _seed(db, "ev_lang", "m_lang", token="tok_lang")
+        set_pref(db, "language", "zh")
+        scan_id = insert_pending_scan(
+            event_id="ev_lang",
+            event_title="Lang test",
+            scheduled_at="2026-05-06T00:00:00+00:00",
+            trigger_source="scheduled",
+            scheduled_reason="i18n regression",
+            db=db,
+        )
+        # Flip the row to running (dispatcher invariant: _run_pending only
+        # ever runs after claim_pending_scan succeeded).
+        with db.transaction() as conn:
+            conn.execute(
+                "UPDATE scan_logs SET status='running' WHERE scan_id=?", (scan_id,),
+            )
+
+        observed_lang: dict[str, str] = {}
+
+        async def _fake_analyze_event(self_, event_id, **kw):
+            # By the time analyze_event runs, the daemon must have aligned
+            # its process-global language with user_prefs.
+            observed_lang["lang"] = i18n.current_language()
+
+        with patch("polily.tui.service.PolilyService.analyze_event", _fake_analyze_event):
+            _run_pending_analysis(
+                event_id="ev_lang", scan_id=scan_id,
+                db=db, trigger_source="scheduled",
+            )
+
+        assert observed_lang.get("lang") == "zh", (
+            "daemon should sync i18n from user_prefs before invoking the "
+            "agent — otherwise NarrativeWriter's language.directive_for_llm "
+            "always renders in en and the LLM ignores the user's F2 choice"
+        )

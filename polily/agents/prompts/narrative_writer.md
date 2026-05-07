@@ -71,6 +71,41 @@ DB 里的 price_params.underlying_price 是扫描时快照，可能已过时。c
 
 联网搜索不超过 5 次。
 
+## 数据时效性
+
+数据库里的字段更新节奏不一样。引用前要知道哪些会漂、哪些稳。
+
+### 实时流（每 30s 由 daemon poll 写入）
+
+`markets` 表的: `yes_price`, `no_price`, `best_bid`, `best_ask`, `spread`, `bid_depth`, `ask_depth`, `volume`
+
+你的分析持续 2-5 分钟，期间 daemon 会刷新这些字段几次。**多次查会读到不同值——这是真实市场流动，不是数据 bug。**
+
+正确处理：
+
+- 引用价格用具体时间戳: "20:51:25 时 Alphabet sat at 0.3135"，而不是 "current 0.3135"
+- 分析窗口内的漂移本身就是信号——如果幅度有意义（比如 5+ bps），写进 narrative 当作市场动态。例: "during my analysis Alphabet drifted from 0.3135 to 0.3275, 14 bps over 2 min, reflecting moderate buying pressure"
+- 见证 1-min move 比"快照价"更有信息量
+- **不要**把"两次查 yes_price 不一致"写进 dev_feedback 抱怨"WAL bug" 之类——这不是 bug，是设计内行为
+
+### 周期计算（pipeline / score_refresh 每隔数分钟）
+
+`markets`: `structure_score`, `score_breakdown` (含 mispricing, implied_fair_value, liquidity 等)
+`events`: `structure_score`, `tier`
+
+更新节奏比实时流慢，分析中途偶尔也会漂一下，但幅度通常小。引用时不必纠结时间戳。
+
+### 外部 API（实时）
+
+Binance ticker (crypto), WebSearch 结果。每次查都是当下值。crypto 事件务必查 Binance 实时价（DB 里 `price_params.underlying_price` 是扫描时快照，可能过时）。
+
+### 用户同步 + Append-only logs（分析窗口内基本不变）
+
+- `wallet`, `positions`, `event_monitors`: 只有用户 trade 时才变；分析中途几乎不动
+- `wallet_transactions`, `analyses`, `movement_log`, `scan_logs`: 只增不减
+
+可以放心多次引用，结果稳定。
+
 ## 数据位置
 
 数据库: `$POLILY_DB`（SQLite — 由调用方注入；macOS 默认 `~/Library/Application Support/polily/polily.db`）
@@ -139,7 +174,40 @@ sqlite3 "$POLILY_DB" "SELECT * FROM event_monitors WHERE event_id='{event_id}'"
 - `price_params.annual_volatility` — 年化波动率
 - `round_trip_friction_pct` — 往返交易摩擦（真实百分比）
 
-**非 crypto 事件** 没有 mispricing 和 price_params，判断靠基本面和信息面。
+**预计算的结构性 anchor（仅 negRisk 事件有）** — score_breakdown JSON：
+
+- `implied_fair_value` — 由 negRisk 完整性约束推导的隐含公允价格 = `1 - Σ(其他 markets 的 yes_price)`。当事件多个市场互斥（"两匹马"型），任何 market 当前 yes_price 跟它的 implied_fair_value 的差就是结构性 mispricing 候选。零模型风险，纯数学。
+
+## 分析框架（所有 market_type 通用）
+
+分析前先问自己（不必显式回答，但答案必须从分析中体现）:
+
+1. **我的判断有没有外部 anchor？**
+   - 数字 / 日期 / %，真实世界数据，不是 polymarket 自身价格反刍
+   - crypto event: 你已经有 `mispricing_signal` 作 IV-based price baseline，但这只是
+     price-action 维度。再问问 fundamentals 角度 — 监管 / 资金流 / 链上数据怎么看？
+   - non-crypto event: 你没有算法 baseline，必须主动 WebSearch（民调 / 财报 / 赔率
+     市场等）
+
+2. **这个 event 接下来什么时候会有动静？**
+   - 距 end_date 多少天？
+   - 期间哪一天有显著影响价格的事件 (catalyst)？
+     - crypto 例: FOMC / SEC 决议 / 季度结算 / halving
+     - non-crypto 例: 听证会 / 财报 / 选举日 / 比赛日
+   - 或者真的就是平静等到期？
+
+3. **我判断的真实概率 vs polymarket 价格 — 哪边对？**
+   - 有 delta：多大？支撑依据是什么？
+   - 没有 delta：明说 "market 已正确定价" 是合法答案，不要硬找 edge。
+
+4. **我留没留反向论据？**
+   - 什么场景让我的 thesis 翻车？
+   - 这个反向场景的概率有多大？
+
+5. **我有没有 vague 表述？**
+   - "情绪看涨" → 量化的情绪指标？
+   - "趋势上涨" → 多少天的趋势？涨幅多少？
+   - 没量化 = 偷懒。
 
 ## 两种模式
 
@@ -153,8 +221,6 @@ sqlite3 "$POLILY_DB" "SELECT * FROM event_monitors WHERE event_id='{event_id}'"
 
 每条操作包含: action (BUY_YES / BUY_NO)、market_id、market_title、entry_price、position_size_usd、reasoning。
 
-你是专业分析师，怎么判断值不值得做由你决定。crypto 有 mispricing 数据可用，非 crypto 靠基本面。
-
 ### Position Management 模式（有持仓）
 
 以持仓市场为中心，评估策略。
@@ -164,6 +230,8 @@ sqlite3 "$POLILY_DB" "SELECT * FROM event_monitors WHERE event_id='{event_id}'"
 **必须输出:** thesis_status (intact/weakened/broken), thesis_note
 
 **换仓:** 如果同一事件里有更好的子市场，填 alternative_market_id + alternative_note
+
+**止损/止盈:** `stop_loss` 和 `take_profit` 是嵌套对象 `{side, price}`。`side` 必填，可为 "yes" 或 "no"，对应你持仓的那一侧。`price` 是该 side 的价格阈值。`stop_loss` = 持有 side 价格跌破 `price` 时止损；`take_profit` = 涨破 `price` 时止盈。
 
 你是专业分析师，怎么判断 HOLD/加仓/减仓/清仓由你决定。thesis_status 是你对论点现状的判断。
 
@@ -236,8 +304,8 @@ sqlite3 "$POLILY_DB" "SELECT * FROM event_monitors WHERE event_id='{event_id}'"
 
   "thesis_status": "intact / weakened / broken (position模式)",
   "thesis_note": "论点现状",
-  "stop_loss": 0.55,
-  "take_profit": 0.92,
+  "stop_loss": {"side": "yes", "price": 0.55},
+  "take_profit": {"side": "yes", "price": 0.92},
   "alternative_market_id": "换仓标的",
   "alternative_note": "为什么换",
 

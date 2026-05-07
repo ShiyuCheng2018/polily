@@ -120,6 +120,56 @@ def test_loader_returns_empty_dict_for_missing_directory(tmp_path: Path):
     assert i18n.load_catalogs(tmp_path / "does_not_exist") == {}
 
 
+# --- daemon-process language sync (sync_from_user_pref) ---
+
+class TestSyncFromUserPref:
+    """`sync_from_user_pref(db, fallback)` is the bridge that lets non-TUI
+    processes (notably the daemon's ai executor running NarrativeWriter)
+    pick up the user's TUI language choice. Without it, the daemon's
+    `t("language.directive_for_llm")` always returned the fallback (en),
+    and every scheduled / monitor-triggered analysis got an English-only
+    LLM directive regardless of F2 toggle.
+    """
+
+    def _db_with_lang_pref(self, tmp_path: Path, lang: str | None):
+        from polily.core.db import PolilyDB
+        from polily.core.user_prefs import set_pref
+
+        db = PolilyDB(tmp_path / "polily.db")
+        if lang is not None:
+            set_pref(db, "language", lang)
+        return db
+
+    def test_sets_language_from_user_prefs(self, tmp_path: Path):
+        db = self._db_with_lang_pref(tmp_path, "zh")
+        i18n.sync_from_user_pref(db, fallback="en")
+        assert i18n.current_language() == "zh"
+        # Verify the actual directive matches — that's what NarrativeWriter
+        # reads via t("language.directive_for_llm").
+        assert "简体中文" in i18n.t("language.directive_for_llm")
+
+    def test_falls_back_when_pref_missing(self, tmp_path: Path):
+        db = self._db_with_lang_pref(tmp_path, lang=None)
+        i18n.sync_from_user_pref(db, fallback="en")
+        assert i18n.current_language() == "en"
+
+    def test_falls_back_when_pref_is_unknown_language(self, tmp_path: Path):
+        # Corrupt / future pref value — fall through to fallback rather
+        # than crashing the daemon mid-analysis.
+        db = self._db_with_lang_pref(tmp_path, "ja")
+        i18n.sync_from_user_pref(db, fallback="en")
+        assert i18n.current_language() == "en"
+
+    def test_lazy_loads_bundled_catalogs_when_uninitialized(self, tmp_path: Path):
+        # Simulate a fresh daemon process: catalogs never loaded.
+        i18n._catalogs = {}
+        i18n._auto_loaded = False
+        db = self._db_with_lang_pref(tmp_path, "zh")
+        i18n.sync_from_user_pref(db, fallback="en")
+        assert "zh" in i18n.available_languages()
+        assert i18n.current_language() == "zh"
+
+
 # --- key-set consistency (CI gate) ---
 
 def test_bundled_catalogs_have_consistent_key_sets():

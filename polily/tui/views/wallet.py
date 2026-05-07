@@ -354,7 +354,10 @@ class WalletView(Widget):
             # rule (P&L impact, not cash-flow direction) is shared with
             # the 已实现交易历史 view. BUY rows now render gray; near-
             # zero realized P&L on SELL/RESOLVE also reads gray.
-            color = amount_color(tx["type"], amt, tx.get("realized_pnl"))
+            color = amount_color(
+                tx["type"], amt, tx.get("realized_pnl"),
+                view_mode="wallet_ledger",
+            )
             amt_sign = "+" if amt > 0 else ""
             amt_str = f"[{color}]{amt_sign}${amt:.2f}[/{color}]"
             desc = _format_tx_description(tx)

@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 # --- Shared types ---
 
@@ -65,6 +65,24 @@ class Operation(BaseModel):
     reasoning: str = ""  # why this specific operation
 
 
+class StopLossOrTakeProfit(BaseModel):
+    """Threshold for position-management triggers.
+
+    v0.11.7: previously a bare float (ambiguous side). Now a dict with
+    explicit `side` so the agent does not guess whether 0.55 means
+    "YES price drops to 0.55" or "NO price drops to 0.55".
+
+    Backward compat: `NarrativeWriterOutput`'s field validator normalizes
+    legacy bare-float fixtures to ``{"side": "yes", "price": <value>}``
+    (the YES-default matches the v5 sample's de-facto agent behavior).
+    """
+
+    side: Literal["yes", "no"]
+    price: float
+
+    model_config = ConfigDict(extra="forbid")
+
+
 # --- Main output schema ---
 
 class NarrativeWriterOutput(BaseModel):
@@ -89,8 +107,8 @@ class NarrativeWriterOutput(BaseModel):
     # Position mode
     thesis_status: ThesisStatus | None = None
     thesis_note: str | None = None
-    stop_loss: float | None = None
-    take_profit: float | None = None
+    stop_loss: StopLossOrTakeProfit | None = None
+    take_profit: StopLossOrTakeProfit | None = None
     alternative_market_id: str | None = None
     alternative_note: str | None = None
 
@@ -106,6 +124,19 @@ class NarrativeWriterOutput(BaseModel):
     dev_feedback: str | None = None
 
     model_config = ConfigDict(extra="ignore")
+
+    @field_validator("stop_loss", "take_profit", mode="before")
+    @classmethod
+    def _normalize_legacy_bare_float(cls, v: object) -> object:
+        """Normalize pre-v0.11.7 bare-float values to the new
+        {side, price} dict form. YES is the default side (matches the
+        v5 sample's de-facto agent behavior). Dict / None / model
+        instances pass through unchanged."""
+        if v is None:
+            return v
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return {"side": "yes", "price": float(v)}
+        return v  # dict or StopLossOrTakeProfit — let pydantic validate
 
     def semantic_errors(self) -> list[str]:
         """Return list of semantic issues. Empty = OK."""

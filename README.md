@@ -98,7 +98,7 @@ positions are the same across all NF fonts.
 polily doctor
 ```
 
-The "Nerd Font 字体" section prints sample glyphs. If you see `□` tofu
+The "Nerd Font" section prints sample glyphs. If you see `□` tofu
 boxes, the font is not yet active — check your terminal's font setting.
 
 Minimum terminal size: **100×30 cells**. Polily works at smaller sizes but
@@ -126,7 +126,7 @@ column layout may wrap. 120×30 or larger recommended.
 | `↑ / ↓` | Navigate menu |
 | `q` | Quit |
 
-Inside the Wallet page: `t` topup · `w` withdraw · `shift+r` reset (or click `重置钱包`).
+Inside the Wallet page: `t` topup · `w` withdraw · `shift+r` reset (or click `Reset Wallet`).
 Inside an event detail page: `a` AI analysis · `t` trade · `m` toggle monitoring · `v` switch analysis version.
 
 See [docs/ui-guide.md](docs/ui-guide.md) for the full v0.8.0 interaction reference.
@@ -151,12 +151,12 @@ deviation gates, wallet starting balance) is managed inside the TUI:
 
 ```
 polily       # launches the TUI
-# press 6 or click the sidebar's ⚙ 配置
+# press 6 or click the sidebar's ⚙ Config
 ```
 
-- The Config view is grouped into 4 sections — 异动触发 / 评分 / 错误定价 / 钱包
-- Click any row to open an Edit modal with a Chinese description, default value, and tuning guidance
-- After saving, a banner shows `N 项改动未生效`; press `Ctrl+R` to restart polily so the daemon picks them up
+- The Config view is grouped into 4 sections — Movement Triggers / Scoring / Mispricing / Wallet
+- Click any row to open an Edit modal with a description, default value, and tuning guidance
+- After saving, a banner shows `N pending change(s)`; press `Ctrl+R` to restart polily so the daemon picks them up
 
 How it's stored:
 

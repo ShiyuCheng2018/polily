@@ -88,3 +88,72 @@ def test_amount_color_returns_rich_compatible_tags():
             assert color in valid, (
                 f"amount_color returned {color!r} — not in {valid}"
             )
+
+
+@pytest.mark.parametrize(
+    "tx_type,amount,realized_pnl,expected_color",
+    [
+        # Wallet ledger view = cash-flow semantic
+        # BUY ALWAYS gray (user-locked invariant 2026-05-07): position open, not P&L event
+        ("BUY", -100.0, None, GRAY),
+        ("BUY", -0.50, None, GRAY),
+        # WITHDRAW / RESET also gray (user moves own money, no P&L)
+        ("WITHDRAW", -50.0, None, GRAY),
+        ("RESET", 0.0, None, GRAY),
+        # TOPUP green (cash in + encourage capital adds)
+        ("TOPUP", 100.0, None, "green"),
+        # FEE red (real cost, regardless of view)
+        ("FEE", -0.05, None, "red"),
+        # SELL with positive cash flow → green even if realized_pnl is negative.
+        # This is the v0.11.6 → v0.11.7 fix: SELL +$0.44 (亏本卖出 cash in)
+        # was red under v0.11.6 P&L rule; now green under wallet ledger rule
+        # because the *cash flow* is positive.
+        ("SELL", 0.44, -7.68, "green"),
+        # SELL with negative cash flow (rare; e.g., adjustments)
+        ("SELL", -0.50, -7.68, GRAY),  # cash out from SELL is anomalous; gray = neutral
+        # SELL with effectively zero cash flow → gray
+        ("SELL", 0.001, -0.50, GRAY),
+        ("SELL", 0.0, -0.50, GRAY),
+        # RESOLVE with positive cash flow → green
+        ("RESOLVE", 117.00, 16.37, "green"),
+        ("RESOLVE", 0.44, -7.68, "green"),  # losing position resolved at zero
+        # RESOLVE with zero cash flow → gray
+        ("RESOLVE", 0.0, 0.0, GRAY),
+        # Unknown tx_type fallback
+        ("UNKNOWN", 100.0, None, GRAY),
+    ],
+)
+def test_amount_color_wallet_ledger(tx_type, amount, realized_pnl, expected_color):
+    """Wallet ledger uses cash-flow semantic; SELL/RESOLVE color tracks
+    amount sign, NOT realized_pnl. BUY always gray (user-locked invariant)."""
+    actual = amount_color(
+        tx_type, amount, realized_pnl, view_mode="wallet_ledger",
+    )
+    assert actual == expected_color, (
+        f"amount_color({tx_type!r}, {amount}, {realized_pnl}, "
+        f"view_mode='wallet_ledger') = {actual!r}, expected {expected_color!r}"
+    )
+
+
+def test_amount_color_history_view_unchanged_from_v0_11_6():
+    """History view (default) preserves v0.11.6 P&L rule. Existing
+    test_amount_color cases above already cover this; this test is
+    a smoke check that view_mode='history' is the default and
+    matches v0.11.6 behavior."""
+    # SELL with negative realized_pnl is RED (P&L impact rule)
+    assert amount_color("SELL", 0.44, -7.68, view_mode="history") == "red"
+    # SELL with positive realized_pnl is GREEN
+    assert amount_color("SELL", 18.00, 2.46, view_mode="history") == "green"
+    # Default value (no view_mode passed) must equal view_mode='history'
+    assert amount_color("SELL", 0.44, -7.68) == amount_color(
+        "SELL", 0.44, -7.68, view_mode="history",
+    )
+
+
+def test_amount_color_view_mode_buy_invariant():
+    """BUY is gray in BOTH views. User-locked invariant 2026-05-07."""
+    for vm in ("wallet_ledger", "history"):
+        for amt in (-100.0, -0.50, 0.0, 100.0):
+            assert amount_color("BUY", amt, None, view_mode=vm) == GRAY, (
+                f"BUY must be gray under view_mode={vm!r} regardless of amount={amt}"
+            )
