@@ -10,6 +10,10 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Scheduled / monitor-triggered analyses now respect the user's TUI language.** Previously, every `auto` / `scheduled` / `movement`-triggered NarrativeWriter run came back in English regardless of the user's F2 choice — the LLM ignored the language toggle for any non-manual trigger. Root cause: the daemon runs in a separate process and never went through `PolilyApp._init_i18n_from_prefs`, so its `polily.tui.i18n` global stayed at the en fallback; `t("language.directive_for_llm")` therefore always rendered the English directive. Fix: `polily.tui.i18n.sync_from_user_pref(db, fallback)` aligns the daemon process's i18n state with `user_prefs.language` before each `_run_pending_analysis` call (per-call rather than once at daemon startup, so an F2 toggle takes effect on the very next scheduled run).
+
 ## [0.11.6] — 2026-05-06
 
 ### Fixed
