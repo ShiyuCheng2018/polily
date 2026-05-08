@@ -3,13 +3,15 @@
 Per design §3.2 — db.config is the single source of truth for polily
 configuration. Three field tiers:
 
-- territory A (40 leaves): TUI-editable, persisted in db
-- HIDDEN_IN_TUI (7 leaves): persisted in db but not exposed via TUI Edit modal
+- territory A (41 leaves): TUI-editable, persisted in db
+- HIDDEN_IN_TUI (8 leaves): persisted in db but not exposed via TUI Edit modal
 - EPHEMERAL_FIELDS (1 leaf): never persisted; computed at runtime via Pydantic
   default_factory (e.g., api.user_agent which follows __version__)
 
+Counts updated 2026-05-08 for v0.12.0 (active_strategy added).
+
 Public API (all implemented as of Phase 1):
-    ensure_seeded(db)           — INSERT OR IGNORE all 47 leaves except EPHEMERAL
+    ensure_seeded(db)           — INSERT OR IGNORE all 49 leaves except EPHEMERAL
     load_all(db) -> dict        — read all rows, returns {key_path: value}
     upsert(db, key, value)      — write/overwrite a single key (TUI Edit modal)
     reset(db, key)              — write Pydantic default for key (modal Reset)

@@ -390,10 +390,14 @@ class PolilyDB:
         # v0.12.0: analyses backward-compat flag for markdown vs json output.
         # Legacy rows default to 'json' (matches NarrativeWriter pre-v0.12.0
         # behavior); v0.12.0+ writes 'markdown' for new rendering paths.
-        # Race-safe: PRAGMA + ALTER is not atomic across processes (TUI +
-        # daemon can both run __init__ on first install — see
-        # test_db_wal_race.py); swallow the "duplicate column name" error
-        # so the second concurrent caller no-ops cleanly.
+        #
+        # Race-safe pattern: try-ALTER then swallow "duplicate column name".
+        # We deliberately do NOT use the seemingly cleaner PRAGMA-then-ALTER
+        # pattern because it has a TOCTOU window — process A reads PRAGMA
+        # empty, process B ALTERs the column in, process A's subsequent
+        # ALTER fails with no recovery path. The TUI + daemon co-init case
+        # on first install is covered by test_db_wal_race.py; do not
+        # "improve" this back to PRAGMA-check without re-reading that test.
         try:
             self.conn.execute(
                 "ALTER TABLE analyses ADD COLUMN narrative_format TEXT NOT NULL DEFAULT 'json'"
@@ -426,6 +430,10 @@ class PolilyDB:
         # load_config_from_db -> ensure_seeded, which INSERT OR IGNOREs every
         # PolilyConfig leaf including the new active_strategy field. This
         # keeps the "init schema vs seed defaults" boundary clean.
+        #
+        # See also: polily/core/config_store.py::ensure_seeded for the actual
+        # seeding code; polily/core/config.py::load_config_from_db for the
+        # canonical bootstrap entry point that triggers it.
 
         self.conn.commit()
         self._ensure_wallet_singleton()

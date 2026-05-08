@@ -68,17 +68,50 @@ def test_active_strategy_loads_through_config_store(tmp_path):
 
 
 def test_legacy_analyses_get_json_format_on_migration(tmp_path):
-    """Pre-existing analyses rows (simulated) get narrative_format='json' on migration."""
+    """Pre-existing analyses rows (genuinely written WITHOUT narrative_format)
+    get narrative_format='json' applied by the v0.12.0 ALTER TABLE migration.
+
+    This exercises the actual upgrade path: a v0.11.x DB has analyses rows
+    where the narrative_format column doesn't exist; v0.12.0 first-init
+    runs ALTER + DEFAULT 'json'; existing rows are populated by the DEFAULT
+    clause. Critical for users upgrading from v0.11.x — their full history
+    must keep rendering after the column is added.
+    """
+    import sqlite3 as _sqlite3
+
     db_path = tmp_path / "polily.db"
-    db = PolilyDB(db_path)
-    # analyses.event_id has a FK on events.event_id — seed the parent first.
-    db.conn.execute(
-        "INSERT INTO events (event_id, slug, title, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        ("evt1", "evt1-slug", "evt1 title",
-         "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
-    )
-    db.conn.execute(
+    # Simulate a v0.11.x DB: open PolilyDB once to materialize the v0.12.0
+    # schema, then DROP the narrative_format column to roll back to the
+    # v0.11.x shape, INSERT a legacy row, close. SQLite doesn't have
+    # DROP COLUMN before 3.35; we use the canonical "rebuild table without
+    # the column" pattern. This keeps the events / index / FK shape
+    # identical to v0.11.x — only the analyses-narrative_format column
+    # differs.
+    PolilyDB(db_path).conn.close()  # bring schema to v0.12.0
+    conn = _sqlite3.connect(db_path)
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.executescript("""
+        BEGIN;
+        CREATE TABLE _analyses_v11 (
+            event_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            trigger_source TEXT NOT NULL DEFAULT 'manual',
+            prices_snapshot TEXT,
+            narrative_output TEXT,
+            structure_score REAL,
+            score_breakdown TEXT,
+            mispricing_signal TEXT NOT NULL DEFAULT 'none',
+            mispricing_details TEXT,
+            elapsed_seconds REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (event_id, version)
+        );
+        DROP TABLE analyses;
+        ALTER TABLE _analyses_v11 RENAME TO analyses;
+        COMMIT;
+    """)
+    # Insert a legacy row directly (FK off — events row not required for this test).
+    conn.execute(
         """INSERT INTO analyses
             (event_id, version, created_at, trigger_source,
              prices_snapshot, narrative_output,
@@ -89,8 +122,22 @@ def test_legacy_analyses_get_json_format_on_migration(tmp_path):
          "{}", '{"summary": "old"}',
          85.0, '{"spread": 90}', "none", None, 12.5)
     )
-    db.conn.commit()
+    conn.commit()
+    # Sanity check: column does not exist BEFORE the migration runs.
+    cols_before = [r[1] for r in conn.execute("PRAGMA table_info(analyses)").fetchall()]
+    assert "narrative_format" not in cols_before, (
+        "Test setup failed — narrative_format should be absent in simulated v0.11.x DB"
+    )
+    conn.close()
+
+    # Re-open via PolilyDB — _init_schema's ALTER TABLE migration runs here
+    # and populates the legacy row's narrative_format from the DEFAULT clause.
+    db = PolilyDB(db_path)
+    cols_after = [r["name"] for r in db.conn.execute("PRAGMA table_info(analyses)").fetchall()]
+    assert "narrative_format" in cols_after
     row = db.conn.execute(
         "SELECT narrative_format FROM analyses WHERE event_id = 'evt1' AND version = 1"
     ).fetchone()
-    assert row["narrative_format"] == "json"
+    assert row["narrative_format"] == "json", (
+        "Legacy row should be auto-populated with default 'json' by ALTER's DEFAULT clause"
+    )
