@@ -35,7 +35,7 @@ def test_skill_sources_core_files_are_in_package():
     base = Path(polily.__file__).parent / "agents" / "skill_sources" / "core"
     expected = [
         "01_persona.md",
-        "02_data_model.md",
+        "02_mechanics.md",
         "03_db_schema.md",
         "04_data_freshness.md",
         "05_file_paths.md",
