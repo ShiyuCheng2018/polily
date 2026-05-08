@@ -11,6 +11,7 @@ from textual.widgets import Markdown, Static
 
 from polily.agents.frontmatter import split_frontmatter
 from polily.analysis_store import AnalysisVersion
+from polily.tui.i18n import t
 
 
 class MarkdownAnalysisView(VerticalScroll):
@@ -42,8 +43,9 @@ class MarkdownAnalysisView(VerticalScroll):
         next_check_at = self._frontmatter.get("next_check_at", "")
         reason = self._frontmatter.get("next_check_reason", "")
         if next_check_at:
+            label = t("analysis.next_check_label")
             yield Static(
-                f"⏰ Next check: {next_check_at}  ·  {reason}",
+                f"⏰ {label}: {next_check_at}  ·  {reason}",
                 classes="next-check-line",
             )
         yield Markdown(self._body)

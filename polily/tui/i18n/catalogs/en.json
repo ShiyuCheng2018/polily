@@ -246,6 +246,7 @@
 
   "analysis.title": "AI Analysis",
   "analysis.analyzing": "AI analyzing... will update on completion",
+  "analysis.next_check_label": "Next check",
   "analysis.section.operations": "Operations",
   "analysis.section.position": "Position",
   "analysis.section.analysis": "Analysis",

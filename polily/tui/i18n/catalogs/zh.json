@@ -246,6 +246,7 @@
 
   "analysis.title": "AI 分析",
   "analysis.analyzing": "AI 分析中... 完成后自动更新",
+  "analysis.next_check_label": "下次检查",
   "analysis.section.operations": "操作",
   "analysis.section.position": "持仓",
   "analysis.section.analysis": "分析",
