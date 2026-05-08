@@ -36,6 +36,9 @@ class MenuSelected(Message):
 
 
 # Menu id → Nerd Font glyph (v0.8.0).
+# v0.12.0: 'strategy' uses fa-book () — a "playbook" / "rulebook" glyph
+# that fits the strategy-document semantic and is visually distinct from
+# fa-sticky-note (changelog) and fa-cogs (config).
 MENU_ICONS: dict[str, str] = {
     "tasks": ICON_SCAN,
     "monitor": ICON_AUTO_MONITOR,
@@ -44,6 +47,7 @@ MENU_ICONS: dict[str, str] = {
     "history": ICON_COMPLETED,
     "archive": ICON_EVENT,
     "config": ICON_CONFIG,
+    "strategy": "",  # fa-book
     "changelog": ICON_CHANGELOG,
 }
 
@@ -152,6 +156,7 @@ class Sidebar(Widget):
         yield SidebarItem("sidebar.history", "history")
         yield SidebarItem("sidebar.archive", "archive")
         yield SidebarItem("sidebar.config", "config")
+        yield SidebarItem("sidebar.strategy", "strategy")
         yield SidebarItem("sidebar.changelog", "changelog")
         yield Static("  [dim]POLL[/dim] --", id="poll-indicator")
 
