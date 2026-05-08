@@ -33,6 +33,11 @@ EXEMPTION_LIST: set[str] = {
     # db.config, but no production code path reads it. See
     # polily/core/config.py::default_db_path docstring.
     "archiving.db_file",
+    # v0.12.0 Task 2 — schema-only landing. active_strategy is added to
+    # PolilyConfig + DB now so future tasks (NarrativeWriter strategy
+    # selector + TUI 策略 page) can wire to it. Producer/consumer code
+    # paths land in subsequent v0.12.0 tasks; remove this exemption then.
+    "active_strategy",
 }
 
 # Fields whose audit verdict comes from a LOW-SPECIFICITY grep match
@@ -148,6 +153,39 @@ LOW_SPECIFICITY_VERIFIED: dict[str, str] = {
         "Wired in feat/runtime-i18n PR-1 Task 6."
     ),
 }
+
+
+def test_exemption_list_is_minimal():
+    """Every leaf in EXEMPTION_LIST must currently have ZERO HIGH-SPECIFICITY refs.
+
+    When a future task wires up a real consumer for an exempted leaf, this
+    test fires — forcing the developer to remove the EXEMPTION_LIST entry
+    rather than silently leaving it stale. Catches the "I added the consumer
+    but forgot to remove the exemption" failure mode flagged in v0.12.0
+    Task 2 code review.
+
+    HIGH-SPECIFICITY = full key_path or quoted-key match (audit levels 1-2).
+    LOW-SPECIFICITY (last_seg, level 3) is ignored here because exempted
+    fields routinely appear in plumbing (EPHEMERAL_FIELDS lists, HIDDEN_IN_TUI
+    declarations, doc comments) without being consumed — those aren't the
+    failure mode the guard targets.
+    """
+    LOW_SPEC_LEVELS = {"last_seg"}  # level 3+ — plumbing noise, not consumers
+    for leaf in sorted(EXEMPTION_LIST):
+        n, samples = audit.grep_production_refs(leaf)
+        if n == 0:
+            continue
+        high_spec_refs = [
+            s for s in samples
+            if s.split("] ")[0].lstrip("[") not in LOW_SPEC_LEVELS
+        ]
+        assert not high_spec_refs, (
+            f"{leaf!r} is in EXEMPTION_LIST but now has "
+            f"{len(high_spec_refs)} HIGH-specificity production ref(s):\n"
+            + "\n".join(f"  {s}" for s in high_spec_refs)
+            + f"\n\nRemove {leaf!r} from EXEMPTION_LIST — a real consumer "
+            f"is in place and the audit should track it."
+        )
 
 
 def test_every_alive_config_leaf_has_production_consumer():

@@ -51,14 +51,22 @@ def test_ephemeral_fields_exact_membership():
 
 
 def test_territory_a_covers_4_user_facing_sections():
-    """Per Q1 + SF10 — only 4 top-level sections contribute to TERRITORY_A.
+    """Per Q1 + SF10 — 4 nested sections + 1 v0.12.0 top-level leaf
+    contribute to TERRITORY_A.
 
     Pre-SF10 used a 4-tuple of prefixes; post-SF10 we derive top-level
-    sections from the explicit allowlist. The contract (which sections
-    are TUI-editable) is unchanged.
+    sections from the explicit allowlist. v0.12.0 added active_strategy
+    as a top-level leaf (no enclosing section) — the strategy selector
+    is a single user choice, not a knob group.
     """
     top_levels = {key.split(".", 1)[0] for key in TERRITORY_A}
-    assert top_levels == {"movement", "scoring", "mispricing", "wallet"}
+    assert top_levels == {
+        "movement",
+        "scoring",
+        "mispricing",
+        "wallet",
+        "active_strategy",
+    }
 
 
 def test_is_territory_a_recognizes_movement_keys():
@@ -100,21 +108,24 @@ def test_territory_a_top_levels_align_with_pydantic_schema():
     )
 
 
-def test_territory_a_total_leaf_count_is_40():
-    """Locks Q1 territory A scope at 40 leaves (movement + scoring.thresholds
-    + mispricing + wallet). If this fails, either:
+def test_territory_a_total_leaf_count_is_41():
+    """Locks Q1 territory A scope at 41 leaves (movement + scoring.thresholds
+    + mispricing + wallet + active_strategy). v0.12.0 bumped 40 → 41 by
+    adding active_strategy.
+
+    If this fails, either:
     - A new section was added (update HIDDEN_IN_TUI + design §3.2 §12.A)
     - A leaf was added/removed within an existing section (adjust HIDDEN_IN_TUI
       and document in the design's §12.A appendix)
 
-    Catches schema drift where total stays 49 but the per-tier split changes
+    Catches schema drift where total stays 50 but the per-tier split changes
     silently — e.g., promoting api.request_timeout_seconds to territory A
-    would change total to still 49 but territory A becomes 42.
+    would change total to still 50 but territory A becomes 43.
     """
     flat = _flatten_pydantic(PolilyConfig())
     territory_a = {key for key in flat if is_territory_a(key)}
-    assert len(territory_a) == 40, (
-        f"expected 40 territory A leaves, got {len(territory_a)}: "
+    assert len(territory_a) == 41, (
+        f"expected 41 territory A leaves, got {len(territory_a)}: "
         f"{sorted(territory_a)}"
     )
 
@@ -165,16 +176,18 @@ def test_flatten_pydantic_includes_ephemeral_fields():
     assert "api.user_agent" in flat
 
 
-def test_flatten_pydantic_total_leaf_count_is_49():
+def test_flatten_pydantic_total_leaf_count_is_50():
     """Locks the leaf-count invariant. v0.11.4 bumped 47 → 48 by adding
     update_check.last_dismissed_version (HIDDEN_IN_TUI). feat/runtime-i18n
-    bumped 48 → 49 by adding tui.language (also HIDDEN_IN_TUI).
+    bumped 48 → 49 by adding tui.language (also HIDDEN_IN_TUI). v0.12.0
+    bumped 49 → 50 by adding active_strategy (territory A — strategy
+    selector is a user-tunable choice).
 
     If this fails the schema changed — update the design doc + this test
     together (and audit territory A whitelist before continuing).
     """
     flat = _flatten_pydantic(PolilyConfig())
-    assert len(flat) == 49, f"expected 49 leaves, got {len(flat)}: {sorted(flat.keys())}"
+    assert len(flat) == 50, f"expected 50 leaves, got {len(flat)}: {sorted(flat.keys())}"
 
 
 def test_unflatten_scalar_leaves():
@@ -221,12 +234,15 @@ def test_flatten_then_unflatten_roundtrips():
 
 
 def test_ensure_seeded_populates_empty_db(polily_db):
-    """First-run seed inserts 48 rows (49 leaves minus 1 EPHEMERAL)."""
+    """First-run seed inserts 49 rows (50 leaves minus 1 EPHEMERAL).
+
+    v0.12.0 bumped 48 → 49 (added active_strategy).
+    """
     ensure_seeded(polily_db)
 
     cur = polily_db.conn.execute("SELECT COUNT(*) FROM config")
     count = cur.fetchone()[0]
-    assert count == 48, f"expected 48 rows (49 - 1 ephemeral), got {count}"
+    assert count == 49, f"expected 49 rows (50 - 1 ephemeral), got {count}"
 
 
 def test_ensure_seeded_skips_ephemeral_fields(polily_db):
@@ -256,11 +272,14 @@ def test_ensure_seeded_stores_values_as_json(polily_db):
 
 
 def test_ensure_seeded_is_idempotent(polily_db):
-    """Running ensure_seeded twice doesn't duplicate rows."""
+    """Running ensure_seeded twice doesn't duplicate rows.
+
+    v0.12.0 bumped 48 → 49 (added active_strategy).
+    """
     ensure_seeded(polily_db)
     ensure_seeded(polily_db)
     cur = polily_db.conn.execute("SELECT COUNT(*) FROM config")
-    assert cur.fetchone()[0] == 48
+    assert cur.fetchone()[0] == 49
 
 
 def test_ensure_seeded_does_not_overwrite_user_edited_value(polily_db):
@@ -348,11 +367,11 @@ def test_ensure_seeded_safe_under_concurrent_threads_each_with_own_connection(tm
         t.join()
 
     assert not errors, f"ensure_seeded raised under concurrent threads: {errors}"
-    # Verify final state: exactly 48 rows, no duplicates
+    # Verify final state: exactly 49 rows, no duplicates (v0.12.0: 48 → 49)
     db = PolilyDB(db_path)
     try:
         cur = db.conn.execute("SELECT COUNT(*) FROM config")
-        assert cur.fetchone()[0] == 48
+        assert cur.fetchone()[0] == 49
     finally:
         db.close()
 
@@ -379,7 +398,7 @@ def test_ensure_seeded_safe_across_independent_db_connections(tmp_path):
         ensure_seeded(db_b)
 
         cur = db_b.conn.execute("SELECT COUNT(*) FROM config")
-        assert cur.fetchone()[0] == 48  # not 96 (no duplicates)
+        assert cur.fetchone()[0] == 49  # not 98 (no duplicates); v0.12.0: 48 → 49
 
         # Both connections see the same data
         flat_a = load_all(db_a)

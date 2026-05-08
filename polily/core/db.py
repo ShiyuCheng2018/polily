@@ -386,6 +386,47 @@ class PolilyDB:
         # already +00:00. Must run AFTER the schema script so the table
         # exists and AFTER the v0.7.0 migration so column shape is final.
         self._migrate_scheduled_at_to_utc()
+
+        # v0.12.0: analyses backward-compat flag for markdown vs json output.
+        # Legacy rows default to 'json' (matches NarrativeWriter pre-v0.12.0
+        # behavior); v0.12.0+ writes 'markdown' for new rendering paths.
+        # Race-safe: PRAGMA + ALTER is not atomic across processes (TUI +
+        # daemon can both run __init__ on first install — see
+        # test_db_wal_race.py); swallow the "duplicate column name" error
+        # so the second concurrent caller no-ops cleanly.
+        try:
+            self.conn.execute(
+                "ALTER TABLE analyses ADD COLUMN narrative_format TEXT NOT NULL DEFAULT 'json'"
+            )
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
+
+        # v0.12.0: user_strategy table (single-slot, free-form markdown text).
+        # CHECK (id = 1) enforces the single-slot contract; future v0.13.0
+        # library mode unblocks by removing the constraint and adding a
+        # name/slug column.
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_strategy (
+                id INTEGER PRIMARY KEY,
+                text TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT '',
+                CHECK (id = 1)
+            )
+        """)
+        self.conn.execute(
+            "INSERT OR IGNORE INTO user_strategy (id, text, updated_at) VALUES (1, '', '')"
+        )
+
+        # NOTE on active_strategy seeding (v0.12.0):
+        # The active_strategy config row is NOT seeded here. PolilyDB.__init__
+        # is contractually DDL-only (see test_db_seed::
+        # test_wallet_seed_uses_pydantic_default_when_config_table_empty);
+        # config seeding is the caller's responsibility via
+        # load_config_from_db -> ensure_seeded, which INSERT OR IGNOREs every
+        # PolilyConfig leaf including the new active_strategy field. This
+        # keeps the "init schema vs seed defaults" boundary clean.
+
         self.conn.commit()
         self._ensure_wallet_singleton()
 

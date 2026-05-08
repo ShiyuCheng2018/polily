@@ -7,7 +7,7 @@ and exists purely as a human-readable export.
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -206,6 +206,13 @@ class PolilyConfig(BaseModel):
     movement: MovementConfig = MovementConfig()
     update_check: UpdateCheckConfig = Field(default_factory=UpdateCheckConfig)
 
+    # v0.12.0: which strategy the NarrativeWriter agent uses for analyses.
+    # 'official' = packaged polily/strategies/default.md
+    # 'user'     = user_strategy.text (set via TUI 7 策略 page)
+    # Hot-swap takes effect on the next analysis dispatch; in-flight analyses
+    # finish with the previously-selected strategy.
+    active_strategy: Literal["official", "user"] = "official"
+
 
 class ConfigValidationError(Exception):
     """Raised when db.config contains values that fail Pydantic validation.
@@ -334,6 +341,17 @@ def _unwrap_annotation(ann):
             args = [a for a in _t.get_args(ann) if a is not type(None)]
             if len(args) == 1:
                 ann = args[0]
+                continue
+        # Literal[v1, v2, ...] — when every value is the same scalar type,
+        # fold to that scalar. Pydantic still rejects invalid values at
+        # `model_validate` time (the Literal constraint is enforced by the
+        # field, not by `_coerce_value`); we just need a coercible scalar
+        # for raw-input parsing in the TUI Edit modal. (v0.12.0 — added
+        # for `active_strategy: Literal["official", "user"]`.)
+        if origin is _t.Literal:
+            args = _t.get_args(ann)
+            if args and all(isinstance(a, type(args[0])) for a in args):
+                ann = type(args[0])
                 continue
         return ann
 
