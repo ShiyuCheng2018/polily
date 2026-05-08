@@ -33,11 +33,6 @@ EXEMPTION_LIST: set[str] = {
     # db.config, but no production code path reads it. See
     # polily/core/config.py::default_db_path docstring.
     "archiving.db_file",
-    # v0.12.0 Task 2 — schema-only landing. active_strategy is added to
-    # PolilyConfig + DB now so future tasks (NarrativeWriter strategy
-    # selector + TUI 策略 page) can wire to it. Producer/consumer code
-    # paths land in subsequent v0.12.0 tasks; remove this exemption then.
-    "active_strategy",
 }
 
 # Fields whose audit verdict comes from a LOW-SPECIFICITY grep match
