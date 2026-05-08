@@ -10,6 +10,40 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-05-XX
+
+### Added
+
+- **TUI Strategy page (key `7` / `7 Strategy`).** Single-slot user-editable strategy editor. Radio toggle between **Official** (read-only render of polily's packaged `default.md`) and **My Strategy** (an editable TextArea backed by a new `user_strategy` DB table). First-time empty-user state shows two starter buttons: `[Start from scratch]` / `[Copy official as starting point]`. `Ctrl+S` saves; `[Discard changes]` reverts to last saved. Toggle takes effect on the **next** analysis dispatch (in-flight analyses finish with the previously-selected strategy). Bilingual (zh / en) via the i18n catalog. Existing Changelog page renumbered from key `7` to key `8`.
+
+- **Polily Plugin v0.1 sister project** ([github.com/ShiyuCheng2018/polily-plugin](https://github.com/ShiyuCheng2018/polily-plugin)). A Claude Code marketplace plugin that ships a single skill (`polily`) auto-loading polily's reference manual (DB schema, daemon mechanics, data-freshness rules, file paths) into external Claude Code sessions. Generated from polily's `polily/agents/skill_sources/core/*.md` via `scripts/generate_skills.py` — single source of truth for the internal NarrativeWriter agent and the external plugin SKILL.md.
+
+### Changed
+
+- **BREAKING — Agent output is now Markdown.** v0.11.x's 17-field `NarrativeWriterOutput` JSON schema is replaced with a 5-field `AgentMarkdownOutput`: free-form `markdown_body` plus four metadata fields (`next_check_at` / `next_check_reason` / `urgency` / `dev_feedback`) emitted as YAML frontmatter at the top of the output. The TUI now renders WYSIWYG via Textual's `Markdown` widget. Output structure becomes the user's strategy responsibility — the protocol footer enforces only the frontmatter contract. Pre-v0.12.0 analyses (your full history) continue to render via a legacy panel; nothing is lost on upgrade.
+
+- **Agent prompt is now 3-part: reference manual + active strategy + protocol footer.** The new `polily/agents/manual.md` (generated from `skill_sources/core/*.md`) gives the agent a stable knowledge base; the active strategy block is what the user controls; the protocol footer is non-negotiable polily-required output schema. `position_summary` is preserved as a raw fact in the per-call ephemeral block; the v0.11.x `mode = discovery | position_management` abstraction is gone — strategies interpret raw facts however they prefer.
+
+- **DB schema additions (auto-applied on first v0.12.0 boot, idempotent):** `analyses.narrative_format` flag column (default `'json'`, set to `'markdown'` for v0.12.0+ writes), new `user_strategy` single-row table (`CHECK (id = 1)` enforces the single-slot model), and `active_strategy` config knob (`Literal["official", "user"]`, default `"official"`) — read/written via the existing `config_store.upsert` Pydantic-validated path.
+
+- **Default theme switches from `polily-dark` to `polily-geek` (phosphor green).** Existing users keep whatever theme they previously selected (Textual persists theme state); only fresh installs see the new default. Switch any time via `Ctrl+P → Change theme`.
+
+- **`BaseAgent` accepts `json_schema=None` (markdown mode).** When the schema is `None`, the `claude` CLI invocation omits `--json-schema` and `invoke()` returns raw stdout text instead of a parsed `dict`. Existing agents passing a schema dict keep their dict-return behavior unchanged.
+
+- **`AGENT_TOOLS` for the NarrativeWriter agent drops `"StructuredOutput"`** (no longer used now that the agent emits free-form markdown). `Read` is retained — the agent uses it to load `polily/strategies/default.md` from the path injected via `official_strategy_path` when an empty / unusable user strategy needs fallback.
+
+### Removed
+
+- The 17-field `NarrativeWriterOutput` and its sub-models (`Operation`, `RiskFlag`, `ResearchFinding`, `ThesisStatus`, `TimeWindow`, `StopLossOrTakeProfit`, etc.) are no longer used by the active code path. They moved to `polily.agents.legacy_schemas` (re-exported from `polily.agents.schemas` for backward import compat) and are consumed only by the legacy rendering path for pre-v0.12.0 history rows. v0.13.0 may retire them after a one-shot legacy → markdown migration.
+
+- `polily/agents/prompts/narrative_writer.md` is gone — content split across `skill_sources/core/*.md` (manual sources), `strategies/default.md` (analytical methodology), and `agents/protocol.md` (output protocol).
+
+### Notes
+
+- Schema migrations run automatically on first boot — no manual action required. Your full pre-v0.12.0 analysis history continues to render via the legacy renderer.
+
+- The agent self-falls-back to `polily/strategies/default.md` (via the `Read` tool) when given an empty / unusable user strategy. The fallback reason lands in `dev_feedback` for visibility.
+
 ## [0.11.7] — 2026-05-07
 
 ### Fixed
