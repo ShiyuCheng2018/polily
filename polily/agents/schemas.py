@@ -1,168 +1,49 @@
-"""Pydantic models for AI agent input/output schemas."""
+"""Polily agent schemas.
+
+v0.12.0+ uses :class:`AgentMarkdownOutput` for the new markdown-output
+agent contract. The pre-v0.12.0 :class:`NarrativeWriterOutput` and its
+sub-models are kept in :mod:`polily.agents.legacy_schemas` and
+re-exported here so existing imports keep working without churn during
+the v0.12.x cycle.
+"""
+from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict
 
-# --- Shared types ---
+# Re-export legacy v0.11.x types for backward-compat imports.
+# (Used by tests and the legacy_analysis_panel rendering path for
+# narrative_format='json' rows.)
+from polily.agents.legacy_schemas import (  # noqa: F401  -- public re-exports
+    AnalysisMode,
+    Confidence,
+    CryptoContext,
+    NarrativeWriterOutput,
+    Operation,
+    PositionAdvice,
+    ResearchFinding,
+    RiskFlag,
+    StopLossOrTakeProfit,
+    ThesisStatus,
+    TimeWindow,
+)
 
-AnalysisMode = Literal["discovery", "position_management"]
-Confidence = Literal["low", "medium", "high"]
-
-ThesisStatus = Literal["intact", "weakened", "broken"]
-
-
-# --- Sub-schemas ---
-
-class TimeWindow(BaseModel):
-    """Time urgency and optimal entry timing."""
-    urgency: Literal["urgent", "normal", "no_rush"]
-    note: str  # "还剩 2.3 天结算，催化剂在 1 天后"
-    optimal_entry: str | None = None  # "建议在 CPI 发布前入场" or None
-
-
-class RiskFlag(BaseModel):
-    """Risk item with severity level."""
-    text: str
-    severity: Literal["critical", "warning", "info"]
-
-
-class ResearchFinding(BaseModel):
-    """A finding from agent's own research."""
-    finding: str  # "BTC 过去 24h 下跌 3.2%"
-    source: str  # "Binance"
-    impact: str  # "距离阈值更远，YES 概率下降"
-
-
-class CryptoContext(BaseModel):
-    """Crypto-specific analysis fields."""
-    distance_to_threshold_pct: float | None = None
-    buffer_pct: float | None = None
-    daily_vol_pct: float | None = None
-    buffer_conclusion: str = ""  # "thin" / "adequate" / "wide"
-    market_already_knows: str = ""
-
-
-class PositionAdvice(BaseModel):
-    """Output for position management analysis (from position advisor agent)."""
-    advice: Literal["hold", "reduce", "exit"]
-    reasoning: str
-    thesis_intact: bool = True
-    thesis_note: str = ""
-    exit_price: str | None = None
-    risk_note: str = ""
-    research_findings: list["ResearchFinding"] = []
-
-
-class Operation(BaseModel):
-    """A single trading operation recommendation."""
-    action: str  # BUY_YES, BUY_NO, SELL_YES, SELL_NO, REDUCE_YES, REDUCE_NO, HOLD
-    market_id: str | None = None
-    market_title: str | None = None
-    entry_price: float | None = None
-    position_size_usd: float | None = None
-    confidence: Confidence = "medium"  # agent 对这条操作的把握
-    reasoning: str = ""  # why this specific operation
-
-
-class StopLossOrTakeProfit(BaseModel):
-    """Threshold for position-management triggers.
-
-    v0.11.7: previously a bare float (ambiguous side). Now a dict with
-    explicit `side` so the agent does not guess whether 0.55 means
-    "YES price drops to 0.55" or "NO price drops to 0.55".
-
-    Backward compat: `NarrativeWriterOutput`'s field validator normalizes
-    legacy bare-float fixtures to ``{"side": "yes", "price": <value>}``
-    (the YES-default matches the v5 sample's de-facto agent behavior).
-    """
-
-    side: Literal["yes", "no"]
-    price: float
-
-    model_config = ConfigDict(extra="forbid")
-
-
-# --- Main output schema ---
-
-class NarrativeWriterOutput(BaseModel):
-    """Unified AI analysis output — modular structure with agent commentary."""
-
-    event_id: str
-    mode: AnalysisMode = "discovery"
-
-    # Modular content
-    operations: list[Operation] = []  # trading operations (can be empty for WATCH/PASS)
-    operations_commentary: str = ""   # agent's interpretation of operations
-
-    analysis: str = ""                # event-level logic (macro, fundamentals, timing)
-    analysis_commentary: str = ""     # agent's interpretation
-
-    research_findings: list[ResearchFinding] = []  # 互联资讯 — agent 自由组织
-    research_commentary: str = ""     # agent's interpretation of research
-
-    risk_flags: list[RiskFlag] = []
-    risk_commentary: str = ""         # agent's interpretation of risks
-
-    # Position mode
-    thesis_status: ThesisStatus | None = None
-    thesis_note: str | None = None
-    stop_loss: StopLossOrTakeProfit | None = None
-    take_profit: StopLossOrTakeProfit | None = None
-    alternative_market_id: str | None = None
-    alternative_note: str | None = None
-
-    # Summary (final synthesis of ALL modules)
-    summary: str = ""
-
-    # Scheduling
-    time_window: TimeWindow = TimeWindow(urgency="normal", note="")
-    next_check_at: str | None = None
-    next_check_reason: str = ""
-
-    # Dev feedback
-    dev_feedback: str | None = None
-
-    model_config = ConfigDict(extra="ignore")
-
-    @field_validator("stop_loss", "take_profit", mode="before")
-    @classmethod
-    def _normalize_legacy_bare_float(cls, v: object) -> object:
-        """Normalize pre-v0.11.7 bare-float values to the new
-        {side, price} dict form. YES is the default side (matches the
-        v5 sample's de-facto agent behavior). Dict / None / model
-        instances pass through unchanged."""
-        if v is None:
-            return v
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            return {"side": "yes", "price": float(v)}
-        return v  # dict or StopLossOrTakeProfit — let pydantic validate
-
-    def semantic_errors(self) -> list[str]:
-        """Return list of semantic issues. Empty = OK."""
-        errors = []
-
-        # If operations list is not empty, each operation must have action and reasoning
-        for i, op in enumerate(self.operations):
-            if not op.action:
-                errors.append(f"operation[{i}] missing action")
-            if not op.reasoning:
-                errors.append(f"operation[{i}] missing reasoning")
-
-        # If mode is position_management, thesis_status is required
-        if self.mode == "position_management":
-            if self.thesis_status is None:
-                errors.append("position mode requires thesis_status")
-
-        # summary must be non-empty
-        if not self.summary or len(self.summary.strip()) < 5:
-            errors.append("summary required")
-
-        # next_check_at is required
-        if not self.next_check_at:
-            errors.append("next_check_at is required")
-
-        return errors
+__all__ = [
+    "AgentMarkdownOutput",
+    # Legacy re-exports
+    "AnalysisMode",
+    "Confidence",
+    "CryptoContext",
+    "NarrativeWriterOutput",
+    "Operation",
+    "PositionAdvice",
+    "ResearchFinding",
+    "RiskFlag",
+    "StopLossOrTakeProfit",
+    "ThesisStatus",
+    "TimeWindow",
+]
 
 
 class AgentMarkdownOutput(BaseModel):
