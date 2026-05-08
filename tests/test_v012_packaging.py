@@ -39,8 +39,9 @@ def test_skill_sources_core_files_are_in_package():
         "03_db_schema.md",
         "04_data_freshness.md",
         "05_file_paths.md",
-        "06_operational_lines.md",
-        "07_per_call_ephemeral.md",
+        "06_red_lines.md",
+        "07_per_call_inputs.md",
+        "08_active_strategy_fallback.md",
     ]
     for name in expected:
         assert (base / name).exists(), f"Missing skill source: {name}"
