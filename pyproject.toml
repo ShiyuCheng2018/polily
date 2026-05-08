@@ -64,10 +64,27 @@ fallback-version = "0.0.0+unknown"
 
 [tool.hatch.build.targets.wheel]
 packages = ["polily"]
-# Ship CHANGELOG.md inside the wheel so `ChangelogView` can render it
-# via `importlib.resources.files("polily") / "CHANGELOG.md"` after
-# pip-install (not just from a source checkout).
-force-include = { "CHANGELOG.md" = "polily/CHANGELOG.md", "polily/config/phrases.zh.yaml" = "polily/config/phrases.zh.yaml", "polily/config/phrases.en.yaml" = "polily/config/phrases.en.yaml" }
+# Ship non-Python content inside the wheel:
+# - CHANGELOG.md so ChangelogView can render it via importlib.resources
+# - phrases.{zh,en}.yaml for runtime commentary localization
+# - v0.12.0: agent prompts (manual.md / protocol.md / default strategy)
+#   plus the skill_sources/core/*.md files that the generator script
+#   uses to regenerate the manual + plugin SKILL.md.
+
+[tool.hatch.build.targets.wheel.force-include]
+"CHANGELOG.md" = "polily/CHANGELOG.md"
+"polily/config/phrases.zh.yaml" = "polily/config/phrases.zh.yaml"
+"polily/config/phrases.en.yaml" = "polily/config/phrases.en.yaml"
+"polily/agents/manual.md" = "polily/agents/manual.md"
+"polily/agents/protocol.md" = "polily/agents/protocol.md"
+"polily/strategies/default.md" = "polily/strategies/default.md"
+"polily/agents/skill_sources/core/01_persona.md" = "polily/agents/skill_sources/core/01_persona.md"
+"polily/agents/skill_sources/core/02_data_model.md" = "polily/agents/skill_sources/core/02_data_model.md"
+"polily/agents/skill_sources/core/03_db_schema.md" = "polily/agents/skill_sources/core/03_db_schema.md"
+"polily/agents/skill_sources/core/04_data_freshness.md" = "polily/agents/skill_sources/core/04_data_freshness.md"
+"polily/agents/skill_sources/core/05_file_paths.md" = "polily/agents/skill_sources/core/05_file_paths.md"
+"polily/agents/skill_sources/core/06_operational_lines.md" = "polily/agents/skill_sources/core/06_operational_lines.md"
+"polily/agents/skill_sources/core/07_per_call_ephemeral.md" = "polily/agents/skill_sources/core/07_per_call_ephemeral.md"
 
 [project.scripts]
 polily = "polily.cli:app"
