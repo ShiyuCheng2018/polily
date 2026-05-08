@@ -1,21 +1,27 @@
-"""v0.10.1 — agent_feedback.log header must include trigger source +
-both UTC and local timestamps."""
+"""v0.12.0 — agent_feedback.log header against AgentMarkdownOutput shape.
+
+Header now uses ``body_chars=N`` (markdown body length) in place of the
+v0.11.x ``ops=A,B`` summary, since AgentMarkdownOutput no longer carries
+a structured operations list.
+
+Other v0.10.1 invariants preserved: trigger source + dual UTC and local
+timestamps + 'local' label stays English.
+"""
 from __future__ import annotations
 
 import pytest
 
 from polily.agents.narrative_writer import _write_dev_feedback
+from polily.agents.schemas import AgentMarkdownOutput
 
 
-class _Op:
-    def __init__(self, action: str):
-        self.action = action
-
-
-class _Output:
-    def __init__(self, dev_feedback: str, operations: list):
-        self.dev_feedback = dev_feedback
-        self.operations = operations
+def _mk_output(*, dev_feedback: str, body: str = "# Body\n\nadequate length") -> AgentMarkdownOutput:
+    return AgentMarkdownOutput(
+        markdown_body=body,
+        next_check_at="2099-01-01T00:00:00+00:00",
+        next_check_reason="r",
+        dev_feedback=dev_feedback,
+    )
 
 
 @pytest.fixture
@@ -38,14 +44,14 @@ def log_dir(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("trigger", ["manual", "scan", "scheduled", "movement"])
 def test_each_trigger_value_serialized_in_header(log_dir, trigger):
-    output = _Output(dev_feedback="test feedback", operations=[_Op("HOLD")])
+    output = _mk_output(dev_feedback="test feedback")
     _write_dev_feedback("ev1", "Test event", output, trigger_source=trigger)
     log = (log_dir / "agent_feedback.log").read_text()
     assert f"trigger={trigger}" in log
 
 
 def test_header_includes_both_utc_and_local_timestamps(log_dir):
-    output = _Output(dev_feedback="x", operations=[_Op("HOLD")])
+    output = _mk_output(dev_feedback="x")
     _write_dev_feedback("ev1", "t", output, trigger_source="manual")
     log = (log_dir / "agent_feedback.log").read_text()
     assert "UTC:" in log
@@ -54,7 +60,7 @@ def test_header_includes_both_utc_and_local_timestamps(log_dir):
 
 def test_header_local_label_is_english_not_chinese(log_dir):
     """User decision: 'local' stays English, NOT 本地."""
-    output = _Output(dev_feedback="x", operations=[_Op("HOLD")])
+    output = _mk_output(dev_feedback="x")
     _write_dev_feedback("ev1", "t", output, trigger_source="manual")
     log = (log_dir / "agent_feedback.log").read_text()
     assert "local:" in log
@@ -62,8 +68,13 @@ def test_header_local_label_is_english_not_chinese(log_dir):
 
 
 def test_header_full_shape(log_dir):
-    """Pin full header so future drift is loud."""
-    output = _Output(dev_feedback="body", operations=[_Op("BUY"), _Op("HOLD")])
+    """Pin full header so future drift is loud.
+
+    v0.12.0: ops= replaced by body_chars=. body length below is
+    deterministic so the assertion can pin the exact integer.
+    """
+    body = "# Heading\n\nA body of known length."
+    output = _mk_output(dev_feedback="body", body=body)
     _write_dev_feedback("ev_x", 'Title with "quote"', output, trigger_source="scheduled")
     log = (log_dir / "agent_feedback.log").read_text()
 
@@ -74,16 +85,22 @@ def test_header_full_shape(log_dir):
     assert "event=ev_x" in log
     # quote in title gets escaped to single-quote per existing logic
     assert "title=\"Title with 'quote'\"" in log
-    assert "ops=BUY,HOLD" in log
+    assert f"body_chars={len(body)}" in log
     assert " ===" in log
     assert "\nbody\n" in log
 
 
-def test_header_handles_empty_operations(log_dir):
-    output = _Output(dev_feedback="x", operations=[])
+def test_header_handles_zero_length_body(log_dir):
+    """Defensive: empty markdown_body still logs with body_chars=0
+    (no longer 'ops=none' path; AgentMarkdownOutput's pydantic validator
+    enforces a minimum body length, but that's a semantic_errors() concern,
+    not a _write_dev_feedback concern)."""
+    # Bypass model_validate's empty check by patching attr directly
+    output = _mk_output(dev_feedback="x", body="x")
+    object.__setattr__(output, "markdown_body", "")
     _write_dev_feedback("ev1", "t", output, trigger_source="manual")
     log = (log_dir / "agent_feedback.log").read_text()
-    assert "ops=none" in log
+    assert "body_chars=0" in log
 
 
 def test_header_local_timestamp_differs_from_utc_in_non_utc_tz(log_dir, monkeypatch):
@@ -107,7 +124,7 @@ def test_header_local_timestamp_differs_from_utc_in_non_utc_tz(log_dir, monkeypa
     time.tzset()
     assert os.environ.get("TZ") == "Asia/Shanghai", "TZ env var did not stick"
 
-    output = _Output(dev_feedback="x", operations=[_Op("HOLD")])
+    output = _mk_output(dev_feedback="x")
     _write_dev_feedback("ev1", "t", output, trigger_source="manual")
     log = (log_dir / "agent_feedback.log").read_text()
     m = re.search(r"=== \[UTC: ([^|]+) \| local: ([^\]]+)\]", log)
