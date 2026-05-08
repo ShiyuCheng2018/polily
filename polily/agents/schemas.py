@@ -163,3 +163,28 @@ class NarrativeWriterOutput(BaseModel):
             errors.append("next_check_at is required")
 
         return errors
+
+
+class AgentMarkdownOutput(BaseModel):
+    """v0.12.0 agent output — pure Markdown body + minimal metadata.
+
+    Replaces v0.11.x NarrativeWriterOutput (17 fields). Field count drops to
+    five because TUI renders ``markdown_body`` verbatim and only ``next_check_at``
+    has programmatic consumption (daemon scheduler).
+    """
+
+    markdown_body: str
+    next_check_at: str
+    next_check_reason: str
+    urgency: Literal["urgent", "normal", "no_rush"] = "normal"
+    dev_feedback: str = ""
+
+    model_config = ConfigDict(extra="ignore")
+
+    def semantic_errors(self) -> list[str]:
+        errors: list[str] = []
+        if not self.markdown_body or len(self.markdown_body.strip()) < 10:
+            errors.append("markdown_body too short (< 10 chars)")
+        if not self.next_check_at:
+            errors.append("next_check_at is required")
+        return errors
