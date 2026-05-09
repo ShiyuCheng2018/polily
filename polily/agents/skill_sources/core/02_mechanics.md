@@ -11,13 +11,13 @@ Polily is structured around two domain concepts:
 
 This is computed at scan time and refreshed each daemon score-refresh cycle. Use it as a structural anchor for negRisk reasoning; for crypto markets, use `score_breakdown.mispricing_signal` instead.
 
-**Daemon poll cycle**: a single global poll job runs every **30 s** on a dedicated APScheduler executor. Each tick: fetches prices for every market the user is monitoring, records movement signals into `movement_log`, drains overdue `scan_logs.next_check_at` rows by dispatching AI analyses, and may auto-trigger a movement-driven analysis if magnitude × quality crosses thresholds.
+**Daemon poll cycle**: a single global poll job runs every **30 s** on a dedicated APScheduler executor. Each tick: fetches prices for every market the user is monitoring, records movement signals into `movement_log`, drains overdue rows in `scan_logs` (the `scheduled_at` column — see §3) by dispatching AI analyses, and may auto-trigger a movement-driven analysis if magnitude × quality crosses thresholds.
 
 **Trigger sources** for an analysis (column `scan_logs.trigger_source` and `analyses.trigger_source`):
 
 - `manual` — user clicked "AI analysis" in the TUI (event detail page key `a`)
 - `scan` — initial scoring of a freshly-pasted URL (one-time per event)
-- `scheduled` — daemon dispatched at the `next_check_at` time the previous analysis requested
+- `scheduled` — daemon dispatched at the time the previous analysis requested via its `next_check_at` agent-output field (stored in `scan_logs.scheduled_at`)
 - `movement` — significant price movement on a monitored market crossed the daemon's magnitude/quality thresholds
 
 **Scoring** — polily has **two separate scores**, both 0–100, both stored as `structure_score`:
