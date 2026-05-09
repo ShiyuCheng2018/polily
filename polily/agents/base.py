@@ -96,7 +96,7 @@ class BaseAgent:
         self,
         system_prompt: str,
         json_schema: dict | None,            # was: dict — now Optional for v0.12.0 markdown mode
-        model: str = "sonnet",
+        model: str = "opus",  # v0.12.0: bumped sonnet → opus to match AgentConfig.model default
         cli_command: str | None = None,
         *,
         max_prompt_chars: int,  # required keyword-only; sourced from AgentConfig.max_prompt_chars

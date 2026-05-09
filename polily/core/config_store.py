@@ -554,3 +554,53 @@ def _migrate_max_prompt_chars_v0_12_0(db) -> bool:
         KEY, OLD_DEFAULT, NEW_DEFAULT,
     )
     return True
+
+
+def _migrate_narrative_writer_model_v0_12_0(db) -> bool:
+    """v0.12.0: bump ``ai.narrative_writer.model`` "sonnet" → "opus".
+
+    The v0.12.0 analysis surface (multi-platform cross-checks, position
+    management depth, conditional framing, market-microstructure
+    reasoning under uncertainty) benefits materially from Opus-tier
+    reasoning. The long-context Manual + Strategy + Protocol stack
+    (~40 KB) is well within Opus 4.7's 1M token window.
+
+    Idempotent on the value boundary: if the existing db.config row
+    equals exactly the v0.11.x default ("sonnet"), update to NEW
+    default ("opus"). Any other value (including "opus" already, or a
+    user-customized choice like "haiku") is left alone. After the first
+    successful run on a v0.11.x DB, subsequent boots are no-op because
+    the value is now "opus".
+
+    Should be called AFTER ensure_seeded() so fresh installs (which seed
+    "opus" from the new Pydantic default) skip naturally.
+
+    Returns True if a row was updated, False if no-op.
+    """
+    KEY = "ai.narrative_writer.model"
+    OLD_DEFAULT = "sonnet"
+    NEW_DEFAULT = "opus"
+
+    with db.transaction() as conn:
+        cur = conn.execute(
+            "SELECT value FROM config WHERE key_path = ?",
+            (KEY,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return False
+        try:
+            current = json.loads(row["value"])
+        except (TypeError, json.JSONDecodeError):
+            return False
+        if current != OLD_DEFAULT:
+            return False
+        conn.execute(
+            "UPDATE config SET value = ?, updated_at = ? WHERE key_path = ?",
+            (json.dumps(NEW_DEFAULT), datetime.now(UTC).isoformat(), KEY),
+        )
+    _log.info(
+        "Migrated %s: %s → %s (v0.12.0 default model upgrade)",
+        KEY, OLD_DEFAULT, NEW_DEFAULT,
+    )
+    return True

@@ -152,6 +152,7 @@ def test_max_prompt_chars_migration_bumps_old_default(tmp_path):
     every v0.12.0 dispatch.
     """
     import json as _json
+
     from polily.core.config_store import _migrate_max_prompt_chars_v0_12_0
 
     db = PolilyDB(tmp_path / "polily.db")
@@ -175,6 +176,7 @@ def test_max_prompt_chars_migration_bumps_old_default(tmp_path):
 def test_max_prompt_chars_migration_idempotent_on_new_default(tmp_path):
     """If value is already 100000 (fresh v0.12.0 install), migration is no-op."""
     import json as _json
+
     from polily.core.config_store import _migrate_max_prompt_chars_v0_12_0
 
     db = PolilyDB(tmp_path / "polily.db")
@@ -198,6 +200,7 @@ def test_max_prompt_chars_migration_idempotent_on_new_default(tmp_path):
 def test_max_prompt_chars_migration_preserves_user_custom_value(tmp_path):
     """If user has explicitly set a custom value (e.g., 50000), don't touch it."""
     import json as _json
+
     from polily.core.config_store import _migrate_max_prompt_chars_v0_12_0
 
     db = PolilyDB(tmp_path / "polily.db")
@@ -220,6 +223,7 @@ def test_max_prompt_chars_migration_preserves_user_custom_value(tmp_path):
 def test_max_prompt_chars_fresh_install_seeds_new_default(tmp_path):
     """Fresh v0.12.0 install via PolilyDB() + ensure_seeded must seed 100000."""
     import json as _json
+
     from polily.core.config import load_config_from_db
 
     db = PolilyDB(tmp_path / "polily.db")
@@ -230,3 +234,101 @@ def test_max_prompt_chars_fresh_install_seeds_new_default(tmp_path):
         "SELECT value FROM config WHERE key_path = 'ai.narrative_writer.max_prompt_chars'"
     ).fetchone()
     assert _json.loads(row["value"]) == 100000
+
+
+# --- v0.12.0 Task A4: default model sonnet → opus migration ---
+
+
+def test_narrative_writer_model_migration_bumps_sonnet_to_opus(tmp_path):
+    """Existing v0.11.x DBs with seeded 'sonnet' must auto-bump to 'opus' on
+    first v0.12.0 boot. Reasoning: v0.12.0's analysis surface (multi-platform
+    cross-checks, position management depth, conditional framing under
+    uncertainty) benefits materially from Opus-tier reasoning, and the
+    long-context Manual + Strategy + Protocol stack (~40 KB) is well within
+    Opus 4.7's 1M token window. Sonnet remains explicitly settable.
+    """
+    import json as _json
+
+    from polily.core.config_store import _migrate_narrative_writer_model_v0_12_0
+
+    db = PolilyDB(tmp_path / "polily.db")
+    db.conn.execute(
+        "INSERT OR REPLACE INTO config (key_path, value, updated_at) "
+        "VALUES (?, ?, ?)",
+        ("ai.narrative_writer.model", _json.dumps("sonnet"), "2026-01-01T00:00:00Z"),
+    )
+    db.conn.commit()
+
+    bumped = _migrate_narrative_writer_model_v0_12_0(db)
+    assert bumped is True
+
+    row = db.conn.execute(
+        "SELECT value FROM config WHERE key_path = 'ai.narrative_writer.model'"
+    ).fetchone()
+    assert _json.loads(row["value"]) == "opus"
+
+
+def test_narrative_writer_model_migration_idempotent_on_opus(tmp_path):
+    """If value is already 'opus' (fresh v0.12.0 install), migration is no-op."""
+    import json as _json
+
+    from polily.core.config_store import _migrate_narrative_writer_model_v0_12_0
+
+    db = PolilyDB(tmp_path / "polily.db")
+    db.conn.execute(
+        "INSERT OR REPLACE INTO config (key_path, value, updated_at) "
+        "VALUES (?, ?, ?)",
+        ("ai.narrative_writer.model", _json.dumps("opus"), "2026-05-10T00:00:00Z"),
+    )
+    db.conn.commit()
+
+    bumped = _migrate_narrative_writer_model_v0_12_0(db)
+    assert bumped is False, "Migration should no-op when value is already opus"
+
+    row = db.conn.execute(
+        "SELECT value FROM config WHERE key_path = 'ai.narrative_writer.model'"
+    ).fetchone()
+    assert _json.loads(row["value"]) == "opus"
+
+
+def test_narrative_writer_model_migration_preserves_user_custom_value(tmp_path):
+    """If user has explicitly set a custom model (e.g., 'haiku'), don't touch it.
+
+    Migration only fires on the v0.11.x default ('sonnet') so users who
+    deliberately downgraded for cost/speed keep their choice.
+    """
+    import json as _json
+
+    from polily.core.config_store import _migrate_narrative_writer_model_v0_12_0
+
+    db = PolilyDB(tmp_path / "polily.db")
+    db.conn.execute(
+        "INSERT OR REPLACE INTO config (key_path, value, updated_at) "
+        "VALUES (?, ?, ?)",
+        ("ai.narrative_writer.model", _json.dumps("haiku"), "2026-05-10T00:00:00Z"),
+    )
+    db.conn.commit()
+
+    bumped = _migrate_narrative_writer_model_v0_12_0(db)
+    assert bumped is False, "Migration must not overwrite a user-customized model"
+
+    row = db.conn.execute(
+        "SELECT value FROM config WHERE key_path = 'ai.narrative_writer.model'"
+    ).fetchone()
+    assert _json.loads(row["value"]) == "haiku"
+
+
+def test_narrative_writer_model_fresh_install_seeds_opus(tmp_path):
+    """Fresh v0.12.0 install via PolilyDB() + load_config_from_db must seed 'opus'."""
+    import json as _json
+
+    from polily.core.config import load_config_from_db
+
+    db = PolilyDB(tmp_path / "polily.db")
+    cfg = load_config_from_db(db)
+    assert cfg.ai.narrative_writer.model == "opus"
+
+    row = db.conn.execute(
+        "SELECT value FROM config WHERE key_path = 'ai.narrative_writer.model'"
+    ).fetchone()
+    assert _json.loads(row["value"]) == "opus"

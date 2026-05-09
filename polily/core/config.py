@@ -50,8 +50,18 @@ class AgentConfig(BaseModel):
 
     Phase 0 (2026-04-25): removed unused `enabled`, `max_concurrent`,
     `max_candidates` fields (zero production consumers per audit).
+
+    v0.12.0: default model bumped from "sonnet" → "opus". The new
+    analysis surface (multi-platform cross-checks, position management
+    depth, conditional framing under uncertainty, market-microstructure
+    awareness) benefits materially from Opus-tier reasoning, and the
+    long-context Manual + Strategy + Protocol stack (~40 KB) is well
+    within Opus 4.7's 1M token window. Existing v0.11.x users with
+    seeded "sonnet" are auto-migrated by
+    ``_migrate_narrative_writer_model_v0_12_0`` at first boot;
+    user-customized choices (e.g. "haiku" for cost) are preserved.
     """
-    model: str = "sonnet"
+    model: str = "opus"
     timeout_seconds: int = 120
     # Threshold above which BaseAgent writes the prompt to /tmp/ and tells the
     # claude subprocess to "Analyze the data in file: X" instead of passing the
@@ -74,7 +84,7 @@ class AiConfig(BaseModel):
     config but never threaded into BaseAgent constructor; BaseAgent
     has its own POLILY_CLAUDE_CLI env var → 'claude' fallback chain).
     """
-    narrative_writer: AgentConfig = AgentConfig(model="sonnet", timeout_seconds=300)
+    narrative_writer: AgentConfig = AgentConfig(model="opus", timeout_seconds=300)
 
 
 class TuiConfig(BaseModel):
@@ -255,6 +265,7 @@ def load_config_from_db(db) -> PolilyConfig:
     from polily.core.config_store import (
         EPHEMERAL_FIELDS,
         _migrate_max_prompt_chars_v0_12_0,
+        _migrate_narrative_writer_model_v0_12_0,
         _migrate_yaml_to_db,
         _unflatten,
         ensure_seeded,
@@ -290,6 +301,11 @@ def load_config_from_db(db) -> PolilyConfig:
             # from the updated Pydantic default; this migration is for
             # existing DBs whose config table has the old 5000 value.
             _migrate_max_prompt_chars_v0_12_0(db)
+            # v0.12.0: bump narrative_writer model "sonnet" → "opus" for
+            # users upgrading from v0.11.x. Same idempotency contract:
+            # only fires on exact pre-v0.12.0 default; user-customized
+            # choices (haiku/sonnet-after-v0.12.0/etc.) are preserved.
+            _migrate_narrative_writer_model_v0_12_0(db)
             db.conn.commit()
         except Exception:
             db.conn.rollback()

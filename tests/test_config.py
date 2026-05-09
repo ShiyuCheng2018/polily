@@ -16,8 +16,14 @@ class TestPolilyConfigDefaults:
         assert config.scoring.thresholds.tier_a_min_score == 70
 
     def test_default_narrative_writer(self):
+        """v0.12.0: default model bumped sonnet → opus.
+
+        See AgentConfig docstring + v0.12.0 CHANGELOG for the upgrade
+        rationale (long-context Manual + Strategy + Protocol stack
+        benefits materially from Opus-tier reasoning).
+        """
         config = PolilyConfig()
-        assert config.ai.narrative_writer.model == "sonnet"
+        assert config.ai.narrative_writer.model == "opus"
         assert config.ai.narrative_writer.timeout_seconds == 300
 
 
