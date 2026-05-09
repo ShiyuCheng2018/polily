@@ -141,3 +141,92 @@ def test_legacy_analyses_get_json_format_on_migration(tmp_path):
     assert row["narrative_format"] == "json", (
         "Legacy row should be auto-populated with default 'json' by ALTER's DEFAULT clause"
     )
+
+
+# --- v0.12.0 Task 21: max_prompt_chars 5000 → 100000 migration ---
+
+
+def test_max_prompt_chars_migration_bumps_old_default(tmp_path):
+    """Existing v0.11.x DBs with seeded 5000 must auto-bump to 100000 on first
+    v0.12.0 boot. The 5000 threshold triggered BaseAgent temp-file overflow on
+    every v0.12.0 dispatch.
+    """
+    import json as _json
+    from polily.core.config_store import _migrate_max_prompt_chars_v0_12_0
+
+    db = PolilyDB(tmp_path / "polily.db")
+    # Simulate v0.11.x state: write old default 5000 directly, bypassing seed.
+    db.conn.execute(
+        "INSERT OR REPLACE INTO config (key_path, value, updated_at) "
+        "VALUES (?, ?, ?)",
+        ("ai.narrative_writer.max_prompt_chars", _json.dumps(5000), "2026-01-01T00:00:00Z"),
+    )
+    db.conn.commit()
+
+    bumped = _migrate_max_prompt_chars_v0_12_0(db)
+    assert bumped is True
+
+    row = db.conn.execute(
+        "SELECT value FROM config WHERE key_path = 'ai.narrative_writer.max_prompt_chars'"
+    ).fetchone()
+    assert _json.loads(row["value"]) == 100000
+
+
+def test_max_prompt_chars_migration_idempotent_on_new_default(tmp_path):
+    """If value is already 100000 (fresh v0.12.0 install), migration is no-op."""
+    import json as _json
+    from polily.core.config_store import _migrate_max_prompt_chars_v0_12_0
+
+    db = PolilyDB(tmp_path / "polily.db")
+    # Fresh v0.12.0: ensure_seeded already wrote 100000 from the new Pydantic default.
+    db.conn.execute(
+        "INSERT OR REPLACE INTO config (key_path, value, updated_at) "
+        "VALUES (?, ?, ?)",
+        ("ai.narrative_writer.max_prompt_chars", _json.dumps(100000), "2026-05-09T00:00:00Z"),
+    )
+    db.conn.commit()
+
+    bumped = _migrate_max_prompt_chars_v0_12_0(db)
+    assert bumped is False, "Migration should no-op when value is already 100000"
+
+    row = db.conn.execute(
+        "SELECT value FROM config WHERE key_path = 'ai.narrative_writer.max_prompt_chars'"
+    ).fetchone()
+    assert _json.loads(row["value"]) == 100000
+
+
+def test_max_prompt_chars_migration_preserves_user_custom_value(tmp_path):
+    """If user has explicitly set a custom value (e.g., 50000), don't touch it."""
+    import json as _json
+    from polily.core.config_store import _migrate_max_prompt_chars_v0_12_0
+
+    db = PolilyDB(tmp_path / "polily.db")
+    db.conn.execute(
+        "INSERT OR REPLACE INTO config (key_path, value, updated_at) "
+        "VALUES (?, ?, ?)",
+        ("ai.narrative_writer.max_prompt_chars", _json.dumps(50000), "2026-05-09T00:00:00Z"),
+    )
+    db.conn.commit()
+
+    bumped = _migrate_max_prompt_chars_v0_12_0(db)
+    assert bumped is False, "Migration must not overwrite a user-customized value"
+
+    row = db.conn.execute(
+        "SELECT value FROM config WHERE key_path = 'ai.narrative_writer.max_prompt_chars'"
+    ).fetchone()
+    assert _json.loads(row["value"]) == 50000
+
+
+def test_max_prompt_chars_fresh_install_seeds_new_default(tmp_path):
+    """Fresh v0.12.0 install via PolilyDB() + ensure_seeded must seed 100000."""
+    import json as _json
+    from polily.core.config import load_config_from_db
+
+    db = PolilyDB(tmp_path / "polily.db")
+    cfg = load_config_from_db(db)
+    assert cfg.ai.narrative_writer.max_prompt_chars == 100000
+
+    row = db.conn.execute(
+        "SELECT value FROM config WHERE key_path = 'ai.narrative_writer.max_prompt_chars'"
+    ).fetchone()
+    assert _json.loads(row["value"]) == 100000

@@ -30,10 +30,17 @@ def test_movement_config_min_history_default():
 
 
 def test_agent_config_max_prompt_chars_default():
-    """Phase 0 Task 13: DEFAULT_MAX_PROMPT_CHARS lifted into AgentConfig."""
+    """Phase 0 Task 13: DEFAULT_MAX_PROMPT_CHARS lifted into AgentConfig.
+
+    v0.12.0: bumped 5000 → 100000. The pre-v0.12.0 default of 5000 chars
+    was smaller than v0.12.0's combined manual + strategy + protocol
+    prompt (~40 KB), forcing every dispatch through BaseAgent's broken
+    temp-file fallback. 100000 is well under macOS ARG_MAX (1 MB) and
+    leaves plenty of room for retry buffer + future strategy growth.
+    """
     from polily.core.config import AgentConfig
     cfg = AgentConfig()
-    assert cfg.max_prompt_chars == 5000
+    assert cfg.max_prompt_chars == 100000
 
 
 def test_agent_config_no_dead_fields():

@@ -503,3 +503,54 @@ def _migrate_yaml_to_db(db) -> MigrationStatus:
     status = ("ok", len(rows))
     _set_last_migration_status(status)
     return status
+
+
+def _migrate_max_prompt_chars_v0_12_0(db) -> bool:
+    """v0.12.0: bump ``ai.narrative_writer.max_prompt_chars`` 5000 → 100000.
+
+    The pre-v0.12.0 default of 5000 chars triggers BaseAgent's temp-file
+    overflow workaround on every v0.12.0 dispatch — the combined manual +
+    strategy + protocol prompt is ~40 KB by itself. The temp-file path
+    actively breaks markdown-mode analyses: agent treats the prompt file
+    as data to analyze (because the fallback prompt says "Analyze the
+    data in file: X") rather than as instructions to follow, producing
+    meta-analysis output instead of a Polymarket event analysis.
+
+    Idempotent on the value boundary: if the existing db.config row equals
+    exactly the OLD default (5000), update to NEW default (100000). Any
+    other value (including 100000 already, or a custom user choice) is
+    left alone. After first successful run on a v0.11.x DB, subsequent
+    boots are no-op because the value is now 100000.
+
+    Should be called AFTER ensure_seeded() so fresh installs (which seed
+    100000 from the new Pydantic default) skip naturally.
+
+    Returns True if a row was updated, False if no-op.
+    """
+    KEY = "ai.narrative_writer.max_prompt_chars"
+    OLD_DEFAULT = 5000
+    NEW_DEFAULT = 100000
+
+    with db.transaction() as conn:
+        cur = conn.execute(
+            "SELECT value FROM config WHERE key_path = ?",
+            (KEY,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return False
+        try:
+            current = json.loads(row["value"])
+        except (TypeError, json.JSONDecodeError):
+            return False
+        if current != OLD_DEFAULT:
+            return False
+        conn.execute(
+            "UPDATE config SET value = ?, updated_at = ? WHERE key_path = ?",
+            (json.dumps(NEW_DEFAULT), datetime.now(UTC).isoformat(), KEY),
+        )
+    _log.info(
+        "Migrated %s: %s → %s (v0.12.0 prompt overflow fix)",
+        KEY, OLD_DEFAULT, NEW_DEFAULT,
+    )
+    return True

@@ -53,7 +53,18 @@ class AgentConfig(BaseModel):
     """
     model: str = "sonnet"
     timeout_seconds: int = 120
-    max_prompt_chars: int = 5000  # truncation threshold for tool-mode prompts (was DEFAULT_MAX_PROMPT_CHARS in agents/base.py)
+    # Threshold above which BaseAgent writes the prompt to /tmp/ and tells the
+    # claude subprocess to "Analyze the data in file: X" instead of passing the
+    # prompt inline. v0.11.x default was 5000 (chars); v0.12.0 bumped to 100000
+    # because the new manual + strategy + protocol composition is ~40 KB by
+    # itself, and the temp-file workaround actively breaks markdown-mode
+    # analyses (agent treats the prompt file as data to analyze, not as
+    # instructions to follow — produces meta-analysis output). 100K is well
+    # under macOS ARG_MAX (1 MB) and under any plausible context window for
+    # claude (Opus 4.7: 1 M tokens, ~3-4 M chars). See PR #v0.12.0 commit
+    # for the full incident analysis. Existing users with seeded 5000 are
+    # auto-migrated by `_migrate_max_prompt_chars_default_bump` at first boot.
+    max_prompt_chars: int = 100000
 
 
 class AiConfig(BaseModel):
@@ -243,6 +254,7 @@ def load_config_from_db(db) -> PolilyConfig:
     """
     from polily.core.config_store import (
         EPHEMERAL_FIELDS,
+        _migrate_max_prompt_chars_v0_12_0,
         _migrate_yaml_to_db,
         _unflatten,
         ensure_seeded,
@@ -273,6 +285,11 @@ def load_config_from_db(db) -> PolilyConfig:
         try:
             _migrate_yaml_to_db(db)
             ensure_seeded(db)
+            # v0.12.0: bump max_prompt_chars 5000 → 100000 for users
+            # upgrading from v0.11.x. Fresh installs already seed 100000
+            # from the updated Pydantic default; this migration is for
+            # existing DBs whose config table has the old 5000 value.
+            _migrate_max_prompt_chars_v0_12_0(db)
             db.conn.commit()
         except Exception:
             db.conn.rollback()

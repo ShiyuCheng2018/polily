@@ -28,6 +28,8 @@ structured release notes — see `git log` for history.
 
 - **Default theme switches from `polily-dark` to `polily-geek` (phosphor green).** Existing users keep whatever theme they previously selected (Textual persists theme state); only fresh installs see the new default. Switch any time via `Ctrl+P → Change theme`.
 
+- **`ai.narrative_writer.max_prompt_chars` default bumped 5000 → 100000** with a one-shot auto-migration for existing users. The pre-v0.12.0 5000-char threshold was below v0.12.0's combined manual + strategy + protocol prompt size (~40 KB), forcing every dispatch through `BaseAgent`'s temp-file overflow workaround. That workaround actively breaks markdown-mode analyses — agent treats the prompt file as data to analyze instead of instructions to follow, producing meta-analysis output. v0.12.0 first boot auto-bumps the value if it's exactly the old 5000 default; user-customized values are preserved.
+
 - **`BaseAgent` accepts `json_schema=None` (markdown mode).** When the schema is `None`, the `claude` CLI invocation omits `--json-schema` and `invoke()` returns raw stdout text instead of a parsed `dict`. Existing agents passing a schema dict keep their dict-return behavior unchanged.
 
 - **`AGENT_TOOLS` for the NarrativeWriter agent drops `"StructuredOutput"`** (no longer used now that the agent emits free-form markdown). `Read` is retained — the agent uses it to load `polily/strategies/default.md` from the path injected via `official_strategy_path` when an empty / unusable user strategy needs fallback.
