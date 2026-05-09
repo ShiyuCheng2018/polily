@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pytest
 from textual.app import App
-from textual.widgets import Button, RadioButton, RadioSet, TextArea
+from textual.containers import VerticalScroll
+from textual.widgets import Button, Markdown, RadioButton, RadioSet, TextArea
 
 from polily.core.db import PolilyDB
 from polily.core.strategy_store import (
@@ -77,6 +78,105 @@ async def test_save_writes_user_strategy_to_db(tmp_path):
         view.action_save()
         await pilot.pause()
         assert get_user_strategy_text(db) == "# My custom strategy\n\nWith content."
+
+
+@pytest.mark.asyncio
+async def test_official_markdown_wrapped_in_vertical_scroll(tmp_path):
+    """v0.12.0 hotfix: the official-strategy Markdown widget must be wrapped
+    in a VerticalScroll so the ~95-line default.md is browsable. Without
+    this, Markdown has no internal scroll and content past the viewport is
+    unreachable.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        # The Markdown widget exists
+        md = view.query_one("#strategy-readonly", Markdown)
+        # And its parent (or grandparent up the tree) is a VerticalScroll
+        scroll_wrapper = view.query_one("#strategy-readonly-scroll", VerticalScroll)
+        # Markdown is inside the scroll wrapper (Textual's parent / region check)
+        assert md in scroll_wrapper.walk_children(Markdown), (
+            "Markdown widget must be a descendant of VerticalScroll wrapper "
+            "for the official strategy to be scrollable"
+        )
+
+
+@pytest.mark.asyncio
+async def test_user_mode_hides_scroll_wrapper(tmp_path):
+    """User mode shows TextArea, not the official-strategy scroll wrapper.
+
+    Toggling display.False on the wrapper (not the inner Markdown) is critical
+    — toggling Markdown alone would leave the empty wrapper consuming layout
+    space.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        view.action_select_user()
+        await pilot.pause()
+        scroll_wrapper = view.query_one("#strategy-readonly-scroll", VerticalScroll)
+        assert scroll_wrapper.display is False, (
+            "VerticalScroll wrapper must be hidden in user mode "
+            "(otherwise it occupies layout space alongside the TextArea)"
+        )
+        ta = view.query_one("#strategy-textarea", TextArea)
+        assert ta.display is True
+
+
+@pytest.mark.asyncio
+async def test_radio_labels_react_to_language_switch(tmp_path):
+    """Radio button labels must come from the i18n catalog so switching
+    language (F2 → set_language) updates them on next compose. Asserts
+    en + zh both round-trip through t() without falling back to key strings.
+    """
+    from polily.tui.i18n import set_language, t
+
+    db = PolilyDB(tmp_path / "polily.db")
+    # Fresh state — capture both languages' catalog entries directly
+    set_language("en")
+    en_official = t("strategy.radio_official_label")
+    en_user = t("strategy.radio_user_label")
+    set_language("zh")
+    zh_official = t("strategy.radio_official_label")
+    zh_user = t("strategy.radio_user_label")
+
+    # Catalog entries differ between languages (no key-string fallback)
+    assert en_official != zh_official, (
+        f"en + zh strategy.radio_official_label collapsed to same value "
+        f"({en_official!r}) — likely a missing catalog entry"
+    )
+    assert en_user != zh_user
+    # Neither falls back to the bare key string
+    for label in (en_official, en_user, zh_official, zh_user):
+        assert label != "strategy.radio_official_label"
+        assert label != "strategy.radio_user_label"
+
+    # And the rendered radio buttons in zh-mode actually show the zh label
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        rs = pilot.app.query_one(RadioSet)
+        buttons = list(rs.query(RadioButton))
+        # First button is "official" — its label should match the zh catalog entry
+        first_label = buttons[0].label.plain if hasattr(buttons[0].label, "plain") else str(buttons[0].label)
+        assert first_label == zh_official, (
+            f"RadioButton label {first_label!r} doesn't match zh catalog entry {zh_official!r}"
+        )
+
+    # Restore
+    set_language("en")
 
 
 @pytest.mark.asyncio

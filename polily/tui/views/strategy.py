@@ -16,7 +16,7 @@ from __future__ import annotations
 import contextlib
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Markdown, RadioButton, RadioSet, TextArea
 
 from polily.core.db import PolilyDB
@@ -31,10 +31,25 @@ from polily.tui.i18n import t
 
 
 class StrategyView(Vertical):
-    """v0.12.0 Strategy page — single-slot user strategy editor."""
+    """v0.12.0 Strategy page — single-slot user strategy editor.
 
+    Layout (top → bottom):
+      RadioSet              (sticky, height auto)
+      Horizontal starter    (sticky, height auto, hidden in official mode)
+      TextArea OR Markdown  (1fr — user mode = TextArea with internal scroll;
+                                     official mode = Markdown wrapped in
+                                     VerticalScroll so the ~95-line default.md
+                                     is browsable)
+      Horizontal buttons    (sticky, height 3)
+    """
+
+    # i18n note: the third element (footer hint) is resolved at class-load
+    # time. Switching language at runtime via F2 does NOT re-render the
+    # footer hint — Textual stores BINDINGS as class metadata. This is
+    # acceptable: the only hint is the universally-understood "保存"/"Save"
+    # word, and the keystroke itself (Ctrl+S) is language-neutral.
     BINDINGS = [
-        ("ctrl+s", "save", "Save"),
+        ("ctrl+s", "save", t("strategy.save_button")),
     ]
 
     DEFAULT_CSS = """
@@ -48,7 +63,11 @@ class StrategyView(Vertical):
     StrategyView .starter-row Button {
         margin: 0 1;
     }
-    StrategyView TextArea, StrategyView Markdown {
+    /* Both the user-mode TextArea (which has its own internal scroll)
+       and the official-mode VerticalScroll wrapper take the remaining
+       vertical space. Markdown no longer needs 1fr — its parent scroll
+       wrapper does. */
+    StrategyView TextArea, StrategyView #strategy-readonly-scroll {
         height: 1fr;
     }
     StrategyView .button-row {
@@ -89,7 +108,11 @@ class StrategyView(Vertical):
                 id="btn-copy-official",
             )
         yield TextArea("", id="strategy-textarea")
-        yield Markdown("", id="strategy-readonly")
+        # Wrap Markdown in VerticalScroll so the ~95-line official strategy
+        # is browsable when the page height < content height. Without this,
+        # Markdown widget has no internal scroll and the bottom is cut off.
+        with VerticalScroll(id="strategy-readonly-scroll"):
+            yield Markdown("", id="strategy-readonly")
         with Horizontal(classes="button-row"):
             yield Button(
                 t("strategy.save_button"), id="btn-save", variant="primary"
@@ -103,21 +126,30 @@ class StrategyView(Vertical):
         self._suppress_radio_event = False
 
     def _refresh_layout(self) -> None:
-        """Sync the textarea / markdown / starter-row visibility to active mode."""
+        """Sync the textarea / markdown / starter-row visibility to active mode.
+
+        The Markdown widget's display is toggled via its parent VerticalScroll
+        wrapper — toggling Markdown directly would leave the empty wrapper
+        visible and steal layout space.
+        """
         active = get_active_strategy_name(self._db)
         ta = self.query_one("#strategy-textarea", TextArea)
         ro = self.query_one("#strategy-readonly", Markdown)
+        ro_scroll = self.query_one("#strategy-readonly-scroll", VerticalScroll)
         starter = self.query_one("#starter-row", Horizontal)
 
         if active == "official":
             ta.display = False
-            ro.display = True
+            ro_scroll.display = True
             ro.update(load_official_strategy())
             starter.display = False
+            # Reset scroll position to top whenever we re-render so users
+            # always see § 1 first, not wherever the previous mode left off.
+            ro_scroll.scroll_home(animate=False)
         else:  # user
             user_text = get_user_strategy_text(self._db)
             ta.display = True
-            ro.display = False
+            ro_scroll.display = False
             ta.text = user_text
             starter.display = (user_text == "")
 
