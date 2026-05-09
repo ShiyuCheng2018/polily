@@ -20,6 +20,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Markdown, RadioButton, RadioSet, TextArea
 
 from polily.core.db import PolilyDB
+from polily.core.events import TOPIC_LANGUAGE_CHANGED, get_event_bus
 from polily.core.strategy_store import (
     get_active_strategy_name,
     get_user_strategy_text,
@@ -124,6 +125,53 @@ class StrategyView(Vertical):
         # Re-enable radio event handling now that initial mount-time Changed
         # signals have fired.
         self._suppress_radio_event = False
+        # Subscribe to language-switch broadcasts so F2 mid-page updates
+        # all i18n strings in-place. Without this, t() lookups happen only
+        # at compose time → labels freeze at whatever language was loaded
+        # when the view was mounted, indistinguishable from hardcoded.
+        # Canonical pattern: wallet.py / event_detail.py / archived_events.py.
+        get_event_bus().subscribe(TOPIC_LANGUAGE_CHANGED, self._on_lang_changed)
+
+    def on_unmount(self) -> None:
+        # Mirror on_mount; failing to unsubscribe leaves a dangling reference
+        # to a removed widget, and the next publish would call into freed
+        # state.
+        with contextlib.suppress(Exception):
+            get_event_bus().unsubscribe(
+                TOPIC_LANGUAGE_CHANGED, self._on_lang_changed,
+            )
+
+    def _on_lang_changed(self, payload: dict) -> None:
+        """Re-apply t() to every static label after a language switch.
+
+        Every widget that took an i18n string at compose time needs to be
+        re-set explicitly — Textual doesn't re-evaluate compose() on
+        language change. Toasts (notify) read t() at call time so they
+        get the new language for free.
+
+        Wrapped in suppress because language switches can land mid-mount
+        in tests, before some widgets are queryable.
+        """
+        import contextlib
+        with contextlib.suppress(Exception):
+            # Radio buttons
+            self.query_one("#radio-official", RadioButton).label = t(
+                "strategy.radio_official_label",
+            )
+            self.query_one("#radio-user", RadioButton).label = t(
+                "strategy.radio_user_label",
+            )
+            # Starter row (mounted even when display=False — labels still
+            # need to be correct for when user toggles into user mode)
+            self.query_one("#btn-blank", Button).label = t(
+                "strategy.starter_blank_button",
+            )
+            self.query_one("#btn-copy-official", Button).label = t(
+                "strategy.starter_copy_official_button",
+            )
+            # Save / discard
+            self.query_one("#btn-save", Button).label = t("strategy.save_button")
+            self.query_one("#btn-discard", Button).label = t("strategy.discard_button")
 
     def _refresh_layout(self) -> None:
         """Sync the textarea / markdown / starter-row visibility to active mode.

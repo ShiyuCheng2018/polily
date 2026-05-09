@@ -180,6 +180,102 @@ async def test_radio_labels_react_to_language_switch(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_live_language_switch_updates_visible_labels(tmp_path):
+    """Pressing F2 to switch language while StrategyView is mounted MUST
+    update the visible radio + button labels in-place. Without subscribing
+    to TOPIC_LANGUAGE_CHANGED, t() lookups happen only at compose time —
+    labels freeze at whatever language was loaded when the view was
+    first mounted, which the user perceives as 'hardcoded'.
+
+    Pattern: same as wallet.py / event_detail.py / archived_events.py —
+    subscribe in on_mount, unsubscribe in on_unmount, handler reaches
+    into mounted widgets and re-applies t() values.
+    """
+    from polily.core.events import TOPIC_LANGUAGE_CHANGED, get_event_bus
+    from polily.tui.i18n import set_language, t
+
+    db = PolilyDB(tmp_path / "polily.db")
+
+    set_language("en")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        rs = pilot.app.query_one(RadioSet)
+        buttons = list(rs.query(RadioButton))
+        save_btn = pilot.app.query_one("#btn-save", Button)
+        discard_btn = pilot.app.query_one("#btn-discard", Button)
+
+        # Sanity: en mode shows en labels
+        en_official_label = buttons[0].label.plain if hasattr(buttons[0].label, "plain") else str(buttons[0].label)
+        assert en_official_label == t("strategy.radio_official_label")
+
+        # Switch language and broadcast (mimics action_toggle_language)
+        set_language("zh")
+        get_event_bus().publish(TOPIC_LANGUAGE_CHANGED, {"language": "zh"})
+        await pilot.pause()
+
+        # Re-query (labels are mutable on existing widgets, no re-mount)
+        zh_official_label = buttons[0].label.plain if hasattr(buttons[0].label, "plain") else str(buttons[0].label)
+        zh_user_label = buttons[1].label.plain if hasattr(buttons[1].label, "plain") else str(buttons[1].label)
+        zh_save_label = save_btn.label.plain if hasattr(save_btn.label, "plain") else str(save_btn.label)
+        zh_discard_label = discard_btn.label.plain if hasattr(discard_btn.label, "plain") else str(discard_btn.label)
+
+        # All four MUST now match the zh catalog
+        assert zh_official_label == t("strategy.radio_official_label"), (
+            f"Radio 'official' label still {zh_official_label!r} after language switch — "
+            f"StrategyView is not subscribing to TOPIC_LANGUAGE_CHANGED"
+        )
+        assert zh_user_label == t("strategy.radio_user_label")
+        assert zh_save_label == t("strategy.save_button")
+        assert zh_discard_label == t("strategy.discard_button")
+
+    # Restore for other tests
+    set_language("en")
+
+
+@pytest.mark.asyncio
+async def test_starter_button_labels_react_to_language_switch(tmp_path):
+    """Starter buttons (only visible in user mode with empty text) must also
+    react to language switch — they're separate from the always-mounted
+    save/discard pair.
+    """
+    from polily.core.events import TOPIC_LANGUAGE_CHANGED, get_event_bus
+    from polily.tui.i18n import set_language, t
+
+    db = PolilyDB(tmp_path / "polily.db")
+    set_language("en")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        # Switch to user mode so starter buttons render
+        view.action_select_user()
+        await pilot.pause()
+
+        blank_btn = pilot.app.query_one("#btn-blank", Button)
+        copy_btn = pilot.app.query_one("#btn-copy-official", Button)
+
+        # Switch language while starter buttons are visible
+        set_language("zh")
+        get_event_bus().publish(TOPIC_LANGUAGE_CHANGED, {"language": "zh"})
+        await pilot.pause()
+
+        zh_blank = blank_btn.label.plain if hasattr(blank_btn.label, "plain") else str(blank_btn.label)
+        zh_copy = copy_btn.label.plain if hasattr(copy_btn.label, "plain") else str(copy_btn.label)
+
+        assert zh_blank == t("strategy.starter_blank_button")
+        assert zh_copy == t("strategy.starter_copy_official_button")
+
+    set_language("en")
+
+
+@pytest.mark.asyncio
 async def test_radio_toggle_persists_active_strategy(tmp_path):
     """select_user() / select_official() each persist to active_strategy config."""
     db = PolilyDB(tmp_path / "polily.db")
