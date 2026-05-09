@@ -67,7 +67,7 @@ def get_active_strategy_text(db: PolilyDB) -> str:
 
     'official' → packaged default.md
     'user'     → user_strategy.text (literal; '' is allowed — agent falls
-                  back via Read tool per manual.md §7)
+                  back via Read tool per manual.md §8)
     """
     if get_active_strategy_name(db) == "official":
         return load_official_strategy()
