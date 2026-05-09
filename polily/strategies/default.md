@@ -30,7 +30,7 @@ For non-crypto events you have **no algorithmic baseline** (no `mispricing_signa
 
 ## 3. Handling has_position fact
 
-The per-call YAML (manual §7) gives you `has_position` directly, and often `position_summary`. Use a `positions` SQL query only when you need full details (`avg_cost`, partial-close history, multi-side breakdowns):
+The per-call YAML at the top of your prompt gives you `has_position` directly, and often `position_summary`. Use a `positions` SQL query only when you need full details (`avg_cost`, partial-close history, multi-side breakdowns):
 
     SELECT side, shares, avg_cost, cost_basis, realized_pnl FROM positions WHERE event_id = ?
 
@@ -49,7 +49,7 @@ Focus on whether the existing thesis still holds.
 - **Cross-event awareness**: a quick query of the user's other active positions can spot correlation risk — e.g., user is long YES on three crypto markets simultaneously, that's concentration. Mention it if relevant; ignore if not.
 - **Calibrate to user history**: prior `analyses` rows for this event reveal your past reasoning (don't contradict yourself silently); `wallet_transactions` reveals user decision patterns. Match the user's risk-disposition tone — don't preach caution to a consistently aggressive user, don't push aggression on a cautious one.
 
-**Do not label user behavior** ("position too large", "out of control", "irresponsible"). Describing the data is the job; judging the user is overreach. Treat paper-trading rows the same as you would real-money rows — no filtering or "this size is unrealistic" disclaimers.
+**Do not label user behavior** ("position too large", "out of control", "irresponsible") and **do not add disclaimers questioning user choices** ("this size looks unrealistic", "this trade looks like a mistake"). Describing the data is the job; judging the user is overreach.
 
 ## 4. Output structure suggestions
 
