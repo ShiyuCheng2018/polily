@@ -64,3 +64,105 @@ dev_feedback: "数据时效性 section 有效，agent 不再误报 race"
     fm, body = split_frontmatter(raw)
     assert fm["next_check_reason"] == "FDA 听证会前 1 小时"
     assert "中文 body" in body
+
+
+# --- Preamble tolerance (v0.12.0 hotfix) ---
+#
+# Real-world agent outputs occasionally include a status preamble before
+# the YAML block (e.g., "数据已收集完毕，生成完整分析." / "Here's the analysis:").
+# protocol.md forbids this, but defensive parsing prevents one stray line
+# from silently dropping the entire frontmatter. The dropped preamble is
+# treated as noise (not surfaced in body) so the TUI markdown view stays
+# clean.
+
+
+def test_tolerates_single_line_chinese_preamble():
+    raw = """数据已收集完毕，生成完整分析。
+
+---
+next_check_at: "2026-05-16T16:00:00+00:00"
+next_check_reason: "BTC 价格趋势"
+urgency: "no_rush"
+dev_feedback: "v1 was meta-analysis; v2 is real"
+---
+
+# Edge assessment
+
+Body here.
+"""
+    fm, body = split_frontmatter(raw)
+    assert fm["next_check_at"] == "2026-05-16T16:00:00+00:00"
+    assert fm["urgency"] == "no_rush"
+    # Preamble is dropped — body starts with the markdown body, not the preamble
+    assert "数据已收集完毕" not in body
+    assert body.lstrip().startswith("# Edge assessment")
+
+
+def test_tolerates_english_preamble():
+    raw = """Here's the analysis:
+
+---
+urgency: "normal"
+next_check_at: "2026-05-10T13:00:00+00:00"
+---
+
+# Body
+"""
+    fm, body = split_frontmatter(raw)
+    assert fm["urgency"] == "normal"
+    assert "Here's the analysis" not in body
+
+
+def test_tolerates_leading_blank_lines():
+    raw = """
+
+---
+urgency: "normal"
+---
+
+# Body
+"""
+    fm, body = split_frontmatter(raw)
+    assert fm["urgency"] == "normal"
+    assert body.lstrip().startswith("# Body")
+
+
+def test_no_yaml_content_between_fences_returns_empty():
+    """If the content between two `---` fences is not a YAML mapping
+    (e.g., the agent emitted prose between two horizontal rules with no
+    frontmatter at all), return ({}, raw) — never silently fabricate fields."""
+    raw = """Some intro text.
+
+---
+This is just prose, not YAML key: value.
+Another line.
+---
+
+# Body
+"""
+    fm, body = split_frontmatter(raw)
+    # YAML lib will parse this as a string scalar, not a mapping → reject
+    assert fm == {}
+    assert body == raw
+
+
+def test_preamble_with_horizontal_rule_after_yaml_block_unaffected():
+    """Body horizontal rules (after the closing `---`) must not confuse the parser."""
+    raw = """preamble
+
+---
+urgency: "normal"
+---
+
+# Body
+
+Section 1.
+
+---
+
+Section 2 (separated by horizontal rule).
+"""
+    fm, body = split_frontmatter(raw)
+    assert fm["urgency"] == "normal"
+    assert "Section 1" in body
+    assert "Section 2" in body

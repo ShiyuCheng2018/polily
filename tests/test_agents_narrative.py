@@ -106,6 +106,51 @@ class TestNarrativeWriterAgent:
                     event_id="ev_test", trigger_source="manual", db=db,
                 )
 
+    def test_parse_output_logs_warning_when_frontmatter_empty(self, tmp_path, caplog):
+        """v0.12.0 hotfix: when split_frontmatter returns {} (parser couldn't
+        find a YAML mapping at all), _parse_output must emit a WARNING with a
+        raw preview. Bright-line signal for protocol drift — we want to see
+        in the logs when an agent skipped the YAML block entirely so we can
+        catch it without waiting for daemon scheduling to break.
+        """
+        import logging
+
+        agent = NarrativeWriterAgent(AgentConfig(model="opus"))
+        # Body-only output, no frontmatter at all
+        raw = "# Just a body, no frontmatter at all.\n\nThis is the analysis."
+
+        with caplog.at_level(logging.WARNING, logger="polily.agents.narrative_writer"):
+            agent._parse_output(raw)
+
+        assert any(
+            "frontmatter" in rec.message.lower() and rec.levelno == logging.WARNING
+            for rec in caplog.records
+        ), f"Expected a WARNING about empty frontmatter; got: {[r.message for r in caplog.records]}"
+
+    def test_parse_output_no_warning_when_frontmatter_parses(self, tmp_path, caplog):
+        """The WARNING must be silent in the happy path (well-formed frontmatter)."""
+        import logging
+
+        agent = NarrativeWriterAgent(AgentConfig(model="opus"))
+        raw = (
+            '---\n'
+            'next_check_at: "2099-01-01T00:00:00+00:00"\n'
+            'next_check_reason: "r"\n'
+            'urgency: "normal"\n'
+            'dev_feedback: "ok"\n'
+            '---\n\n# Body\n'
+        )
+        with caplog.at_level(logging.WARNING, logger="polily.agents.narrative_writer"):
+            agent._parse_output(raw)
+
+        empty_fm_warns = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and "frontmatter" in r.message.lower()
+        ]
+        assert empty_fm_warns == [], (
+            f"No empty-frontmatter WARNING expected for well-formed input; got {empty_fm_warns}"
+        )
+
     @pytest.mark.asyncio
     async def test_short_body_yields_partial_output_after_retry(self, tmp_path):
         """v0.12.0: parse never raises on short body — semantic_errors() flags

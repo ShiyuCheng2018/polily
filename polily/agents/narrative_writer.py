@@ -209,10 +209,24 @@ class NarrativeWriterAgent:
 
         Defensive: missing/malformed frontmatter yields empty fields
         (semantic_errors() will flag missing next_check_at downstream).
+
+        v0.12.0 hotfix: when split_frontmatter returns {} (no valid YAML
+        mapping found), emit a WARNING with a raw-output preview. This is
+        a bright-line signal that the agent violated the output protocol
+        — without the warning, downstream effects (daemon next_check_at
+        scheduling, dev_feedback collection) silently degrade.
         """
         from polily.agents.frontmatter import split_frontmatter
 
         fm, body = split_frontmatter(raw)
+        if not fm:
+            preview = raw[:200].replace("\n", "\\n")
+            logger.warning(
+                "Agent output had no valid YAML frontmatter — protocol drift; "
+                "next_check_at / urgency / dev_feedback will be empty. "
+                "Raw preview: %s",
+                preview,
+            )
         return AgentMarkdownOutput(
             markdown_body=body,
             next_check_at=str(fm.get("next_check_at", "")),

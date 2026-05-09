@@ -31,7 +31,14 @@ Quote every string value (`"..."`) to avoid YAML edge cases. Don't put unquoted 
 
 ### Common failure modes (avoid)
 
-- ❌ Preamble before `---`: *"Here's my analysis:\n\n---\n..."* → parse fails, retry
+- ❌ **Status preamble before `---`** — these are the most common drift modes; polily's parser tolerates one stray line, but **don't rely on tolerance**:
+  - *"Here's my analysis:"*
+  - *"Below is the structured output."*
+  - *"Data collected, generating full analysis."*
+  - *"数据已收集完毕，生成完整分析。"*
+  - *"分析完成，以下是结果。"*
+
+  All wrong. The very first character of your response must be `-` (the dash that opens `---`). No status line, no greeting, no "I have completed my research." Speak through the markdown body, not before it.
 - ❌ Outer code fence: ` ```yaml\n---\n... ``` ` → parse fails, retry
 - ❌ Unquoted timestamp: `next_check_at: 2026-05-10T13:00:00+00:00` (without quotes) → YAML parses as datetime; safer to quote
 - ❌ Out-of-enum urgency: `urgency: "high"` / `urgency: "URGENT"` → Pydantic rejects, retry
