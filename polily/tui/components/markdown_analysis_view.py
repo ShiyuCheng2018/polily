@@ -6,7 +6,7 @@ the next-check status line only); body is rendered verbatim.
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import Vertical
 from textual.widgets import Markdown, Static
 
 from polily.agents.frontmatter import split_frontmatter
@@ -14,16 +14,23 @@ from polily.analysis_store import AnalysisVersion
 from polily.tui.i18n import t
 
 
-class MarkdownAnalysisView(VerticalScroll):
+class MarkdownAnalysisView(Vertical):
     """Displays AgentMarkdownOutput-style analyses (narrative_format='markdown').
 
     Layout (top → bottom):
       - One-line status line showing next_check_at + reason (if present)
       - Full markdown body via Textual's Markdown widget (WYSIWYG)
+
+    Uses ``Vertical`` (NOT ``VerticalScroll``) — the parent ``EventDetailView``
+    already wraps the analysis area in ``VerticalScroll``. Nesting our own
+    scroll container would create double-scroll inside the event detail page
+    (Textual reports it as competing scroll regions, hand-eye says "scroll
+    inside scroll" which is broken UX). Height grows naturally with content;
+    the outer scroll handles overflow.
     """
 
     DEFAULT_CSS = """
-    MarkdownAnalysisView { height: auto; max-height: 100%; }
+    MarkdownAnalysisView { height: auto; }
     MarkdownAnalysisView > .next-check-line {
         color: $text-muted;
         padding: 0 1 1 1;
