@@ -49,6 +49,40 @@ def test_default_md_mentions_has_position():
     assert "has_position" in text
 
 
+def test_default_md_does_not_invite_meta_disclaimers():
+    """v0.12.0 polish: §3 must not contain a slogan-style closer that
+    agents echo back as a section-header parenthetical (e.g.
+    '## 跨事件持仓背景（描述，不评判）'). The 'describe vs judge' rule
+    must read as internal behavioral guidance, not a quotable maxim.
+    """
+    text = (Path(polily.__file__).parent / "strategies" / "default.md").read_text(encoding="utf-8")
+    # Catch-all: the previous slogan-y phrasing
+    assert "Describing the data is the job; judging the user is overreach." not in text, (
+        "§3 has the old slogan-style closer that agents echo as meta-disclaimers; "
+        "rephrase as concrete behavioral guidance"
+    )
+    # Positive guard: must explicitly tell agent NOT to surface the rule
+    lower = text.lower()
+    assert "don't surface" in lower or "do not surface" in lower or "meta-noise" in lower, (
+        "§3 must explicitly tell the agent NOT to surface the describe-vs-judge "
+        "rule as parenthetical disclaimers in section headers"
+    )
+
+
+def test_default_md_market_id_must_have_friendly_label():
+    """v0.12.0 polish: bare numeric market_ids in operations tables
+    are illegible to users. Strategy must require a friendly label
+    alongside the id.
+    """
+    text = (Path(polily.__file__).parent / "strategies" / "default.md").read_text(encoding="utf-8")
+    # Must reference both group_item_title (friendly source) AND require
+    # both a label and the market_id together
+    assert "group_item_title" in text or "friendly label" in text.lower(), (
+        "default.md must reference 'group_item_title' or 'friendly label' "
+        "so agents know to pair market_ids with human-readable names"
+    )
+
+
 def test_default_md_requires_source_citation_for_web_data():
     """v0.12.0 hotfix: every fact pulled via WebSearch must carry a source.
 

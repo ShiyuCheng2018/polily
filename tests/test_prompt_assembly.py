@@ -75,6 +75,23 @@ def test_prompt_contains_protocol_footer(tmp_path):
     assert "MUST be present" in prompt
 
 
+def test_protocol_requires_next_check_reason_consistency(tmp_path):
+    """v0.12.0 polish: protocol.md must instruct the agent to keep
+    next_check_reason consistent with next_check_at.
+
+    Real-world miss: Iran uranium event v1 had next_check_at = 5/12 paired
+    with reason 'Iran 48hr MOU response window expires' — but the 48hr
+    window had already closed on 5/9. User couldn't tell why polily
+    scheduled the check there.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+    prompt = _build_prompt(db, "evt1", False, None, "manual")
+    # Must mention consistency between the timestamp and the reason
+    assert "consistent with" in prompt or "consistency" in prompt.lower(), (
+        "protocol.md must require next_check_reason to be consistent with next_check_at"
+    )
+
+
 def test_prompt_assembly_order(tmp_path):
     """Order: ephemeral → manual → strategy → protocol."""
     db = PolilyDB(tmp_path / "polily.db")

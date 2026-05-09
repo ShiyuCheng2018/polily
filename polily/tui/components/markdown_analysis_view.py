@@ -18,8 +18,13 @@ class MarkdownAnalysisView(Vertical):
     """Displays AgentMarkdownOutput-style analyses (narrative_format='markdown').
 
     Layout (top → bottom):
-      - One-line status line showing next_check_at + reason (if present)
       - Full markdown body via Textual's Markdown widget (WYSIWYG)
+      - One-line footer showing next_check_at + reason (if present)
+
+    The footer goes at the BOTTOM (not top) per v0.12.0 user feedback —
+    the analysis is the primary content; "when will polily re-check"
+    is meta-info. Reversing the order pushed the actual edge assessment
+    below the fold on smaller terminals.
 
     Uses ``Vertical`` (NOT ``VerticalScroll``) — the parent ``EventDetailView``
     already wraps the analysis area in ``VerticalScroll``. Nesting our own
@@ -33,7 +38,7 @@ class MarkdownAnalysisView(Vertical):
     MarkdownAnalysisView { height: auto; }
     MarkdownAnalysisView > .next-check-line {
         color: $text-muted;
-        padding: 0 1 1 1;
+        padding: 1 1 0 1;
     }
     """
 
@@ -47,6 +52,8 @@ class MarkdownAnalysisView(Vertical):
         self._body = body or "_(empty body)_"
 
     def compose(self) -> ComposeResult:
+        # Body first, footer last (see class docstring for rationale).
+        yield Markdown(self._body)
         next_check_at = self._frontmatter.get("next_check_at", "")
         reason = self._frontmatter.get("next_check_reason", "")
         if next_check_at:
@@ -55,4 +62,3 @@ class MarkdownAnalysisView(Vertical):
                 f"⏰ {label}: {next_check_at}  ·  {reason}",
                 classes="next-check-line",
             )
-        yield Markdown(self._body)
