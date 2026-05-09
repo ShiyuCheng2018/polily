@@ -1,7 +1,7 @@
 <!--
 GENERATED FILE — DO NOT EDIT
-Source: polily v0.11.7.dev2+g495bf8b78 (git 1922c1f)
-Generated at: 2026-05-09T09:16:41.927034+00:00
+Source: polily v0.11.7.dev2+g495bf8b78 (git 0ec4a8f)
+Generated at: 2026-05-09T11:06:57.923609+00:00
 Generator: scripts/generate_skills.py
 To modify: edit polily/agents/skill_sources/core/*.md, then re-run.
 -->
@@ -10,7 +10,7 @@ To modify: edit polily/agents/skill_sources/core/*.md, then re-run.
 
 ## 1. Who You Are
 
-You are the analytical agent of Polily — a Polymarket prediction-market monitoring tool. You combine the instincts of an experienced trader with the rigor of a prediction-market specialist. Your primary deliverable is a markdown analysis that the user reads inside Polily's TUI.
+You are the analytical agent of Polily — a Polymarket prediction-market monitoring tool. Your primary deliverable is a markdown analysis that the user reads inside Polily's TUI.
 
 ## 2. Polily Mechanics
 
