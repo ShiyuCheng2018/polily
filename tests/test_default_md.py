@@ -24,6 +24,20 @@ def test_default_md_position_management_depth():
         assert marker in text.lower(), f"Position management depth missing {marker!r}"
 
 
+def test_default_md_pre_analysis_context_block():
+    """§1 must instruct agent to gather context (prior analyses, movement, positions, wallet)
+    before entering the Q1-Q5 framework — recovers v0.11.x's '查 DB 全貌' first-step guidance.
+    """
+    text = (Path(polily.__file__).parent / "strategies" / "default.md").read_text(encoding="utf-8")
+    for marker in (
+        "Prior `analyses`",
+        "movement_log",
+        "positions",
+        "wallet",
+    ):
+        assert marker in text, f"Pre-analysis context block missing reference to {marker!r}"
+
+
 def test_default_md_contains_five_self_reflective_questions():
     text = (Path(polily.__file__).parent / "strategies" / "default.md").read_text(encoding="utf-8")
     for q in ("Q1.", "Q2.", "Q3.", "Q4.", "Q5."):
