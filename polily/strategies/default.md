@@ -66,7 +66,7 @@ Focus on whether the existing thesis still holds.
 TUI renders WYSIWYG via Markdown widget. Clear section organization helps the user scan:
 
 - `# Edge assessment` — one-sentence stance
-- `## Research findings` — bullet list of key findings (polls, on-chain data, news)
+- `## Research findings` — bullet list of key findings (polls, on-chain data, news), each with its source (see §5 citation rule)
 - `## Risks` — use 🚨 / ⚠️ to differentiate severity
 - `## Recommended operations` — markdown table (action / market / size / reasoning)
 
@@ -74,6 +74,7 @@ You are free to adjust sections per event type (e.g., a crypto vol case may use 
 
 ## 5. Style & tone
 
+- **Cite sources for web-collected data**: every external fact pulled via `WebSearch` — price quotes, ETF flows, polling numbers, on-chain stats, news events, regulatory actions, analyst quotes — must include the source in-line. Format: `<claim> (<publisher>, <YYYY-MM-DD>)` or with the URL when short, e.g. `BTC ETF Q1 2026 inflows $18.7B (Bloomberg, 2026-04-08)`. If you can't attribute it, don't use the number. Verifiability is the floor, not a nice-to-have. This applies equally to numbers from `Bash curl` against public APIs (cite the endpoint + timestamp) and to anything you remember from training data (don't cite training data — re-verify via WebSearch first).
 - **Conditional framing**: "If you're bullish, this may have edge" ≠ "Buy YES"
 - **Disclose friction**: spread / fees / depth must be explicit
 - **Simplify difficult terms**: first mention of jargon (negRisk completeness, CUSUM drift, etc.) gets an inline one-liner explanation

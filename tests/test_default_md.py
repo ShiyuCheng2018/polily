@@ -49,6 +49,28 @@ def test_default_md_mentions_has_position():
     assert "has_position" in text
 
 
+def test_default_md_requires_source_citation_for_web_data():
+    """v0.12.0 hotfix: every fact pulled via WebSearch must carry a source.
+
+    The previous BTC $150k analysis cited "ETF Q1 2026 inflows $18.7B",
+    "BlackRock IBIT AUM $54B", "30d funding rate -5%" with zero sources —
+    user can't verify, can't tell if it's stale, can't tell if it's
+    hallucinated. Default strategy must enforce explicit source attribution
+    on web-collected data.
+    """
+    text = (Path(polily.__file__).parent / "strategies" / "default.md").read_text(encoding="utf-8")
+    lower = text.lower()
+    # Must mention citing sources / source attribution
+    assert "source" in lower or "cite" in lower or "citation" in lower, (
+        "default.md must instruct the agent to cite sources for web-collected data"
+    )
+    # Must specifically reference WebSearch (the tool through which web data arrives)
+    assert "websearch" in lower, (
+        "default.md must reference WebSearch when discussing source citation "
+        "(otherwise agent may not know the rule applies to its own tool calls)"
+    )
+
+
 def test_default_md_is_english_no_chinese():
     """Per Q1: agent prompts ship as English; user_lang directive switches output language."""
     text = (Path(polily.__file__).parent / "strategies" / "default.md").read_text(encoding="utf-8")
