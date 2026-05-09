@@ -23,7 +23,7 @@ dev_feedback: "<single-line observation about polily, ≤ 200 chars>"
 - **`next_check_at`** — when polily should re-analyze this event next. UTC ISO 8601 with timezone (`+00:00` suffix or `Z`). Must be **parseable by Python's `datetime.fromisoformat`** and **in the future** (past timestamps are accepted with a warning but are pointless). The daemon scheduler reads this directly to schedule the next dispatch.
 - **`next_check_reason`** — short human-readable context for the scheduler / human reviewers (≤ 50 chars). E.g. `"FDA hearing scheduled 4/30 14:00 ET"`.
 - **`urgency`** — must be **exactly one of** `urgent`, `normal`, or `no_rush` (case-sensitive, no variations). `urgent` = within 5 minutes; `normal` = standard cadence; `no_rush` = can be deferred. Pydantic rejects any other value.
-- **`dev_feedback`** — single-line observation about polily itself (data freshness issues, schema gaps, prompt clarity, fallback reasons per §8) — consumed by polily maintainers reading `agent_feedback.log` (see manual §5). Use empty string `""` if you have no feedback. Do not write user-facing analysis content here.
+- **`dev_feedback`** — single-line observation about polily itself (data freshness issues, schema gaps, prompt clarity, fallback reasons when you fell back to the official strategy). Polily maintainers read these by tailing the `agent_feedback.log` file in the polily logs directory. Use empty string `""` if you have no feedback. Do not write user-facing analysis content here.
 
 ### Quoting convention
 
