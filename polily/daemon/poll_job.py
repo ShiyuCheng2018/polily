@@ -521,6 +521,27 @@ def global_poll(db: PolilyDB | None = None) -> None:
         logger.exception("Score refresh failed")
         warn = True
 
+    # --- Step 2.7: Honor context_requires_regen on monitored events ---
+    # Polymarket sets event_metadata.context_requires_regen=true when their
+    # auto-curated description has gone stale. Pre-v0.12.0 we never re-checked
+    # the flag, so descriptions accumulated drift silently (caught on event
+    # 206793 — Iran uranium — where the description missed 5/6-5/7 MOU news).
+    # Module-level cooldown (5 min default) prevents API hammering when
+    # Polymarket leaves the flag set during their async regen.
+    regen_n = 0
+    try:
+        from polily.daemon.event_metadata_regen import (
+            regen_stale_event_descriptions,
+        )
+
+        regen_config = _ctx.config if _ctx else None
+        regen_n = asyncio.run(regen_stale_event_descriptions(db, regen_config))
+        if regen_n > 0:
+            logger.info("Regenerated event_metadata for %d events", regen_n)
+    except Exception:
+        logger.exception("event_metadata regen step failed")
+        warn = True
+
     # Step 3.5 (dispatcher): drain overdue pending scan_logs rows to the ai executor.
     # Runs AFTER resolution (Step 1.5) and score refresh (Step 2) so analyses see
     # committed state, and BEFORE Step 3 intelligence layer so this-tick movement
