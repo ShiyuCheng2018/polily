@@ -75,6 +75,31 @@ def test_prompt_contains_protocol_footer(tmp_path):
     assert "MUST be present" in prompt
 
 
+def test_protocol_requires_dev_feedback_score_prefix(tmp_path):
+    """v0.12.0 hotfix: dev_feedback must start with `[N/10]` score prefix.
+
+    v0.11.x dev_feedback always carried this score (10 = polily nailed
+    everything for this analysis; 1 = major data/prompt/platform issues).
+    The score gives maintainers a one-glance scannable signal — log
+    aggregation can sort by score and surface the lowest-rated entries
+    first. The v0.12.0 markdown migration lost this discipline; all
+    current production entries are score-less prose.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+    prompt = _build_prompt(db, "evt1", False, None, "manual")
+    # Protocol must explicitly call out the [N/10] prefix
+    assert "[N/10]" in prompt or "[n/10]" in prompt.lower(), (
+        "protocol.md must require dev_feedback to start with a [N/10] score "
+        "prefix (e.g. [8/10] short observation...). Without this, all "
+        "feedback entries are unrankable prose."
+    )
+    # And explain the rating semantics
+    assert ("10 = " in prompt or "10 =" in prompt) and "1 = " in prompt, (
+        "protocol.md must explain the 1-10 rating semantics "
+        "(what high score means, what low score means)"
+    )
+
+
 def test_protocol_requires_next_check_reason_consistency(tmp_path):
     """v0.12.0 polish: protocol.md must instruct the agent to keep
     next_check_reason consistent with next_check_at.
