@@ -271,6 +271,7 @@ def load_config_from_db(db) -> PolilyConfig:
         ensure_seeded,
         load_all,
     )
+    from polily.core.positions import _heal_position_event_id_drift_v0_12_0
 
     # AC1: write-locked transaction prevents cross-process interleaving
     # of migrate count-check vs seed insert. Without BEGIN IMMEDIATE, two
@@ -310,7 +311,6 @@ def load_config_from_db(db) -> PolilyConfig:
             # to canonical markets.event_id. Idempotent (no-op when
             # positions.event_id matches markets.event_id, which is the
             # typical state on fresh installs).
-            from polily.core.positions import _heal_position_event_id_drift_v0_12_0
             _heal_position_event_id_drift_v0_12_0(db)
             db.conn.commit()
         except Exception:

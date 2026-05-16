@@ -13,12 +13,14 @@ position mutation + wallet debit/credit in a single BEGIN/COMMIT. When
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from polily.core.db import PolilyDB
 
+_log = logging.getLogger(__name__)
 
 _VALID_SIDES = ("yes", "no")
 _SHARES_EPS = 1e-9  # Float precision guard for "fully closed" comparisons.
@@ -73,9 +75,6 @@ def _heal_position_event_id_drift_v0_12_0(db) -> int:
 
     Called from load_config_from_db alongside other v0.12.0 migrations.
     """
-    import logging as _logging
-    _log = _logging.getLogger(__name__)
-
     with db.transaction() as conn:
         cur = conn.execute(
             """
