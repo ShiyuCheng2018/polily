@@ -49,10 +49,14 @@ def test_all_territory_a_keys_have_markdown_description():
 
 
 def test_territory_a_count_matches_design_doc():
-    """Pin the territory A count to 40 per design §3.2.
+    """Pin the territory A count to 41 per design §3.2.
+
+    v0.12.0: added active_strategy (40 → 41). The strategy selector is a
+    user-tunable choice (official vs user) so it lives in territory A
+    rather than HIDDEN_IN_TUI.
 
     If this fails:
     1. The schema changed (new knob added or removed) — update design doc + this test
     2. The whitelist prefixes need adjusting (territory A scope changed)
     """
-    assert len(_territory_a_keys()) == 40
+    assert len(_territory_a_keys()) == 41

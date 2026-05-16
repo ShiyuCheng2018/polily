@@ -3,13 +3,15 @@
 Per design §3.2 — db.config is the single source of truth for polily
 configuration. Three field tiers:
 
-- territory A (40 leaves): TUI-editable, persisted in db
-- HIDDEN_IN_TUI (7 leaves): persisted in db but not exposed via TUI Edit modal
+- territory A (41 leaves): TUI-editable, persisted in db
+- HIDDEN_IN_TUI (8 leaves): persisted in db but not exposed via TUI Edit modal
 - EPHEMERAL_FIELDS (1 leaf): never persisted; computed at runtime via Pydantic
   default_factory (e.g., api.user_agent which follows __version__)
 
+Counts updated 2026-05-08 for v0.12.0 (active_strategy added).
+
 Public API (all implemented as of Phase 1):
-    ensure_seeded(db)           — INSERT OR IGNORE all 47 leaves except EPHEMERAL
+    ensure_seeded(db)           — INSERT OR IGNORE all 49 leaves except EPHEMERAL
     load_all(db) -> dict        — read all rows, returns {key_path: value}
     upsert(db, key, value)      — write/overwrite a single key (TUI Edit modal)
     reset(db, key)              — write Pydantic default for key (modal Reset)
@@ -501,3 +503,104 @@ def _migrate_yaml_to_db(db) -> MigrationStatus:
     status = ("ok", len(rows))
     _set_last_migration_status(status)
     return status
+
+
+def _migrate_max_prompt_chars_v0_12_0(db) -> bool:
+    """v0.12.0: bump ``ai.narrative_writer.max_prompt_chars`` 5000 → 100000.
+
+    The pre-v0.12.0 default of 5000 chars triggers BaseAgent's temp-file
+    overflow workaround on every v0.12.0 dispatch — the combined manual +
+    strategy + protocol prompt is ~40 KB by itself. The temp-file path
+    actively breaks markdown-mode analyses: agent treats the prompt file
+    as data to analyze (because the fallback prompt says "Analyze the
+    data in file: X") rather than as instructions to follow, producing
+    meta-analysis output instead of a Polymarket event analysis.
+
+    Idempotent on the value boundary: if the existing db.config row equals
+    exactly the OLD default (5000), update to NEW default (100000). Any
+    other value (including 100000 already, or a custom user choice) is
+    left alone. After first successful run on a v0.11.x DB, subsequent
+    boots are no-op because the value is now 100000.
+
+    Should be called AFTER ensure_seeded() so fresh installs (which seed
+    100000 from the new Pydantic default) skip naturally.
+
+    Returns True if a row was updated, False if no-op.
+    """
+    KEY = "ai.narrative_writer.max_prompt_chars"
+    OLD_DEFAULT = 5000
+    NEW_DEFAULT = 100000
+
+    with db.transaction() as conn:
+        cur = conn.execute(
+            "SELECT value FROM config WHERE key_path = ?",
+            (KEY,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return False
+        try:
+            current = json.loads(row["value"])
+        except (TypeError, json.JSONDecodeError):
+            return False
+        if current != OLD_DEFAULT:
+            return False
+        conn.execute(
+            "UPDATE config SET value = ?, updated_at = ? WHERE key_path = ?",
+            (json.dumps(NEW_DEFAULT), datetime.now(UTC).isoformat(), KEY),
+        )
+    _log.info(
+        "Migrated %s: %s → %s (v0.12.0 prompt overflow fix)",
+        KEY, OLD_DEFAULT, NEW_DEFAULT,
+    )
+    return True
+
+
+def _migrate_narrative_writer_model_v0_12_0(db) -> bool:
+    """v0.12.0: bump ``ai.narrative_writer.model`` "sonnet" → "opus".
+
+    The v0.12.0 analysis surface (multi-platform cross-checks, position
+    management depth, conditional framing, market-microstructure
+    reasoning under uncertainty) benefits materially from Opus-tier
+    reasoning. The long-context Manual + Strategy + Protocol stack
+    (~40 KB) is well within Opus 4.7's 1M token window.
+
+    Idempotent on the value boundary: if the existing db.config row
+    equals exactly the v0.11.x default ("sonnet"), update to NEW
+    default ("opus"). Any other value (including "opus" already, or a
+    user-customized choice like "haiku") is left alone. After the first
+    successful run on a v0.11.x DB, subsequent boots are no-op because
+    the value is now "opus".
+
+    Should be called AFTER ensure_seeded() so fresh installs (which seed
+    "opus" from the new Pydantic default) skip naturally.
+
+    Returns True if a row was updated, False if no-op.
+    """
+    KEY = "ai.narrative_writer.model"
+    OLD_DEFAULT = "sonnet"
+    NEW_DEFAULT = "opus"
+
+    with db.transaction() as conn:
+        cur = conn.execute(
+            "SELECT value FROM config WHERE key_path = ?",
+            (KEY,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return False
+        try:
+            current = json.loads(row["value"])
+        except (TypeError, json.JSONDecodeError):
+            return False
+        if current != OLD_DEFAULT:
+            return False
+        conn.execute(
+            "UPDATE config SET value = ?, updated_at = ? WHERE key_path = ?",
+            (json.dumps(NEW_DEFAULT), datetime.now(UTC).isoformat(), KEY),
+        )
+    _log.info(
+        "Migrated %s: %s → %s (v0.12.0 default model upgrade)",
+        KEY, OLD_DEFAULT, NEW_DEFAULT,
+    )
+    return True

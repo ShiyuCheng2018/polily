@@ -284,6 +284,7 @@ class PolilyService:
                 on_heartbeat=on_heartbeat,
                 event_title=event.title,
                 trigger_source=trigger_source,
+                db=self.db,
             )
         except Exception as e:
             agent_error = e
@@ -324,11 +325,18 @@ class PolilyService:
         prices_snapshot = {
             mr.market_id: {"yes": mr.yes_price, "no": mr.no_price} for mr in markets
         }
+        # v0.12.0: persist the agent's raw markdown (with frontmatter) so the
+        # TUI render path (Task 14) can render it verbatim. raw_markdown is
+        # attached to AgentMarkdownOutput by NarrativeWriterAgent.generate
+        # via object.__setattr__ — Pydantic v2 with extra='ignore' allows
+        # attribute attachment after __init__.
+        raw_markdown = getattr(narrative_output, "raw_markdown", "")
         version = AnalysisVersion(
             version=new_version_num,
             created_at=datetime.now(UTC).isoformat(),
             prices_snapshot=prices_snapshot,
-            narrative_output=narrative_output.model_dump(),
+            narrative_output=raw_markdown,
+            narrative_format="markdown",
             trigger_source=trigger_source,
             structure_score=event.structure_score,
             mispricing_signal="none",

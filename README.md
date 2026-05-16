@@ -61,6 +61,10 @@ For development setup (editable install, running tests, etc.) see [CONTRIBUTING.
 
 In the TUI, paste a Polymarket event URL (looks like `https://polymarket.com/event/...`) into the **Tasks** pane. Polily fetches and scores it; from there you can add it to monitoring or open a paper trade.
 
+<div align="center">
+  <img src="assets/polily_demo.gif" alt="Polily TUI demo — paste URL, score event, watch movement" width="800">
+</div>
+
 ### Where polily stores data
 
 Starting v0.11.0, polily uses OS-standard locations:

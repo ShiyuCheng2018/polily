@@ -35,7 +35,6 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Static
 
-
 # ============================================================================
 # 极简 i18n catalog
 # ============================================================================
@@ -244,11 +243,10 @@ _footer_subscribers: list = []
 
 
 def _notify_footers():
+    import contextlib
     for cb in list(_footer_subscribers):
-        try:
+        with contextlib.suppress(Exception):
             cb()
-        except Exception:
-            pass
 
 
 class CustomFooter(Static):

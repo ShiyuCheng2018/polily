@@ -65,9 +65,12 @@ POLILY_GEEK = Theme(
 def register_polily_theme(app) -> None:
     """Register all Polily brand themes on the given App.
 
-    polily-dark is set as the default; users can switch to polily-geek
-    (or any built-in Textual theme) via Ctrl+P → Change theme.
+    polily-geek (phosphor-green) is set as the default in v0.12.0+.
+    Existing users who previously selected a theme via Ctrl+P keep
+    their preference (Textual persists theme selection in app state).
+    Users can switch to polily-dark or any built-in Textual theme via
+    Ctrl+P → Change theme.
     """
     app.register_theme(POLILY_DARK)
     app.register_theme(POLILY_GEEK)
-    app.theme = "polily-dark"
+    app.theme = "polily-geek"

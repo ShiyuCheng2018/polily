@@ -8,11 +8,11 @@ def test_menu_icons_includes_config():
 
 
 def test_compose_emits_config_item_in_correct_order():
-    """config sits between archive and changelog (per design §5.1)."""
+    """config sits between archive and strategy (per design §5.1; v0.12.0+ adds strategy before changelog)."""
     sidebar = Sidebar()
     items = [item for item in sidebar.compose() if isinstance(item, SidebarItem)]
     menu_ids = [item.menu_id for item in items]
     assert menu_ids == [
         "tasks", "monitor", "paper", "wallet",
-        "history", "archive", "config", "changelog",
+        "history", "archive", "config", "strategy", "changelog",
     ]
