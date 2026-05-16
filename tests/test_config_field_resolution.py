@@ -22,6 +22,7 @@ from polily.core.config import (
     PolilyConfig,
     _coerce_value,
     _resolve_field_annotation,
+    _unwrap_annotation,
 )
 from polily.core.config_store import _flatten_pydantic
 
@@ -184,3 +185,63 @@ def test_coerce_value_float_happy_path():
 
 def test_coerce_value_str_passthrough():
     assert _coerce_value("hello", str) == "hello"
+
+
+# --- _unwrap_annotation: Literal handling (v0.12.0) ---
+
+
+def test_unwrap_annotation_literal_strs_folds_to_str():
+    """`Literal["official", "user"]` (homogeneous str args) folds to `str`
+    so `_coerce_value` can parse raw TUI input. Pydantic's Literal field
+    constraint still rejects values outside the allowed set at validation
+    time — `_coerce_value` only needs a coercible scalar type.
+    """
+    from typing import Literal
+
+    assert _unwrap_annotation(Literal["official", "user"]) is str
+
+
+def test_unwrap_annotation_literal_ints_folds_to_int():
+    from typing import Literal
+
+    assert _unwrap_annotation(Literal[1, 2, 3]) is int
+
+
+def test_unwrap_annotation_literal_mixed_types_does_not_fold():
+    """`Literal[1, "a"]` has heterogeneous args — must NOT fold to a single
+    scalar (would silently drop type info). The implementation's `all-same-type`
+    guard returns the Literal annotation unchanged in this case so downstream
+    `_coerce_value` raises `不支持的类型` (the expected outcome — there's no
+    sensible scalar coercion for mixed Literals).
+    """
+    from typing import Literal
+
+    ann = _unwrap_annotation(Literal[1, "a"])
+    # The annotation is returned unchanged (still Literal-shaped), not folded
+    assert ann is not int
+    assert ann is not str
+
+
+def test_unwrap_annotation_literal_bool_int_corner_folds_to_int():
+    """`Literal[1, True]`: Python's `isinstance(True, int)` is True, so the
+    all-same-type guard with `args[0] = 1` (type int) accepts `True` as int.
+    Folds to int. Pydantic's Literal field still validates that the actual
+    value matches one of `{1, True}` at model_validate time — no silent
+    boolean→int coercion at the user-facing layer.
+
+    This test pins the corner-case behavior so a future "stricter" fold
+    refactor doesn't break existing TUI paths inadvertently.
+    """
+    from typing import Literal
+
+    assert _unwrap_annotation(Literal[1, True]) is int
+
+
+def test_unwrap_annotation_literal_optional_chain():
+    """`Literal["official", "user"] | None` should unwrap Optional first,
+    then fold the inner Literal to str. Verifies the unwrap chain composes
+    correctly when both Optional and Literal layers are present.
+    """
+    from typing import Literal
+
+    assert _unwrap_annotation(Literal["official", "user"] | None) is str

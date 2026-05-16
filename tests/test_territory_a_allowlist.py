@@ -25,13 +25,13 @@ from polily.core.config_store import (
 
 
 def test_territory_a_is_frozenset_of_exact_count():
-    """40 leaves total. If this fails the schema changed — update
-    HIDDEN_IN_TUI / EPHEMERAL_FIELDS or accept the new territory A
-    member explicitly.
+    """41 leaves total (v0.12.0: added active_strategy — 40 → 41).
+    If this fails the schema changed — update HIDDEN_IN_TUI /
+    EPHEMERAL_FIELDS or accept the new territory A member explicitly.
     """
     assert isinstance(TERRITORY_A, frozenset)
-    assert len(TERRITORY_A) == 40, (
-        f"expected 40 territory A keys, got {len(TERRITORY_A)}: "
+    assert len(TERRITORY_A) == 41, (
+        f"expected 41 territory A keys, got {len(TERRITORY_A)}: "
         f"{sorted(TERRITORY_A)}"
     )
 

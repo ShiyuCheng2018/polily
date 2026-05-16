@@ -95,8 +95,8 @@ class BaseAgent:
     def __init__(
         self,
         system_prompt: str,
-        json_schema: dict,
-        model: str = "sonnet",
+        json_schema: dict | None,            # was: dict — now Optional for v0.12.0 markdown mode
+        model: str = "opus",  # v0.12.0: bumped sonnet → opus to match AgentConfig.model default
         cli_command: str | None = None,
         *,
         max_prompt_chars: int,  # required keyword-only; sourced from AgentConfig.max_prompt_chars
@@ -158,8 +158,12 @@ class BaseAgent:
     async def invoke(
         self, prompt: str, max_retries: int = 2,
         on_heartbeat: Callable[[float, str], None] | None = None,
-    ) -> dict:
-        """Call claude CLI and return parsed JSON dict.
+    ) -> dict | str:
+        """Call claude CLI and return parsed result.
+
+        - If self.json_schema is set: return parsed JSON dict (existing behavior).
+        - If self.json_schema is None: return the raw markdown / text string from
+          the CLI's `result` field (v0.12.0 free-form output mode).
 
         on_heartbeat(elapsed_seconds, status): called every ~5s during execution.
           status: "running" (<60s), "slow" (60-120s), "unresponsive" (>120s)
@@ -197,20 +201,63 @@ class BaseAgent:
 
     async def invoke_batch(
         self, prompts: list[str], max_concurrent: int = 3
-    ) -> list[dict]:
+    ) -> list[dict | str]:
         """Run multiple prompts in parallel with concurrency limit."""
         sem = asyncio.Semaphore(max_concurrent)
 
-        async def bounded(p: str) -> dict:
+        async def bounded(p: str) -> dict | str:
             async with sem:
                 return await self.invoke(p)
 
         return await asyncio.gather(*[bounded(p) for p in prompts])
 
+    def _build_cli_args(self, actual_prompt: str) -> list[str]:
+        """Build the argv list passed to claude CLI.
+
+        Extracted so unit tests can verify --json-schema is conditionally
+        included AND so the initial + retry call paths in _call_cli stay in
+        sync (was previously duplicated inline in two branches).
+
+        Two execution modes are still distinguished:
+          - tool mode (allowed_tools set): system prompt prepended to user
+            prompt so the agent can read files / shell out / web search.
+          - legacy mode (no tools): uses --bare + --system-prompt flags.
+
+        --json-schema is appended only when self.json_schema is not None;
+        when None, we run in v0.12.0 markdown / free-form mode and let the
+        agent emit raw text into the `result` field.
+        """
+        if self.allowed_tools:
+            # Tool mode: agent has Read/Bash/WebSearch etc.
+            # No --bare (agent needs file access), no --system-prompt (in user prompt).
+            full_prompt = f"{self.system_prompt}\n\n{actual_prompt}"
+            args = [
+                self.cli_command, "-p", full_prompt,
+                "--output-format", "json",
+                "--allowedTools", ",".join(self.allowed_tools),
+            ]
+            if self.json_schema is not None:
+                args.extend(["--json-schema", json.dumps(self.json_schema)])
+            args.extend(["--model", self.model])
+        else:
+            # Legacy mode: no tools, uses --bare
+            args = [
+                self.cli_command, "-p", actual_prompt,
+                "--output-format", "json",
+                "--bare",
+            ]
+            if self.json_schema is not None:
+                args.extend(["--json-schema", json.dumps(self.json_schema)])
+            args.extend([
+                "--system-prompt", self.system_prompt,
+                "--model", self.model,
+            ])
+        return args
+
     async def _call_cli(
         self, prompt: str,
         on_heartbeat: Callable[[float, str], None] | None = None,
-    ) -> dict:
+    ) -> dict | str:
         """Execute claude CLI with heartbeat monitoring.
 
         No system kill — runs until process completes or cancel() is called.
@@ -218,27 +265,7 @@ class BaseAgent:
         """
         import time
 
-        if self.allowed_tools:
-            # Tool mode: agent has Read/Bash/WebSearch etc.
-            # No --bare (agent needs file access), no --system-prompt (in user prompt).
-            full_prompt = f"{self.system_prompt}\n\n{prompt}"
-            args = [
-                self.cli_command, "-p", full_prompt,
-                "--output-format", "json",
-                "--allowedTools", ",".join(self.allowed_tools),
-                "--json-schema", json.dumps(self.json_schema),
-                "--model", self.model,
-            ]
-        else:
-            # Legacy mode: no tools, uses --bare
-            args = [
-                self.cli_command, "-p", prompt,
-                "--output-format", "json",
-                "--bare",
-                "--json-schema", json.dumps(self.json_schema),
-                "--system-prompt", self.system_prompt,
-                "--model", self.model,
-            ]
+        args = self._build_cli_args(actual_prompt=prompt)
 
         # v0.11.0: inject POLILY_DB into the subprocess env so the agent
         # prompt's `sqlite3 "$POLILY_DB" ...` resolves to the path layer's
@@ -307,13 +334,18 @@ class BaseAgent:
             _dump_debug("parse_error", f"{e}\n---\n{raw_output}")
             raise
 
-    def _parse_response(self, raw_output: str) -> dict:
-        """Parse JSON from claude CLI output. Handles multiple response formats.
+    def _parse_response(self, raw_output: str) -> dict | str:
+        """Parse claude CLI output. Handles multiple response formats.
 
         Claude Code CLI v2.1+ with --output-format json returns a JSON array:
           [{"type":"system","subtype":"init",...}, {"type":"assistant",...}, {"type":"result",...}]
         Older versions returned a single JSON object:
           {"type":"result","result":"..."}
+
+        Return type depends on self.json_schema:
+          - schema set: return parsed JSON dict (existing behavior).
+          - schema is None (v0.12.0 markdown mode): return the raw `result`
+            string from the envelope, no JSON extraction.
         """
         # Try 1: Parse as JSON (array or object)
         try:
@@ -336,6 +368,18 @@ class BaseAgent:
             else:
                 raise RuntimeError(f"Unexpected JSON type from claude CLI: {type(parsed).__name__}")
 
+            # Markdown mode (v0.12.0): no schema → caller wants raw text.
+            # The CLI's `result` field is a string; pass it through verbatim.
+            # Skip structured_output here even if the CLI tucked one in —
+            # the agent was asked for free-form text, return free-form text.
+            if self.json_schema is None:
+                result_text = envelope.get("result", "")
+                if isinstance(result_text, str):
+                    return result_text
+                # Defensive: CLI sometimes returns dict on result; stringify so
+                # caller still gets a str as advertised by the type contract.
+                return json.dumps(result_text)
+
             # Extract structured output or result text from envelope
             if "structured_output" in envelope and envelope["structured_output"]:
                 return envelope["structured_output"]
@@ -346,6 +390,12 @@ class BaseAgent:
                 return self._extract_json_from_text(result_text)
         except json.JSONDecodeError:
             pass
+
+        # Markdown mode fallback: if the CLI emitted plain text (no JSON envelope
+        # at all — shouldn't happen with --output-format json but be defensive),
+        # return raw output verbatim instead of trying to extract JSON.
+        if self.json_schema is None:
+            return raw_output
 
         # Try 2: Extract JSON from raw text (might have markdown fences)
         return self._extract_json_from_text(raw_output)

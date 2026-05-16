@@ -52,6 +52,17 @@ def test_run_daemon_passes_scheduler_to_init_poller(db, monkeypatch):
         "init_poller received scheduler=None — _ctx.scheduler will be None "
         "and dispatch_pending_analyses will silently skip"
     )
+    # v0.12.0 fix — run_daemon must call scheduler.shutdown() on ANY exit
+    # path, including the test-injected _DaemonExitError that bypasses the
+    # SIGTERM handler. Without this, the leaked APScheduler keeps ticking
+    # on a closed DB and pollutes other tests' monkeypatch counters
+    # (CI 25973293032 on PR #123 failure mode).
+    captured_scheduler = captured["scheduler"]
+    assert not captured_scheduler.running, (
+        "Leaked APScheduler — run_daemon must shut down the scheduler "
+        "in a finally block so test-injected exits don't leave background "
+        "threads ticking on a closed db handle"
+    )
 
 
 def test_global_poll_runs_dispatcher_when_ctx_scheduler_set(db):

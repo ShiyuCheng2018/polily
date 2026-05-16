@@ -102,6 +102,45 @@ def test_remove_from_nonexistent_raises(pm):
         pm.remove_shares(market_id="m1", side="yes", shares=1.0, price=0.5)
 
 
+def test_get_all_positions_uses_markets_join_for_canonical_event_id(pm, db):
+    """v0.12.0 bug #1 defense-in-depth (code review): get_all_positions
+    must surface the canonical event_id (from markets table) rather than
+    the denormalized copy on positions.event_id. Same drift class as
+    get_event_positions — UPDATE branch of add_shares() never refreshes
+    positions.event_id, so any drift (legacy data, hand-edited SQL,
+    faulty sync) leaks through to callers like wallet view + trade
+    dialog, where clicking a position would jump to the wrong event.
+
+    Reproduces drift by direct INSERT with positions.event_id != the
+    canonical markets.event_id; asserts get_all_positions returns the
+    canonical value.
+    """
+    from datetime import UTC, datetime
+    # Add a second event so we have a wrong target to drift to
+    db.conn.execute(
+        "INSERT INTO events (event_id,title,updated_at) VALUES ('e_wrong','Wrong','t')"
+    )
+    db.conn.commit()
+
+    # Insert position with drifted event_id
+    now = datetime.now(UTC).isoformat()
+    db.conn.execute(
+        "INSERT INTO positions (market_id, side, event_id, shares, avg_cost, "
+        "cost_basis, realized_pnl, title, opened_at, updated_at) "
+        "VALUES ('m1', 'yes', 'e_wrong', 10.0, 0.5, 5.0, 0.0, 'Q', ?, ?)",
+        (now, now),
+    )
+    db.conn.commit()
+
+    all_pos = pm.get_all_positions()
+    assert len(all_pos) == 1
+    # event_id must be 'e1' (canonical via markets) not 'e_wrong' (drifted positions row)
+    assert all_pos[0]["event_id"] == "e1", (
+        f"get_all_positions should expose canonical markets.event_id; "
+        f"got {all_pos[0]['event_id']!r} (drifted positions.event_id)"
+    )
+
+
 def test_get_all_and_get_event_positions(pm, db):
     db.conn.execute(
         "INSERT INTO events (event_id,title,updated_at) VALUES ('e2','E2','t')"

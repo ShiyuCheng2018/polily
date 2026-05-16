@@ -150,6 +150,39 @@ LOW_SPECIFICITY_VERIFIED: dict[str, str] = {
 }
 
 
+def test_exemption_list_is_minimal():
+    """Every leaf in EXEMPTION_LIST must currently have ZERO HIGH-SPECIFICITY refs.
+
+    When a future task wires up a real consumer for an exempted leaf, this
+    test fires — forcing the developer to remove the EXEMPTION_LIST entry
+    rather than silently leaving it stale. Catches the "I added the consumer
+    but forgot to remove the exemption" failure mode flagged in v0.12.0
+    Task 2 code review.
+
+    HIGH-SPECIFICITY = full key_path or quoted-key match (audit levels 1-2).
+    LOW-SPECIFICITY (last_seg, level 3) is ignored here because exempted
+    fields routinely appear in plumbing (EPHEMERAL_FIELDS lists, HIDDEN_IN_TUI
+    declarations, doc comments) without being consumed — those aren't the
+    failure mode the guard targets.
+    """
+    LOW_SPEC_LEVELS = {"last_seg"}  # level 3+ — plumbing noise, not consumers
+    for leaf in sorted(EXEMPTION_LIST):
+        n, samples = audit.grep_production_refs(leaf)
+        if n == 0:
+            continue
+        high_spec_refs = [
+            s for s in samples
+            if s.split("] ")[0].lstrip("[") not in LOW_SPEC_LEVELS
+        ]
+        assert not high_spec_refs, (
+            f"{leaf!r} is in EXEMPTION_LIST but now has "
+            f"{len(high_spec_refs)} HIGH-specificity production ref(s):\n"
+            + "\n".join(f"  {s}" for s in high_spec_refs)
+            + f"\n\nRemove {leaf!r} from EXEMPTION_LIST — a real consumer "
+            f"is in place and the audit should track it."
+        )
+
+
 def test_every_alive_config_leaf_has_production_consumer():
     """If this fails, you either:
     1. Added a config field but didn't wire it up (do the wiring), OR

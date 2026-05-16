@@ -7,7 +7,7 @@ and exists purely as a human-readable export.
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -50,10 +50,31 @@ class AgentConfig(BaseModel):
 
     Phase 0 (2026-04-25): removed unused `enabled`, `max_concurrent`,
     `max_candidates` fields (zero production consumers per audit).
+
+    v0.12.0: default model bumped from "sonnet" → "opus". The new
+    analysis surface (multi-platform cross-checks, position management
+    depth, conditional framing under uncertainty, market-microstructure
+    awareness) benefits materially from Opus-tier reasoning, and the
+    long-context Manual + Strategy + Protocol stack (~40 KB) is well
+    within Opus 4.7's 1M token window. Existing v0.11.x users with
+    seeded "sonnet" are auto-migrated by
+    ``_migrate_narrative_writer_model_v0_12_0`` at first boot;
+    user-customized choices (e.g. "haiku" for cost) are preserved.
     """
-    model: str = "sonnet"
+    model: str = "opus"
     timeout_seconds: int = 120
-    max_prompt_chars: int = 5000  # truncation threshold for tool-mode prompts (was DEFAULT_MAX_PROMPT_CHARS in agents/base.py)
+    # Threshold above which BaseAgent writes the prompt to /tmp/ and tells the
+    # claude subprocess to "Analyze the data in file: X" instead of passing the
+    # prompt inline. v0.11.x default was 5000 (chars); v0.12.0 bumped to 100000
+    # because the new manual + strategy + protocol composition is ~40 KB by
+    # itself, and the temp-file workaround actively breaks markdown-mode
+    # analyses (agent treats the prompt file as data to analyze, not as
+    # instructions to follow — produces meta-analysis output). 100K is well
+    # under macOS ARG_MAX (1 MB) and under any plausible context window for
+    # claude (Opus 4.7: 1 M tokens, ~3-4 M chars). See PR #v0.12.0 commit
+    # for the full incident analysis. Existing users with seeded 5000 are
+    # auto-migrated by `_migrate_max_prompt_chars_default_bump` at first boot.
+    max_prompt_chars: int = 100000
 
 
 class AiConfig(BaseModel):
@@ -63,7 +84,7 @@ class AiConfig(BaseModel):
     config but never threaded into BaseAgent constructor; BaseAgent
     has its own POLILY_CLAUDE_CLI env var → 'claude' fallback chain).
     """
-    narrative_writer: AgentConfig = AgentConfig(model="sonnet", timeout_seconds=300)
+    narrative_writer: AgentConfig = AgentConfig(model="opus", timeout_seconds=300)
 
 
 class TuiConfig(BaseModel):
@@ -206,6 +227,13 @@ class PolilyConfig(BaseModel):
     movement: MovementConfig = MovementConfig()
     update_check: UpdateCheckConfig = Field(default_factory=UpdateCheckConfig)
 
+    # v0.12.0: which strategy the NarrativeWriter agent uses for analyses.
+    # 'official' = packaged polily/strategies/default.md
+    # 'user'     = user_strategy.text (set via TUI 7 策略 page)
+    # Hot-swap takes effect on the next analysis dispatch; in-flight analyses
+    # finish with the previously-selected strategy.
+    active_strategy: Literal["official", "user"] = "official"
+
 
 class ConfigValidationError(Exception):
     """Raised when db.config contains values that fail Pydantic validation.
@@ -236,11 +264,14 @@ def load_config_from_db(db) -> PolilyConfig:
     """
     from polily.core.config_store import (
         EPHEMERAL_FIELDS,
+        _migrate_max_prompt_chars_v0_12_0,
+        _migrate_narrative_writer_model_v0_12_0,
         _migrate_yaml_to_db,
         _unflatten,
         ensure_seeded,
         load_all,
     )
+    from polily.core.positions import _heal_position_event_id_drift_v0_12_0
 
     # AC1: write-locked transaction prevents cross-process interleaving
     # of migrate count-check vs seed insert. Without BEGIN IMMEDIATE, two
@@ -266,6 +297,21 @@ def load_config_from_db(db) -> PolilyConfig:
         try:
             _migrate_yaml_to_db(db)
             ensure_seeded(db)
+            # v0.12.0: bump max_prompt_chars 5000 → 100000 for users
+            # upgrading from v0.11.x. Fresh installs already seed 100000
+            # from the updated Pydantic default; this migration is for
+            # existing DBs whose config table has the old 5000 value.
+            _migrate_max_prompt_chars_v0_12_0(db)
+            # v0.12.0: bump narrative_writer model "sonnet" → "opus" for
+            # users upgrading from v0.11.x. Same idempotency contract:
+            # only fires on exact pre-v0.12.0 default; user-customized
+            # choices (haiku/sonnet-after-v0.12.0/etc.) are preserved.
+            _migrate_narrative_writer_model_v0_12_0(db)
+            # v0.12.0 bug #1 root-fix: heal any drifted positions.event_id
+            # to canonical markets.event_id. Idempotent (no-op when
+            # positions.event_id matches markets.event_id, which is the
+            # typical state on fresh installs).
+            _heal_position_event_id_drift_v0_12_0(db)
             db.conn.commit()
         except Exception:
             db.conn.rollback()
@@ -334,6 +380,17 @@ def _unwrap_annotation(ann):
             args = [a for a in _t.get_args(ann) if a is not type(None)]
             if len(args) == 1:
                 ann = args[0]
+                continue
+        # Literal[v1, v2, ...] — when every value is the same scalar type,
+        # fold to that scalar. Pydantic still rejects invalid values at
+        # `model_validate` time (the Literal constraint is enforced by the
+        # field, not by `_coerce_value`); we just need a coercible scalar
+        # for raw-input parsing in the TUI Edit modal. (v0.12.0 — added
+        # for `active_strategy: Literal["official", "user"]`.)
+        if origin is _t.Literal:
+            args = _t.get_args(ann)
+            if args and all(isinstance(a, type(args[0])) for a in args):
+                ann = type(args[0])
                 continue
         return ann
 

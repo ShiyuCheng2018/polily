@@ -65,4 +65,4 @@ def test_flatten_pydantic_accepts_current_polily_config():
     but the schema needs a fix BEFORE merge (not a test relax).
     """
     flat = _flatten_pydantic(PolilyConfig())
-    assert len(flat) == 49  # locked by test_config_store::test_flatten_pydantic_total_leaf_count_is_49
+    assert len(flat) == 50  # locked by test_config_store::test_flatten_pydantic_total_leaf_count_is_50

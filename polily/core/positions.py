@@ -13,12 +13,14 @@ position mutation + wallet debit/credit in a single BEGIN/COMMIT. When
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from polily.core.db import PolilyDB
 
+_log = logging.getLogger(__name__)
 
 _VALID_SIDES = ("yes", "no")
 _SHARES_EPS = 1e-9  # Float precision guard for "fully closed" comparisons.
@@ -50,6 +52,55 @@ class InsufficientShares(Exception):  # noqa: N818
     """Raised when remove_shares would drive share count below zero."""
 
 
+def _heal_position_event_id_drift_v0_12_0(db) -> int:
+    """v0.12.0 bug #1 root-fix: re-sync every positions.event_id to
+    the canonical markets.event_id at boot time.
+
+    positions.event_id is a denormalized copy of markets.event_id set
+    at INSERT time by TradeEngine. The UPDATE branch of add_shares()
+    never refreshes it, so any drift (legacy migrations, hand-edited
+    SQL, faulty sync scripts) is permanent on positions.event_id while
+    markets.event_id stays correct.
+
+    Method-level JOIN fixes in get_event_positions / get_all_positions
+    plug the obvious callers, but service.py has SQL JOINs (event list
+    queries, monitor queries) that filter on positions.event_id
+    directly — these would still leak drift. A boot-time heal fixes
+    ALL of them at once and is idempotent (subsequent boots find no
+    drift and UPDATE 0 rows).
+
+    The UPDATE only touches rows where (a) the matching market exists
+    (FK guarantees this) and (b) positions.event_id actually differs
+    from markets.event_id. Returns the count of rows healed.
+
+    Called from load_config_from_db alongside other v0.12.0 migrations.
+    """
+    with db.transaction() as conn:
+        cur = conn.execute(
+            """
+            UPDATE positions
+            SET event_id = (
+                SELECT m.event_id FROM markets m
+                WHERE m.market_id = positions.market_id
+            )
+            WHERE EXISTS (
+                SELECT 1 FROM markets m
+                WHERE m.market_id = positions.market_id
+                  AND m.event_id != positions.event_id
+            )
+            """,
+        )
+        n = cur.rowcount
+    if n > 0:
+        _log.info(
+            "Healed %d positions row(s) with drifted event_id "
+            "(v0.12.0 bug #1 fix — positions.event_id now matches "
+            "canonical markets.event_id)",
+            n,
+        )
+    return n
+
+
 class PositionManager:
     def __init__(self, db: PolilyDB) -> None:
         self.db = db
@@ -64,16 +115,63 @@ class PositionManager:
         return dict(row) if row else None
 
     def get_all_positions(self) -> list[dict]:
+        """Return all positions across all events.
+
+        v0.12.0 bug #1 defense-in-depth (code review): surface
+        ``markets.event_id`` (canonical) rather than ``positions.event_id``
+        (denormalized copy that can drift — see ``get_event_positions``
+        docstring for the full drift analysis). Callers (wallet view,
+        trade dialog, open-orders summary) link from a position back to
+        its event; without the JOIN, drifted rows would route to the
+        wrong event page.
+
+        Implementation note: SQLite's ``SELECT p.*, m.event_id AS event_id``
+        produces a row with TWO columns named ``event_id`` (positions row
+        contributes one via ``p.*``); ``sqlite3.Row.__getitem__`` and
+        ``dict(row)`` both keep the FIRST occurrence (positions, the
+        wrong one). We alias the canonical column to a unique name
+        (``m_event_id``) and overwrite in Python so callers see the
+        canonical value via the stable ``event_id`` key.
+        """
         with self.db.transaction() as conn:
             cur = conn.execute(
-                "SELECT * FROM positions ORDER BY opened_at DESC"
+                "SELECT p.*, m.event_id AS m_event_id FROM positions p "
+                "JOIN markets m ON p.market_id = m.market_id "
+                "ORDER BY p.opened_at DESC"
             )
-            return [dict(r) for r in cur.fetchall()]
+            result = []
+            for r in cur.fetchall():
+                d = dict(r)
+                d["event_id"] = d.pop("m_event_id")
+                result.append(d)
+            return result
 
     def get_event_positions(self, event_id: str) -> list[dict]:
+        """Return all positions for the given event.
+
+        v0.12.0 bug #1 fix: query via JOIN on markets.event_id (canonical)
+        rather than positions.event_id (denormalized copy). The two columns
+        SHOULD always match because TradeEngine sets positions.event_id from
+        markets.event_id at INSERT time, but the UPDATE branch of
+        add_shares() does NOT refresh event_id — so any drift (legacy
+        migrations, hand-edited SQL, faulty sync scripts, etc.) is permanent
+        on positions.event_id while markets.event_id stays correct.
+
+        The bug fired on 2026-05-10 12:13 CST for event 51456: agent caught
+        a 26.36 YES position on market 616902 via its own markets-JOIN query
+        even though polily's _compute_position_context reported has_position
+        =false. Using the canonical markets.event_id eliminates this drift
+        class entirely.
+
+        SELECT p.* keeps the returned dict shape stable for callers
+        (avg_cost / cost_basis / shares / etc. all from positions row).
+        """
         with self.db.transaction() as conn:
             cur = conn.execute(
-                "SELECT * FROM positions WHERE event_id=? ORDER BY opened_at DESC",
+                "SELECT p.* FROM positions p "
+                "JOIN markets m ON p.market_id = m.market_id "
+                "WHERE m.event_id = ? "
+                "ORDER BY p.opened_at DESC",
                 (event_id,),
             )
             return [dict(r) for r in cur.fetchall()]

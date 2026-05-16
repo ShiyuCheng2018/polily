@@ -57,7 +57,8 @@ def test_phase_7_full_happy_path(tmp_path, monkeypatch):
         db = PolilyDB(db_path)
         flat = load_all(db)
         db.close()
-        assert len(flat) == 48
+        # v0.12.0 bumped 48 → 49 (added active_strategy)
+        assert len(flat) == 49
         assert "api.user_agent" not in flat  # EPHEMERAL never persisted
 
         # 4. Edit via save_knob (simulating Edit modal save handler).
@@ -78,10 +79,11 @@ def test_phase_7_full_happy_path(tmp_path, monkeypatch):
         db.close()
         assert flat["movement.magnitude_threshold"] == 70
 
-        # 6. Coverage gate — 40 territory A keys still have markdown docs.
+        # 6. Coverage gate — 41 territory A keys still have markdown docs
+        # (v0.12.0 bumped 40 → 41 with active_strategy).
         from polily.core.config_docs import load_all as load_docs
 
         docs = load_docs()
-        assert len(docs) == 40
+        assert len(docs) == 41
     finally:
         paths.set_data_dir_override(None)

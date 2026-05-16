@@ -1,38 +1,36 @@
-"""AnalysisPanel: AI analysis display with version selector."""
+"""AnalysisPanel: v0.12.0 dispatching analysis renderer.
+
+Public API preserved from v0.11.x:
+    AnalysisPanel(analyses, version_idx=-1, analyzing=False)
+    .update_data(analyses, version_idx=-1, analyzing=False)
+
+Internally, the body for the *current version* is rendered via:
+  - narrative_format='markdown' → MarkdownAnalysisView (WYSIWYG)
+  - narrative_format='json'     → _compose_legacy_body (legacy renderer)
+
+The version selector + DashPanel framing + analyzing indicator behave
+exactly as in v0.11.x — every existing call site (event_detail.py:209,
+scan_log.py:891) continues to work without modification.
+"""
+
+from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.widget import Widget
-from textual.widgets import Markdown, Static
+from textual.widgets import Static
 
+from polily.tui.components.legacy_analysis_panel import _compose_legacy_body
+from polily.tui.components.markdown_analysis_view import MarkdownAnalysisView
 from polily.tui.i18n import t
 from polily.tui.widgets.cards import DashPanel
 
-CONFIDENCE_BAR = {
-    "low": "[red]██[/red][dim]██████[/dim]",
-    "medium": "[yellow]█████[/yellow][dim]███[/dim]",
-    "high": "[green]███████[/green][dim]█[/dim]",
-}
-
-
-def _format_stop_loss_or_take_profit(label: str, v: object) -> str:
-    """Render stop_loss / take_profit value in the new {side, price}
-    schema; gracefully render legacy bare-float fixtures from pre-v0.11.7
-    analyses rows.
-
-    New format:    "<label> YES @ $0.55"  (label from t('analysis.stop_loss'))
-    Legacy format: "<label> $0.55"  (no side info available; render as-is)
-    """
-    if isinstance(v, dict) and "side" in v and "price" in v:
-        return f"{label} {v['side'].upper()} @ ${v['price']:.2f}"
-    if isinstance(v, (int, float)) and not isinstance(v, bool):
-        # Legacy bare float — pre-v0.11.7 analyses fixture in DB.
-        return f"{label} ${v:.2f}"
-    # Defensive fallback (shouldn't reach here under v0.11.7+ schema).
-    return f"{label} {v!r}"
-
 
 class AnalysisPanel(Widget):
-    """AI analysis panel with operations, research, risk, summary modules."""
+    """AI analysis panel — dispatches body per version's narrative_format.
+
+    Constructor & update_data signatures match v0.11.x byte-for-byte so
+    every existing caller keeps working.
+    """
 
     DEFAULT_CSS = """
     AnalysisPanel { height: auto; }
@@ -59,139 +57,24 @@ class AnalysisPanel(Widget):
                 yield Static("")
             return
 
-        n = self._current_narrative()
-        if n is None:
+        if self._version_idx < 0:
+            return
+
+        av = self._analyses[self._version_idx]
+        if not av.narrative_output:
             return
 
         panel = DashPanel(id="panel-analysis")
         panel.border_title = t("analysis.title")
         with panel:
-            yield from self._render_narrative(n)
+            # Body — dispatch per narrative_format
+            if av.narrative_format == "markdown":
+                yield MarkdownAnalysisView(av)
+            else:  # 'json' or any legacy / unrecognized value
+                yield from _compose_legacy_body(av)
+
             yield Static("")
             yield from self._render_version_selector()
-
-    def _current_narrative(self) -> dict | None:
-        if not self._analyses or self._version_idx < 0:
-            return None
-        v = self._analyses[self._version_idx]
-        return v.narrative_output if v.narrative_output else None
-
-    def _render_narrative(self, n: dict) -> ComposeResult:
-        # Operations
-        ops = n.get("operations", [])
-        yield Static(f"── {t('analysis.section.operations')} ──", classes="section-label")
-        for op in ops:
-            action = op.get("action", "")
-            title = op.get("market_title", "")
-            entry = op.get("entry_price")
-            size = op.get("position_size_usd")
-            reasoning = op.get("reasoning", "")
-
-            conf = op.get("confidence", "")
-            conf_bar = CONFIDENCE_BAR.get(conf, "")
-            conf_label = t(f"analysis.confidence.{conf}") if conf in ("low", "medium", "high") else ""
-            conf_str = f"  {conf_bar} {conf_label}" if conf_bar else ""
-
-            yield Static(f"\n▸ {title}")
-            parts = [action]
-            if entry is not None:
-                parts.append(f"{t('analysis.entry_price')} {entry:.2f}")
-            if size is not None:
-                parts.append(f"{t('analysis.position_size')} ${size:.0f}")
-            yield Static(f"  {'  '.join(parts)}{conf_str}")
-            if reasoning:
-                yield Static(f"  [dim]{reasoning}[/dim]")
-
-        ops_comment = n.get("operations_commentary", "")
-        if ops_comment:
-            yield Markdown(ops_comment)
-
-        # Position module
-        thesis = n.get("thesis_status")
-        if thesis:
-            yield Static(f"\n\n── {t('analysis.section.position')} ──", classes="section-label")
-            ts_icon = {"intact": "[green]✓[/green]", "weakened": "[yellow]~[/yellow]", "broken": "[red]✗[/red]"}.get(thesis, "?")
-            yield Static(f"{t('analysis.thesis_label')} {ts_icon} {thesis}")
-            tn = n.get("thesis_note", "")
-            if tn:
-                yield Static(f"  {tn}")
-            sl = n.get("stop_loss")
-            tp = n.get("take_profit")
-            if sl is not None or tp is not None:
-                parts = []
-                if sl is not None:
-                    parts.append(_format_stop_loss_or_take_profit(
-                        t("analysis.stop_loss"), sl,
-                    ))
-                if tp is not None:
-                    parts.append(_format_stop_loss_or_take_profit(
-                        t("analysis.take_profit"), tp,
-                    ))
-                yield Static(f"  {'  '.join(parts)}")
-            alt = n.get("alternative_market_id")
-            if alt:
-                yield Static(f"  {t('analysis.alternative')} {alt} {n.get('alternative_note', '')}")
-            yield Static("")
-
-        # Analysis
-        analysis_text = n.get("analysis", "")
-        if analysis_text:
-            yield Static(f"\n── {t('analysis.section.analysis')} ──", classes="section-label")
-            yield Markdown(analysis_text)
-            ac = n.get("analysis_commentary", "")
-            if ac:
-                yield Markdown(ac)
-
-        # Research
-        findings = n.get("research_findings", [])
-        if not findings:
-            findings = n.get("supporting_findings", []) + n.get("invalidation_findings", [])
-        if findings:
-            yield Static(f"\n── {t('analysis.section.research')} ──", classes="section-label")
-            research_md = ""
-            for f in findings:
-                if isinstance(f, dict):
-                    research_md += f"\n- {f.get('finding', '')}  *{f.get('source', '')} → {f.get('impact', '')}*"
-            yield Markdown(research_md)
-            rc = n.get("research_commentary", "") or n.get("evidence_commentary", "")
-            if rc:
-                yield Markdown(rc)
-
-        # Risk
-        risks = n.get("risk_flags", [])
-        if risks:
-            yield Static(f"\n── {t('analysis.section.risk')} ──", classes="section-label")
-            risk_md = ""
-            for rf in risks:
-                if isinstance(rf, dict):
-                    sev = rf.get("severity", "info")
-                    text = rf.get("text", "")
-                    icon = {"critical": "🔴", "warning": "🟡", "info": "ℹ️"}.get(sev, "·")
-                    risk_md += f"\n- {icon} {text}"
-            yield Markdown(risk_md)
-            rc = n.get("risk_commentary", "")
-            if rc:
-                yield Markdown(rc)
-
-        # Summary
-        summary = n.get("summary", "")
-        if summary:
-            yield Static(f"\n── {t('analysis.section.summary')} ──", classes="section-label")
-            yield Markdown(summary)
-
-        # Next steps
-        yield Static(f"\n── {t('analysis.section.next')} ──", classes="section-label")
-        nc = n.get("next_check_at")
-        nr = n.get("next_check_reason", "")
-        if nc:
-            from datetime import datetime
-            try:
-                utc_dt = datetime.fromisoformat(nc)
-                local_dt = utc_dt.astimezone()
-                nc_local = local_dt.strftime("%m-%d %H:%M")
-            except (ValueError, TypeError):
-                nc_local = nc[:16]
-            yield Static(f"\n{t('analysis.next_check_at')}  [cyan]{nc_local}[/cyan]  {nr}")
 
     def _render_version_selector(self) -> ComposeResult:
         if not self._analyses or self._version_idx < 0:
@@ -227,11 +110,11 @@ class AnalysisPanel(Widget):
     ) -> None:
         """v0.10.1 in-place refresh — recompose self.
 
-        8+ Markdown widgets without stable IDs make per-widget update
+        Markdown widgets without stable IDs make per-widget update
         impractical. Recomposing AnalysisPanel itself is safe: the outer
-        VerticalScroll is on EventDetailView (event_detail.py:175), and
-        Textual's recompose is scoped to widget+descendants. The user's
-        scroll position lives in the outer VerticalScroll and is preserved.
+        VerticalScroll lives on EventDetailView, and Textual's recompose
+        is scoped to widget+descendants. The user's scroll position lives
+        in the outer VerticalScroll and is preserved.
         """
         self._analyses = analyses
         self._version_idx = version_idx

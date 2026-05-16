@@ -133,6 +133,58 @@ class TestComputePositionContext:
         assert has_pos is False
         assert summary is None
 
+    def test_drifted_positions_event_id_still_found_via_markets_join(self, db, service):
+        """v0.12.0 bug #1 — surfaced in agent dev_feedback 2026-05-10 12:13 CST:
+
+            "Dispatch YAML 标 has_position=false 但 positions 表实存 26.36 YES 股
+             @ 0.57 (market 616902); 建议核查 has_position 计算路径"
+
+        Root cause: positions.event_id is a denormalized copy of markets.event_id
+        set at INSERT time by TradeEngine. The UPDATE branch of
+        positions.add_shares() does NOT refresh event_id, so any drift is
+        permanent. The agent caught the bug by querying positions JOIN markets
+        ON market_id (which always sees the canonical event_id), while
+        _compute_position_context queried positions.event_id directly and
+        returned no rows when drift existed.
+
+        Fix invariant: get_event_positions must use markets.event_id (canonical)
+        as the filter, not positions.event_id (potentially stale denormalization).
+
+        Test reproduces by manually drifting positions.event_id to a wrong
+        value while leaving markets.event_id correct — the legitimate
+        production drift sources (legacy migrations, hand-edited SQL, faulty
+        sync scripts) all leave markets.event_id intact.
+        """
+        from datetime import UTC, datetime
+        _seed(db, "ev_correct", "m_target")
+        _seed(db, "ev_wrong", "m_other")  # red-herring event to drift to
+
+        now = datetime.now(UTC).isoformat()
+        # Insert a position whose event_id field is WRONG (points to ev_wrong)
+        # but whose market_id resolves (via markets table) to ev_correct.
+        with db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO positions(market_id, side, event_id, shares, "
+                "avg_cost, cost_basis, realized_pnl, title, opened_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?)",
+                ("m_target", "yes", "ev_wrong", 26.36, 0.57,
+                 26.36 * 0.57, "drifted", now, now),
+            )
+
+        # Without the fix: WHERE positions.event_id='ev_correct' returns 0 rows,
+        # _compute_position_context reports (False, None) — the bug.
+        # With the fix: JOIN to markets resolves event_id via canonical path.
+        has_pos, summary = service._compute_position_context("ev_correct")
+        assert has_pos is True, (
+            "v0.12.0 bug #1 regression: drifted positions.event_id caused "
+            "_compute_position_context to miss the position. The agent's "
+            "manual fallback was correct; polily's direct query was wrong."
+        )
+        assert summary is not None
+        assert "YES" in summary
+        assert "0.57" in summary
+        assert "m_target" in summary
+
     def test_positions_populate_summary_lines(self, db, service):
         from unittest.mock import patch as _patch
         _seed(db, "ev1", "m1")
