@@ -52,15 +52,19 @@ SOURCES_DIR = REPO_ROOT / "polily" / "agents" / "skill_sources" / "core"
 MANUAL_TARGET = REPO_ROOT / "polily" / "agents" / "manual.md"
 
 # Audience block regexes. `re.DOTALL` so `.` matches newlines (multi-line blocks).
-# Trailing `\n?` absorbs the newline following the closing tag so block-level
-# removals don't leave a double blank line. Inline tags (no trailing newline)
-# are also matched because `\n?` is optional.
+# Leading ` ?` absorbs one optional preceding space — handles the inline
+# mid-line case (e.g. `text. <!-- internal-only -->note<!-- /internal-only -->
+# more text` becoming `text. more text` instead of `text.  more text` with
+# a double space). Block-level tags at line start have a preceding `\n`, not
+# space, so the leading ` ?` matches nothing there (safe). Trailing `\n?`
+# absorbs the newline following the closing tag so block-level removals
+# don't leave a double blank line.
 _INTERNAL_BLOCK = re.compile(
-    r"<!-- internal-only -->.*?<!-- /internal-only -->\n?",
+    r" ?<!-- internal-only -->.*?<!-- /internal-only -->\n?",
     re.DOTALL,
 )
 _EXTERNAL_BLOCK = re.compile(
-    r"<!-- external-only -->.*?<!-- /external-only -->\n?",
+    r" ?<!-- external-only -->.*?<!-- /external-only -->\n?",
     re.DOTALL,
 )
 # Same-audience wrapper tags: kept content but the markers themselves are
@@ -90,12 +94,33 @@ def _filter_audience(text: str, target: str) -> str:
     if target == "internal":
         text = _EXTERNAL_BLOCK.sub("", text)  # drop external-only entirely
         text = _INTERNAL_TAG.sub("", text)    # strip wrappers, keep content
-        return text
+        return _normalize_whitespace(text)
     if target == "external":
         text = _INTERNAL_BLOCK.sub("", text)  # drop internal-only entirely
         text = _EXTERNAL_TAG.sub("", text)    # strip wrappers, keep content
-        return text
+        return _normalize_whitespace(text)
     raise ValueError(f"target must be 'internal' or 'external', got {target!r}")
+
+
+def _normalize_whitespace(text: str) -> str:
+    """Clean up artifacts left by inline / block audience-tag stripping.
+
+    Two passes:
+      1. Strip trailing whitespace on every line. Inline tag strips like
+         ``text <!-- internal-only -->...<!-- /internal-only -->`` leave a
+         stray space at end of line; table cells like
+         ``... analysis). <!-- internal-only -->note<!-- /... --> |``
+         leave a double-space before the cell separator. Both render fine
+         but lint as trailing whitespace and look untidy.
+      2. Collapse runs of 3+ consecutive newlines to 2 (single blank line).
+         Block-level tag strips leave double blank lines where the source
+         had a single blank line surrounding the tag block.
+
+    Both passes are idempotent on already-clean input.
+    """
+    text = re.sub(r"[ \t]+$", "", text, flags=re.M)  # trailing whitespace per line
+    text = re.sub(r"\n{3,}", "\n\n", text)  # max one blank line between paragraphs
+    return text
 
 
 def _git_short_sha() -> str:
@@ -169,12 +194,17 @@ def _strip_volatile(text: str) -> str:
 
 
 def _build_manual_content(body: str) -> str:
-    filtered = _filter_audience(body, "internal")
+    # rstrip the filtered body so trailing artifacts (extra blank lines
+    # from late-file audience-block strips) collapse into exactly one
+    # trailing `\n` from the format string. Without rstrip, the body's
+    # `\n\n` (from `_normalize_whitespace` collapsing) + the format string's
+    # `\n` produces `\n\n\n` at end of file.
+    filtered = _filter_audience(body, "internal").rstrip()
     return f"{_make_header()}\n\n# Polily Reference Manual\n\n{filtered}\n"
 
 
 def _build_skill_content(body: str) -> str:
-    filtered = _filter_audience(body, "external")
+    filtered = _filter_audience(body, "external").rstrip()
     return f"{_make_skill_frontmatter()}\n{_make_header()}\n\n{filtered}\n"
 
 

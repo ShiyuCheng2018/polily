@@ -25,6 +25,8 @@ Otherwise check the active strategy:
 
 Returns JSON-encoded `"official"` (default) or `"user"`.
 
+**If active = `"official"`, this Source 1 path does not apply — proceed to Source 2.** The user has explicitly chosen polily's packaged methodology; do not consult `user_strategy.text` even if it happens to be populated (they may have written it as a draft then toggled back to official).
+
 If active = `"user"`, read the user's custom methodology:
 
     sqlite3 "$DB_PATH" "SELECT text FROM user_strategy WHERE id=1"

@@ -383,6 +383,60 @@ def test_skill_md_yaml_description_covers_chat_consultation_trigger(tmp_path):
     assert "do not activate" in lower or "not for" in lower or "exclude" in lower
 
 
+def test_skill_md_skip_clause_for_official_strategy(tmp_path):
+    """§9 Source 1 must explicitly tell Claude what to do when
+    active_strategy = 'official' — the implicit reading 'this section
+    only describes the user= branch' is too subtle. Explicit skip
+    instruction prevents Claude from accidentally consulting
+    user_strategy.text when the user chose official.
+    """
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
+    # The crisp instruction: if active=official, skip to Source 2
+    skill_lower = skill.lower()
+    assert "official" in skill_lower and "proceed to source 2" in skill_lower, (
+        "§9 must explicitly direct Claude to proceed to Source 2 when "
+        "active_strategy = 'official'"
+    )
+
+
+def test_generator_strips_trailing_whitespace_and_triple_newlines(tmp_path):
+    """Cosmetic polish from Whis third-pass review: generator must
+    strip trailing whitespace per line (artifacts of inline audience-tag
+    strips at end of line) and collapse 3+ consecutive newlines to 2
+    (artifacts of block-level strips around section boundaries).
+
+    Both outputs (manual.md + SKILL.md) tested.
+    """
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    manual = (REPO_ROOT / "polily" / "agents" / "manual.md").read_text()
+    skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
+
+    for path_label, text in [("manual.md", manual), ("SKILL.md", skill)]:
+        # No trailing whitespace on any line (other than the final newline)
+        for i, line in enumerate(text.split("\n")):
+            assert line == line.rstrip(), (
+                f"{path_label} line {i+1} has trailing whitespace: {line!r}"
+            )
+        # No 3+ consecutive newlines (i.e. no 2+ consecutive blank lines)
+        assert "\n\n\n" not in text, (
+            f"{path_label} has 3+ consecutive newlines (multiple blank "
+            f"lines) — should be collapsed to 1 blank line by generator"
+        )
+
+
 def test_skill_md_yaml_description_has_negative_trigger(tmp_path):
     """SKILL.md's YAML frontmatter description must include a negative
     trigger — don't activate on generic Polymarket questions, only on
