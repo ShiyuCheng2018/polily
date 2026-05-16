@@ -56,23 +56,35 @@ MANUAL_TARGET = REPO_ROOT / "polily" / "agents" / "manual.md"
 # mid-line case (e.g. `text. <!-- internal-only -->note<!-- /internal-only -->
 # more text` becoming `text. more text` instead of `text.  more text` with
 # a double space). Block-level tags at line start have a preceding `\n`, not
-# space, so the leading ` ?` matches nothing there (safe). Trailing `\n?`
-# absorbs the newline following the closing tag so block-level removals
-# don't leave a double blank line.
+# space, so the leading ` ?` matches nothing there (safe).
+#
+# Trailing `\n?` was tempting but turned out to break the case of an inline
+# tag at end of line followed by a blank line (e.g. §4 line 36):
+#     - **`Read`** — local file system <!-- /internal-only -->
+#                                                             ← blank line
+#     Cost is non-trivial...
+# Source bytes: `... -->\n\nCost ...` (newline ending the bullet, then
+# blank line, then paragraph). `\n?` would eat one of the two `\n`s,
+# collapsing the blank line and merging the bullet with the next paragraph
+# (or worse: making the paragraph a lazy continuation of the list item).
+#
+# Solution: don't eat any newline in the tag-strip phase. Let
+# `_normalize_whitespace` collapse the resulting `\n{3,}` artifacts at
+# block-level boundaries uniformly. One pass at the end instead of trying
+# to handle every case in the regex.
 _INTERNAL_BLOCK = re.compile(
-    r" ?<!-- internal-only -->.*?<!-- /internal-only -->\n?",
+    r" ?<!-- internal-only -->.*?<!-- /internal-only -->",
     re.DOTALL,
 )
 _EXTERNAL_BLOCK = re.compile(
-    r" ?<!-- external-only -->.*?<!-- /external-only -->\n?",
+    r" ?<!-- external-only -->.*?<!-- /external-only -->",
     re.DOTALL,
 )
-# Same-audience wrapper tags: kept content but the markers themselves are
-# noise in the rendered output. Strip the bare tags (with optional trailing
-# newline) so the same-audience content reads cleanly without leftover
-# `<!-- internal-only -->` / `<!-- /internal-only -->` clutter in the file.
-_INTERNAL_TAG = re.compile(r"<!-- /?internal-only -->\n?")
-_EXTERNAL_TAG = re.compile(r"<!-- /?external-only -->\n?")
+# Same-audience wrapper tags: keep content but strip the bare markers.
+# Same `\n?` rationale as the block regexes above — let normalize handle
+# blank-line collapse.
+_INTERNAL_TAG = re.compile(r"<!-- /?internal-only -->")
+_EXTERNAL_TAG = re.compile(r"<!-- /?external-only -->")
 
 
 def _filter_audience(text: str, target: str) -> str:
@@ -194,17 +206,18 @@ def _strip_volatile(text: str) -> str:
 
 
 def _build_manual_content(body: str) -> str:
-    # rstrip the filtered body so trailing artifacts (extra blank lines
-    # from late-file audience-block strips) collapse into exactly one
-    # trailing `\n` from the format string. Without rstrip, the body's
-    # `\n\n` (from `_normalize_whitespace` collapsing) + the format string's
-    # `\n` produces `\n\n\n` at end of file.
-    filtered = _filter_audience(body, "internal").rstrip()
+    # .strip() both ends so:
+    # - leading `\n` from audience-block strips at file start (e.g. when
+    #   01_persona.md begins with <!-- internal-only -->\n## 1. Who You Are)
+    #   doesn't add extra blank lines between the header and §1
+    # - trailing `\n` artifacts at file end don't compound with the format
+    #   string's trailing `\n` to produce `\n\n\n`.
+    filtered = _filter_audience(body, "internal").strip()
     return f"{_make_header()}\n\n# Polily Reference Manual\n\n{filtered}\n"
 
 
 def _build_skill_content(body: str) -> str:
-    filtered = _filter_audience(body, "external").rstrip()
+    filtered = _filter_audience(body, "external").strip()
     return f"{_make_skill_frontmatter()}\n{_make_header()}\n\n{filtered}\n"
 
 

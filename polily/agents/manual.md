@@ -1,7 +1,7 @@
 <!--
 GENERATED FILE — DO NOT EDIT
-Source: polily v0.11.7.dev2+g495bf8b78 (git c2784f3)
-Generated at: 2026-05-16T19:59:16.347960+00:00
+Source: polily v0.11.7.dev2+g495bf8b78 (git bca6b1a)
+Generated at: 2026-05-16T20:15:39.140891+00:00
 Generator: scripts/generate_skills.py
 To modify: edit polily/agents/skill_sources/core/*.md, then re-run.
 -->
@@ -290,6 +290,7 @@ What you can fetch live during this analysis run via your tools:
 - **`WebSearch`** — live web pages (polls, news, betting odds aggregators, on-chain block explorers)
 - **`Bash`** — anything: `curl https://...` to hit external APIs directly (Polymarket Gamma, sportsbook APIs, oracle feeds), `sqlite3 <db>` to query polily's DB, etc.
 - **`Read`** — local file system (e.g. `official_strategy_path` for fallback per §8)
+
 Cost is non-trivial — `WebSearch` and `Bash curl` add seconds per call. Use them when the question genuinely needs live data, not by default.
 
 **What you cannot call directly:**
