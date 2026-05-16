@@ -118,6 +118,41 @@ def test_skill_md_contains_external_only_blocks(tmp_path):
         "manual.md must NOT have external-only §1 (its §1 is the internal persona)"
     )
 
+    # External §6 'Agent Runtime Constraints' was REMOVED in v0.12.0.
+    # The 'preserve when extending' framing was developer-facing — same
+    # rationale as removing §10 codebase pointers. The transparency
+    # value (polily is read-only / advisory) was moved into §1
+    # 'About Polily' as a single sentence.
+    assert "Agent Runtime Constraints" not in skill, (
+        "SKILL.md must NOT have §6 'Agent Runtime Constraints' — developer "
+        "framing; the read-only/advisory transparency line lives in §1 now"
+    )
+    assert "preserve when extending" not in skill.lower(), (
+        "SKILL.md must NOT have 'preserve when extending' developer-audience "
+        "framing — that's leftover from the rejected dev-reference framing"
+    )
+    # The transparency information must survive in §1
+    skill_lower = skill.lower()
+    assert "read-only" in skill_lower or "read only" in skill_lower, (
+        "§1 must preserve the read-only/advisory transparency claim from "
+        "the deleted §6"
+    )
+    assert "never executes trades" in skill_lower or "user always pulls" in skill_lower, (
+        "§1 must explain the user-pulls-trigger semantics so chat users "
+        "know polily won't auto-trade"
+    )
+
+    # Manual.md keeps its prescriptive §6 untouched (internal agent
+    # still needs the hard capability constraints)
+    assert "## 6. Operational Red Lines" in manual, (
+        "manual.md must keep its internal prescriptive §6 — agent runtime "
+        "still needs the hard capability constraints"
+    )
+    assert "you must **never** execute" in manual.lower() or \
+           "You may suggest operations" in manual, (
+        "manual.md §6 must still contain the prescriptive constraints"
+    )
+
     # §10 Codebase Pointers was REMOVED in v0.12.0. The skill is for users
     # chatting with polily (state queries + analysis follow-ups), not for
     # developers extending polily. The codebase-pointer use case is rare
