@@ -23,9 +23,11 @@ audience-scoped blocks that are included in only one of the two outputs:
 
     <!-- external-only -->
     Content appears in SKILL.md only (Claude Code marketplace plugin).
-    Use for: "About Polily" framing, codebase pointers, dev recipes,
-    anything aimed at developers working ON polily (not the agent
-    running as polily).
+    Use for: "About Polily" framing, runtime methodology lookup,
+    state-query helpers, anything aimed at polily users having a chat
+    consultation with their installed polily (not the internal agent
+    running as polily, and not developers extending polily code —
+    that's a rare case Claude Code can handle via Glob/Grep).
     <!-- /external-only -->
 
 Content NOT wrapped in either tag appears in BOTH outputs (this is the
@@ -168,25 +170,22 @@ def _make_header() -> str:
 
 
 def _make_skill_frontmatter() -> str:
-    # Two-use-case framing:
-    #   1. Chat consultation — polily user asks follow-up questions about
-    #      their TUI analysis, positions, or polily's reasoning framework
-    #      ("explain why edge is thin", "what's my biggest position")
-    #   2. Development — extending polily code, querying polily.db schema,
-    #      debugging the NarrativeWriter agent or movement pipeline
-    # Negative trigger keeps the skill scoped — generic "what is Polymarket"
-    # questions should not activate.
+    # Chat-consultation framing: polily user asks follow-up questions about
+    # their TUI analysis, positions, or polily's reasoning framework
+    # ("explain why edge is thin", "what's my biggest position"). Negative
+    # trigger keeps the skill scoped — generic "what is Polymarket"
+    # questions should not activate. This skill is NOT a developer reference
+    # for extending polily code — that's a rare case Claude Code can handle
+    # via direct Glob/Grep on the polily checkout.
     return (
         "---\n"
         "name: polily\n"
         "description: |\n"
         "  Use when the user references polily — either asking follow-up questions about "
         "a polily-generated analysis (interpreting structure_score, edge claims, friction "
-        "breakdowns, position guidance, why polily said what it said), querying polily's "
-        "local state (positions, wallet, past analyses in polily.db), or working ON the "
-        "polily codebase (editing polily/* source, debugging the NarrativeWriter agent, "
-        "extending the scoring/movement pipeline). Provides DB schema, daemon mechanics, "
-        "file paths, codebase entry points, and a runtime-lookup procedure for polily's "
+        "breakdowns, position guidance, why polily said what it said) or querying polily's "
+        "local state (positions, wallet, past analyses in polily.db). Provides DB schema, "
+        "daemon mechanics, file paths, and a runtime-lookup procedure for polily's "
         "analytical methodology. "
         "Do NOT activate for generic Polymarket questions unrelated to polily.\n"
         "---\n"

@@ -118,15 +118,19 @@ def test_skill_md_contains_external_only_blocks(tmp_path):
         "manual.md must NOT have external-only §1 (its §1 is the internal persona)"
     )
 
-    # External-only §10 codebase pointers (entry points + CLAUDE.md).
-    # Renumbered from §9 → §10 in v0.12.0 hotfix bundle when §9 was reassigned
-    # to "Polily's Analytical Methodology (runtime lookup)" — the more
-    # frequently-used chat-mode entry point.
-    assert "## 10. Codebase Pointers" in skill, (
-        "SKILL.md must have §10 codebase pointers for external developers"
+    # §10 Codebase Pointers was REMOVED in v0.12.0. The skill is for users
+    # chatting with polily (state queries + analysis follow-ups), not for
+    # developers extending polily. The codebase-pointer use case is rare
+    # (likely 0-2 instances per year) and the cost was ~50 lines added to
+    # every skill activation. For the rare extension-development case,
+    # Claude Code can Glob + Grep the polily checkout directly.
+    assert "Codebase Pointers" not in skill, (
+        "SKILL.md must NOT have a codebase pointers section — removed "
+        "to focus the skill on chat-consultation use case"
     )
-    assert "## 10. Codebase Pointers" not in manual, (
-        "manual.md doesn't need codebase pointers — agent has its own navigation"
+    assert "Codebase Pointers" not in manual, (
+        "manual.md never had codebase pointers (was external-only); "
+        "this assertion guards against regression"
     )
 
 
