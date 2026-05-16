@@ -67,6 +67,53 @@ class TestCheckEventTrigger:
         ).fetchone()
         assert row["triggered_analysis"] == 1
 
+    def test_marks_spike_row_not_temporally_latest_row(self, db):
+        """v0.12.0 backlog #2 — observability fix for dispatcher/scorer label mismatch.
+
+        Surfaced by NarrativeWriter dev_feedback 2026-05-10 09:49 CST:
+            "Movement-mode dispatch but recent movement_log rows all noise-labeled
+             with triggered_analysis=0; possible threshold/label mismatch in scorer."
+
+        Root cause: the UPDATE that marks triggered_analysis=1 uses
+        `ORDER BY created_at DESC LIMIT 1` — it picks the temporally-latest
+        movement_log row for the event regardless of which row actually
+        crossed the trigger threshold. When a tick writes multiple sub-market
+        rows microseconds apart (one with M=80 Q=70 = spike, another with
+        M=10 Q=10 = baseline noise), the marker can land on the noise row
+        if it happens to be inserted LAST chronologically.
+
+        Result: agent's query "which row triggered this dispatch?" finds
+        a noise-labeled row marked triggered_analysis=1 — confusing
+        provenance signal.
+
+        Fix: UPDATE should pick the row with the highest magnitude (the
+        actual spike that drove the trigger), not the temporal latest.
+        """
+        markets = _seed(db, n_markets=2)
+        mc = MovementConfig()
+
+        # Insert SPIKE row first (m0), then NOISE row last (m1) so temporal
+        # ordering would mark the wrong row under the old logic.
+        _write_movement(db, market_id="m0", magnitude=85, quality=75, label="consensus")
+        _write_movement(db, market_id="m1", magnitude=5, quality=5, label="noise")
+
+        _check_event_trigger("ev1", markets, mc, db)
+        db.conn.commit()
+
+        # Spike row (m0) should be marked, not the temporal latest (m1)
+        rows = db.conn.execute(
+            "SELECT market_id, magnitude, triggered_analysis "
+            "FROM movement_log ORDER BY id"
+        ).fetchall()
+        marked = [(r["market_id"], r["magnitude"]) for r in rows
+                  if r["triggered_analysis"] == 1]
+        assert len(marked) == 1, f"Exactly one row should be marked; got {marked}"
+        assert marked[0][0] == "m0", (
+            f"Spike row (m0, M=85) should be marked; instead {marked[0][0]} "
+            f"(M={marked[0][1]}) got the flag. The UPDATE is picking by "
+            f"created_at DESC instead of magnitude DESC."
+        )
+
     def test_cooldown_prevents_retrigger(self, db):
         markets = _seed(db)
         mc = MovementConfig()

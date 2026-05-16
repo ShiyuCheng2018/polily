@@ -1053,15 +1053,25 @@ def _check_event_trigger(
         event_id, max_m, max_q, agg.label,
     )
 
-    # Mark triggered in movement_log (the highest-scoring market entry)
+    # Mark triggered in movement_log (the actual spike row by magnitude,
+    # not the temporally-latest row). When a tick writes multiple
+    # sub-market rows microseconds apart, ordering by created_at would
+    # land on whichever row was last inserted — often a noise row from
+    # a sibling sub-market, NOT the spike row that drove the trigger.
+    # Agent queries "which row triggered this?" would then find a
+    # noise-labeled row marked triggered=1 — confusing provenance.
+    # Ordering by magnitude DESC picks the row that actually drove the
+    # max_m aggregation (most aligned with the trigger condition).
+    # See test_movement_trigger.test_marks_spike_row_not_temporally_latest_row.
     with db.transaction() as conn:
         conn.execute(
             """UPDATE movement_log SET triggered_analysis = 1
             WHERE event_id = ? AND market_id IS NOT NULL
             AND id = (SELECT id FROM movement_log
                       WHERE event_id = ? AND market_id IS NOT NULL
-                      ORDER BY created_at DESC LIMIT 1)""",
-            (event_id, event_id),
+                      AND created_at >= ?
+                      ORDER BY magnitude DESC, created_at DESC LIMIT 1)""",
+            (event_id, event_id, cutoff),
         )
 
     # Write pending scan_logs row; the next poll tick's dispatcher picks it up
