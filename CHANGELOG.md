@@ -10,7 +10,7 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
-## [0.12.0] — 2026-05-XX
+## [0.12.0] — 2026-05-17
 
 ### Added
 
@@ -816,7 +816,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.11.7...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.12.0...dev
+[0.12.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.0
 [0.11.7]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.7
 [0.11.6]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.6
 [0.11.5]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.5
