@@ -1,5 +1,5 @@
 <!-- external-only -->
-## 9. Codebase Pointers
+## 10. Codebase Pointers
 
 The most common entry points when reading / modifying polily:
 

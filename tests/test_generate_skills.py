@@ -118,11 +118,14 @@ def test_skill_md_contains_external_only_blocks(tmp_path):
         "manual.md must NOT have external-only §1 (its §1 is the internal persona)"
     )
 
-    # External-only §9 codebase pointers (entry points + CLAUDE.md)
-    assert "## 9. Codebase Pointers" in skill, (
-        "SKILL.md must have §9 codebase pointers for external developers"
+    # External-only §10 codebase pointers (entry points + CLAUDE.md).
+    # Renumbered from §9 → §10 in v0.12.0 hotfix bundle when §9 was reassigned
+    # to "Polily's Analytical Methodology (runtime lookup)" — the more
+    # frequently-used chat-mode entry point.
+    assert "## 10. Codebase Pointers" in skill, (
+        "SKILL.md must have §10 codebase pointers for external developers"
     )
-    assert "## 9. Codebase Pointers" not in manual, (
+    assert "## 10. Codebase Pointers" not in manual, (
         "manual.md doesn't need codebase pointers — agent has its own navigation"
     )
 
@@ -163,6 +166,67 @@ def test_skill_md_drops_maintainer_log_leak(tmp_path):
     skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
     assert "Polily maintainers grep" not in skill, (
         "SKILL.md leaked internal tooling reference (maintainer log harvesting)"
+    )
+
+
+def test_skill_md_includes_strategy_lookup_section(tmp_path):
+    """SKILL.md must include §9 strategy lookup procedure — the
+    chat-mode entry point for polily's analytical methodology. Without
+    this, Claude has the manual but no methodology, leading to generic-
+    finance answers that diverge from polily's TUI analyses.
+
+    Pattern is "runtime lookup, not bundled content":
+      1. Check active_strategy in user's polily.db
+      2. If 'user', read user_strategy.text
+      3. Else fetch default.md from polily's GitHub master
+    """
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
+
+    # Section heading
+    assert "## 9." in skill and "Methodology" in skill, (
+        "SKILL.md must have §9 methodology lookup section"
+    )
+
+    # The three lookup keys the procedure relies on
+    assert "active_strategy" in skill, "Must reference active_strategy config key"
+    assert "user_strategy" in skill, "Must reference user_strategy table"
+
+    # GitHub URL for the official methodology — drives repo visibility and
+    # keeps SKILL.md from going stale when default.md changes.
+    assert "raw.githubusercontent.com/ShiyuCheng2018/polily" in skill, (
+        "SKILL.md must include the canonical GitHub raw URL for default.md "
+        "fetching — keeps methodology fresh without regen"
+    )
+
+
+def test_manual_md_does_not_include_strategy_lookup(tmp_path):
+    """manual.md (internal agent prompt) must NOT contain the runtime
+    lookup procedure — polily's internal agent already gets the active
+    strategy injected by _build_prompt as part of its prompt stack.
+    Telling the agent to also `curl` from GitHub would be redundant
+    and bypass the user's active_strategy choice.
+    """
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    manual = (REPO_ROOT / "polily" / "agents" / "manual.md").read_text()
+    assert "raw.githubusercontent.com" not in manual, (
+        "manual.md must not include GitHub-fetch URL — internal agent "
+        "receives strategy via _build_prompt injection"
+    )
+    assert "## 9." not in manual, (
+        "manual.md must not have §9 strategy lookup — it's external-only"
     )
 
 
