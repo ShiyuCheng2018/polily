@@ -256,6 +256,133 @@ def test_no_audience_wrapper_tags_leak_into_outputs(tmp_path):
         )
 
 
+def test_skill_md_strategy_lookup_has_robust_fallback_ladder(tmp_path):
+    """v0.12.0 hotfix (Whis re-review): §9 must use a multi-source fallback
+    ladder, not a single curl-from-master that 404s when default.md isn't
+    on master yet (pre-release window).
+
+    Required sources in order:
+      1. user_strategy.text (local DB, if polily installed + customized)
+      2. Local default.md via polily.__file__ (if polily installed)
+      3. GitHub fetch with curl --fail (last resort; never confabulate
+         on 404)
+    """
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
+
+    # All three sources must be documented
+    assert "user_strategy" in skill, "Source 1 (user_strategy) missing"
+    assert "polily.__file__" in skill, (
+        "Source 2 (local default.md via polily.__file__) missing — "
+        "robust fallback needed for pre-master-merge window"
+    )
+    assert "curl -sf" in skill or "curl --fail" in skill, (
+        "Source 3 must use curl --fail (or -sf) so HTTP 404 doesn't get "
+        "treated as methodology text"
+    )
+
+    # Graceful failure guidance — Claude must NOT confabulate when all
+    # sources fail
+    skill_lower = skill.lower()
+    assert "do not confabulate" in skill_lower or "not confabulate" in skill_lower, (
+        "§9 must explicitly tell Claude NOT to fabricate methodology when "
+        "all fallback sources fail"
+    )
+
+
+def test_skill_md_strategy_lookup_mirrors_internal_fallback_criteria(tmp_path):
+    """§9 Step 1 acceptance criteria for user_strategy.text must mirror
+    the internal agent's §8 fallback triggers (empty / too short /
+    missing structure / asks for execution / etc.) so chat-consultation
+    methodology stays consistent with what the TUI dispatched."""
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
+
+    # Concrete fallback criteria (vs loose "coherent" judgment)
+    skill_lower = skill.lower()
+    # At least 3 of these markers should appear
+    structural_markers = [
+        "non-empty",
+        "whitespace",
+        "lines",
+        "markdown",
+        "header",
+        "destructive",
+        "execute",
+    ]
+    found = sum(1 for m in structural_markers if m in skill_lower)
+    assert found >= 4, (
+        f"§9 Source 1 needs concrete fallback criteria (mirroring §8), "
+        f"only found {found} of the expected structural markers"
+    )
+
+
+def test_skill_md_no_dangling_per_call_yaml_references(tmp_path):
+    """Audit pass: external SKILL.md must not reference §7 / §8 /
+    `official_strategy_path` / `per-call YAML` — those are all stripped
+    in external output. Any remaining reference is a dangling pointer
+    that confuses Claude.
+    """
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
+
+    # §9 strategy lookup itself talks about user_strategy etc. so we can't
+    # blanket-ban; but specific dangling references must be gone.
+    assert "official_strategy_path" not in skill, (
+        "SKILL.md references official_strategy_path — defined in §7 which "
+        "is internal-only. Dangling reference."
+    )
+    # `per §8` is the specific cross-reference pattern that was leaking
+    assert "per §8" not in skill and "per §7" not in skill, (
+        "SKILL.md has dangling 'per §7' / 'per §8' cross-reference — "
+        "those sections are internal-only"
+    )
+
+
+def test_skill_md_yaml_description_covers_chat_consultation_trigger(tmp_path):
+    """YAML description must mention chat-consultation triggers (follow-up
+    questions about polily analyses), not just developer triggers.
+    Without this, naive user queries like '为什么 edge 很薄' won't
+    activate the skill.
+    """
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
+    frontmatter = skill.split("---", 2)[1]
+    lower = frontmatter.lower()
+
+    # Chat-consultation framing
+    assert "follow-up" in lower or "analysis" in lower or "structure_score" in lower, (
+        "YAML description must mention follow-up / analysis / structure_score "
+        "to trigger on chat-consultation queries"
+    )
+    # Still has the negative trigger
+    assert "do not activate" in lower or "not for" in lower or "exclude" in lower
+
+
 def test_skill_md_yaml_description_has_negative_trigger(tmp_path):
     """SKILL.md's YAML frontmatter description must include a negative
     trigger — don't activate on generic Polymarket questions, only on

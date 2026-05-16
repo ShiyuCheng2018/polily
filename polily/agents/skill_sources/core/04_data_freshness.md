@@ -33,7 +33,7 @@ What you can fetch live during this analysis run via your tools:
 
 - **`WebSearch`** — live web pages (polls, news, betting odds aggregators, on-chain block explorers)
 - **`Bash`** — anything: `curl https://...` to hit external APIs directly (Polymarket Gamma, sportsbook APIs, oracle feeds), `sqlite3 <db>` to query polily's DB, etc.
-- **`Read`** — local file system (e.g. `official_strategy_path` for fallback per §8)
+- **`Read`** — local file system <!-- internal-only -->(e.g. `official_strategy_path` for fallback per §8)<!-- /internal-only -->
 
 Cost is non-trivial — `WebSearch` and `Bash curl` add seconds per call. Use them when the question genuinely needs live data, not by default.
 

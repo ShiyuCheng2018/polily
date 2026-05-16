@@ -131,18 +131,27 @@ def _make_header() -> str:
 
 
 def _make_skill_frontmatter() -> str:
-    # Negative trigger ("Do NOT activate on generic Polymarket questions")
-    # prevents overactivation in unrelated sessions. Polily-codebase-specific
-    # framing keeps the skill scoped to actual polily development work.
+    # Two-use-case framing:
+    #   1. Chat consultation — polily user asks follow-up questions about
+    #      their TUI analysis, positions, or polily's reasoning framework
+    #      ("explain why edge is thin", "what's my biggest position")
+    #   2. Development — extending polily code, querying polily.db schema,
+    #      debugging the NarrativeWriter agent or movement pipeline
+    # Negative trigger keeps the skill scoped — generic "what is Polymarket"
+    # questions should not activate.
     return (
         "---\n"
         "name: polily\n"
         "description: |\n"
-        "  Use when working ON the polily codebase or its data — editing polily/* source, "
-        "querying polily.db, debugging the NarrativeWriter agent, or extending the "
-        "scoring/movement pipeline. Provides DB schema, daemon mechanics, file path "
-        "conventions, and codebase entry points. "
-        "Do NOT activate for generic Polymarket questions unrelated to the polily codebase.\n"
+        "  Use when the user references polily — either asking follow-up questions about "
+        "a polily-generated analysis (interpreting structure_score, edge claims, friction "
+        "breakdowns, position guidance, why polily said what it said), querying polily's "
+        "local state (positions, wallet, past analyses in polily.db), or working ON the "
+        "polily codebase (editing polily/* source, debugging the NarrativeWriter agent, "
+        "extending the scoring/movement pipeline). Provides DB schema, daemon mechanics, "
+        "file paths, codebase entry points, and a runtime-lookup procedure for polily's "
+        "analytical methodology. "
+        "Do NOT activate for generic Polymarket questions unrelated to polily.\n"
         "---\n"
     )
 
