@@ -44,9 +44,7 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -137,32 +135,31 @@ def _normalize_whitespace(text: str) -> str:
     return text
 
 
-def _git_short_sha() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            text=True,
-        ).strip()
-    except subprocess.CalledProcessError:
-        return "UNKNOWN"
-
-
-def _polily_version() -> str:
-    try:
-        sys.path.insert(0, str(REPO_ROOT))
-        import polily
-        return polily.__version__
-    except Exception:
-        return "UNKNOWN"
-
-
 def _make_header() -> str:
+    """Static header — no version stamp, no timestamp, no git SHA.
+
+    Earlier versions stamped `Source: polily vX.Y.Z (git abc1234)` and
+    `Generated at: <ISO timestamp>` for provenance. Both changed on every
+    regen, causing:
+      - Diff noise on every PR (header lines change even when source
+        content doesn't)
+      - Merge conflicts when two contributors regen independently
+      - PRs that appear to change more than they actually do
+
+    Provenance is recoverable from git log on the generated file itself.
+    Polily-plugin has independent tags (v0.1.0, v0.1.1, ...) for users
+    who need release-version semantics. The header now serves only its
+    human-facing purpose: 'do not hand-edit, regen via this script'.
+
+    Result: any two contributors running the generator on the same
+    source files produce byte-identical output. Drift detection via
+    `--check` becomes trivially correct (no need to strip volatile
+    fields before comparison).
+    """
     return (
         "<!--\n"
         "GENERATED FILE — DO NOT EDIT\n"
-        f"Source: polily v{_polily_version()} (git {_git_short_sha()})\n"
-        f"Generated at: {datetime.now(UTC).isoformat()}\n"
+        "Source: polily/agents/skill_sources/core/*.md\n"
         "Generator: scripts/generate_skills.py\n"
         "To modify: edit polily/agents/skill_sources/core/*.md, then re-run.\n"
         "-->"
@@ -197,13 +194,6 @@ def _concat_sources() -> str:
     return "\n\n".join(f.read_text(encoding="utf-8").rstrip() for f in files)
 
 
-def _strip_volatile(text: str) -> str:
-    """Remove lines that vary across runs (timestamp / git sha) for drift comparison."""
-    text = re.sub(r"^Source: polily v.*$", "Source: <stripped>", text, flags=re.M)
-    text = re.sub(r"^Generated at: .*$", "Generated at: <stripped>", text, flags=re.M)
-    return text
-
-
 def _build_manual_content(body: str) -> str:
     # .strip() both ends so:
     # - leading `\n` from audience-block strips at file start (e.g. when
@@ -232,13 +222,15 @@ def main() -> int:
     skill_content = _build_skill_content(body)
 
     if args.check:
+        # No volatile fields anymore (header is fully static; see _make_header).
+        # Drift comparison is straight string equality.
         existing_manual = MANUAL_TARGET.read_text() if MANUAL_TARGET.exists() else ""
-        if _strip_volatile(existing_manual) != _strip_volatile(manual_content):
+        if existing_manual != manual_content:
             print("DRIFT: polily/agents/manual.md does not match skill_sources/core/", file=sys.stderr)
             return 1
         if skill_target.exists():
             existing_skill = skill_target.read_text()
-            if _strip_volatile(existing_skill) != _strip_volatile(skill_content):
+            if existing_skill != skill_content:
                 print(f"DRIFT: {skill_target} does not match skill_sources/core/", file=sys.stderr)
                 return 1
         return 0
