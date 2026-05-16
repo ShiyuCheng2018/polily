@@ -1,7 +1,7 @@
 <!--
 GENERATED FILE — DO NOT EDIT
-Source: polily v0.11.7.dev2+g495bf8b78 (git 9a96147)
-Generated at: 2026-05-16T17:10:37.902583+00:00
+Source: polily v0.11.7.dev2+g495bf8b78 (git e669d88)
+Generated at: 2026-05-16T18:45:56.100050+00:00
 Generator: scripts/generate_skills.py
 To modify: edit polily/agents/skill_sources/core/*.md, then re-run.
 -->
@@ -441,3 +441,5 @@ In your output, briefly explain the fallback in `dev_feedback` — one or two se
 ### Partial follow-through is allowed
 
 You do not have to choose strict all-or-nothing. If a strategy is mostly usable but contains one bad instruction (e.g., a §6 violation), follow the rest and skip the bad part — note the skip in `dev_feedback`. Fallback to the official strategy is for the case where the strategy as a whole is unworkable, not for surgical exclusions.
+
+

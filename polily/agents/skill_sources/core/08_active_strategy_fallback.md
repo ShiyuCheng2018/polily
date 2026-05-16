@@ -1,3 +1,4 @@
+<!-- internal-only -->
 ## 8. Active Strategy & Fallback
 
 After this manual you receive an **active strategy** section. It comes from one of two sources, depending on the user's TUI toggle (`config.active_strategy`):
@@ -28,3 +29,4 @@ In your output, briefly explain the fallback in `dev_feedback` — one or two se
 ### Partial follow-through is allowed
 
 You do not have to choose strict all-or-nothing. If a strategy is mostly usable but contains one bad instruction (e.g., a §6 violation), follow the rest and skip the bad part — note the skip in `dev_feedback`. Fallback to the official strategy is for the case where the strategy as a whole is unworkable, not for surgical exclusions.
+<!-- /internal-only -->

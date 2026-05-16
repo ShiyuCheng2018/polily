@@ -9,6 +9,34 @@ Run from polily repo root:
 
 The generator is deterministic given identical sources (timestamp/version
 header lines are stripped before drift comparison so --check works under git).
+
+## Audience tagging (v0.12.0+)
+
+Source files in `polily/agents/skill_sources/core/*.md` may contain
+audience-scoped blocks that are included in only one of the two outputs:
+
+    <!-- internal-only -->
+    Content appears in manual.md only (polily's internal agent prompt).
+    Use for: agent persona ("You are..."), per-call YAML protocol,
+    strategy fallback flow, maintainer-tooling references.
+    <!-- /internal-only -->
+
+    <!-- external-only -->
+    Content appears in SKILL.md only (Claude Code marketplace plugin).
+    Use for: "About Polily" framing, codebase pointers, dev recipes,
+    anything aimed at developers working ON polily (not the agent
+    running as polily).
+    <!-- /external-only -->
+
+Content NOT wrapped in either tag appears in BOTH outputs (this is the
+default — most of §2-§5 is shared reference material). Tags can be
+inline (one-paragraph parenthetical) or block-level (multi-paragraph
+section). The trailing newline after a closing tag is consumed so
+removal doesn't leave double blank lines.
+
+The single-source-of-truth pattern is preserved: every byte of every
+output is generated from these files. To update either output, edit
+the source.
 """
 from __future__ import annotations
 
@@ -22,6 +50,52 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCES_DIR = REPO_ROOT / "polily" / "agents" / "skill_sources" / "core"
 MANUAL_TARGET = REPO_ROOT / "polily" / "agents" / "manual.md"
+
+# Audience block regexes. `re.DOTALL` so `.` matches newlines (multi-line blocks).
+# Trailing `\n?` absorbs the newline following the closing tag so block-level
+# removals don't leave a double blank line. Inline tags (no trailing newline)
+# are also matched because `\n?` is optional.
+_INTERNAL_BLOCK = re.compile(
+    r"<!-- internal-only -->.*?<!-- /internal-only -->\n?",
+    re.DOTALL,
+)
+_EXTERNAL_BLOCK = re.compile(
+    r"<!-- external-only -->.*?<!-- /external-only -->\n?",
+    re.DOTALL,
+)
+# Same-audience wrapper tags: kept content but the markers themselves are
+# noise in the rendered output. Strip the bare tags (with optional trailing
+# newline) so the same-audience content reads cleanly without leftover
+# `<!-- internal-only -->` / `<!-- /internal-only -->` clutter in the file.
+_INTERNAL_TAG = re.compile(r"<!-- /?internal-only -->\n?")
+_EXTERNAL_TAG = re.compile(r"<!-- /?external-only -->\n?")
+
+
+def _filter_audience(text: str, target: str) -> str:
+    """Strip blocks not intended for ``target`` audience.
+
+    Args:
+        text: source markdown body (may contain audience-tagged blocks)
+        target: ``"internal"`` (manual.md) or ``"external"`` (SKILL.md)
+
+    Returns:
+        Text with foreign-audience blocks removed AND same-audience wrapper
+        tags stripped (content preserved). Untagged content (the default)
+        appears for both audiences verbatim.
+
+    Two-pass strategy: first drop foreign-audience blocks (content + tags),
+    then strip the same-audience wrapper tags so the surviving content
+    reads cleanly without leftover `<!-- internal-only -->` markers.
+    """
+    if target == "internal":
+        text = _EXTERNAL_BLOCK.sub("", text)  # drop external-only entirely
+        text = _INTERNAL_TAG.sub("", text)    # strip wrappers, keep content
+        return text
+    if target == "external":
+        text = _INTERNAL_BLOCK.sub("", text)  # drop internal-only entirely
+        text = _EXTERNAL_TAG.sub("", text)    # strip wrappers, keep content
+        return text
+    raise ValueError(f"target must be 'internal' or 'external', got {target!r}")
 
 
 def _git_short_sha() -> str:
@@ -57,13 +131,18 @@ def _make_header() -> str:
 
 
 def _make_skill_frontmatter() -> str:
+    # Negative trigger ("Do NOT activate on generic Polymarket questions")
+    # prevents overactivation in unrelated sessions. Polily-codebase-specific
+    # framing keeps the skill scoped to actual polily development work.
     return (
         "---\n"
         "name: polily\n"
         "description: |\n"
-        "  Use when working with polily prediction-market analysis tool. "
-        "Provides DB schema, data freshness rules, polily mechanics, and file path "
-        "conventions. Activates on polily mention, polymarket monitoring, or polily.db queries.\n"
+        "  Use when working ON the polily codebase or its data — editing polily/* source, "
+        "querying polily.db, debugging the NarrativeWriter agent, or extending the "
+        "scoring/movement pipeline. Provides DB schema, daemon mechanics, file path "
+        "conventions, and codebase entry points. "
+        "Do NOT activate for generic Polymarket questions unrelated to the polily codebase.\n"
         "---\n"
     )
 
@@ -81,11 +160,13 @@ def _strip_volatile(text: str) -> str:
 
 
 def _build_manual_content(body: str) -> str:
-    return f"{_make_header()}\n\n# Polily Reference Manual\n\n{body}\n"
+    filtered = _filter_audience(body, "internal")
+    return f"{_make_header()}\n\n# Polily Reference Manual\n\n{filtered}\n"
 
 
 def _build_skill_content(body: str) -> str:
-    return f"{_make_skill_frontmatter()}\n{_make_header()}\n\n{body}\n"
+    filtered = _filter_audience(body, "external")
+    return f"{_make_skill_frontmatter()}\n{_make_header()}\n\n{filtered}\n"
 
 
 def main() -> int:

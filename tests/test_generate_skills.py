@@ -39,7 +39,10 @@ def test_generator_writes_skill_md(tmp_path):
     content = skill.read_text()
     assert content.startswith("---\nname: polily\n")
     assert "GENERATED FILE — DO NOT EDIT" in content
-    assert "## 1. Who You Are" in content
+    # v0.12.0 audience split: SKILL.md's §1 is "About Polily" (external
+    # framing), NOT "Who You Are" (internal agent persona). See
+    # test_skill_md_excludes_internal_only_blocks.
+    assert "## 1. About Polily" in content
 
 
 def test_generator_check_mode_returns_zero_when_in_sync(tmp_path):
@@ -60,6 +63,155 @@ def test_generator_check_mode_returns_zero_when_in_sync(tmp_path):
         text=True,
     )
     assert result.returncode == 0
+
+
+def test_skill_md_excludes_internal_only_blocks(tmp_path):
+    """v0.12.0 audience split: SKILL.md (external) must drop content
+    wrapped in `<!-- internal-only -->...<!-- /internal-only -->` tags.
+
+    The internal-only sections target polily's runtime agent (system
+    prompt) — persona injection, per-call YAML protocol, strategy
+    fallback flow. An external Claude Code session loading the skill
+    is NOT polily's agent and gets confused / misled by these.
+    """
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
+
+    # Persona injection (§1) → external session is NOT the agent
+    assert "You are the analytical agent of Polily" not in skill, (
+        "SKILL.md must not contain the agent-persona sentence — "
+        "external sessions are not polily's runtime agent"
+    )
+    # Per-call YAML protocol (§7) → external session has no such injection
+    assert "## 7. Per-Call Inputs" not in skill, (
+        "SKILL.md must drop §7 — no per-call YAML in external sessions"
+    )
+    # Strategy fallback flow (§8) → runtime mechanism, irrelevant externally
+    assert "## 8. Active Strategy" not in skill, (
+        "SKILL.md must drop §8 — strategy fallback is agent runtime only"
+    )
+
+
+def test_skill_md_contains_external_only_blocks(tmp_path):
+    """SKILL.md must contain external-only content that's absent from manual.md."""
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
+    manual = (REPO_ROOT / "polily" / "agents" / "manual.md").read_text()
+
+    # External-only §1 framing ("About Polily" — descriptive, not persona)
+    assert "## 1. About Polily" in skill, (
+        "SKILL.md must have external-only §1 'About Polily' framing"
+    )
+    assert "## 1. About Polily" not in manual, (
+        "manual.md must NOT have external-only §1 (its §1 is the internal persona)"
+    )
+
+    # External-only §9 codebase pointers (entry points + CLAUDE.md)
+    assert "## 9. Codebase Pointers" in skill, (
+        "SKILL.md must have §9 codebase pointers for external developers"
+    )
+    assert "## 9. Codebase Pointers" not in manual, (
+        "manual.md doesn't need codebase pointers — agent has its own navigation"
+    )
+
+
+def test_manual_md_keeps_internal_only_blocks(tmp_path):
+    """manual.md (internal) keeps the agent-runtime sections that SKILL.md drops."""
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    manual = (REPO_ROOT / "polily" / "agents" / "manual.md").read_text()
+
+    # manual.md still has the original persona, per-call YAML, and fallback flow
+    assert "You are the analytical agent of Polily" in manual
+    assert "## 7. Per-Call Inputs" in manual
+    assert "## 8. Active Strategy" in manual
+
+
+def test_skill_md_drops_maintainer_log_leak(tmp_path):
+    """§5 mentions agent_feedback.log; the parenthetical "polily maintainers
+    grep this..." is internal-only tooling leak that should NOT appear in
+    the external SKILL.md.
+
+    The fact that the log exists (it's a file in data_dir/logs/) is fine
+    to mention for both audiences; the maintainer-harvesting context is
+    internal-only.
+    """
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
+    assert "Polily maintainers grep" not in skill, (
+        "SKILL.md leaked internal tooling reference (maintainer log harvesting)"
+    )
+
+
+def test_no_audience_wrapper_tags_leak_into_outputs(tmp_path):
+    """Both outputs must have the audience-wrapper tags stripped from the
+    rendered content. Leftover `<!-- internal-only -->` markers waste
+    context tokens on every load and look like noise to readers.
+    """
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    manual = (REPO_ROOT / "polily" / "agents" / "manual.md").read_text()
+    skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
+
+    for path, text in [("manual.md", manual), ("SKILL.md", skill)]:
+        assert "internal-only" not in text, (
+            f"{path} contains a leftover internal-only wrapper tag — "
+            "_filter_audience must strip same-audience markers too"
+        )
+        assert "external-only" not in text, (
+            f"{path} contains a leftover external-only wrapper tag — "
+            "_filter_audience must strip same-audience markers too"
+        )
+
+
+def test_skill_md_yaml_description_has_negative_trigger(tmp_path):
+    """SKILL.md's YAML frontmatter description must include a negative
+    trigger — don't activate on generic Polymarket questions, only on
+    polily-specific work. Prevents over-activation in unrelated sessions.
+    """
+    fake_plugin = tmp_path / "fake-polily-plugin"
+    (fake_plugin / "skills" / "polily").mkdir(parents=True)
+    subprocess.run(
+        [sys.executable, str(GENERATOR), "--plugin-repo", str(fake_plugin)],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    skill = (fake_plugin / "skills" / "polily" / "SKILL.md").read_text()
+    # Frontmatter spans first lines through closing `---`
+    frontmatter = skill.split("---", 2)[1]
+    lower = frontmatter.lower()
+    assert "do not activate" in lower or "not for" in lower or "exclude" in lower, (
+        "YAML description should explicitly tell Claude Code NOT to activate "
+        "on generic Polymarket questions unrelated to the polily codebase"
+    )
 
 
 def test_generator_check_mode_returns_nonzero_when_drift(tmp_path):

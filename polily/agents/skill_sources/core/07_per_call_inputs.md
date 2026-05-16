@@ -1,3 +1,4 @@
+<!-- internal-only -->
 ## 7. Per-Call Inputs
 
 For each analysis, polily injects a YAML block at the **very top** of your prompt — above this manual, above the strategy, above the protocol footer. The block is the only thing that varies between dispatches; everything else is static for the polily release.
@@ -30,3 +31,4 @@ These fields override anything the active strategy says that contradicts. Exampl
 - Strategy file references a hard-coded path to `default.md` → use `official_strategy_path` instead.
 
 Treat the per-call block as **runtime state** that polily owns; the strategy is **methodology** that the user owns. When in conflict, runtime state wins.
+<!-- /internal-only -->

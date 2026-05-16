@@ -22,14 +22,16 @@ If `POLILY_LOG_DIR` is unset, `log_dir()` defaults to `data_dir() / "logs"` — 
 
 | File | Producer | Use |
 |---|---|---|
-| `agent_feedback.log` | `narrative_writer._write_dev_feedback` | Append-only log of agent `dev_feedback` strings (one line per successful analysis). Polily maintainers grep this to harvest agent-side issue reports |
+| `agent_feedback.log` | `narrative_writer._write_dev_feedback` | Append-only log of agent `dev_feedback` strings (one line per successful analysis). <!-- internal-only -->Polily maintainers grep this to harvest agent-side issue reports<!-- /internal-only --> |
 | `agent_debug.log` | `BaseAgent` (claude CLI wrapper) | stdout/stderr dump from claude CLI subprocess, captured on retry / parse failures |
 | `daemon-stderr.log`, `daemon-stdout.log` | launchd / `polily scheduler run` | Daemon process output — covers poll cycles, score refresh, scan dispatches |
 | `scheduler-stderr.log`, `scheduler-stdout.log` | APScheduler internal | Scheduler-level diagnostics (job dispatch, missed runs) |
 
+<!-- internal-only -->
 ### `official_strategy_path` (per-call, not under data_dir)
 
 The packaged official strategy — `polily/strategies/default.md` inside the polily Python package — has a different absolute path per install method (pipx vs pip vs editable install). **Do not hard-code it.** Use the `official_strategy_path` field injected in §7's per-call YAML; it's resolved from `polily.__file__` at dispatch time and works for every install topology.
+<!-- /internal-only -->
 
 ### Quick reference
 
