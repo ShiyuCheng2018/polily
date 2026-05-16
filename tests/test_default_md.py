@@ -24,6 +24,30 @@ def test_default_md_position_management_depth():
         assert marker in text.lower(), f"Position management depth missing {marker!r}"
 
 
+def test_default_md_recommends_event_metadata_first():
+    """v0.12.0 backlog #6: §1 must instruct the agent to read
+    `events.event_metadata.context_description` BEFORE WebSearching for
+    event background, when the description is fresh (≤24h). Saves one
+    broad-strokes web call per analysis, surfaced as dev_feedback on
+    2026-05-11 12:22 CST for event 108031.
+    """
+    text = (Path(polily.__file__).parent / "strategies" / "default.md").read_text(encoding="utf-8")
+    lower = text.lower()
+    # Must mention event_metadata as a context source
+    assert "event_metadata" in text, (
+        "§1 must reference events.event_metadata as a primary context source"
+    )
+    # Must include a freshness boundary so agent knows when to trust it
+    assert "24h" in text or "24 h" in text or "context_updated_at" in lower, (
+        "§1 must specify when event_metadata is trustworthy (freshness window) "
+        "so the agent has a deterministic decision rule"
+    )
+    # Must explicitly link reading event_metadata to saving a WebSearch call
+    assert "websearch" in lower, (
+        "§1 must connect event_metadata freshness to WebSearch decision"
+    )
+
+
 def test_default_md_pre_analysis_context_block():
     """§1 must instruct agent to gather context (prior analyses, movement, positions, wallet)
     before entering the Q1-Q5 framework — recovers v0.11.x's '查 DB 全貌' first-step guidance.
