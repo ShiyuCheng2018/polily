@@ -56,8 +56,16 @@ class WatchScheduler:
             replace_existing=True,
         )
 
-    def shutdown(self):
-        self.scheduler.shutdown(wait=True)
+    def shutdown(self, wait: bool = True):
+        """Shut down the underlying APScheduler.
+
+        `wait=True` (default) blocks until in-flight jobs complete — right
+        for graceful production shutdown via SIGTERM. `wait=False` returns
+        immediately — used by abnormal-exit cleanup (test injection, the
+        `run_daemon` outer `finally`) where waiting could deadlock if a
+        job is blocked on the very thing causing the exit.
+        """
+        self.scheduler.shutdown(wait=wait)
 
 
 # ---------------------------------------------------------------------------
@@ -647,10 +655,30 @@ def run_daemon(db, config=None) -> None:
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
 
+    # v0.12.0: outer try/finally ensures scheduler.shutdown() is called
+    # on ANY exit path — not just SIGTERM/SIGINT (which the signal handler
+    # covers) but also test-injected exceptions, KeyboardInterrupt during
+    # the AttributeError fallback, and arbitrary unexpected exits.
+    #
+    # Without this, tests that patch signal.pause to raise (the canonical
+    # pattern for breaking out of run_daemon — see
+    # test_run_daemon_passes_scheduler_to_init_poller) leak a running
+    # APScheduler thread that keeps ticking on a closed db handle every
+    # 30s. The first tick errors with sqlite3.ProgrammingError; subsequent
+    # ticks during the same pytest run may also invoke monkeypatched
+    # poll_job helpers (e.g. fetch_clob_market_data), inflating per-test
+    # call counters and producing flaky failures in tests like
+    # test_fetch_one_gives_up_after_3_attempts (CI #25973293032 on
+    # PR #123 showed call_count=5 instead of expected 3 because of this
+    # exact leak).
     try:
-        while True:
-            signal.pause()
-    except AttributeError:
-        import time
-        while True:
-            time.sleep(60)
+        try:
+            while True:
+                signal.pause()
+        except AttributeError:
+            import time
+            while True:
+                time.sleep(60)
+    finally:
+        with contextlib.suppress(Exception):
+            scheduler.shutdown(wait=False)
