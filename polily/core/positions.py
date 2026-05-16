@@ -71,9 +71,31 @@ class PositionManager:
             return [dict(r) for r in cur.fetchall()]
 
     def get_event_positions(self, event_id: str) -> list[dict]:
+        """Return all positions for the given event.
+
+        v0.12.0 bug #1 fix: query via JOIN on markets.event_id (canonical)
+        rather than positions.event_id (denormalized copy). The two columns
+        SHOULD always match because TradeEngine sets positions.event_id from
+        markets.event_id at INSERT time, but the UPDATE branch of
+        add_shares() does NOT refresh event_id — so any drift (legacy
+        migrations, hand-edited SQL, faulty sync scripts, etc.) is permanent
+        on positions.event_id while markets.event_id stays correct.
+
+        The bug fired on 2026-05-10 12:13 CST for event 51456: agent caught
+        a 26.36 YES position on market 616902 via its own markets-JOIN query
+        even though polily's _compute_position_context reported has_position
+        =false. Using the canonical markets.event_id eliminates this drift
+        class entirely.
+
+        SELECT p.* keeps the returned dict shape stable for callers
+        (avg_cost / cost_basis / shares / etc. all from positions row).
+        """
         with self.db.transaction() as conn:
             cur = conn.execute(
-                "SELECT * FROM positions WHERE event_id=? ORDER BY opened_at DESC",
+                "SELECT p.* FROM positions p "
+                "JOIN markets m ON p.market_id = m.market_id "
+                "WHERE m.event_id = ? "
+                "ORDER BY p.opened_at DESC",
                 (event_id,),
             )
             return [dict(r) for r in cur.fetchall()]
