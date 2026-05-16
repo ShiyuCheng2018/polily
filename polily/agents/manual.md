@@ -1,7 +1,7 @@
 <!--
 GENERATED FILE — DO NOT EDIT
-Source: polily v0.11.7.dev2+g495bf8b78 (git ba226bf)
-Generated at: 2026-05-16T20:32:13.411541+00:00
+Source: polily v0.11.7.dev2+g495bf8b78 (git fffdf63)
+Generated at: 2026-05-16T20:36:27.168922+00:00
 Generator: scripts/generate_skills.py
 To modify: edit polily/agents/skill_sources/core/*.md, then re-run.
 -->
