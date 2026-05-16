@@ -167,6 +167,20 @@ async def regen_stale_event_descriptions(db: PolilyDB, config) -> int:
                     "leaving row alone.", event_id,
                 )
                 continue
+            # Defensive: Polymarket has occasionally returned eventMetadata
+            # as a string scalar or list (malformed payload). json.dumps()
+            # would serialize either to a valid JSON string, but the
+            # events.event_metadata column is contractually a dict (TUI
+            # rendering + agent context_description access). Reject
+            # non-dict shapes to preserve the contract — leave the
+            # existing row untouched so the next tick can retry.
+            if not isinstance(new_meta, dict):
+                logger.warning(
+                    "Regen response for %s returned non-dict eventMetadata "
+                    "(type=%s); leaving row alone.",
+                    event_id, type(new_meta).__name__,
+                )
+                continue
 
             # Update in-place. Use a transaction so the write is atomic
             # against concurrent reads.

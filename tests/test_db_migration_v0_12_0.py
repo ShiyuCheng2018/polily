@@ -318,6 +318,93 @@ def test_narrative_writer_model_migration_preserves_user_custom_value(tmp_path):
     assert _json.loads(row["value"]) == "haiku"
 
 
+def test_position_event_id_drift_heals_on_boot(tmp_path):
+    """v0.12.0 bug #1 root-fix: a one-shot heal migration runs on first
+    v0.12.0 boot, re-syncing every positions.event_id to match the
+    canonical markets.event_id. This eliminates the drift class
+    entirely — every query (including SQL JOINs in service.py event-list
+    queries that we don't directly fix) sees consistent data.
+
+    Test reproduces drift by direct INSERT, calls load_config_from_db
+    (which runs all migrations), asserts positions.event_id is now
+    canonical.
+    """
+    from datetime import UTC, datetime
+
+    from polily.core.config import load_config_from_db
+
+    db = PolilyDB(tmp_path / "polily.db")
+    now = datetime.now(UTC).isoformat()
+
+    # Seed an event + market with canonical event_id='ev_canonical'
+    db.conn.execute(
+        "INSERT INTO events (event_id, title, updated_at) "
+        "VALUES ('ev_canonical', 'E', ?)", (now,),
+    )
+    db.conn.execute(
+        "INSERT INTO markets (market_id, event_id, question, updated_at) "
+        "VALUES ('m_target', 'ev_canonical', 'Q', ?)", (now,),
+    )
+    # Insert a drifted position (event_id wrong)
+    db.conn.execute(
+        "INSERT INTO events (event_id, title, updated_at) "
+        "VALUES ('ev_wrong', 'W', ?)", (now,),
+    )
+    db.conn.execute(
+        "INSERT INTO positions (market_id, side, event_id, shares, avg_cost, "
+        "cost_basis, realized_pnl, title, opened_at, updated_at) "
+        "VALUES ('m_target', 'yes', 'ev_wrong', 10.0, 0.5, 5.0, 0.0, 'Q', ?, ?)",
+        (now, now),
+    )
+    db.conn.commit()
+
+    # Run migrations (load_config_from_db is the canonical entry point)
+    load_config_from_db(db)
+
+    # Heal should have fixed the drift
+    row = db.conn.execute(
+        "SELECT event_id FROM positions WHERE market_id='m_target' AND side='yes'"
+    ).fetchone()
+    assert row["event_id"] == "ev_canonical", (
+        f"Drift not healed: positions.event_id={row['event_id']!r} "
+        f"after migration; expected 'ev_canonical' (from markets.event_id)"
+    )
+
+
+def test_position_event_id_heal_is_idempotent_on_clean_data(tmp_path):
+    """If positions.event_id already matches markets.event_id, the heal
+    migration must be a no-op (0 rows updated). This is the typical
+    state on fresh installs."""
+    from datetime import UTC, datetime
+
+    from polily.core.config import load_config_from_db
+
+    db = PolilyDB(tmp_path / "polily.db")
+    now = datetime.now(UTC).isoformat()
+    db.conn.execute(
+        "INSERT INTO events (event_id, title, updated_at) VALUES ('e1', 'E', ?)",
+        (now,),
+    )
+    db.conn.execute(
+        "INSERT INTO markets (market_id, event_id, question, updated_at) "
+        "VALUES ('m1', 'e1', 'Q', ?)", (now,),
+    )
+    db.conn.execute(
+        "INSERT INTO positions (market_id, side, event_id, shares, avg_cost, "
+        "cost_basis, realized_pnl, title, opened_at, updated_at) "
+        "VALUES ('m1', 'yes', 'e1', 5.0, 0.4, 2.0, 0.0, 'Q', ?, ?)",
+        (now, now),
+    )
+    db.conn.commit()
+
+    # Should run without errors and leave the row alone
+    load_config_from_db(db)
+    row = db.conn.execute(
+        "SELECT event_id FROM positions WHERE market_id='m1'"
+    ).fetchone()
+    assert row["event_id"] == "e1"
+
+
 def test_narrative_writer_model_fresh_install_seeds_opus(tmp_path):
     """Fresh v0.12.0 install via PolilyDB() + load_config_from_db must seed 'opus'."""
     import json as _json

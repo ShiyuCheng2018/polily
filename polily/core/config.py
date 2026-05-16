@@ -306,6 +306,12 @@ def load_config_from_db(db) -> PolilyConfig:
             # only fires on exact pre-v0.12.0 default; user-customized
             # choices (haiku/sonnet-after-v0.12.0/etc.) are preserved.
             _migrate_narrative_writer_model_v0_12_0(db)
+            # v0.12.0 bug #1 root-fix: heal any drifted positions.event_id
+            # to canonical markets.event_id. Idempotent (no-op when
+            # positions.event_id matches markets.event_id, which is the
+            # typical state on fresh installs).
+            from polily.core.positions import _heal_position_event_id_drift_v0_12_0
+            _heal_position_event_id_drift_v0_12_0(db)
             db.conn.commit()
         except Exception:
             db.conn.rollback()

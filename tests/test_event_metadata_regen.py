@@ -225,6 +225,42 @@ async def test_regen_handles_fetch_failure_without_blanking_row(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_regen_handles_non_dict_metadata_response(tmp_path):
+    """v0.12.0 code-review hardening: if Polymarket returns a malformed
+    eventMetadata (string scalar, list, anything non-dict), the regen
+    must NOT overwrite the existing row. json.dumps() would happily
+    serialize a string into the JSON column, but downstream callers
+    expect a dict — silent garbage write would crash event_metadata
+    consumers (TUI rendering, agent context-description access).
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+    stale = {
+        "context_description": "OLD but valid",
+        "context_requires_regen": True,
+        "context_updated_at": "2026-05-06T00:00:00.000Z",
+    }
+    _seed_event(db, event_id="ev1", slug="some-slug", metadata=stale)
+
+    # Polymarket returns eventMetadata as a string (malformed)
+    response = {"id": "ev1", "slug": "some-slug", "eventMetadata": "garbage string"}
+    fake_fetch = AsyncMock(return_value=response)
+    with patch(
+        "polily.api.PolymarketClient.fetch_event_by_slug", fake_fetch,
+    ):
+        n = await regen_stale_event_descriptions(db, config=None)
+    assert n == 0
+
+    row = db.conn.execute(
+        "SELECT event_metadata FROM events WHERE event_id='ev1'",
+    ).fetchone()
+    parsed = json.loads(row["event_metadata"])
+    assert isinstance(parsed, dict), (
+        "Existing event_metadata must remain a dict — never overwrite with non-dict garbage"
+    )
+    assert parsed["context_description"] == "OLD but valid"
+
+
+@pytest.mark.asyncio
 async def test_regen_handles_response_without_metadata(tmp_path):
     """Some events have no eventMetadata at all in the Gamma response.
     Don't error — leave existing data alone."""
