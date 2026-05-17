@@ -11,6 +11,7 @@ suitable_for: individual Polymarket traders ($50-$20k+ accounts), URL-driven eve
 not_suitable_for: high-frequency trading, live order routing (no real-money execution), institutional volume, batch screening all markets, automated trading
 install: pipx install polily
 requires: python>=3.11, claude-cli (Claude Code subscription required for AI analyses)
+companion_plugin: github.com/ShiyuCheng2018/polily-plugin (Claude Code skill pack — chat with polily about your install)
 example_query: "score this polymarket event: https://polymarket.com/event/<slug>"
 entry_point: polily
 interactive: true
@@ -23,6 +24,7 @@ license: MIT
 [![Downloads](https://img.shields.io/pypi/dm/polily)](https://pypi.org/project/polily/)
 [![CI](https://github.com/ShiyuCheng2018/polily/actions/workflows/ci.yml/badge.svg)](https://github.com/ShiyuCheng2018/polily/actions/workflows/ci.yml)
 [![Last commit](https://img.shields.io/github/last-commit/ShiyuCheng2018/polily)](https://github.com/ShiyuCheng2018/polily/commits/master)
+[![polily-plugin](https://img.shields.io/badge/polily--plugin-claude_code_skill-9cf?logo=github)](https://github.com/ShiyuCheng2018/polily-plugin)
 
 Paste a Polymarket event URL and Polily decides **whether it's worth your time, scores the structure, hunts mispricing, watches for moves, and closes out positions automatically when markets resolve**. A monitoring agent that surfaces what Polymarket's UI hides — for every event you're considering.
 
@@ -60,6 +62,8 @@ polily                # launches the TUI; everything happens inside it
 For development setup (editable install, running tests, etc.) see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 In the TUI, paste a Polymarket event URL (looks like `https://polymarket.com/event/...`) into the **Tasks** pane. Polily fetches and scores it; from there you can add it to monitoring or open a paper trade.
+
+> 💡 **Bonus: chat with polily from Claude Code.** Inside the TUI, press `9` to open the **Companions** page — or install [polily-plugin](https://github.com/ShiyuCheng2018/polily-plugin) directly in any Claude Code session to query your polily install via chat (DB schema, analytical methodology, your actual positions and analyses) without re-explaining your setup each conversation. Optional, free with your existing Claude Code subscription.
 
 <div align="center">
   <img src="assets/polily_demo.gif" alt="Polily TUI demo — paste URL, score event, watch movement" width="800">
