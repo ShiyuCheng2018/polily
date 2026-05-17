@@ -10,6 +10,10 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Added
+
+- **Movement-triggered analyses inject `triggering_movements:` context into the agent prompt** (T-1, backlog re-scoped after investigation). When polily's daemon auto-dispatches an analysis because `_check_event_trigger` detected magnitude × quality crossing thresholds, the per-call ephemeral block now carries a `triggering_movements:` subsection listing every sub-market that moved in the last 60s, ordered by magnitude DESC. Each line shows `market_id`, `label`, yes-price delta, and M/Q scores. The agent no longer has to reverse-engineer the trigger story by querying `movement_log` itself — it sees the cross-market picture (same direction or split, magnitude distribution, label mix) directly in the prompt. Manual / scan / scheduled triggers are unaffected (no movement context applies). Single-file change in `polily/agents/narrative_writer.py` with documentation update in `skill_sources/core/07_per_call_inputs.md` (regenerated `manual.md`). 7 new tests cover positive injection, empty-state graceful absence, non-movement skip, window cutoff, and ephemeral-structure regression guard.
+
 ## [0.12.1] — 2026-05-17
 
 ### Added

@@ -5,12 +5,18 @@ v0.12.0 — markdown mode:
   - 4-part prompt assembly: per-call ephemeral → static manual → active strategy → protocol footer.
   - Output parsed into AgentMarkdownOutput (frontmatter dict + body str).
   - Persistence stores raw markdown via append_analysis(narrative_format="markdown").
+
+v0.12.x (T-1) — movement-triggered context injection:
+  - When trigger_source == "movement", _build_prompt reverse-queries
+    movement_log for the event's recent sub-market movements and injects
+    a `triggering_movements:` subsection into the ephemeral block. Agent
+    sees the cross-market story without having to query the DB itself.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import polily
@@ -21,6 +27,64 @@ from polily.core.db import PolilyDB
 from polily.core.strategy_store import get_active_strategy_text
 
 logger = logging.getLogger(__name__)
+
+# v0.12.x (T-1): window for movement-trigger context injection. Matches the
+# 60s cutoff `_check_event_trigger` uses in `polily/daemon/poll_job.py:993`
+# so the prompt reflects the same data polily's decision logic saw.
+# Dispatcher lag (typically 5-15s) keeps the execution-time reverse-query
+# within this window for the trigger snapshot.
+_MOVEMENT_CONTEXT_WINDOW_SECONDS = 60
+
+
+def _fetch_recent_movements(
+    event_id: str, db: PolilyDB, window_seconds: int = _MOVEMENT_CONTEXT_WINDOW_SECONDS,
+) -> list[dict]:
+    """Return per-sub-market movement_log rows for `event_id` within the
+    last `window_seconds`, ordered by magnitude DESC (spike row first).
+
+    Used by `_build_prompt` to inject `triggering_movements:` ephemeral
+    context when `trigger_source == "movement"`. Event-level rows
+    (market_id IS NULL) are excluded — we want per-market story, not
+    aggregated metrics.
+
+    Returns an empty list (not None) on no matches, so callers can
+    branch on truthiness cleanly.
+    """
+    cutoff = (
+        datetime.now(UTC) - timedelta(seconds=window_seconds)
+    ).isoformat()
+    with db.transaction() as conn:
+        rows = conn.execute(
+            """SELECT market_id, label, yes_price, prev_yes_price,
+                      magnitude, quality
+               FROM movement_log
+               WHERE event_id = ?
+                 AND market_id IS NOT NULL
+                 AND created_at >= ?
+               ORDER BY magnitude DESC, created_at DESC""",
+            (event_id, cutoff),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _format_movement_line(m: dict) -> str:
+    """Render one movement_log row as a `triggering_movements:` bullet.
+
+    Format keeps to one line per market for the agent's scan-ability:
+        - market_id: '...' label: ... yes: 0.30->0.40 M: 78 Q: 65
+
+    Missing prices fall back to `?` so a partial snapshot still renders
+    (rather than format-string crashing on None).
+    """
+    def _fmt_price(v: float | None) -> str:
+        return f"{v:.2f}" if v is not None else "?"
+
+    return (
+        f"  - market_id: {m['market_id']!r} "
+        f"label: {m['label']} "
+        f"yes: {_fmt_price(m['prev_yes_price'])}->{_fmt_price(m['yes_price'])} "
+        f"M: {m['magnitude']:.0f} Q: {m['quality']:.0f}"
+    )
 
 # v0.12.0: dropped "StructuredOutput" — agent now emits free-form markdown
 # with YAML frontmatter (see polily/agents/protocol.md). Read is required
@@ -191,6 +255,18 @@ class NarrativeWriterAgent:
         ]
         if has_position and position_summary:
             ephemeral_lines.append(f"position_summary: {position_summary!r}")
+
+        # v0.12.x (T-1): when polily auto-fired analysis because of detected
+        # movement, inject the per-market trigger story so the agent can
+        # reason about the cross-market picture without reverse-querying
+        # movement_log itself. For manual / scan / scheduled triggers we
+        # skip this — those have no "what just moved" semantic.
+        if trigger_source == "movement":
+            movements = _fetch_recent_movements(event_id, db)
+            if movements:
+                ephemeral_lines.append("triggering_movements:")
+                ephemeral_lines.extend(_format_movement_line(m) for m in movements)
+
         ephemeral = "\n".join(ephemeral_lines)
 
         # 2. System manual (static, generated from skill_sources)

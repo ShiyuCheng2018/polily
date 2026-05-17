@@ -389,6 +389,9 @@ For each analysis, polily injects a YAML block at the **very top** of your promp
     has_position: <true | false>
     official_strategy_path: "<absolute path to packaged default.md>"
     position_summary: "<conditional — only when has_position=true>"
+    triggering_movements:    # conditional — only when trigger == "movement"
+      - market_id: '...' label: whale_move yes: 0.30->0.40 M: 78 Q: 65
+      - market_id: '...' label: whale_move yes: 0.20->0.05 M: 71 Q: 58
 
 ### Field semantics
 
@@ -399,6 +402,7 @@ For each analysis, polily injects a YAML block at the **very top** of your promp
 - **`has_position`** — whether the user holds at least one position on a market under this event. Polily computes this fresh from the `positions` table at dispatch time; you can re-query for details (size, avg_cost, P&L) via SQL if needed.
 - **`official_strategy_path`** — absolute filesystem path to polily's packaged `default.md`. Use the `Read` tool to load it for the §8 fallback flow. Don't hard-code package paths — pipx vs pip vs editable install puts the file in different places, and this field is the install-correct value.
 - **`position_summary`** — appended **only when `has_position=true`** and the dispatcher had a summary string ready. Holds short-form position metadata (e.g. `"YES @ 0.42, qty 100, cost basis 0.38"`) so you don't need a `positions` SQL query for the common-case narration. Absent for `has_position=false`.
+- **`triggering_movements`** — appended **only when `trigger == "movement"`** and `movement_log` has at least one sub-market row for the event in the last 60s. One bullet per moving sub-market, ordered by magnitude DESC (spike row first). Tells you the cross-market story that polily's daemon saw when it decided to dispatch this analysis — same direction or split, magnitude distribution, label mix. **When this section is present, you don't need to query `movement_log` yourself for trigger context — it's already here.** A movement-triggered dispatch with this section missing means transient state or filtered movement (still query `movement_log` if you need detail, but treat it as a noisy or stale trigger).
 
 ### Source-of-truth precedence
 
