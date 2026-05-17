@@ -19,6 +19,7 @@ from polily.tui.i18n import t
 from polily.tui.icons import (
     ICON_AUTO_MONITOR,
     ICON_CHANGELOG,
+    ICON_COMPANION,
     ICON_COMPLETED,
     ICON_CONFIG,
     ICON_EVENT,
@@ -49,6 +50,7 @@ MENU_ICONS: dict[str, str] = {
     "config": ICON_CONFIG,
     "strategy": "",  # fa-book
     "changelog": ICON_CHANGELOG,
+    "companions": ICON_COMPANION,  # v0.12.x — polily-plugin + future companion tools
 }
 
 
@@ -158,6 +160,7 @@ class Sidebar(Widget):
         yield SidebarItem("sidebar.config", "config")
         yield SidebarItem("sidebar.strategy", "strategy")
         yield SidebarItem("sidebar.changelog", "changelog")
+        yield SidebarItem("sidebar.companions", "companions")
         yield Static("  [dim]POLL[/dim] --", id="poll-indicator")
 
     def on_mount(self) -> None:

@@ -10,6 +10,12 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Added
+
+- **TUI Companions page (key `9` / `9 Companions`).** A new persistent sidebar entry that promotes polily's optional Claude Code skill pack, [polily-plugin](https://github.com/ShiyuCheng2018/polily-plugin), and (in future) other companion tools scoped to the polily lifecycle. The page renders a Markdown card with the plugin pitch, four example chat queries, install commands, and a GitHub link. Same i18n + live language-switch pattern as Strategy / Changelog views. Companion content is i18n-driven (`companions.body_md`) so additions don't require touching CSS or layout — drop new cards into the Markdown body. The existing 8-item sidebar grew to 9: `companions` sits after `changelog`.
+
+- **README: cross-promotion of polily-plugin.** AI_METADATA gets a `companion_plugin` field, the badge row adds a polily-plugin sister-repo badge, and the Quick Start section gains a one-line Bonus callout pointing readers at the TUI Companions page (`9`) AND the direct-install path for users already in a Claude Code session.
+
 ## [0.12.0] — 2026-05-17
 
 ### Added

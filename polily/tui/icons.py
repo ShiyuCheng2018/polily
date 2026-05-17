@@ -43,6 +43,10 @@ ICON_CHANGELOG = "\uf249"     # fa-sticky-note (updates / release notes)
 ICON_CONFIG = ""  # Nerd Font gear (nf-fa-cog / nf-cod-settings_gear)
 
 
+# Companions / external integrations (v0.12.1)
+ICON_COMPANION = ""     # fa-plug (sidebar "Companions" entry — polily-plugin, future Claude Code skills)
+
+
 STATUS_ICONS = {
     "pending": ICON_PENDING,
     "running": ICON_RUNNING,

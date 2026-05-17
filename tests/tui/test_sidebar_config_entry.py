@@ -8,11 +8,18 @@ def test_menu_icons_includes_config():
 
 
 def test_compose_emits_config_item_in_correct_order():
-    """config sits between archive and strategy (per design §5.1; v0.12.0+ adds strategy before changelog)."""
+    """config sits between archive and strategy (per design §5.1).
+
+    v0.12.0 added strategy before changelog; v0.12.x appended companions
+    after changelog as the polily-plugin promo surface (see
+    `test_companions_view.test_sidebar_compose_emits_companions_as_last_menu_item`
+    for the dedicated assertion on that entry).
+    """
     sidebar = Sidebar()
     items = [item for item in sidebar.compose() if isinstance(item, SidebarItem)]
     menu_ids = [item.menu_id for item in items]
     assert menu_ids == [
         "tasks", "monitor", "paper", "wallet",
         "history", "archive", "config", "strategy", "changelog",
+        "companions",
     ]

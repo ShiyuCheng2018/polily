@@ -379,6 +379,7 @@
   "sidebar.config": "配置",
   "sidebar.strategy": "策略",
   "sidebar.changelog": "更新日志",
+  "sidebar.companions": "扩展",
 
   "strategy.page_title": "策略",
   "strategy.radio_official_label": "官方策略 (polily 默认)",
@@ -495,6 +496,9 @@
 
   "app.notify.daemon_restarted": "后台监控已重启 (已加载最新代码)",
   "app.notify.help_placeholder": "帮助面板 v0.8.0 后续版本提供",
+
+  "companions.title.zone": "扩展",
+  "companions.body_md": "Polily 配套的 Claude Code 插件和（未来的）扩展工具。可选——按需安装。\n\n## ⚡ polily-plugin\n\n一个 Claude Code 插件包，让你在 Claude Code 里直接和 polily 聊天。不用每次重新解释你的安装情况——Claude 已经知道 polily 是什么。\n\n**示例提问：**\n\n> *\"polily 为什么把这个 event 标 Tier C？\"*\n>\n> *\"我最大的 open position 现在怎样？跟当初的 thesis 对得上吗？\"*\n>\n> *\"这周按 event 拆分的实现 PnL\"*\n>\n> *\"走一遍 active_strategy 机制，我想写自定义策略\"*\n\nClaude 会查阅 plugin 的参考知识、对你本地的 `polily.db` 跑 SQL、运行时获取 polily 的分析方法论，给出基于你实际状态的回答。\n\n**在任意 Claude Code 会话中安装**（分两次跑这些命令）：\n\n```\n/plugin marketplace add ShiyuCheng2018/polily-plugin\n/plugin install polily@polily-plugin\n/reload-plugins\n```\n\n**GitHub：** [github.com/ShiyuCheng2018/polily-plugin](https://github.com/ShiyuCheng2018/polily-plugin)\n\n---\n\n更多扩展工具即将到来。",
 
   "language.directive_for_llm": "**回答语言要求**：必须使用简体中文回答。所有 markdown 文本（分析、操作建议、论点、风险标记、总结、下一步说明、研究发现的描述等）一律用简体中文。市场标识、API 字段名、价格符号（YES/NO/¢/$/%）等行业术语保留英文。"
 }
