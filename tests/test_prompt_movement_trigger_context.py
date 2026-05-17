@@ -256,3 +256,43 @@ def test_non_movement_ephemeral_structure_unchanged(tmp_path):
     assert "official_strategy_path:" in prompt
     # No movement section in the per-call inputs block
     assert "triggering_movements:" not in _ephemeral_section(prompt)
+
+
+# ---------------------------------------------------------------------------
+# Edge case: NULL prev_yes_price (defensive — schema allows it)
+# ---------------------------------------------------------------------------
+
+
+def test_movement_with_null_prev_yes_price_renders_question_mark(tmp_path):
+    """`movement_log.prev_yes_price` is REAL (nullable). The first
+    movement entry on a freshly-monitored market may have no prior
+    price to diff against. The `_format_movement_line` helper falls
+    back to `?` so a partial snapshot still renders cleanly without
+    a `:.2f` format crash on None.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+    # append_movement allows prev_yes_price=None by signature default
+    from polily.monitor.store import append_movement
+    append_movement(
+        event_id="evt_null_prev",
+        market_id="evt_null_prev-A",
+        yes_price=0.42,
+        prev_yes_price=None,  # first observation — no prior to diff
+        magnitude=75,
+        quality=60,
+        label="whale_move",
+        db=db,
+    )
+
+    prompt = _build_prompt(db, "evt_null_prev", trigger_source="movement")
+
+    # Block emitted (positive case)
+    assert "triggering_movements:" in prompt
+    # The market row appears
+    assert "evt_null_prev-A" in prompt
+    # Falls back to `?` for prev_yes_price, real value for yes_price
+    # Format: "yes: ?->0.42"
+    assert "yes: ?->0.42" in prompt, (
+        f"NULL prev_yes_price should render as `?` not crash; "
+        f"prompt sample: {prompt[prompt.find('triggering_movements:'):][:300]!r}"
+    )
