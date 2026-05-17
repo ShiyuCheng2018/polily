@@ -10,6 +10,8 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.12.1] — 2026-05-17
+
 ### Added
 
 - **TUI Companions page (key `9` / `9 Companions`).** A new persistent sidebar entry that promotes polily's optional Claude Code skill pack, [polily-plugin](https://github.com/ShiyuCheng2018/polily-plugin), and (in future) other companion tools scoped to the polily lifecycle. The page renders a Markdown card with the plugin pitch, four example chat queries, install commands, and a GitHub link. Same i18n + live language-switch pattern as Strategy / Changelog views. Companion content is i18n-driven (`companions.body_md`) so additions don't require touching CSS or layout — drop new cards into the Markdown body. The existing 8-item sidebar grew to 9: `companions` sits after `changelog`.
@@ -822,7 +824,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.12.0...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.12.1...dev
+[0.12.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.1
 [0.12.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.0
 [0.11.7]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.7
 [0.11.6]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.11.6
