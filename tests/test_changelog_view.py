@@ -184,11 +184,21 @@ async def test_main_screen_digit_6_opens_changelog(tmp_path):
 
 
 def test_main_screen_menu_order_includes_changelog():
-    """MENU_ORDER has `changelog` last so up/down nav cycles through it."""
+    """MENU_ORDER has `changelog` near the end so up/down nav cycles through it.
+
+    v0.12.0 added `strategy` before `changelog`; v0.12.x appended
+    `companions` after — so `changelog` is now second-to-last, not last.
+    The nav cycle still includes it; this assertion guards against
+    accidental removal from MENU_ORDER.
+    """
     from polily.tui.screens.main import MainScreen
     assert "changelog" in MainScreen.MENU_ORDER
-    assert MainScreen.MENU_ORDER[-1] == "changelog", (
-        f"changelog should be last menu item, got order {MainScreen.MENU_ORDER}"
+    # changelog must remain in the second half so it's reachable in <=4
+    # up/down presses from the default 'tasks' position.
+    pos = MainScreen.MENU_ORDER.index("changelog")
+    assert pos >= len(MainScreen.MENU_ORDER) - 2, (
+        f"changelog should be at the end of MENU_ORDER (last or "
+        f"second-to-last), got position {pos} in {MainScreen.MENU_ORDER}"
     )
 
 

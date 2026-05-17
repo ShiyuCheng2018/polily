@@ -164,7 +164,12 @@ async def test_sidebar_items_have_nerd_font_icons(svc):
 
 @pytest.mark.asyncio
 async def test_sidebar_menu_order_preserved(svc):
-    """All menu entries present in expected order (v0.12.0+: strategy inserted before changelog)."""
+    """All menu entries present in expected order.
+
+    v0.12.0 inserted `strategy` before `changelog`.
+    v0.12.x appended `companions` after `changelog` (polily-plugin promo
+    surface — see tests/tui/test_companions_view.py).
+    """
     from polily.tui.app import PolilyApp
     from polily.tui.widgets.sidebar import Sidebar, SidebarItem
 
@@ -176,7 +181,7 @@ async def test_sidebar_menu_order_preserved(svc):
         menu_ids = [item.menu_id for item in sidebar.query(SidebarItem)]
         assert menu_ids == [
             "tasks", "monitor", "paper", "wallet", "history",
-            "archive", "config", "strategy", "changelog",
+            "archive", "config", "strategy", "changelog", "companions",
         ], f"sidebar menu order changed: {menu_ids}"
 
 

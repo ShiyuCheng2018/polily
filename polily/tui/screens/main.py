@@ -81,6 +81,7 @@ class MainScreen(Screen):
         Binding("6", "show_config", show=False),
         Binding("7", "show_strategy", show=False),
         Binding("8", "show_changelog", show=False),
+        Binding("9", "show_companions", show=False),
         Binding("up", "menu_prev", show=False),
         Binding("down", "menu_next", show=False),
     ]
@@ -98,7 +99,7 @@ class MainScreen(Screen):
     """
 
     MENU_ORDER = ["tasks", "monitor", "paper", "wallet", "history",
-                  "archive", "config", "strategy", "changelog"]
+                  "archive", "config", "strategy", "changelog", "companions"]
 
     def __init__(self, service: PolilyService):
         super().__init__()
@@ -609,6 +610,9 @@ class MainScreen(Screen):
         elif menu_id == "changelog":
             from polily.tui.views.changelog import ChangelogView
             self._switch_view(ChangelogView(), "changelog")
+        elif menu_id == "companions":
+            from polily.tui.views.companions import CompanionsView
+            self._switch_view(CompanionsView(), "companions")
         self._current_menu = menu_id
 
     def action_show_tasks(self) -> None:
@@ -637,6 +641,9 @@ class MainScreen(Screen):
 
     def action_show_changelog(self) -> None:
         self._navigate_to("changelog")
+
+    def action_show_companions(self) -> None:
+        self._navigate_to("companions")
 
     def action_menu_prev(self) -> None:
         idx = self.MENU_ORDER.index(self._current_menu) if self._current_menu in self.MENU_ORDER else 0

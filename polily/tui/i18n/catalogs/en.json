@@ -379,6 +379,7 @@
   "sidebar.config": "Config",
   "sidebar.strategy": "Strategy",
   "sidebar.changelog": "Changelog",
+  "sidebar.companions": "Companions",
 
   "strategy.page_title": "Strategy",
   "strategy.radio_official_label": "Official strategy (polily default)",
@@ -495,6 +496,9 @@
 
   "app.notify.daemon_restarted": "Background monitor restarted (latest code loaded)",
   "app.notify.help_placeholder": "Help panel coming in a later version",
+
+  "companions.title.zone": "Companions",
+  "companions.body_md": "Polily integrates with Claude Code skills and (future) companion tools. These are optional — install only what fits your workflow.\n\n## ⚡ polily-plugin\n\nA Claude Code skill pack that lets you chat with your polily install. No re-explaining your setup every conversation — Claude already knows polily.\n\n**Example queries:**\n\n> *\"Why did polily flag this event as Tier C?\"*\n>\n> *\"Show me my biggest open position and how it's tracking against the entry thesis.\"*\n>\n> *\"What's my realized PnL this week, by event?\"*\n>\n> *\"Walk me through the active_strategy mechanism so I can write a custom one.\"*\n\nClaude consults the plugin's reference knowledge, runs SQL against your local `polily.db`, fetches polily's analytical methodology at runtime, and answers grounded in your actual state.\n\n**Install in any Claude Code session** (run these as two separate commands):\n\n```\n/plugin marketplace add ShiyuCheng2018/polily-plugin\n/plugin install polily@polily-plugin\n/reload-plugins\n```\n\n**GitHub:** [github.com/ShiyuCheng2018/polily-plugin](https://github.com/ShiyuCheng2018/polily-plugin)\n\n---\n\nMore companion tools coming soon.",
 
   "language.directive_for_llm": "**Response language requirement**: Respond in English. All markdown text (analysis, action recommendations, thesis, risk flags, summary, next-step notes, research finding descriptions, etc.) must be in English. Industry terms like market identifiers, API field names, and price symbols (YES/NO/¢/$/%) stay as-is."
 }
