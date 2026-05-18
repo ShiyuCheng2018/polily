@@ -299,7 +299,6 @@ Cost is non-trivial — `WebSearch` and `Bash curl` add seconds per call. Use th
 
 ### Bucket 4 — Static (set once, doesn't change)
 
-- `events.event_metadata` (JSON; may include `context_description`)
 - `events.tags`, `events.market_type`, `events.resolution_source`
 - `events.start_date`, `events.end_date`
 - DB schema itself (column names, CHECK constraints) — see §3
@@ -307,6 +306,20 @@ Cost is non-trivial — `WebSearch` and `Bash curl` add seconds per call. Use th
 - Pre-existing rows in `analyses` (immutable history; new rows append per analysis)
 
 When you observe a value changing across two reads in the same analysis, it is bucket 1 or 2 — not bucket 4, not a bug. Mention the timestamps in your narrative if it materially affected your reasoning.
+
+### Bucket 5 — Externally-curated, freshness-tracked
+
+- **`events.event_metadata`** (JSON; carries `context_description`, `context_updated_at`, `context_requires_regen`)
+
+Polymarket curates this on their side. Polily refetches it when Polymarket sets `context_requires_regen=true` (handled by `polily/daemon/event_metadata_regen.py`). The flag is empirically **unreliable** — Polymarket sometimes leaves stale descriptions with the flag false, especially for fast-moving political / economic events. Always check `context_updated_at` against the current time before treating `context_description` as authoritative.
+
+To save you from parsing `context_updated_at` and computing age yourself, the per-call ephemeral block (see §7) now carries a polily-computed `event_metadata_freshness:` subsection with:
+
+- `staleness: "fresh"` (≤24h) → use the description as your baseline; WebSearch only for specific catalysts it doesn't cover
+- `staleness: "stale"` (24-72h) → supplement with WebSearch before drawing conclusions; treat the description as background only
+- `staleness: "very_stale"` (>72h) → **MUST** WebSearch; do NOT use the description as authoritative baseline
+
+The injected `polymarket_flag_set` field tells you whether Polymarket itself signals staleness — when `false` but `staleness != "fresh"`, you've hit the unreliable-flag case and the polily-computed age is the source of truth.
 
 ## 5. File Paths
 
@@ -389,6 +402,9 @@ For each analysis, polily injects a YAML block at the **very top** of your promp
     has_position: <true | false>
     official_strategy_path: "<absolute path to packaged default.md>"
     position_summary: "<conditional — only when has_position=true>"
+    triggering_movements:    # conditional — only when trigger == "movement"
+      - market_id: '...' label: whale_move yes: 0.30->0.40 M: 78 Q: 65
+      - market_id: '...' label: whale_move yes: 0.20->0.05 M: 71 Q: 58
 
 ### Field semantics
 
@@ -399,6 +415,7 @@ For each analysis, polily injects a YAML block at the **very top** of your promp
 - **`has_position`** — whether the user holds at least one position on a market under this event. Polily computes this fresh from the `positions` table at dispatch time; you can re-query for details (size, avg_cost, P&L) via SQL if needed.
 - **`official_strategy_path`** — absolute filesystem path to polily's packaged `default.md`. Use the `Read` tool to load it for the §8 fallback flow. Don't hard-code package paths — pipx vs pip vs editable install puts the file in different places, and this field is the install-correct value.
 - **`position_summary`** — appended **only when `has_position=true`** and the dispatcher had a summary string ready. Holds short-form position metadata (e.g. `"YES @ 0.42, qty 100, cost basis 0.38"`) so you don't need a `positions` SQL query for the common-case narration. Absent for `has_position=false`.
+- **`triggering_movements`** — appended **only when `trigger == "movement"`** and `movement_log` has at least one sub-market row for the event in the last 60s. One bullet per moving sub-market, ordered by magnitude DESC (spike row first). Tells you the cross-market story that polily's daemon saw when it decided to dispatch this analysis — same direction or split, magnitude distribution, label mix. **When this section is present, you don't need to query `movement_log` yourself for trigger context — it's already here.** A movement-triggered dispatch with this section missing means transient state or filtered movement (still query `movement_log` if you need detail, but treat it as a noisy or stale trigger).
 
 ### Source-of-truth precedence
 
