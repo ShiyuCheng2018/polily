@@ -45,6 +45,34 @@ structured release notes — see `git log` for history.
   specifics still write a `user_strategy` and switch
   `active_strategy=user` — same model as before.
 
+### Changed
+
+- **TUI Strategy page (`7`) split user mode into view ↔ edit states.**
+  Before: switching the radio to "My strategy" dropped the user straight
+  into an editable TextArea, regardless of whether they wanted to edit;
+  the saved content was shown as raw markdown source rather than
+  rendered output, and Save/Discard buttons were always visible. New
+  behavior follows typical document-editor UX: user mode with saved
+  content lands in a **read-only Markdown render** with an `✏️ Edit`
+  button; clicking Edit reveals the TextArea + `💾 Save` / `✕ Cancel`.
+  User mode with an empty strategy goes straight to edit (nothing to
+  view) and shows the two starter buttons (`Start from scratch` /
+  `Copy official as starting point`) as before. Official mode stays
+  purely read-only — no edit affordances. Confirm-discard modal (the
+  existing-but-unwired `strategy.unsaved_warning` i18n key) is now
+  triggered when leaving an edit session with unsaved changes: either
+  via Cancel or via toggling the radio back to Official. 9 pre-existing
+  strategy-view tests all pass unchanged; 10 new tests cover the
+  state-machine transitions, dirty detection, the empty-strategy edge
+  case (save-with-empty stays in edit), the new Edit button's i18n
+  hot-reload, and the Markdown-renders-saved-text behavior that
+  motivated the change. Single file: `polily/tui/views/strategy.py`
+  with 3 new i18n keys (`strategy.edit_button`,
+  `strategy.unsaved_confirm_keep`, `strategy.unsaved_confirm_discard`)
+  and updated labels on `save_button`/`discard_button` (added emoji
+  prefixes + renamed "Discard changes" → "Cancel" to match the
+  cancel-edit semantic).
+
 ## [0.12.2] — 2026-05-18
 
 ### Added
