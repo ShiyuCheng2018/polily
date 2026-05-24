@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 from textual.app import App
-from textual.containers import VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Button, Markdown, RadioButton, RadioSet, TextArea
 
 from polily.core.db import PolilyDB
@@ -293,3 +293,300 @@ async def test_radio_toggle_persists_active_strategy(tmp_path):
         view.action_select_official()
         await pilot.pause()
         assert get_active_strategy_name(db) == "official"
+
+
+# ---------------------------------------------------------------------------
+# v0.12.3 — 3-mode state machine (official / user_view / user_edit)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_user_with_existing_text_starts_in_view_mode(tmp_path):
+    """When user_strategy is non-empty, entering user mode lands in user_view
+    (Markdown rendered, [Edit] button visible, TextArea hidden). This is the
+    bug fix for v0.12.0's behavior of always going straight to edit mode.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+    save_user_strategy(db, "# My strategy\n\nDo things differently.")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        view.action_select_user()
+        await pilot.pause()
+        assert view._mode == "user_view"
+        # Markdown widget visible with the user's content (content asserted
+        # in test_user_view_markdown_content_matches_saved_strategy; here
+        # we only check the visibility wiring)
+        ro_scroll = view.query_one("#strategy-readonly-scroll", VerticalScroll)
+        assert ro_scroll.display is True
+        # TextArea hidden
+        ta = view.query_one("#strategy-textarea", TextArea)
+        assert ta.display is False
+        # Edit button visible; Save/Cancel hidden
+        assert view.query_one("#btn-edit", Button).display is True
+        assert view.query_one("#btn-save", Button).display is False
+        assert view.query_one("#btn-discard", Button).display is False
+
+
+@pytest.mark.asyncio
+async def test_empty_user_strategy_starts_in_edit_mode(tmp_path):
+    """When user_strategy is empty, entering user mode lands in user_edit
+    (no Markdown to view). Edit-empty shows the starter row.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        view.action_select_user()
+        await pilot.pause()
+        assert view._mode == "user_edit"
+        assert view.query_one("#strategy-textarea", TextArea).display is True
+        assert view.query_one("#starter-row", Horizontal).display is True
+        # Save/Cancel visible; Edit hidden in edit mode
+        assert view.query_one("#btn-edit", Button).display is False
+        assert view.query_one("#btn-save", Button).display is True
+        assert view.query_one("#btn-discard", Button).display is True
+
+
+@pytest.mark.asyncio
+async def test_edit_action_transitions_view_to_edit(tmp_path):
+    """From user_view, action_enter_edit() switches to user_edit and
+    populates the TextArea with the saved content.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+    save_user_strategy(db, "# existing content")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        view.action_select_user()
+        await pilot.pause()
+        assert view._mode == "user_view"
+
+        view.action_enter_edit()
+        await pilot.pause()
+        assert view._mode == "user_edit"
+        ta = view.query_one("#strategy-textarea", TextArea)
+        assert ta.display is True
+        # TextArea pre-filled with current content (the whole point of
+        # the Edit → TextArea transition)
+        assert ta.text == "# existing content"
+
+
+@pytest.mark.asyncio
+async def test_save_returns_to_view_mode(tmp_path):
+    """After save with non-empty content, the view lands back in user_view
+    (Markdown rendering the just-saved content), not stuck in edit.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        view.action_select_user()  # lands in user_edit (empty DB)
+        await pilot.pause()
+        ta = view.query_one("#strategy-textarea", TextArea)
+        ta.text = "# Saved content"
+        view.action_save()
+        await pilot.pause()
+        # Persisted
+        assert get_user_strategy_text(db) == "# Saved content"
+        # Transitioned to view mode
+        assert view._mode == "user_view"
+        ro_scroll = view.query_one("#strategy-readonly-scroll", VerticalScroll)
+        assert ro_scroll.display is True
+        assert view.query_one("#btn-edit", Button).display is True
+
+
+@pytest.mark.asyncio
+async def test_save_empty_stays_in_edit(tmp_path):
+    """Edge case: saving an empty TextArea (user cleared everything) leaves
+    the view in user_edit (because there's nothing to view) — consistent
+    with the "open empty DB → user_edit" rule.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+    save_user_strategy(db, "# something")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        view.action_select_user()
+        await pilot.pause()
+        view.action_enter_edit()
+        await pilot.pause()
+        ta = view.query_one("#strategy-textarea", TextArea)
+        ta.text = ""  # user cleared everything
+        view.action_save()
+        await pilot.pause()
+        assert view._mode == "user_edit"
+        assert get_user_strategy_text(db) == ""
+
+
+@pytest.mark.asyncio
+async def test_dirty_detection_returns_true_when_textarea_differs(tmp_path):
+    """_is_dirty() returns True iff TextArea content differs from saved
+    user_strategy. Used by Cancel + radio-toggle to decide whether to ask
+    for confirmation.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+    save_user_strategy(db, "# original")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        view.action_select_user()
+        await pilot.pause()
+        view.action_enter_edit()
+        await pilot.pause()
+
+        # Just entered edit — text matches saved → not dirty
+        assert view._is_dirty() is False
+
+        ta = view.query_one("#strategy-textarea", TextArea)
+        ta.text = "# original\n\nadded a line"
+        assert view._is_dirty() is True
+
+        # Revert to original
+        ta.text = "# original"
+        assert view._is_dirty() is False
+
+
+@pytest.mark.asyncio
+async def test_dirty_check_skipped_outside_edit_mode(tmp_path):
+    """_is_dirty() is meaningful only in user_edit. Other modes (official,
+    user_view) always return False — no edit buffer to compare against.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+    save_user_strategy(db, "# saved")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        # Initially official → not dirty
+        assert view._is_dirty() is False
+        # user_view → not dirty
+        view.action_select_user()
+        await pilot.pause()
+        assert view._mode == "user_view"
+        assert view._is_dirty() is False
+
+
+@pytest.mark.asyncio
+async def test_official_mode_hides_all_edit_buttons(tmp_path):
+    """Official mode is purely read-only — no edit/save/cancel affordances.
+    Prevents the v0.12.0 layout-bug of dangling buttons under read-only
+    content.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        # Default state is official
+        assert view._mode == "official"
+        assert view.query_one("#btn-edit", Button).display is False
+        assert view.query_one("#btn-save", Button).display is False
+        assert view.query_one("#btn-discard", Button).display is False
+        assert view.query_one("#starter-row", Horizontal).display is False
+        # And the Markdown is rendering with content
+        ro_scroll = view.query_one("#strategy-readonly-scroll", VerticalScroll)
+        assert ro_scroll.display is True
+
+
+@pytest.mark.asyncio
+async def test_user_view_markdown_content_matches_saved_strategy(tmp_path):
+    """The user_view Markdown widget is populated with the actual saved
+    user_strategy text (not the official strategy or an empty placeholder).
+    This is the direct fix for the v0.12.0 bug of TextArea showing raw
+    markdown source instead of rendered output.
+    """
+    db = PolilyDB(tmp_path / "polily.db")
+    user_md = "# Custom strategy\n\n## My priorities\n\n- focus on X\n- avoid Y"
+    save_user_strategy(db, user_md)
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        view.action_select_user()
+        await pilot.pause()
+        # In user_view; the Markdown widget should be populated with the
+        # user's actual saved content (not load_official_strategy()).
+        # Textual's Markdown widget exposes the source via `.source`.
+        md = view.query_one("#strategy-readonly", Markdown)
+        assert md.source == user_md, (
+            f"Expected Markdown.source to render the saved user strategy, "
+            f"got {md.source!r}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_edit_button_label_reacts_to_language_switch(tmp_path):
+    """Same pattern as starter/save/discard: the new btn-edit must subscribe
+    to TOPIC_LANGUAGE_CHANGED so its label flips on F2 language toggle.
+    """
+    from polily.core.events import TOPIC_LANGUAGE_CHANGED, get_event_bus
+    from polily.tui.i18n import set_language, t
+
+    db = PolilyDB(tmp_path / "polily.db")
+    save_user_strategy(db, "# something")
+    set_language("en")
+
+    class T(App):
+        def compose(self):
+            yield StrategyView(db)
+
+    async with T().run_test() as pilot:
+        view = pilot.app.query_one(StrategyView)
+        view.action_select_user()
+        await pilot.pause()
+        edit_btn = view.query_one("#btn-edit", Button)
+        en_label = (
+            edit_btn.label.plain if hasattr(edit_btn.label, "plain")
+            else str(edit_btn.label)
+        )
+        assert en_label == t("strategy.edit_button")
+
+        set_language("zh")
+        get_event_bus().publish(TOPIC_LANGUAGE_CHANGED, {"language": "zh"})
+        await pilot.pause()
+
+        zh_label = (
+            edit_btn.label.plain if hasattr(edit_btn.label, "plain")
+            else str(edit_btn.label)
+        )
+        assert zh_label == t("strategy.edit_button")
+        assert en_label != zh_label, (
+            "edit_button label should differ between en and zh "
+            "(otherwise catalog entry missing)"
+        )
+
+    set_language("en")

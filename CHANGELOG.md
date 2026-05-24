@@ -10,6 +10,71 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.12.3] — 2026-05-24
+
+### Added
+
+- **NarrativeWriterAgent now auto-detects user-configured MCP servers
+  from `~/.claude.json` and adds `mcp__<server>__*` to its
+  `--allowedTools` allowlist.** Users who configure MCP servers via
+  `claude mcp add --scope user` (e.g., `blockbeats`, `tree-news`) can
+  have the agent call them during analysis without any polily config
+  change. Previously every `mcp__*` call was denied at the CLI
+  permission layer (verified by POC 2026-05-24: agent's `dev_feedback`
+  recorded *"mcp__blockbeats__* 工具调用全部被 permission 拒绝"*),
+  so the agent silently fell back to WebSearch only, lagging the
+  configured MCP source by 30 min – 2h. Override the discovered config
+  path with the `POLILY_CLAUDE_CONFIG` env var if Claude CLI ever moves
+  its config file in a future version. Fail-open: if `~/.claude.json`
+  is missing / malformed / unreadable, the base allowlist (`Read`,
+  `Bash`, `Grep`, `WebSearch`, `TodoWrite`) still works — the agent
+  just can't call MCP tools. New helper `polily/util/claude_config.py`
+  with 7 tests; new `_build_agent_tools()` in `narrative_writer.py`
+  with 5 tests. Caveat: composed at import time — a newly-added MCP
+  server isn't visible to a running daemon until restart (same UX as
+  other config-change-requires-restart flows).
+
+- **`polily/strategies/default.md` gains an "Available tools and source
+  priority" subsection in §1.** Tells the agent how to discover MCP
+  tools via name + description introspection and pick the right one
+  per query (no rigid hierarchy: topic-matched MCP is often faster /
+  more authoritative; `WebSearch` covers the long tail and
+  cross-verification). Generic by design — polily does NOT assume MCP
+  scope is "news" (it could be a data feed, scraper, DB connector,
+  custom feed) and does NOT name any specific MCP server as
+  recommended for any topic. Users with no MCP configured see the
+  same WebSearch-first behavior as before. Users who want per-server
+  specifics still write a `user_strategy` and switch
+  `active_strategy=user` — same model as before.
+
+### Changed
+
+- **TUI Strategy page (`7`) split user mode into view ↔ edit states.**
+  Before: switching the radio to "My strategy" dropped the user straight
+  into an editable TextArea, regardless of whether they wanted to edit;
+  the saved content was shown as raw markdown source rather than
+  rendered output, and Save/Discard buttons were always visible. New
+  behavior follows typical document-editor UX: user mode with saved
+  content lands in a **read-only Markdown render** with an `✏️ Edit`
+  button; clicking Edit reveals the TextArea + `💾 Save` / `✕ Cancel`.
+  User mode with an empty strategy goes straight to edit (nothing to
+  view) and shows the two starter buttons (`Start from scratch` /
+  `Copy official as starting point`) as before. Official mode stays
+  purely read-only — no edit affordances. Confirm-discard modal (the
+  existing-but-unwired `strategy.unsaved_warning` i18n key) is now
+  triggered when leaving an edit session with unsaved changes: either
+  via Cancel or via toggling the radio back to Official. 9 pre-existing
+  strategy-view tests all pass unchanged; 10 new tests cover the
+  state-machine transitions, dirty detection, the empty-strategy edge
+  case (save-with-empty stays in edit), the new Edit button's i18n
+  hot-reload, and the Markdown-renders-saved-text behavior that
+  motivated the change. Single file: `polily/tui/views/strategy.py`
+  with 3 new i18n keys (`strategy.edit_button`,
+  `strategy.unsaved_confirm_keep`, `strategy.unsaved_confirm_discard`)
+  and updated labels on `save_button`/`discard_button` (added emoji
+  prefixes + renamed "Discard changes" → "Cancel" to match the
+  cancel-edit semantic).
+
 ## [0.12.2] — 2026-05-18
 
 ### Added
@@ -832,7 +897,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.12.2...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.12.3...dev
+[0.12.3]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.3
 [0.12.2]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.2
 [0.12.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.1
 [0.12.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.0

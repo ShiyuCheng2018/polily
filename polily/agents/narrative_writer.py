@@ -33,6 +33,7 @@ from polily.agents.schemas import AgentMarkdownOutput
 from polily.core.config import AgentConfig
 from polily.core.db import PolilyDB
 from polily.core.strategy_store import get_active_strategy_text
+from polily.util.claude_config import list_user_mcp_servers
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +190,44 @@ def _fetch_event_metadata_freshness(
 # with YAML frontmatter (see polily/agents/protocol.md). Read is required
 # for the fallback path (manual.md §7 instructs the agent to load
 # default.md when the active user strategy is unusable).
-AGENT_TOOLS = ["Read", "Bash", "Grep", "WebSearch", "TodoWrite"]
+#
+# v0.12.3: AGENT_TOOLS is now composed at import time from a static base
+# plus a `mcp__<server>__*` entry per MCP server configured in the user's
+# Claude CLI config (~/.claude.json). This lets users who configured MCP
+# via `claude mcp add` (e.g., blockbeats, tree-news) have the agent invoke
+# those tools without any polily code change. POC (2026-05-24) verified
+# that Claude CLI does NOT honor a top-level `mcp__*` glob; only per-
+# server wildcards work, so we enumerate them explicitly.
+#
+# Fail-open: any failure to read ~/.claude.json yields an empty MCP list,
+# leaving the agent with the base tools. See polily/util/claude_config.py.
+_BASE_AGENT_TOOLS = ["Read", "Bash", "Grep", "WebSearch", "TodoWrite"]
+
+
+def _build_agent_tools() -> list[str]:
+    """Compose `--allowedTools` for the narrative_writer claude subprocess.
+
+    Base tools (Read/Bash/Grep/WebSearch/TodoWrite) plus one
+    `mcp__<server>__*` entry for every MCP server discovered in the
+    user's Claude CLI config. Order: base first, then MCP entries in
+    config-file dict iteration order.
+
+    Per the POC documented in
+    `docs/internal/plans/2026-05-24-agent-tools-mcp-allowlist.md`, the
+    Claude CLI's `--allowedTools` honors per-server wildcards
+    (`mcp__blockbeats__*`) but NOT a top-level `mcp__*` glob. Hence we
+    enumerate each configured server.
+
+    Caveat: evaluated at import time. If the user installs a new MCP
+    server while the polily daemon is running, the daemon won't see it
+    until restart — same UX as other config-change-requires-restart
+    flows.
+    """
+    servers = list_user_mcp_servers()
+    return _BASE_AGENT_TOOLS + [f"mcp__{name}__*" for name in servers]
+
+
+AGENT_TOOLS = _build_agent_tools()
 
 
 class NarrativeWriterAgent:
