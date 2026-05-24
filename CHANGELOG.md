@@ -10,6 +10,8 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.12.3] — 2026-05-24
+
 ### Added
 
 - **NarrativeWriterAgent now auto-detects user-configured MCP servers
@@ -895,7 +897,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.12.2...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.12.3...dev
+[0.12.3]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.3
 [0.12.2]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.2
 [0.12.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.1
 [0.12.0]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.0
