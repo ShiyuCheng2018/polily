@@ -10,6 +10,42 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Added
+
+- **NarrativeWriterAgent now auto-detects user-configured MCP servers
+  from `~/.claude.json` and adds `mcp__<server>__*` to its
+  `--allowedTools` allowlist.** Users who configure MCP servers via
+  `claude mcp add --scope user` (e.g., `blockbeats`, `tree-news`) can
+  have the agent call them during analysis without any polily config
+  change. Previously every `mcp__*` call was denied at the CLI
+  permission layer (verified by POC 2026-05-24: agent's `dev_feedback`
+  recorded *"mcp__blockbeats__* 工具调用全部被 permission 拒绝"*),
+  so the agent silently fell back to WebSearch only, lagging the
+  configured MCP source by 30 min – 2h. Override the discovered config
+  path with the `POLILY_CLAUDE_CONFIG` env var if Claude CLI ever moves
+  its config file in a future version. Fail-open: if `~/.claude.json`
+  is missing / malformed / unreadable, the base allowlist (`Read`,
+  `Bash`, `Grep`, `WebSearch`, `TodoWrite`) still works — the agent
+  just can't call MCP tools. New helper `polily/util/claude_config.py`
+  with 7 tests; new `_build_agent_tools()` in `narrative_writer.py`
+  with 5 tests. Caveat: composed at import time — a newly-added MCP
+  server isn't visible to a running daemon until restart (same UX as
+  other config-change-requires-restart flows).
+
+- **`polily/strategies/default.md` gains an "Available tools and source
+  priority" subsection in §1.** Tells the agent how to discover MCP
+  tools via name introspection and when to prefer them over
+  `WebSearch` (real-time newswires lead Google indexing by 30 min – 2h
+  for typical catalyst lookups). The subsection is intentionally
+  generic — polily does NOT name any specific MCP server as the
+  recommended source for any topic, because polily must remain
+  MCP-agnostic in its official strategy. Users with no MCP servers
+  configured see the same WebSearch-first behavior as before (the
+  heuristic is gated on "if `mcp__*` tools exist"). Users who want
+  per-server specifics (explicit tool names, custom routing,
+  multi-language strategy) still write a `user_strategy` and switch
+  `active_strategy=user` — same model as before.
+
 ## [0.12.2] — 2026-05-18
 
 ### Added
