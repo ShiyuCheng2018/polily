@@ -34,16 +34,15 @@ structured release notes — see `git log` for history.
 
 - **`polily/strategies/default.md` gains an "Available tools and source
   priority" subsection in §1.** Tells the agent how to discover MCP
-  tools via name introspection and when to prefer them over
-  `WebSearch` (real-time newswires lead Google indexing by 30 min – 2h
-  for typical catalyst lookups). The subsection is intentionally
-  generic — polily does NOT name any specific MCP server as the
-  recommended source for any topic, because polily must remain
-  MCP-agnostic in its official strategy. Users with no MCP servers
-  configured see the same WebSearch-first behavior as before (the
-  heuristic is gated on "if `mcp__*` tools exist"). Users who want
-  per-server specifics (explicit tool names, custom routing,
-  multi-language strategy) still write a `user_strategy` and switch
+  tools via name + description introspection and pick the right one
+  per query (no rigid hierarchy: topic-matched MCP is often faster /
+  more authoritative; `WebSearch` covers the long tail and
+  cross-verification). Generic by design — polily does NOT assume MCP
+  scope is "news" (it could be a data feed, scraper, DB connector,
+  custom feed) and does NOT name any specific MCP server as
+  recommended for any topic. Users with no MCP configured see the
+  same WebSearch-first behavior as before. Users who want per-server
+  specifics still write a `user_strategy` and switch
   `active_strategy=user` — same model as before.
 
 ## [0.12.2] — 2026-05-18

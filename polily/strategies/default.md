@@ -17,43 +17,32 @@ Read these by default, not on demand. The goal: enter Q1-Q5 with maximum context
 
 ### Available tools and source priority
 
-Polily does NOT bundle any specific MCP server. What MCP tools you
-have access to is entirely determined by the user's Claude CLI
-configuration (`~/.claude.json` mcpServers). Polily's allowlist
-auto-discovers them at agent startup and exposes them as
-`mcp__<server>__*`.
+Polily does NOT bundle any specific MCP server. The user's Claude CLI
+config (`~/.claude.json`) decides what MCPs exist; polily auto-discovers
+them at startup and exposes each as `mcp__<server>__*`.
 
-**Heuristic when MCP tools are present:**
+If MCPs are configured, treat them as **user-curated tools** — the
+user installed them on purpose, so they likely matter for this user's
+domain. **Don't assume the scope is "news"** — an MCP could be a data
+feed, scraper, DB connector, internal feed, anything. Read each tool's
+name + description (or the corresponding Skill at
+`~/.claude/skills/<server>-skill/` if present) to infer scope.
 
-- **If `mcp__*` tools exist for your topic**, prefer them over
-  `WebSearch` as the primary catalyst source. MCP servers are
-  typically real-time newswires or domain-specific data feeds that
-  lead Google indexing by 30 min – 2h.
-- **Use `WebSearch` as the verification layer**, not the fallback,
-  when MCP tools cover the topic. WebSearch is also the right tool
-  for: specific URL retrieval, official source quotes, sports stats,
-  individual social-media metrics.
-- **Skip MCP only when** the configured servers obviously don't
-  cover the topic (e.g., a crypto-focused MCP queried for tennis
-  scores).
+**No rigid hierarchy — pick per query:**
 
-**Polily does NOT prescribe which MCP server to use for which
-topic.** Read the available tool names (e.g., `mcp__blockbeats__*`,
-`mcp__tree_news__*`) and infer scope from the names + their tool
-descriptions. If the user has installed a corresponding Skill
-(e.g., `~/.claude/skills/blockbeats-skill/`), invoke it via the
-Skill tool for canonical usage patterns.
+- **No MCP, or topic outside any MCP's scope** → `WebSearch` is your
+  primary source. Existing §1 guidance about when to WebSearch applies
+  unchanged.
+- **Topic-matched MCP available** → it's often the faster / more
+  authoritative path; use it first, optionally cross-verify with
+  `WebSearch` when independent confirmation matters.
+- Combine when useful; skip either when it doesn't help.
 
-**Citation format** depends on the source path:
+**Citation format:**
 
 - WebSearch: `<claim> (<publisher>, <YYYY-MM-DD>)`
-- MCP server: `<claim> (mcp:<server>, <YYYY-MM-DD HH:MM>)` — or
-  attribute to the upstream the MCP server forwards from when known
-  (e.g., MCP returns FT-attributed news → cite "FT via mcp:<server>").
-
-To override this generic guidance with per-server specifics
-(explicit tool names, multi-language strategies, custom routing),
-write a `user_strategy` and switch `active_strategy=user`.
+- MCP: `<claim> (mcp:<server>, <YYYY-MM-DD HH:MM>)` — or attribute to
+  the upstream when known (e.g., "FT via mcp:<server>")
 
 For each event, ask yourself in order:
 
