@@ -236,7 +236,10 @@ async def _resolve_closed_market_if_position(
         )
     except (ValueError, TypeError):
         uma_statuses = []
-    winner = derive_winner(prices, uma_statuses=uma_statuses)
+    # Singular terminal field — carries the real resolution state when the
+    # history array tail lags at "disputed" (see derive_winner docstring).
+    uma_status = data.get("umaResolutionStatus")
+    winner = derive_winner(prices, uma_statuses=uma_statuses, uma_status=uma_status)
     if winner is None:
         return  # UMA pre-finalization, dispute in progress, or malformed response
     n_settled, credited = resolver.resolve_market(market_id, winner)

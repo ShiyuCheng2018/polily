@@ -396,6 +396,78 @@ async def test_helper_settles_when_uma_field_absent_entirely(db, services):
     assert positions.get_position("m1", "yes") is None
 
 
+@pytest.mark.asyncio
+async def test_helper_settles_when_history_tail_disputed_but_singular_resolved(
+    db, services
+):
+    """Gamma's `umaResolutionStatuses` history can end on 'disputed' for a
+    market that actually finalized — a multi-round dispute that resolved
+    without Gamma appending a terminal history entry. The real terminal
+    state lives in the SINGULAR `umaResolutionStatus`='resolved' field.
+
+    The poll helper must read that singular field and settle — otherwise
+    resolved_outcome stays NULL and positions never settle. This is the
+    exact shape that stranded the US-Iran peace-deal NO positions in dev
+    and prod (closed=1, history tail 'disputed', singular 'resolved',
+    outcomePrices ['1','0'])."""
+    wallet, positions, resolver = services
+    _seed(db)
+    positions.add_shares(
+        market_id="m1", side="no", event_id="e1", title="Q", shares=10, price=0.5
+    )
+
+    gamma_response = {
+        "outcomePrices": '["1", "0"]',
+        "umaResolutionStatuses": '["proposed", "disputed", "proposed", "disputed"]',
+        "umaResolutionStatus": "resolved",
+    }
+    with patch.object(
+        poll_job, "_fetch_gamma_market", new=AsyncMock(return_value=gamma_response)
+    ):
+        await poll_job._resolve_closed_market_if_position(
+            "m1", db, wallet, positions, resolver,
+        )
+
+    # YES won → NO position settles to $0 and is deleted.
+    assert positions.get_position("m1", "no") is None
+    assert (
+        db.conn.execute(
+            "SELECT resolved_outcome FROM markets WHERE market_id='m1'"
+        ).fetchone()["resolved_outcome"]
+        == "yes"
+    )
+
+
+@pytest.mark.asyncio
+async def test_helper_defers_when_disputed_tail_and_singular_not_resolved(
+    db, services
+):
+    """History tail 'disputed' AND singular field not yet 'resolved' → a
+    genuine in-flight dispute. Must still defer (don't settle on a guess)."""
+    wallet, positions, resolver = services
+    _seed(db)
+    positions.add_shares(
+        market_id="m1", side="no", event_id="e1", title="Q", shares=10, price=0.5
+    )
+    cash_before = wallet.get_cash()
+
+    gamma_response = {
+        "outcomePrices": '["1", "0"]',
+        "umaResolutionStatuses": '["proposed", "disputed"]',
+        "umaResolutionStatus": "disputed",
+    }
+    with patch.object(
+        poll_job, "_fetch_gamma_market", new=AsyncMock(return_value=gamma_response)
+    ):
+        await poll_job._resolve_closed_market_if_position(
+            "m1", db, wallet, positions, resolver,
+        )
+
+    assert positions.get_position("m1", "no") is not None
+    assert wallet.get_cash() == cash_before
+    assert wallet.list_transactions(tx_type="RESOLVE") == []
+
+
 # --- _fetch_gamma_market (wraps httpx) ----------------------------------
 
 

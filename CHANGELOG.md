@@ -10,6 +10,23 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.12.4] — 2026-06-22
+
+### Fixed
+
+- **Auto-resolution now settles markets whose UMA dispute history ends on
+  `"disputed"` but that have actually finalized.** Gamma leaves the
+  `umaResolutionStatuses` history array tail at `"disputed"` for multi-round
+  disputes that resolve without appending a terminal entry — the real
+  terminal state lives in the singular `umaResolutionStatus="resolved"` field
+  plus settled `outcomePrices`. The prior gate keyed only on the history-array
+  tail, so these markets stayed `resolved_outcome=NULL` forever: positions
+  never settled and the lifecycle UI was stuck at SETTLING (observed on the
+  "US x Iran permanent peace deal" markets). `derive_winner` now accepts
+  `outcomePrices` when the singular field is `"resolved"`, with the price
+  threshold (≥0.99) as a second guard so genuine in-flight disputes still
+  defer.
+
 ## [0.12.3] — 2026-05-24
 
 ### Added
@@ -897,7 +914,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.12.3...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.12.4...dev
+[0.12.4]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.4
 [0.12.3]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.3
 [0.12.2]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.2
 [0.12.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.1

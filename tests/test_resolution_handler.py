@@ -126,6 +126,58 @@ def test_derive_winner_backward_compatible_without_uma_argument():
     assert derive_winner(["0.5", "0.5"]) == "split"
 
 
+# --- derive_winner: singular umaResolutionStatus unblocks disputed tail -
+#
+# Blind spot (field data 2026-06): Gamma's `umaResolutionStatuses` history
+# array can end on "disputed" for a market that has actually finalized —
+# a multi-round dispute leaves the tail at "disputed" without Gamma
+# appending a terminal entry. The real terminal state lives in the
+# SINGULAR `umaResolutionStatus` field ("resolved") plus settled
+# `outcomePrices` (["1","0"]). The history-tail-only gate deferred these
+# forever, leaving resolved_outcome NULL and positions unsettled.
+#
+# Fix: accept outcomePrices when the singular field is "resolved", even if
+# the history tail is non-terminal. A genuine in-flight dispute keeps the
+# singular field non-"resolved", so it still defers. The price threshold
+# (>=0.99) remains a second gate against premature singular flips.
+
+
+@pytest.mark.parametrize(
+    "uma_statuses,uma_status,outcome_prices,expected",
+    [
+        # The blind spot: history tail "disputed" + singular "resolved".
+        (
+            ["proposed", "disputed", "proposed", "disputed"],
+            "resolved", ["1", "0"], "yes",
+        ),
+        (
+            ["proposed", "disputed", "proposed", "disputed"],
+            "resolved", ["0", "1"], "no",
+        ),
+        # Genuine in-flight dispute — singular field NOT resolved → defer.
+        (["proposed", "disputed"], "disputed", ["1", "0"], None),
+        (["disputed"], "disputed", ["1", "0"], None),
+        # Singular "resolved" does not bypass the price gate — a still
+        # mid-range price defers even with a terminal singular field.
+        (
+            ["proposed", "disputed", "proposed", "disputed"],
+            "resolved", ["0.7", "0.3"], None,
+        ),
+        # Already-terminal history tail is unaffected by the singular field.
+        (["proposed", "resolved"], "resolved", ["1", "0"], "yes"),
+    ],
+)
+def test_derive_winner_singular_status_unblocks_disputed_tail(
+    uma_statuses, uma_status, outcome_prices, expected
+):
+    assert (
+        derive_winner(
+            outcome_prices, uma_statuses=uma_statuses, uma_status=uma_status
+        )
+        == expected
+    )
+
+
 # --- resolve_market return value (operator-log support) ---------------
 
 
