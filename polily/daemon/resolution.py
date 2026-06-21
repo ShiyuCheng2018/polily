@@ -39,6 +39,7 @@ def derive_winner(
     outcome_prices: list[str],
     *,
     uma_statuses: list[str] | None = None,
+    uma_status: str | None = None,
 ) -> str | None:
     """Given Gamma `outcomePrices` list, return 'yes' / 'no' / 'split' / None.
 
@@ -83,7 +84,14 @@ def derive_winner(
         dispute
     """
     if uma_statuses and uma_statuses[-1] not in _UMA_TERMINAL_LAST:
-        return None
+        # History tail is non-terminal (e.g. ends on "disputed"), but the
+        # singular `umaResolutionStatus` field can still carry the real
+        # terminal state — a multi-round dispute that finalized without
+        # Gamma appending a terminal entry to the history array. Trust the
+        # singular field when it says "resolved"; the price gate below is
+        # the second guard. Otherwise defer (genuine in-flight dispute).
+        if uma_status != "resolved":
+            return None
     if len(outcome_prices) != 2:
         return None
     try:
