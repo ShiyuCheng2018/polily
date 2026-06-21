@@ -10,6 +10,8 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+## [0.12.4] — 2026-06-22
+
 ### Fixed
 
 - **Auto-resolution now settles markets whose UMA dispute history ends on
@@ -912,7 +914,8 @@ Migration is automatic for end users — these affect only callers of
   sports schedules). Non-linear curves, if Polymarket ships any, will
   require a formula update.
 
-[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.12.3...dev
+[Unreleased]: https://github.com/ShiyuCheng2018/polily/compare/v0.12.4...dev
+[0.12.4]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.4
 [0.12.3]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.3
 [0.12.2]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.2
 [0.12.1]: https://github.com/ShiyuCheng2018/polily/releases/tag/v0.12.1
