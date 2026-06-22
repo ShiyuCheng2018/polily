@@ -23,7 +23,7 @@ def ai_checks(ctx: DoctorContext) -> list[CheckResult]:
     else:
         ver = ""
         try:
-            ver = subprocess.run(["claude", "--version"], capture_output=True, text=True,
+            ver = subprocess.run([claude, "--version"], capture_output=True, text=True,
                                  timeout=5).stdout.strip()
         except Exception:
             pass
@@ -131,7 +131,7 @@ def ai_checks(ctx: DoctorContext) -> list[CheckResult]:
     else:
         try:
             proc = subprocess.run(
-                ["claude", "-p", "reply with the single word OK", "--output-format", "json"],
+                [claude, "-p", "reply with the single word OK", "--output-format", "json"],
                 capture_output=True, text=True, timeout=60)
             parsed = json.loads(proc.stdout)
             ok = isinstance(parsed, list) and any(

@@ -34,4 +34,4 @@ def run_doctor(
             ))
 
     (render_json if json else render_human)(__version__, ctx, results)
-    return 0 if exit_zero else severity_exit_code(r.severity for r in results)
+    return 0 if exit_zero else severity_exit_code(res.severity for res in results)

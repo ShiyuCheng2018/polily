@@ -17,11 +17,7 @@ _MARK = {
 
 
 def _role(ctx: DoctorContext) -> str:
-    if ctx.launchd_label.endswith(".dev"):
-        return "dev"
-    if ctx.data_dir_tier in ("cli", "env"):
-        return "prod"
-    return "prod"
+    return "dev" if ctx.launchd_label.endswith(".dev") else "prod"
 
 
 def _summary(results: list[CheckResult]) -> dict:
