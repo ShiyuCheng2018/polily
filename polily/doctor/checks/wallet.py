@@ -48,12 +48,11 @@ def wallet_checks(ctx: DoctorContext) -> list[CheckResult]:
         last = conn.execute(
             "SELECT balance_after FROM wallet_transactions ORDER BY id DESC LIMIT 1").fetchone()
         if last is not None:
-            cash = conn.execute("SELECT cash_usd FROM wallet WHERE id=1").fetchone()["cash_usd"]
-            d2 = abs(last["balance_after"] - cash)
+            d2 = abs(last["balance_after"] - row["cash_usd"])   # reuse reconcile row, no 2nd query
             out.append(CheckResult(
                 id="wallet.balance_chain", title="Ledger balance chain",
                 severity=Severity.OK if d2 <= _TOL else Severity.WARN,
-                detail=f"last balance_after {last['balance_after']:.2f} vs cash {cash:.2f}",
+                detail=f"last balance_after {last['balance_after']:.2f} vs cash {row['cash_usd']:.2f}",
                 group="wallet"))
         else:
             out.append(CheckResult(id="wallet.balance_chain", title="Ledger balance chain",

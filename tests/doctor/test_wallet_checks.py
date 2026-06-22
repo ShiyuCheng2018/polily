@@ -53,3 +53,21 @@ def test_cost_basis_drift_critical(seeded_db):
     seeded_db.conn.commit()
     r = _by_id(wc.wallet_checks(_ctx_for(seeded_db)), "positions.cost_basis")
     assert r.severity == Severity.CRITICAL
+
+
+def test_singleton_missing_critical(seeded_db):
+    seeded_db.conn.execute("DELETE FROM wallet WHERE id=1")
+    seeded_db.conn.commit()
+    r = _by_id(wc.wallet_checks(_ctx_for(seeded_db)), "wallet.singleton")
+    assert r.severity == Severity.CRITICAL
+
+
+def test_orphan_positions_critical(seeded_db):
+    seeded_db.conn.execute("PRAGMA foreign_keys=OFF")
+    seeded_db.conn.execute("INSERT OR IGNORE INTO events(event_id,title,updated_at) VALUES('e','E','t')")
+    seeded_db.conn.execute(
+        "INSERT INTO positions(market_id,side,event_id,shares,avg_cost,cost_basis,title,opened_at,updated_at) "
+        "VALUES('ghost','yes','e',10,0.5,5.0,'Q','t','t')")
+    seeded_db.conn.commit()
+    r = _by_id(wc.wallet_checks(_ctx_for(seeded_db)), "positions.orphans")
+    assert r.severity == Severity.CRITICAL
