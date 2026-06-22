@@ -18,8 +18,8 @@ class DoctorContext:
     live: bool = False
     deep: bool = False
     offline: bool = False
-    _conn: sqlite3.Connection | None = field(default=None, repr=False)
-    _conn_tried: bool = field(default=False, repr=False)
+    _conn: sqlite3.Connection | None = field(default=None, repr=False, init=False)
+    _conn_tried: bool = field(default=False, repr=False, init=False)
 
     def ro_conn(self) -> sqlite3.Connection | None:
         """Lazily open a READ-ONLY connection to db_path. None if missing/unopenable."""
@@ -30,7 +30,7 @@ class DoctorContext:
             return None
         try:
             conn = sqlite3.connect(
-                f"file:{self.db_path}?mode=ro", uri=True, timeout=2.0
+                f"file:{self.db_path}?mode=ro", uri=True
             )
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA busy_timeout=2000")

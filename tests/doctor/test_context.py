@@ -1,3 +1,6 @@
+import pytest
+import sqlite3
+
 from polily.doctor.context import build_context
 
 
@@ -28,6 +31,11 @@ def test_ro_conn_is_read_only(seeded_db, monkeypatch):
     ctx = build_context()
     conn = ctx.ro_conn()
     assert conn is not None
-    import pytest, sqlite3
     with pytest.raises(sqlite3.OperationalError):
         conn.execute("CREATE TABLE x(a)")
+
+
+def test_tier_cli_when_override_set(monkeypatch, tmp_path):
+    monkeypatch.setattr("polily.core.paths._DATA_DIR_OVERRIDE", tmp_path / "cli", raising=False)
+    ctx = build_context()
+    assert ctx.data_dir_tier == "cli"
