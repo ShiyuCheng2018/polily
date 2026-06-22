@@ -7,3 +7,6 @@ from polily.doctor.checks.instance import instance_checks
 REGISTRY: list[Callable] = [
     instance_checks,
 ]
+
+from polily.doctor.checks.environment import environment_checks
+REGISTRY.append(environment_checks)
