@@ -24,7 +24,7 @@ def _by_id(rs, cid):
 def test_stuck_resolution_past_window_warns(seeded_db):
     _seed_event_market(seeded_db, "m1", 1, None)  # closed, unresolved, end_date 2020 (past)
     r = _by_id(st.settlement_checks(_ctx_for(seeded_db)), "settle.stuck_resolutions")
-    assert r.severity in (Severity.WARN, Severity.CRITICAL)
+    assert r.severity == Severity.WARN
     assert r.value["stuck"] >= 1
 
 
@@ -32,6 +32,17 @@ def test_no_stuck_is_ok(seeded_db):
     _seed_event_market(seeded_db, "m1", 1, "yes")
     r = _by_id(st.settlement_checks(_ctx_for(seeded_db)), "settle.stuck_resolutions")
     assert r.severity == Severity.OK
+
+
+def test_stuck_resolution_within_window_is_info(seeded_db):
+    # closed + unresolved but end_date ~1h ago → still inside the UMA settle window → INFO
+    seeded_db.conn.execute("INSERT OR IGNORE INTO events(event_id,title,updated_at) VALUES('e','E','t')")
+    seeded_db.conn.execute(
+        "INSERT INTO markets(market_id,event_id,question,closed,resolved_outcome,end_date,updated_at) "
+        "VALUES('mwin','e','Q',1,NULL, datetime('now','-1 hour'),'t')")
+    seeded_db.conn.commit()
+    r = _by_id(st.settlement_checks(_ctx_for(seeded_db)), "settle.stuck_resolutions")
+    assert r.severity == Severity.INFO
 
 
 def test_position_on_resolved_market_critical(seeded_db):

@@ -26,6 +26,7 @@ def settlement_checks(ctx: DoctorContext) -> list[CheckResult]:
         "FROM markets m WHERE m.closed = 1 AND m.resolved_outcome IS NULL",
     ).fetchall()
     stuck = len(rows)
+    # NULL/unparseable end_date → treat as past-window (conservative: surface it rather than hide it).
     past_window = [r for r in rows if (r["age_h"] is None or r["age_h"] > _UMA_WINDOW_HOURS)]
     held = [r for r in past_window if r["held"]]
     if stuck == 0:
