@@ -62,6 +62,21 @@ def test_singleton_missing_critical(seeded_db):
     assert r.severity == Severity.CRITICAL
 
 
+def test_migrated_wallet_reconciles(seeded_db):
+    # Opening balance seeded as a MIGRATION ledger row (opening=0 in the ledger),
+    # AND duplicated in starting_balance. Must NOT be double-counted → OK.
+    conn = seeded_db.conn
+    conn.execute("UPDATE wallet SET starting_balance=100.0, cash_usd=30.0 WHERE id=1")
+    for typ, amt, bal in [("MIGRATION", 100.0, 100.0), ("BUY", -70.0, 30.0)]:
+        conn.execute(
+            "INSERT INTO wallet_transactions(created_at,type,amount_usd,fee_usd,balance_after) "
+            "VALUES('t',?,?,0,?)", (typ, amt, bal))
+    conn.commit()
+    r = _by_id(wc.wallet_checks(_ctx_for(seeded_db)), "wallet.cash_reconciles")
+    # cash 30 == implied_opening(0) + SUM(100-70); the OLD formula gave starting(100)+30=130 → false CRITICAL
+    assert r.severity == Severity.OK
+
+
 def test_orphan_positions_critical(seeded_db):
     seeded_db.conn.execute("PRAGMA foreign_keys=OFF")
     seeded_db.conn.execute("INSERT OR IGNORE INTO events(event_id,title,updated_at) VALUES('e','E','t')")

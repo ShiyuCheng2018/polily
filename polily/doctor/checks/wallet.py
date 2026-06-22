@@ -33,17 +33,29 @@ def wallet_checks(ctx: DoctorContext) -> list[CheckResult]:
 
     if n == 1:
         row = conn.execute(
-            "SELECT w.cash_usd, w.starting_balance + COALESCE("
-            "  (SELECT SUM(amount_usd) FROM wallet_transactions), 0.0) AS expected "
+            "SELECT w.cash_usd, w.starting_balance, "
+            "  (SELECT amount_usd   FROM wallet_transactions ORDER BY id LIMIT 1) AS first_amt, "
+            "  (SELECT balance_after FROM wallet_transactions ORDER BY id LIMIT 1) AS first_bal, "
+            "  COALESCE((SELECT SUM(amount_usd) FROM wallet_transactions), 0.0)   AS sum_amt "
             "FROM wallet w WHERE w.id = 1").fetchone()
-        drift = abs(row["cash_usd"] - row["expected"])
+        if row["first_amt"] is None:
+            # empty ledger → fresh wallet: cash should equal starting_balance
+            expected = row["starting_balance"]
+        else:
+            # implied opening = first balance_after - first amount_usd. A migrated
+            # wallet seeds its opening balance AS a ledger row (MIGRATION) → opening 0
+            # → cash == SUM(amount_usd). A fresh wallet's first activity row recovers
+            # starting_balance. Using starting_balance + SUM would double-count the
+            # migration seed.
+            expected = (row["first_bal"] - row["first_amt"]) + row["sum_amt"]
+        drift = abs(row["cash_usd"] - expected)
         out.append(CheckResult(
             id="wallet.cash_reconciles", title="Cash ↔ ledger",
             severity=Severity.OK if drift <= _TOL else Severity.CRITICAL,
-            detail=f"cash {row['cash_usd']:.2f} vs ledger {row['expected']:.2f} (drift {drift:.2f})",
+            detail=f"cash {row['cash_usd']:.2f} vs ledger-implied {expected:.2f} (drift {drift:.2f})",
             fix_hint="ledger is source of truth — inspect recent wallet_transactions"
                      if drift > _TOL else None,
-            value={"cash": row["cash_usd"], "expected": row["expected"]}, group="wallet"))
+            value={"cash": row["cash_usd"], "expected": expected}, group="wallet"))
 
         last = conn.execute(
             "SELECT balance_after FROM wallet_transactions ORDER BY id DESC LIMIT 1").fetchone()
