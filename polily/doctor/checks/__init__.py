@@ -13,3 +13,6 @@ REGISTRY.append(environment_checks)
 
 from polily.doctor.checks.daemon import daemon_checks
 REGISTRY.append(daemon_checks)
+
+from polily.doctor.checks.settlement import settlement_checks
+REGISTRY.append(settlement_checks)
