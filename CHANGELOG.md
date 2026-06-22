@@ -10,6 +10,17 @@ structured release notes — see `git log` for history.
 
 ## [Unreleased]
 
+### Added
+
+- **`polily doctor` rebuilt as a runtime-health diagnostic.** It now reports which
+  instance it is analyzing (dev vs prod, with a guard that warns when you run it inside the
+  dev checkout but resolve the prod database), and checks daemon liveness + poll freshness
+  ("alive but wedged"), stuck settlements, wallet/position integrity (cash↔ledger,
+  cost_basis, orphans), the claude/AI path + auth, DB integrity/schema/config, and version
+  drift. Adds `--json` (machine-readable), severity-based exit codes (0/1/3), `--live`
+  (network probes incl. a `claude -p` smoke test), `--deep` (full DB integrity_check),
+  `--offline`, and `--exit-zero`. Read-only and advisory — it names fixes, never applies them.
+
 ## [0.12.4] — 2026-06-22
 
 ### Fixed
