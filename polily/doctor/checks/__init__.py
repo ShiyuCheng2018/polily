@@ -19,3 +19,6 @@ REGISTRY.append(settlement_checks)
 
 from polily.doctor.checks.wallet import wallet_checks
 REGISTRY.append(wallet_checks)
+
+from polily.doctor.checks.ai import ai_checks
+REGISTRY.append(ai_checks)
