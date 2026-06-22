@@ -10,3 +10,6 @@ REGISTRY: list[Callable] = [
 
 from polily.doctor.checks.environment import environment_checks
 REGISTRY.append(environment_checks)
+
+from polily.doctor.checks.daemon import daemon_checks
+REGISTRY.append(daemon_checks)
