@@ -25,3 +25,6 @@ REGISTRY.append(ai_checks)
 
 from polily.doctor.checks.database import database_checks
 REGISTRY.append(database_checks)
+
+from polily.doctor.checks.version import version_checks
+REGISTRY.append(version_checks)
