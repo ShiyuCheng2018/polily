@@ -54,3 +54,11 @@ def test_daemon_data_dir_mismatch_critical(tmp_path, monkeypatch):
         {"EnvironmentVariables": {"POLILY_DATA_DIR": "/somewhere/else"}}))
     r = _by_id(inst.instance_checks(_ctx(tmp_path)), "instance.daemon_data_dir_match")
     assert r.severity == Severity.CRITICAL
+
+
+def test_binary_data_mismatch_critical(tmp_path, monkeypatch):
+    # fake "running from a checkout" so the test is independent of install mode
+    monkeypatch.setattr(inst, "_running_from_checkout", lambda: tmp_path)
+    ctx = _ctx(tmp_path, tier="default", label="com.polily.scheduler")
+    r = _by_id(inst.instance_checks(ctx), "instance.binary_data_mismatch")
+    assert r.severity == Severity.CRITICAL

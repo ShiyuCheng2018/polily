@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 from polily.doctor.context import DoctorContext
@@ -17,6 +16,11 @@ def _is_source_checkout(start: Path) -> Path | None:
                     return d
             except OSError:
                 pass
+        # NOTE: the .envrc/POLILY_DATA_DIR signal is a secondary hint. A non-polily
+        # dir whose .envrc mentions POLILY_DATA_DIR could match here, but the
+        # `instance.dev_checkout_prod_data` trap also requires data_dir_tier=="default";
+        # if POLILY_DATA_DIR is actually exported the tier is "env", so the realistic
+        # case is neutralized. pyproject(name="polily") is the strong, precise signal.
         envrc = d / ".envrc"
         if envrc.exists():
             try:
