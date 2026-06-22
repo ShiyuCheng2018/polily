@@ -22,3 +22,6 @@ REGISTRY.append(wallet_checks)
 
 from polily.doctor.checks.ai import ai_checks
 REGISTRY.append(ai_checks)
+
+from polily.doctor.checks.database import database_checks
+REGISTRY.append(database_checks)
