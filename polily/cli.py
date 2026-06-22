@@ -523,10 +523,17 @@ def reset(
 
 
 @app.command()
-def doctor():
-    """运行环境诊断。检查 Nerd Font、终端尺寸、数据库、Claude CLI。"""
+def doctor(
+    json: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    live: bool = typer.Option(False, "--live", help="Run network probes (claude -p smoke test)."),
+    deep: bool = typer.Option(False, "--deep", help="Full DB integrity_check (vs quick_check)."),
+    offline: bool = typer.Option(False, "--offline", help="Skip all network (incl. PyPI)."),
+    exit_zero: bool = typer.Option(False, "--exit-zero", help="Always exit 0."),
+):
+    """运行运行时健康诊断:实例解析、daemon、结算、钱包、AI、数据库、版本。"""
     from polily.doctor import run_doctor
-    run_doctor()
+    code = run_doctor(json=json, live=live, deep=deep, offline=offline, exit_zero=exit_zero)
+    raise typer.Exit(code)
 
 
 if __name__ == "__main__":
