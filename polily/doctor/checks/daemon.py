@@ -112,7 +112,7 @@ def daemon_checks(ctx: DoctorContext) -> list[CheckResult]:
             # absent = a malformed ProgramArguments for a com.polily.scheduler plist; real
             # plists always contain it ([python, -m, polily.cli, scheduler, run]).
             bad_args = "--config" in args or "scheduler" not in args
-            bad_ka = not (keepalive is True)
+            bad_ka = keepalive is not True
             if bad_args or bad_ka:
                 sev, detail = Severity.CRITICAL, (
                     "stale ProgramArguments (legacy --config)" if bad_args

@@ -1,11 +1,10 @@
-import json
 import io
+import json
 from contextlib import redirect_stdout
 
-from polily.doctor.model import CheckResult, Severity
 from polily.doctor.context import DoctorContext
-from polily.doctor.render import render_json, render_human
-from pathlib import Path
+from polily.doctor.model import CheckResult, Severity
+from polily.doctor.render import render_human, render_json
 
 
 def _ctx(tmp_path):

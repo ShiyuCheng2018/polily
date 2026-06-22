@@ -50,9 +50,12 @@ def test_polling_fresh_db_fresh_but_log_stale_warns(tmp_path, monkeypatch):
 
 def test_newest_poll_log_uses_mtime_not_name(tmp_path):
     import os
-    logs = tmp_path / "logs"; logs.mkdir()
-    older = logs / "poll-v0.12.4-20260101-000000.log"; older.write_text("x")
-    newer = logs / "poll-v0.9.0-20260102-000000.log"; newer.write_text("x")
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    older = logs / "poll-v0.12.4-20260101-000000.log"
+    older.write_text("x")
+    newer = logs / "poll-v0.9.0-20260102-000000.log"
+    newer.write_text("x")
     os.utime(older, (1000, 1000))   # older mtime, lexically LARGER version
     os.utime(newer, (2000, 2000))   # newer mtime, lexically SMALLER version
     assert dmn._newest_poll_log_version(_ctx(tmp_path)) == "0.9.0"  # mtime wins

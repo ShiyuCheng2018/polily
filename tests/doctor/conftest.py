@@ -1,5 +1,5 @@
-import sqlite3
 import pytest
+
 from polily.core.db import PolilyDB
 
 

@@ -104,7 +104,7 @@ def instance_checks(ctx: DoctorContext) -> list[CheckResult]:
         if ctx.platform == "darwin" else None
     repo_db = (cwd_checkout / "data" / "polily.db") if cwd_checkout else None
     found = []
-    for label, pth in [("active", ctx.db_path), ("repo", repo_db), ("platformdirs", plat_default)]:
+    for _label, pth in [("active", ctx.db_path), ("repo", repo_db), ("platformdirs", plat_default)]:
         if pth and Path(pth).exists():
             found.append(str(pth))
     distinct = sorted(set(found))

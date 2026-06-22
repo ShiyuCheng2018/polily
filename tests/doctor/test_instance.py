@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import polily.doctor.checks.instance as inst
 from polily.doctor.context import DoctorContext
 from polily.doctor.model import Severity
@@ -44,7 +45,6 @@ def test_resolution_always_present(tmp_path, monkeypatch):
 
 def test_daemon_data_dir_mismatch_critical(tmp_path, monkeypatch):
     import plistlib
-    from pathlib import Path
     monkeypatch.chdir(tmp_path)
     # autouse conftest sandboxes Path.home(); write a fake plist whose data dir
     # differs from ctx.data_dir → the daemon writes a DIFFERENT db than doctor reads.

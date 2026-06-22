@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from pydantic import BaseModel
 
 
-class Severity(str, enum.Enum):
+class Severity(enum.StrEnum):
     OK = "ok"
     INFO = "info"
     WARN = "warn"

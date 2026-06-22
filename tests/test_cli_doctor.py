@@ -1,7 +1,9 @@
 # tests/test_cli_doctor.py
 """`polily doctor` CLI contract: flags, exit codes, JSON shape."""
 import json
+
 from typer.testing import CliRunner
+
 from polily.cli import app
 
 runner = CliRunner()

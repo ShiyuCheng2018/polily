@@ -1,5 +1,6 @@
-import pytest
 import sqlite3
+
+import pytest
 
 from polily.doctor.context import build_context
 

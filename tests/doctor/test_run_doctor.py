@@ -1,4 +1,5 @@
-import io, json
+import io
+import json
 from contextlib import redirect_stdout
 
 import polily.doctor as doc

@@ -1,4 +1,4 @@
-from polily.doctor.model import Severity, CheckResult, severity_exit_code, worst_severity
+from polily.doctor.model import CheckResult, Severity, severity_exit_code, worst_severity
 
 
 def test_severity_exit_code_mapping():

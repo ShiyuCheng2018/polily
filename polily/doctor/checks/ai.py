@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import plistlib
 import shutil
@@ -22,11 +23,9 @@ def ai_checks(ctx: DoctorContext) -> list[CheckResult]:
                                group="ai"))
     else:
         ver = ""
-        try:
+        with contextlib.suppress(Exception):
             ver = subprocess.run([claude, "--version"], capture_output=True, text=True,
                                  timeout=5).stdout.strip()
-        except Exception:
-            pass
         out.append(CheckResult(id="ai.claude_cli", title="Claude CLI", severity=Severity.OK,
                                detail=f"{claude} {ver}", value={"path": claude, "version": ver},
                                group="ai"))
