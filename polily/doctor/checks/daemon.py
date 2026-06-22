@@ -108,13 +108,16 @@ def daemon_checks(ctx: DoctorContext) -> list[CheckResult]:
             args = data.get("ProgramArguments", [])
             keepalive = data.get("KeepAlive")
             stderr = data.get("StandardErrorPath", "")
+            # "--config" = the v0.10.0-removed flag (legacy plist crash-loops). "scheduler"
+            # absent = a malformed ProgramArguments for a com.polily.scheduler plist; real
+            # plists always contain it ([python, -m, polily.cli, scheduler, run]).
             bad_args = "--config" in args or "scheduler" not in args
             bad_ka = not (keepalive is True)
             if bad_args or bad_ka:
                 sev, detail = Severity.CRITICAL, (
                     "stale ProgramArguments (legacy --config)" if bad_args
                     else "KeepAlive is not boolean True")
-            elif stderr.endswith("/dev/null") or not stderr:
+            elif stderr.endswith("/dev/null"):
                 sev, detail = Severity.WARN, "stderr → /dev/null (tracebacks lost)"
             else:
                 sev, detail = Severity.OK, "plist looks current"

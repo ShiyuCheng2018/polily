@@ -58,6 +58,14 @@ def test_newest_poll_log_uses_mtime_not_name(tmp_path):
     assert dmn._newest_poll_log_version(_ctx(tmp_path)) == "0.9.0"  # mtime wins
 
 
+def test_polling_fresh_no_monitored_but_log_stale_warns(tmp_path, monkeypatch):
+    monkeypatch.setattr(dmn, "_is_running", lambda: True)
+    monkeypatch.setattr(dmn, "_monitored_freshness", lambda ctx: (0, None))
+    monkeypatch.setattr(dmn, "_poll_log_age_seconds", lambda ctx: 600.0)
+    r = _by_id(dmn.daemon_checks(_ctx(tmp_path)), "daemon.polling_fresh")
+    assert r.severity == Severity.WARN
+
+
 def test_plist_bad_args_critical(tmp_path, monkeypatch):
     import plistlib
     from pathlib import Path
