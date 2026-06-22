@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json as _j
+
 from polily.doctor.context import DoctorContext
 from polily.doctor.model import CheckResult, Severity
 
@@ -57,7 +59,6 @@ def database_checks(ctx: DoctorContext) -> list[CheckResult]:
     # which violates the read-only contract. EPHEMERAL_FIELDS (config_store.py:105)
     # and _unflatten (config_store.py:255) DO exist and are pure.
     try:
-        import json as _j
         from polily.core import config_store
         from polily.core.config import PolilyConfig
         rows = conn.execute("SELECT key_path, value FROM config").fetchall()
@@ -83,7 +84,6 @@ def database_checks(ctx: DoctorContext) -> list[CheckResult]:
     # strategy
     try:
         act = conn.execute("SELECT value FROM config WHERE key_path='active_strategy'").fetchone()
-        import json as _j
         active = _j.loads(act["value"]) if act else "official"
         if active == "user":
             row = conn.execute("SELECT text FROM user_strategy WHERE id=1").fetchone()

@@ -20,9 +20,7 @@ def _role(ctx: DoctorContext) -> str:
     if ctx.launchd_label.endswith(".dev"):
         return "dev"
     if ctx.data_dir_tier in ("cli", "env"):
-        # env/cli override pointing into a non-default dir — treat as dev-ish only
-        # when label says dev; otherwise prod. Keep simple: default tier => prod.
-        return "dev" if ctx.launchd_label.endswith(".dev") else "prod"
+        return "prod"
     return "prod"
 
 

@@ -37,3 +37,13 @@ def test_schema_present_on_seeded(seeded_db):
 def test_wal_mode_on_seeded(seeded_db):
     r = _by_id(dbc.database_checks(_ctx_for(seeded_db)), "db.wal_mode")
     assert r.severity == Severity.OK
+
+
+def test_config_valid_critical_on_invalid_value(seeded_db):
+    # active_strategy is Literal["official", "user"] — "bogus" violates that constraint
+    seeded_db.conn.execute(
+        "INSERT INTO config(key_path,value,updated_at) VALUES(?,?,datetime('now'))",
+        ("active_strategy", '"bogus"'))
+    seeded_db.conn.commit()
+    r = _by_id(dbc.database_checks(_ctx_for(seeded_db)), "db.config_valid")
+    assert r.severity == Severity.CRITICAL
